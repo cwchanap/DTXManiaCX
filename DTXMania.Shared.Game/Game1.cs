@@ -1,4 +1,5 @@
 ﻿using DTX.Config;
+using DTX.Input;
 using DTX.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -16,6 +17,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
     public IStageManager StageManager { get; private set; }
     public IConfigManager ConfigManager { get; private set; }
+    public InputManager InputManager { get; private set; }
 
     public BaseGame()
     {
@@ -31,6 +33,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         ConfigManager.LoadConfig("Config.ini");
 
         StageManager = new StageManager(this); // Initialize stage manager after config is loaded
+        InputManager = new InputManager();
 
         _graphicsDevice = _graphicsDeviceManager.GraphicsDevice;
 
@@ -62,6 +65,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             Exit();
 
         // TODO: Add your update logic here
+        InputManager.Update(); // Update input manager before stage manager updates
         StageManager.Update(gameTime.ElapsedGameTime.TotalSeconds); // Update stage manager after config is loaded
 
         base.Update(gameTime);
