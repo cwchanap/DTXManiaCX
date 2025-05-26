@@ -1,9 +1,11 @@
 ﻿using DTX.Config;
+using DTX.Graphics;
 using DTX.Input;
 using DTX.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using System;
 
 namespace DTXMania.Shared.Game;
 
@@ -11,13 +13,14 @@ namespace DTXMania.Shared.Game;
 public class BaseGame : Microsoft.Xna.Framework.Game
 {
     private GraphicsDeviceManager _graphicsDeviceManager;
-    private GraphicsDevice _graphicsDevice;
+    private IGraphicsManager _graphicsManager;
     private SpriteBatch _spriteBatch;
     private RenderTarget2D _renderTarget;
 
     public IStageManager StageManager { get; private set; }
     public IConfigManager ConfigManager { get; private set; }
     public InputManager InputManager { get; private set; }
+    public IGraphicsManager GraphicsManager => _graphicsManager;
 
     public BaseGame()
     {
@@ -32,31 +35,46 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig("Config.ini");
 
-        StageManager = new StageManager(this); // Initialize stage manager after config is loaded
+        // Initialize graphics manager
+        _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager);
+
+        // Apply graphics settings from config
+        var config = ConfigManager.Config;
+        var graphicsSettings = config.ToGraphicsSettings();
+
+        _graphicsManager.ApplySettings(graphicsSettings);
+
+        // Subscribe to graphics events
+        _graphicsManager.SettingsChanged += OnGraphicsSettingsChanged;
+        _graphicsManager.DeviceLost += OnGraphicsDeviceLost;
+        _graphicsManager.DeviceReset += OnGraphicsDeviceReset;
+
+        // Initialize managers that are needed before base.Initialize() calls LoadContent()
+        StageManager = new StageManager(this);
         InputManager = new InputManager();
 
-        _graphicsDevice = _graphicsDeviceManager.GraphicsDevice;
+        base.Initialize();
 
-        // TODO: Add your initialization logic here
-        var config = ConfigManager.Config;
-        _renderTarget = new RenderTarget2D(
-            _graphicsDevice,
+        // Initialize graphics manager after base initialization
+        _graphicsManager.Initialize();
+
+        System.Diagnostics.Debug.WriteLine($"Graphics Manager initialized with settings: {_graphicsManager.Settings}");
+
+        // Create main render target using the graphics manager
+        _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
+            "MainRenderTarget",
             config.ScreenWidth,
             config.ScreenHeight);
-        _graphicsDeviceManager.PreferredBackBufferWidth = config.ScreenWidth;
-        _graphicsDeviceManager.PreferredBackBufferHeight = config.ScreenHeight;
-        _graphicsDeviceManager.IsFullScreen = config.FullScreen;
-        _graphicsDeviceManager.SynchronizeWithVerticalRetrace = config.VSyncWait;
-        _graphicsDeviceManager.ApplyChanges();
-        base.Initialize();
+
+        System.Diagnostics.Debug.WriteLine($"Main render target created: {config.ScreenWidth}x{config.ScreenHeight}");
     }
 
     protected override void LoadContent()
     {
-        _spriteBatch = new SpriteBatch(_graphicsDevice);
+        _spriteBatch = new SpriteBatch(GraphicsDevice);
 
         // TODO: use this.Content to load your game content here
-        StageManager.ChangeStage(StageType.Startup);
+        StageManager?.ChangeStage(StageType.Startup);
     }
 
     protected override void Update(GameTime gameTime)
@@ -64,31 +82,136 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
             Exit();
 
-        // TODO: Add your update logic here
-        InputManager.Update(); // Update input manager before stage manager updates
-        StageManager.Update(gameTime.ElapsedGameTime.TotalSeconds); // Update stage manager after config is loaded
+        // Update input manager before stage manager updates
+        InputManager?.Update();
+
+        // Handle Alt+Enter for fullscreen toggle
+        var keyboardState = Keyboard.GetState();
+        if ((keyboardState.IsKeyDown(Keys.LeftAlt) || keyboardState.IsKeyDown(Keys.RightAlt)) &&
+            InputManager?.IsKeyPressed((int)Keys.Enter) == true)
+        {
+            _graphicsManager?.ToggleFullscreen();
+        }
+
+        // Update stage manager after config is loaded
+        StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
         base.Update(gameTime);
     }
 
     protected override void Draw(GameTime gameTime)
     {
-        // Draw to render target first
-        _graphicsDevice.SetRenderTarget(_renderTarget);
-        _graphicsDevice.Clear(Color.Black);
+        if (!_graphicsManager.IsDeviceAvailable)
+            return;
 
-        StageManager.Draw(gameTime.ElapsedGameTime.TotalSeconds); // Draw stage manager after config is loaded
+        // Ensure render target is valid before using it
+        if (_renderTarget == null || _renderTarget.IsDisposed)
+        {
+            var config = ConfigManager.Config;
+            _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
+                "MainRenderTarget",
+                config.ScreenWidth,
+                config.ScreenHeight);
+        }
+
+        // Draw to render target first
+        GraphicsDevice.SetRenderTarget(_renderTarget);
+        GraphicsDevice.Clear(Color.Black);
+
+        StageManager?.Draw(gameTime.ElapsedGameTime.TotalSeconds);
 
         // Draw render target to screen
-        _graphicsDevice.SetRenderTarget(null);
-        _graphicsDevice.Clear(Color.Black);
+        GraphicsDevice.SetRenderTarget(null);
+        GraphicsDevice.Clear(Color.Black);
 
-        _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
-        _spriteBatch.Draw(_renderTarget,
-            _graphicsDevice.Viewport.Bounds,
-            Color.White);
-        _spriteBatch.End();
+        if (_renderTarget != null && !_renderTarget.IsDisposed)
+        {
+            _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
+            _spriteBatch.Draw(_renderTarget,
+                GraphicsDevice.Viewport.Bounds,
+                Color.White);
+            _spriteBatch.End();
+        }
 
         base.Draw(gameTime);
+    }
+
+    private void OnGraphicsSettingsChanged(object sender, GraphicsSettingsChangedEventArgs e)
+    {
+        // Update configuration when graphics settings change
+        ConfigManager.Config.UpdateFromGraphicsSettings(e.NewSettings);
+
+        // Log the change
+        System.Diagnostics.Debug.WriteLine($"Graphics settings changed: {e.OldSettings} -> {e.NewSettings}");
+
+        // Always recreate render target when graphics settings change
+        // This handles resolution changes, fullscreen toggle, and other graphics changes
+        try
+        {
+            // Dispose old render target if it exists
+            if (_renderTarget != null && !_renderTarget.IsDisposed)
+            {
+                _renderTarget.Dispose();
+            }
+
+            // Create new render target with current settings
+            _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
+                "MainRenderTarget",
+                e.NewSettings.Width,
+                e.NewSettings.Height);
+
+            System.Diagnostics.Debug.WriteLine($"Render target recreated: {e.NewSettings.Width}x{e.NewSettings.Height}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error recreating render target: {ex.Message}");
+            _renderTarget = null; // Will be recreated in Draw() method
+        }
+    }
+
+    private void OnGraphicsDeviceLost(object sender, EventArgs e)
+    {
+        // Handle device lost scenario
+        // For now, just log that it happened
+        System.Diagnostics.Debug.WriteLine("Graphics device lost");
+    }
+
+    private void OnGraphicsDeviceReset(object sender, EventArgs e)
+    {
+        // Handle device reset scenario
+        // Render targets are automatically recreated by the graphics manager
+        System.Diagnostics.Debug.WriteLine("Graphics device reset");
+
+        // Ensure our main render target is recreated after device reset
+        try
+        {
+            var config = ConfigManager.Config;
+            _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
+                "MainRenderTarget",
+                config.ScreenWidth,
+                config.ScreenHeight);
+
+            System.Diagnostics.Debug.WriteLine("Main render target recreated after device reset");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error recreating render target after device reset: {ex.Message}");
+            _renderTarget = null; // Will be recreated in Draw() method
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            if (_graphicsManager != null)
+            {
+                _graphicsManager.SettingsChanged -= OnGraphicsSettingsChanged;
+                _graphicsManager.DeviceLost -= OnGraphicsDeviceLost;
+                _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
+                _graphicsManager.Dispose();
+            }
+        }
+        base.Dispose(disposing);
     }
 }

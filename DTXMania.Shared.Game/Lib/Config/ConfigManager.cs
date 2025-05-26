@@ -64,6 +64,9 @@ namespace DTX.Config
                 case "FullScreen":
                     Config.FullScreen = value.ToLower() == "true";
                     break;
+                case "VSyncWait":
+                    Config.VSyncWait = value.ToLower() == "true";
+                    break;
                     // Add more cases as needed
             }
         }
@@ -85,6 +88,7 @@ namespace DTX.Config
             sb.AppendLine($"ScreenWidth={Config.ScreenWidth}");
             sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
             sb.AppendLine($"FullScreen={Config.FullScreen}");
+            sb.AppendLine($"VSyncWait={Config.VSyncWait}");
 
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
         }
