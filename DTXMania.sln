@@ -7,8 +7,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.Windows", "DTXMani
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.Mac", "DTXMania.Mac\DTXMania.Mac.csproj", "{EF26DA22-E02A-42BF-BC54-9E84954E7F23}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.Core", "DTXMania.Core\DTXMania.Core.csproj", "{A0EAD0D5-2678-4F12-B354-57EEF72B1F6B}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.Shared.Game", "DTXMania.Shared.Game\DTXMania.Shared.Game.csproj", "{CD1D728A-DF2A-4A56-A399-FE243936CD9C}"
 EndProject
 Global
@@ -40,5 +38,9 @@ Global
 		{CD1D728A-DF2A-4A56-A399-FE243936CD9C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CD1D728A-DF2A-4A56-A399-FE243936CD9C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CD1D728A-DF2A-4A56-A399-FE243936CD9C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD6F16DB-67A4-48CC-B2A6-CC5C5168CF25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD6F16DB-67A4-48CC-B2A6-CC5C5168CF25}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD6F16DB-67A4-48CC-B2A6-CC5C5168CF25}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD6F16DB-67A4-48CC-B2A6-CC5C5168CF25}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
