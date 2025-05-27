@@ -15,7 +15,8 @@ namespace DTX.Stage
         Config,
         SongSelect,
         Performance,
-        Result
+        Result,
+        UITest  // For testing UI components
     }
 
     public interface IStage

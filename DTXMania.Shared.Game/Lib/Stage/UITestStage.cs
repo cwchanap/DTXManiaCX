@@ -79,8 +79,8 @@ namespace DTX.Stage
             // Handle stage-specific input (like returning to previous stage)
             if (_uiManager?.InputState.IsKeyPressed(Microsoft.Xna.Framework.Input.Keys.Escape) == true)
             {
-                // Return to startup stage
-                _game.StageManager?.ChangeStage(StageType.Startup);
+                // Return to title stage (previous stage)
+                _game.StageManager?.ChangeStage(StageType.Title);
             }
         }
 
@@ -168,7 +168,7 @@ namespace DTX.Stage
             _mainContainer.AddChild(titleLabel);
 
             // Create instruction label
-            var instructionLabel = new UILabel("Press ESC to return to startup | Use arrow keys in list")
+            var instructionLabel = new UILabel("Press ESC to return to title | Use arrow keys in list")
             {
                 Position = new Vector2(50, 60),
                 Font = _defaultFont,
