@@ -79,7 +79,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
     protected override void Update(GameTime gameTime)
     {
-        if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
+        // Handle gamepad back button (but let stages handle ESC key)
+        if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed)
             Exit();
 
         // Update input manager before stage manager updates
@@ -204,6 +205,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     {
         if (disposing)
         {
+            // Dispose StageManager first to properly cleanup all stages
+            if (StageManager != null)
+            {
+                StageManager.Dispose();
+                StageManager = null;
+            }
+
+            // Dispose other managers
             if (_graphicsManager != null)
             {
                 _graphicsManager.SettingsChanged -= OnGraphicsSettingsChanged;
@@ -211,6 +220,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game
                 _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
                 _graphicsManager.Dispose();
             }
+
+            // Dispose other resources
+            _spriteBatch?.Dispose();
+            _renderTarget?.Dispose();
         }
         base.Dispose(disposing);
     }

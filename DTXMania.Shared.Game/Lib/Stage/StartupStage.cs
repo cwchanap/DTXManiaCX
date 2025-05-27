@@ -21,6 +21,7 @@ namespace DTX.Stage
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private Texture2D _backgroundTexture;
+        private bool _disposed = false;
 
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
@@ -144,14 +145,44 @@ namespace DTX.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
 
-            // Cleanup resources
-            _backgroundTexture?.Dispose();
-            _whitePixel?.Dispose();
-            _spriteBatch?.Dispose();
+            // Reset stage state for potential reactivation
+            _elapsedTime = 0;
+            _isFirstUpdate = true;
+            _currentPhase = StartupPhase.SystemSounds;
+            _phaseStartTime = 0;
+            _progressMessages.Clear();
+            _currentProgressMessage = "";
+        }
 
-            _backgroundTexture = null;
-            _whitePixel = null;
-            _spriteBatch = null;
+        #endregion
+
+        #region IDisposable Implementation
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
+
+                    // Cleanup MonoGame resources
+                    _backgroundTexture?.Dispose();
+                    _whitePixel?.Dispose();
+                    _spriteBatch?.Dispose();
+
+                    _backgroundTexture = null;
+                    _whitePixel = null;
+                    _spriteBatch = null;
+                }
+                _disposed = true;
+            }
         }
 
         #endregion

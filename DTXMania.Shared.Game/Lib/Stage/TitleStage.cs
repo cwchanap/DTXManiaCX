@@ -21,6 +21,7 @@ namespace DTX.Stage
         private Texture2D _backgroundTexture;
         private Texture2D _menuTexture;
         private Texture2D _whitePixel;
+        private bool _disposed = false;
 
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
@@ -144,16 +145,48 @@ namespace DTX.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Title Stage");
 
-            // Cleanup resources
-            _backgroundTexture?.Dispose();
-            _menuTexture?.Dispose();
-            _whitePixel?.Dispose();
-            _spriteBatch?.Dispose();
+            // Reset stage state for potential reactivation
+            _elapsedTime = 0;
+            _isFirstUpdate = true;
+            _currentPhase = TitlePhase.FadeIn;
+            _currentMenuIndex = 0;
 
-            _backgroundTexture = null;
-            _menuTexture = null;
-            _whitePixel = null;
-            _spriteBatch = null;
+            // Reset input state
+            _previousKeyboardState = default;
+            _currentKeyboardState = default;
+        }
+
+        #endregion
+
+        #region IDisposable Implementation
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    System.Diagnostics.Debug.WriteLine("Disposing Title Stage resources");
+
+                    // Cleanup MonoGame resources
+                    _backgroundTexture?.Dispose();
+                    _menuTexture?.Dispose();
+                    _whitePixel?.Dispose();
+                    _spriteBatch?.Dispose();
+
+                    _backgroundTexture = null;
+                    _menuTexture = null;
+                    _whitePixel = null;
+                    _spriteBatch = null;
+                }
+                _disposed = true;
+            }
         }
 
         #endregion

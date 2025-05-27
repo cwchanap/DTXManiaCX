@@ -15,6 +15,7 @@ namespace DTX.Stage
         private readonly BaseGame _game;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
+        private bool _disposed = false;
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
 
@@ -76,12 +77,39 @@ namespace DTX.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
 
-            _whitePixel?.Dispose();
-            _spriteBatch?.Dispose();
-
-            _whitePixel = null;
-            _spriteBatch = null;
+            // Reset input state for potential reactivation
+            _previousKeyboardState = default;
+            _currentKeyboardState = default;
         }
+
+        #region IDisposable Implementation
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
+
+                    // Cleanup MonoGame resources
+                    _whitePixel?.Dispose();
+                    _spriteBatch?.Dispose();
+
+                    _whitePixel = null;
+                    _spriteBatch = null;
+                }
+                _disposed = true;
+            }
+        }
+
+        #endregion
 
         private bool IsKeyPressed(Keys key)
         {

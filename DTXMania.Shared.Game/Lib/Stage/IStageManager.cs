@@ -1,6 +1,8 @@
+using System;
+
 namespace DTX.Stage
 {
-    public interface IStageManager
+    public interface IStageManager : IDisposable
     {
         IStage CurrentStage { get; }
         void ChangeStage(StageType stageType);
@@ -19,7 +21,7 @@ namespace DTX.Stage
         UITest  // For testing UI components
     }
 
-    public interface IStage
+    public interface IStage : IDisposable
     {
         StageType Type { get; }
         void Activate();

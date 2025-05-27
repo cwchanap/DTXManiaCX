@@ -22,6 +22,7 @@ namespace DTX.Stage
         private SpriteBatch _spriteBatch;
         private SpriteFont _defaultFont;
         private Texture2D _whitePixel;
+        private bool _disposed = false;
 
         #endregion
 
@@ -60,15 +61,17 @@ namespace DTX.Stage
 
         public void Deactivate()
         {
-            // Dispose UI system
-            _uiManager?.Dispose();
-            _uiManager = null;
+            System.Diagnostics.Debug.WriteLine("Deactivating UITest Stage");
 
-            // Dispose resources
-            _whitePixel?.Dispose();
-            _spriteBatch?.Dispose();
-
-            System.Diagnostics.Debug.WriteLine("UITestStage deactivated");
+            // Deactivate UI system but don't dispose (handled in Dispose())
+            if (_uiManager != null && _uiManager.RootContainers.Count > 0)
+            {
+                foreach (var container in _uiManager.RootContainers)
+                {
+                    if (container.IsActive)
+                        container.Deactivate();
+                }
+            }
         }
 
         public void Update(double deltaTime)
@@ -100,6 +103,41 @@ namespace DTX.Stage
 
             // End drawing
             _spriteBatch.End();
+        }
+
+        #endregion
+
+        #region IDisposable Implementation
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    System.Diagnostics.Debug.WriteLine("Disposing UITest Stage resources");
+
+                    // Dispose UI system
+                    _uiManager?.Dispose();
+                    _uiManager = null;
+                    _mainContainer = null;
+
+                    // Dispose MonoGame resources
+                    _whitePixel?.Dispose();
+                    _spriteBatch?.Dispose();
+
+                    _whitePixel = null;
+                    _spriteBatch = null;
+                    _defaultFont = null;
+                }
+                _disposed = true;
+            }
         }
 
         #endregion
