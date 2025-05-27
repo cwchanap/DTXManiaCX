@@ -20,8 +20,9 @@ namespace DTX.Stage
 
         private void InitializeStages()
         {
-            // For Phase 1, only implement Startup stage
+            // For Phase 1, implement Startup and UI test stages
             _stages[StageType.Startup] = new StartupStage(_game);
+            _stages[StageType.Config] = new UITestStage(_game); // Using Config stage type for UI test
         }
 
         public void ChangeStage(StageType stageType)

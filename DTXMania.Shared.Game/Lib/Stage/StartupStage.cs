@@ -35,10 +35,10 @@ namespace DTX.Stage
         {
             _elapsedTime += deltaTime;
 
-            // Auto-transition to Title after 3 seconds
+            // Auto-transition to UI test stage after 3 seconds
             if (_elapsedTime > 3.0)
             {
-                // _game.StageManager.ChangeStage(StageType.Title);
+                _game.StageManager.ChangeStage(StageType.Config); // UI test stage
             }
         }
 
