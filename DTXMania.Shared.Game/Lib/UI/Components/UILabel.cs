@@ -1,11 +1,12 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using System;
 
 namespace DTX.UI.Components
 {
     /// <summary>
-    /// Simple text label UI component
-    /// Demonstrates basic text rendering in the UI system
+    /// Enhanced text label UI component with DTXMania-style effects
+    /// Supports shadow/outline effects common in DTXMania
     /// </summary>
     public class UILabel : UIElement
     {
@@ -16,6 +17,14 @@ namespace DTX.UI.Components
         private Color _textColor = Color.White;
         private TextAlignment _horizontalAlignment = TextAlignment.Left;
         private TextAlignment _verticalAlignment = TextAlignment.Top;
+
+        // Shadow/Outline effects (DTXMania style)
+        private bool _hasShadow = false;
+        private Vector2 _shadowOffset = new Vector2(2, 2);
+        private Color _shadowColor = Color.Black;
+        private bool _hasOutline = false;
+        private Color _outlineColor = Color.Black;
+        private int _outlineThickness = 1;
 
         #endregion
 
@@ -90,6 +99,60 @@ namespace DTX.UI.Components
             set => _verticalAlignment = value;
         }
 
+        /// <summary>
+        /// Whether the text has a shadow effect
+        /// </summary>
+        public bool HasShadow
+        {
+            get => _hasShadow;
+            set => _hasShadow = value;
+        }
+
+        /// <summary>
+        /// Shadow offset from the main text
+        /// </summary>
+        public Vector2 ShadowOffset
+        {
+            get => _shadowOffset;
+            set => _shadowOffset = value;
+        }
+
+        /// <summary>
+        /// Color of the shadow
+        /// </summary>
+        public Color ShadowColor
+        {
+            get => _shadowColor;
+            set => _shadowColor = value;
+        }
+
+        /// <summary>
+        /// Whether the text has an outline effect
+        /// </summary>
+        public bool HasOutline
+        {
+            get => _hasOutline;
+            set => _hasOutline = value;
+        }
+
+        /// <summary>
+        /// Color of the outline
+        /// </summary>
+        public Color OutlineColor
+        {
+            get => _outlineColor;
+            set => _outlineColor = value;
+        }
+
+        /// <summary>
+        /// Thickness of the outline in pixels
+        /// </summary>
+        public int OutlineThickness
+        {
+            get => _outlineThickness;
+            set => _outlineThickness = Math.Max(0, value);
+        }
+
         #endregion
 
         #region Overridden Methods
@@ -103,6 +166,39 @@ namespace DTX.UI.Components
             var bounds = Bounds;
 
             // Calculate text position based on alignment
+            var textPosition = CalculateTextPosition(bounds, textSize);
+
+            // Draw outline effect (DTXMania style)
+            if (_hasOutline && _outlineThickness > 0)
+            {
+                DrawOutline(spriteBatch, textPosition);
+            }
+
+            // Draw shadow effect (DTXMania style)
+            if (_hasShadow)
+            {
+                var shadowPosition = textPosition + _shadowOffset;
+                spriteBatch.DrawString(_font, _text, shadowPosition, _shadowColor);
+            }
+
+            // Draw main text
+            spriteBatch.DrawString(_font, _text, textPosition, _textColor);
+
+            base.OnDraw(spriteBatch, deltaTime);
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        /// <summary>
+        /// Calculate text position based on alignment
+        /// </summary>
+        /// <param name="bounds">Label bounds</param>
+        /// <param name="textSize">Size of the text</param>
+        /// <returns>Position to draw text</returns>
+        private Vector2 CalculateTextPosition(Rectangle bounds, Vector2 textSize)
+        {
             float x = bounds.X;
             float y = bounds.Y;
 
@@ -136,15 +232,32 @@ namespace DTX.UI.Components
                     break;
             }
 
-            var textPosition = new Vector2(x, y);
-            spriteBatch.DrawString(_font, _text, textPosition, _textColor);
-
-            base.OnDraw(spriteBatch, deltaTime);
+            return new Vector2(x, y);
         }
 
-        #endregion
+        /// <summary>
+        /// Draw outline effect around text (DTXMania style)
+        /// </summary>
+        /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        /// <param name="textPosition">Base text position</param>
+        private void DrawOutline(SpriteBatch spriteBatch, Vector2 textPosition)
+        {
+            if (_font == null || string.IsNullOrEmpty(_text))
+                return;
 
-        #region Private Methods
+            // Draw outline by drawing text in 8 directions around the main position
+            for (int dx = -_outlineThickness; dx <= _outlineThickness; dx++)
+            {
+                for (int dy = -_outlineThickness; dy <= _outlineThickness; dy++)
+                {
+                    if (dx == 0 && dy == 0)
+                        continue; // Skip center position (main text)
+
+                    var outlinePosition = textPosition + new Vector2(dx, dy);
+                    spriteBatch.DrawString(_font, _text, outlinePosition, _outlineColor);
+                }
+            }
+        }
 
         /// <summary>
         /// Update the size of the label based on text and font

@@ -45,7 +45,7 @@ namespace DTX.Stage
         public void Activate()
         {
             var graphicsDevice = _game.GraphicsDevice;
-            
+
             // Create SpriteBatch
             _spriteBatch = new SpriteBatch(graphicsDevice);
 
@@ -151,123 +151,265 @@ namespace DTX.Stage
             if (_mainContainer == null)
                 return;
 
-            // Create title label
-            var titleLabel = new UILabel("DTXMania UI Architecture Test")
+            // Create title label with enhanced effects
+            var titleLabel = new UILabel("DTXMania UI Architecture - Enhanced Components")
             {
-                Position = new Vector2(50, 50),
+                Position = new Vector2(50, 20),
                 Font = _defaultFont,
                 TextColor = Color.White,
-                HorizontalAlignment = TextAlignment.Center
+                HorizontalAlignment = TextAlignment.Center,
+                HasShadow = true,
+                ShadowOffset = new Vector2(2, 2),
+                ShadowColor = Color.Black,
+                HasOutline = true,
+                OutlineColor = Color.DarkBlue,
+                OutlineThickness = 1
             };
             _mainContainer.AddChild(titleLabel);
 
             // Create instruction label
-            var instructionLabel = new UILabel("Press ESC to return to startup")
+            var instructionLabel = new UILabel("Press ESC to return to startup | Use arrow keys in list")
             {
-                Position = new Vector2(50, 100),
+                Position = new Vector2(50, 60),
                 Font = _defaultFont,
                 TextColor = Color.LightGray
             };
             _mainContainer.AddChild(instructionLabel);
 
-            // Create test buttons
-            CreateTestButtons();
+            // Create font warning label
+            var fontWarningLabel = new UILabel("NOTE: No font loaded - text will not display, but UI structure is functional")
+            {
+                Position = new Vector2(50, 80),
+                Font = _defaultFont,
+                TextColor = Color.Orange
+            };
+            _mainContainer.AddChild(fontWarningLabel);
 
-            // Create test container with child elements
-            CreateTestContainer();
+            // Create enhanced test components
+            CreateEnhancedButtons();
+            CreateTestImages();
+            CreateTestPanels();
+            CreateTestList();
         }
 
         /// <summary>
-        /// Create test buttons to demonstrate button functionality
+        /// Create enhanced buttons to demonstrate new button functionality
         /// </summary>
-        private void CreateTestButtons()
+        private void CreateEnhancedButtons()
         {
             if (_mainContainer == null)
                 return;
 
-            // Button 1
-            var button1 = new UIButton("Click Me!")
+            // Enhanced Button 1 - State-based styling
+            var button1 = new UIButton("Enhanced Button")
             {
-                Position = new Vector2(100, 200),
+                Position = new Vector2(50, 100),
                 Size = new Vector2(150, 50),
-                Font = _defaultFont,
-                BackgroundColor = Color.DarkBlue,
-                HoverColor = Color.Blue,
-                PressedColor = Color.Navy
+                Font = _defaultFont
             };
-            button1.SetBackgroundTexture(_whitePixel);
-            button1.ButtonClicked += (sender, e) => 
+
+            // Configure state-based appearance
+            button1.IdleAppearance.BackgroundColor = Color.DarkBlue;
+            button1.IdleAppearance.TextColor = Color.White;
+            button1.HoverAppearance.BackgroundColor = Color.Blue;
+            button1.HoverAppearance.TextColor = Color.Yellow;
+            button1.PressedAppearance.BackgroundColor = Color.Navy;
+            button1.PressedAppearance.Offset = new Vector2(1, 1); // Pressed effect
+            button1.DisabledAppearance.BackgroundColor = Color.Gray;
+            button1.DisabledAppearance.TextColor = Color.DarkGray;
+
+            if (_whitePixel != null)
             {
-                System.Diagnostics.Debug.WriteLine("Button 1 clicked!");
+                button1.SetBackgroundTexture(ButtonState.Idle, _whitePixel);
+                button1.SetBackgroundTexture(ButtonState.Hover, _whitePixel);
+                button1.SetBackgroundTexture(ButtonState.Pressed, _whitePixel);
+                button1.SetBackgroundTexture(ButtonState.Disabled, _whitePixel);
+            }
+
+            button1.ButtonClicked += (sender, e) =>
+            {
+                System.Diagnostics.Debug.WriteLine("Enhanced Button clicked!");
             };
             _mainContainer.AddChild(button1);
 
-            // Button 2
-            var button2 = new UIButton("Another Button")
+            // Button with Image
+            var imageButton = new UIButton("Image Button")
             {
-                Position = new Vector2(300, 200),
+                Position = new Vector2(220, 100),
                 Size = new Vector2(150, 50),
-                Font = _defaultFont,
-                BackgroundColor = Color.DarkGreen,
-                HoverColor = Color.Green,
-                PressedColor = Color.DarkOliveGreen
+                Font = _defaultFont
             };
-            button2.SetBackgroundTexture(_whitePixel);
-            button2.ButtonClicked += (sender, e) => 
+
+            // Add image component (would use actual texture in real implementation)
+            imageButton.ImageComponent = new UIImage(_whitePixel)
             {
-                System.Diagnostics.Debug.WriteLine("Button 2 clicked!");
+                TintColor = Color.Green,
+                ScaleMode = ImageScaleMode.Uniform
             };
-            _mainContainer.AddChild(button2);
+
+            imageButton.ButtonClicked += (sender, e) =>
+            {
+                System.Diagnostics.Debug.WriteLine("Image Button clicked!");
+            };
+            _mainContainer.AddChild(imageButton);
+        }
+
+
+
+        /// <summary>
+        /// Create test images to demonstrate UIImage component
+        /// </summary>
+        private void CreateTestImages()
+        {
+            if (_mainContainer == null || _whitePixel == null)
+                return;
+
+            // Simple image
+            var image1 = new UIImage(_whitePixel)
+            {
+                Position = new Vector2(400, 100),
+                Size = new Vector2(64, 64),
+                TintColor = Color.Red,
+                ScaleMode = ImageScaleMode.Stretch
+            };
+            _mainContainer.AddChild(image1);
+
+            // Scaled image with rotation
+            var image2 = new UIImage(_whitePixel)
+            {
+                Position = new Vector2(480, 100),
+                Size = new Vector2(64, 64),
+                TintColor = Color.Green,
+                Scale = new Vector2(1.5f, 1.5f),
+                Rotation = 0.785f, // 45 degrees
+                Origin = new Vector2(32, 32)
+            };
+            _mainContainer.AddChild(image2);
         }
 
         /// <summary>
-        /// Create a test container with child elements to demonstrate nesting
+        /// Create test panels to demonstrate UIPanel component
         /// </summary>
-        private void CreateTestContainer()
+        private void CreateTestPanels()
         {
-            if (_mainContainer == null)
+            if (_mainContainer == null || _whitePixel == null)
                 return;
 
-            // Create a sub-container
-            var subContainer = new UIContainer
+            // Panel with vertical layout
+            var verticalPanel = new UIPanel
             {
-                Position = new Vector2(100, 300),
-                Size = new Vector2(400, 200)
+                Position = new Vector2(50, 180),
+                Size = new Vector2(200, 150),
+                BackgroundColor = Color.DarkBlue,
+                BackgroundTexture = _whitePixel,
+                BorderColor = Color.Blue,
+                BorderThickness = 2,
+                BorderTexture = _whitePixel,
+                LayoutMode = PanelLayoutMode.Vertical,
+                Padding = new Vector2(10, 10),
+                Spacing = 5
             };
 
-            // Add label to sub-container
-            var containerLabel = new UILabel("Sub-Container")
-            {
-                Position = new Vector2(10, 10),
-                Font = _defaultFont,
-                TextColor = Color.Yellow
-            };
-            subContainer.AddChild(containerLabel);
-
-            // Add buttons to sub-container
+            // Add items to vertical panel
             for (int i = 0; i < 3; i++)
             {
-                var button = new UIButton($"Sub Button {i + 1}")
+                var label = new UILabel($"Item {i + 1}")
                 {
-                    Position = new Vector2(10 + i * 120, 50),
-                    Size = new Vector2(100, 40),
                     Font = _defaultFont,
-                    BackgroundColor = Color.DarkRed,
-                    HoverColor = Color.Red,
-                    PressedColor = Color.Maroon
+                    TextColor = Color.White,
+                    Size = new Vector2(180, 25)
                 };
-                button.SetBackgroundTexture(_whitePixel);
-                
-                int buttonIndex = i; // Capture for closure
-                button.ButtonClicked += (sender, e) => 
-                {
-                    System.Diagnostics.Debug.WriteLine($"Sub Button {buttonIndex + 1} clicked!");
-                };
-                
-                subContainer.AddChild(button);
+                verticalPanel.AddChild(label);
             }
 
-            _mainContainer.AddChild(subContainer);
+            _mainContainer.AddChild(verticalPanel);
+
+            // Panel with horizontal layout
+            var horizontalPanel = new UIPanel
+            {
+                Position = new Vector2(270, 180),
+                Size = new Vector2(300, 80),
+                BackgroundColor = Color.DarkGreen,
+                BackgroundTexture = _whitePixel,
+                LayoutMode = PanelLayoutMode.Horizontal,
+                Padding = new Vector2(5, 5),
+                Spacing = 10
+            };
+
+            // Add buttons to horizontal panel
+            for (int i = 0; i < 3; i++)
+            {
+                var button = new UIButton($"H{i + 1}")
+                {
+                    Size = new Vector2(60, 30),
+                    Font = _defaultFont
+                };
+                button.IdleAppearance.BackgroundColor = Color.Orange;
+                if (_whitePixel != null)
+                    button.SetBackgroundTexture(ButtonState.Idle, _whitePixel);
+
+                horizontalPanel.AddChild(button);
+            }
+
+            _mainContainer.AddChild(horizontalPanel);
+        }
+
+        /// <summary>
+        /// Create test list to demonstrate UIList component
+        /// </summary>
+        private void CreateTestList()
+        {
+            if (_mainContainer == null || _whitePixel == null)
+                return;
+
+            var testList = new UIList
+            {
+                Position = new Vector2(600, 100),
+                Size = new Vector2(200, 200),
+                Font = _defaultFont,
+                BackgroundColor = Color.DarkSlateGray,
+                BackgroundTexture = _whitePixel,
+                SelectedItemColor = Color.Blue,
+                HoverItemColor = Color.LightBlue,
+                TextColor = Color.White,
+                SelectedTextColor = Color.Yellow,
+                VisibleItemCount = 8,
+                ItemHeight = 25
+            };
+
+            System.Diagnostics.Debug.WriteLine($"Creating UIList at {testList.Position} with size {testList.Size}");
+
+            // Add items to the list
+            testList.AddItem("Song 1", "song1.dtx");
+            testList.AddItem("Song 2", "song2.dtx");
+            testList.AddItem("Song 3", "song3.dtx");
+            testList.AddItem("Song 4", "song4.dtx");
+            testList.AddItem("Song 5", "song5.dtx");
+            testList.AddItem("Song 6", "song6.dtx");
+            testList.AddItem("Song 7", "song7.dtx");
+            testList.AddItem("Song 8", "song8.dtx");
+            testList.AddItem("Song 9", "song9.dtx");
+            testList.AddItem("Song 10", "song10.dtx");
+
+            // Handle selection events
+            testList.SelectionChanged += (sender, e) =>
+            {
+                if (e.NewIndex >= 0)
+                {
+                    var item = testList.Items[e.NewIndex];
+                    System.Diagnostics.Debug.WriteLine($"Selected: {item.Text} (Data: {item.Data})");
+                }
+            };
+
+            testList.ItemActivated += (sender, e) =>
+            {
+                System.Diagnostics.Debug.WriteLine($"Activated: {e.Item.Text}");
+            };
+
+            // Set initial selection
+            testList.SelectedIndex = 0;
+
+            _mainContainer.AddChild(testList);
         }
 
         /// <summary>
@@ -279,8 +421,8 @@ namespace DTX.Stage
                 return;
 
             var viewport = _game.GraphicsDevice.Viewport;
-            _spriteBatch.Draw(_whitePixel, 
-                new Rectangle(0, 0, viewport.Width, viewport.Height), 
+            _spriteBatch.Draw(_whitePixel,
+                new Rectangle(0, 0, viewport.Width, viewport.Height),
                 Color.DarkSlateGray);
         }
 
