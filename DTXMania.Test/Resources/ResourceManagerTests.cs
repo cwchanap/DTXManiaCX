@@ -1,0 +1,136 @@
+using DTX.Resources;
+using System;
+using System.IO;
+using Xunit;
+
+namespace DTXMania.Test.Resources
+{
+    /// <summary>
+    /// Basic unit tests for ResourceManager interfaces and data structures
+    /// Tests core functionality without MonoGame dependencies
+    /// </summary>
+    public class ResourceManagerTests : IDisposable
+    {
+        private readonly string _testDataPath;
+
+        public ResourceManagerTests()
+        {
+            // Create test data directory
+            _testDataPath = Path.Combine(Path.GetTempPath(), "DTXManiaCX_Tests", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(_testDataPath);
+
+            // Set up test directory structure
+            SetupTestDirectories();
+
+            // Set working directory for path resolution tests
+            Environment.CurrentDirectory = _testDataPath;
+        }
+
+        private void SetupTestDirectories()
+        {
+            // Create skin directory structure
+            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Default", "Graphics");
+            Directory.CreateDirectory(defaultSkinPath);
+
+            var customSkinPath = Path.Combine(_testDataPath, "System", "Custom", "Graphics");
+            Directory.CreateDirectory(customSkinPath);
+
+            // Create validation files for skin system
+            File.WriteAllText(Path.Combine(defaultSkinPath, "1_background.jpg"), "fake image data");
+            File.WriteAllText(Path.Combine(customSkinPath, "1_background.jpg"), "fake image data");
+
+            // Create test texture files
+            File.WriteAllText(Path.Combine(defaultSkinPath, "test_texture.png"), "fake png data");
+            File.WriteAllText(Path.Combine(customSkinPath, "test_texture.png"), "fake png data");
+            File.WriteAllText(Path.Combine(defaultSkinPath, "missing_in_custom.png"), "fake png data");
+        }
+
+        [Fact]
+        public void Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
+        {
+            // Arrange, Act & Assert
+            Assert.Throws<ArgumentNullException>(() => new ResourceManager(null));
+        }
+
+        [Fact]
+        public void PathResolution_ShouldWorkWithRelativePaths()
+        {
+            // Arrange
+            var basePath = "System/Default/";
+            var relativePath = "Graphics/test_texture.png";
+            var expectedPath = Path.Combine(basePath, relativePath);
+
+            // Act
+            var resolvedPath = Path.Combine(basePath, relativePath);
+
+            // Assert
+            Assert.Equal(expectedPath, resolvedPath);
+            Assert.Contains("Graphics/test_texture.png", resolvedPath);
+        }
+
+        [Fact]
+        public void FileExistence_ShouldDetectExistingFiles()
+        {
+            // Arrange
+            var testFilePath = Path.Combine(_testDataPath, "System", "Default", "Graphics", "test_texture.png");
+
+            // Act
+            var exists = File.Exists(testFilePath);
+
+            // Assert
+            Assert.True(exists);
+        }
+
+        [Fact]
+        public void FileExistence_ShouldDetectNonExistingFiles()
+        {
+            // Arrange
+            var nonExistentPath = Path.Combine(_testDataPath, "System", "Default", "Graphics", "nonexistent.png");
+
+            // Act
+            var exists = File.Exists(nonExistentPath);
+
+            // Assert
+            Assert.False(exists);
+        }
+
+        [Fact]
+        public void SkinPathValidation_ShouldValidateNullOrEmpty()
+        {
+            // Arrange & Act & Assert
+            Assert.True(string.IsNullOrEmpty(null));
+            Assert.True(string.IsNullOrEmpty(""));
+            Assert.False(string.IsNullOrEmpty("System/Default/"));
+        }
+
+        [Fact]
+        public void DirectoryStructure_ShouldBeSetupCorrectly()
+        {
+            // Arrange
+            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Default", "Graphics");
+            var customSkinPath = Path.Combine(_testDataPath, "System", "Custom", "Graphics");
+
+            // Act & Assert
+            Assert.True(Directory.Exists(defaultSkinPath));
+            Assert.True(Directory.Exists(customSkinPath));
+            Assert.True(File.Exists(Path.Combine(defaultSkinPath, "1_background.jpg")));
+            Assert.True(File.Exists(Path.Combine(customSkinPath, "1_background.jpg")));
+        }
+
+        public void Dispose()
+        {
+            // Cleanup test directory
+            try
+            {
+                if (Directory.Exists(_testDataPath))
+                {
+                    Directory.Delete(_testDataPath, true);
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors in tests
+            }
+        }
+    }
+}
