@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Stage;
+using DTX.Resources;
 using DTXMania.Shared.Game;
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,8 @@ namespace DTX.Stage
         private double _elapsedTime;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
-        private Texture2D _backgroundTexture;
+        private ITexture _backgroundTexture;
+        private IResourceManager _resourceManager;
         private bool _disposed = false;
 
         // DTXMania pattern: progress tracking
@@ -78,6 +80,9 @@ namespace DTX.Stage
 
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
+
+            // Initialize ResourceManager
+            _resourceManager = new ResourceManager(graphicsDevice);
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
             LoadBackgroundTexture();
@@ -176,10 +181,12 @@ namespace DTX.Stage
                     _backgroundTexture?.Dispose();
                     _whitePixel?.Dispose();
                     _spriteBatch?.Dispose();
+                    _resourceManager?.Dispose();
 
                     _backgroundTexture = null;
                     _whitePixel = null;
                     _spriteBatch = null;
+                    _resourceManager = null;
                 }
                 _disposed = true;
             }
@@ -193,49 +200,18 @@ namespace DTX.Stage
         {
             try
             {
-                // Try to load from DTXManiaNX graphics folder
-                string backgroundPath = Path.Combine("DTXManiaNX", "Runtime", "System", "Graphics", "1_background.jpg");
-
-                if (File.Exists(backgroundPath))
-                {
-                    using (var fileStream = File.OpenRead(backgroundPath))
-                    {
-                        _backgroundTexture = Texture2D.FromStream(_game.GraphicsDevice, fileStream);
-                        System.Diagnostics.Debug.WriteLine($"Loaded startup background from: {backgroundPath}");
-                        return;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine($"Startup background not found at: {backgroundPath}");
+                // Use ResourceManager to load background texture with proper skin path resolution
+                _backgroundTexture = _resourceManager.LoadTexture("Graphics/1_background.jpg");
+                System.Diagnostics.Debug.WriteLine("Loaded startup background using ResourceManager");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load startup background: {ex.Message}");
+                // ResourceManager will handle fallback automatically, so _backgroundTexture should still be valid
             }
-
-            // Fallback: create a simple dark background
-            CreateFallbackBackground();
         }
 
-        private void CreateFallbackBackground()
-        {
-            var viewport = _game.GraphicsDevice.Viewport;
-            var width = Math.Max(viewport.Width, 1024);
-            var height = Math.Max(viewport.Height, 768);
 
-            _backgroundTexture = new Texture2D(_game.GraphicsDevice, width, height);
-            var colorData = new Color[width * height];
-
-            // Create a simple dark background
-            var backgroundColor = new Color(16, 16, 32);
-            for (int i = 0; i < colorData.Length; i++)
-            {
-                colorData[i] = backgroundColor;
-            }
-
-            _backgroundTexture.SetData(colorData);
-            System.Diagnostics.Debug.WriteLine("Created fallback startup background");
-        }
 
         #endregion
 
@@ -294,7 +270,7 @@ namespace DTX.Stage
             if (_backgroundTexture != null)
             {
                 var viewport = _game.GraphicsDevice.Viewport;
-                _spriteBatch.Draw(_backgroundTexture,
+                _spriteBatch.Draw(_backgroundTexture.Texture,
                     new Rectangle(0, 0, viewport.Width, viewport.Height),
                     Color.White);
             }

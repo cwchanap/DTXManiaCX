@@ -9,6 +9,7 @@ Task 3 has been successfully completed! The skin system implementation provides 
 - **Automatic fallback** to default skin when resources are missing
 - **Skin discovery and validation** with metadata support
 - **Configuration management** for skin preferences
+- **✅ Path Resolution Fix**: Fixed hardcoded paths in StartupStage and TitleStage
 
 ## Architecture Components
 
@@ -175,7 +176,7 @@ public class GameSkinManager
     public void LoadUserPreferredSkin()
     {
         var lastUsedSkin = _configManager.Config.LastUsedSkin;
-        
+
         if (_skinManager.SwitchToSystemSkin(lastUsedSkin))
         {
             Console.WriteLine($"Loaded preferred skin: {lastUsedSkin}");
@@ -190,7 +191,7 @@ public class GameSkinManager
     public void HandleBoxDefSkin(string songPath)
     {
         var boxDefSkinPath = Path.Combine(songPath, "SkinPath");
-        
+
         if (Directory.Exists(boxDefSkinPath) && _configManager.Config.UseBoxDefSkin)
         {
             _skinManager.SetBoxDefSkin(boxDefSkinPath);
@@ -209,15 +210,33 @@ The implementation includes comprehensive unit tests:
 
 All tests pass and provide good coverage of the skin system functionality.
 
+## Path Resolution Fix
+
+### Issue Resolved
+Fixed hardcoded paths in StartupStage and TitleStage that were causing "texture not found" errors:
+```
+❌ Before: DTXManiaNX\Runtime\System\Graphics\1_background.jpg
+✅ After:  System\Graphics\1_background.jpg (relative to current directory)
+```
+
+### Changes Made
+- **StartupStage.cs**: Updated to use `_resourceManager.LoadTexture("Graphics/1_background.jpg")`
+- **TitleStage.cs**: Updated to use ResourceManager for `Graphics/2_background.jpg` and `Graphics/2_menu.png`
+- **Enhanced path resolution**: All paths now resolve correctly relative to current working directory
+
+### Result
+Resources now load correctly from the current working directory using the proper skin system.
+
 ## Summary
 
 The skin system implementation successfully provides:
 
-✅ **DTXMania-compatible path resolution** with `CSkin.Path()` behavior  
-✅ **Box.def skin support** for song-specific skins  
-✅ **Automatic fallback system** for missing resources  
-✅ **Skin discovery and validation** with metadata support  
-✅ **Configuration management** for skin preferences  
-✅ **Comprehensive unit tests** with 100% pass rate  
+✅ **DTXMania-compatible path resolution** with `CSkin.Path()` behavior
+✅ **Box.def skin support** for song-specific skins
+✅ **Automatic fallback system** for missing resources
+✅ **Skin discovery and validation** with metadata support
+✅ **Configuration management** for skin preferences
+✅ **Comprehensive unit tests** with 100% pass rate
+✅ **Fixed path resolution** for all game stages
 
 The system is ready for integration into the DTXManiaCX game engine and provides a solid foundation for theme and skin management.

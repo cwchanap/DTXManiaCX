@@ -64,7 +64,7 @@ namespace DTX.Resources
             {
                 _availableSystemSkins = DiscoverSystemSkins();
                 Debug.WriteLine($"SkinManager: Found {_availableSystemSkins.Length} system skins");
-                
+
                 foreach (var skin in _availableSystemSkins)
                 {
                     Debug.WriteLine($"  - {GetSkinName(skin)}");
@@ -98,10 +98,10 @@ namespace DTX.Resources
             {
                 // Clear any box.def skin override
                 _resourceManager.SetBoxDefSkinPath("");
-                
+
                 // Set the new system skin
                 _resourceManager.SetSkinPath(skinPath);
-                
+
                 Debug.WriteLine($"SkinManager: Switched to system skin '{skinName}' at {skinPath}");
                 return true;
             }
@@ -179,10 +179,11 @@ namespace DTX.Resources
                 return false;
 
             // Check for key validation files (DTXMania pattern)
+            // Use full paths relative to current working directory
             var validationFiles = new[]
             {
-                Path.Combine(skinPath, "Graphics", "1_background.jpg"),
-                Path.Combine(skinPath, "Graphics", "2_background.jpg")
+                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "1_background.jpg")),
+                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "2_background.jpg"))
             };
 
             return validationFiles.Any(File.Exists);
@@ -194,9 +195,11 @@ namespace DTX.Resources
 
         private string[] DiscoverSystemSkins()
         {
-            if (!Directory.Exists(_systemSkinRoot))
+            var fullSystemSkinRoot = Path.GetFullPath(_systemSkinRoot);
+
+            if (!Directory.Exists(fullSystemSkinRoot))
             {
-                Debug.WriteLine($"SkinManager: System skin root not found: {_systemSkinRoot}");
+                Debug.WriteLine($"SkinManager: System skin root not found: {fullSystemSkinRoot}");
                 return Array.Empty<string>();
             }
 
@@ -204,15 +207,22 @@ namespace DTX.Resources
 
             try
             {
-                var directories = Directory.GetDirectories(_systemSkinRoot, "*", SearchOption.TopDirectoryOnly);
-                
+                var directories = Directory.GetDirectories(fullSystemSkinRoot, "*", SearchOption.TopDirectoryOnly);
+
                 foreach (var directory in directories)
                 {
-                    var normalizedPath = NormalizePath(directory);
-                    
+                    // Convert back to relative path for consistency
+                    var relativePath = Path.GetRelativePath(Environment.CurrentDirectory, directory);
+                    var normalizedPath = NormalizePath(relativePath);
+
                     if (ValidateSkinPath(normalizedPath))
                     {
                         skinPaths.Add(normalizedPath);
+                        Debug.WriteLine($"SkinManager: Found valid skin: {normalizedPath}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"SkinManager: Invalid skin: {normalizedPath}");
                     }
                 }
 
@@ -229,7 +239,7 @@ namespace DTX.Resources
 
         private string? GetSkinPathFromName(string skinName)
         {
-            return _availableSystemSkins.FirstOrDefault(path => 
+            return _availableSystemSkins.FirstOrDefault(path =>
                 string.Equals(GetSkinName(path), skinName, StringComparison.OrdinalIgnoreCase));
         }
 

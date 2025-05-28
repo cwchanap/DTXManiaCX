@@ -2,9 +2,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTX.Stage;
+using DTX.Resources;
 using DTXMania.Shared.Game;
 using System;
-using System.IO;
 
 namespace DTX.Stage
 {
@@ -18,9 +18,10 @@ namespace DTX.Stage
 
         private readonly BaseGame _game;
         private SpriteBatch _spriteBatch;
-        private Texture2D _backgroundTexture;
-        private Texture2D _menuTexture;
+        private ITexture _backgroundTexture;
+        private ITexture _menuTexture;
         private Texture2D _whitePixel;
+        private IResourceManager _resourceManager;
         private bool _disposed = false;
 
         // DTXMania pattern: timing and animation
@@ -76,6 +77,9 @@ namespace DTX.Stage
             // Create white pixel for drawing rectangles
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
+
+            // Initialize ResourceManager
+            _resourceManager = new ResourceManager(graphicsDevice);
 
             // Load background texture (DTXManiaNX uses 2_background.jpg)
             LoadBackgroundTexture();
@@ -179,11 +183,13 @@ namespace DTX.Stage
                     _menuTexture?.Dispose();
                     _whitePixel?.Dispose();
                     _spriteBatch?.Dispose();
+                    _resourceManager?.Dispose();
 
                     _backgroundTexture = null;
                     _menuTexture = null;
                     _whitePixel = null;
                     _spriteBatch = null;
+                    _resourceManager = null;
                 }
                 _disposed = true;
             }
@@ -197,82 +203,33 @@ namespace DTX.Stage
         {
             try
             {
-                // Try to load from DTXManiaNX graphics folder first
-                string backgroundPath = Path.Combine("DTXManiaNX", "Runtime", "System", "Graphics", "2_background.jpg");
-
-                if (File.Exists(backgroundPath))
-                {
-                    using (var fileStream = File.OpenRead(backgroundPath))
-                    {
-                        _backgroundTexture = Texture2D.FromStream(_game.GraphicsDevice, fileStream);
-                        System.Diagnostics.Debug.WriteLine($"Loaded background texture from: {backgroundPath}");
-                        return;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine($"Background texture not found at: {backgroundPath}");
+                // Use ResourceManager to load background texture with proper skin path resolution
+                _backgroundTexture = _resourceManager.LoadTexture("Graphics/2_background.jpg");
+                System.Diagnostics.Debug.WriteLine("Loaded title background using ResourceManager");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load background texture: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Failed to load title background: {ex.Message}");
+                // ResourceManager will handle fallback automatically, so _backgroundTexture should still be valid
             }
-
-            // Fallback: create a simple gradient background
-            CreateFallbackBackground();
         }
 
         private void LoadMenuTexture()
         {
             try
             {
-                // Try to load from DTXManiaNX graphics folder
-                string menuPath = Path.Combine("DTXManiaNX", "Runtime", "System", "Graphics", "2_menu.png");
-
-                if (File.Exists(menuPath))
-                {
-                    using (var fileStream = File.OpenRead(menuPath))
-                    {
-                        _menuTexture = Texture2D.FromStream(_game.GraphicsDevice, fileStream);
-                        System.Diagnostics.Debug.WriteLine($"Loaded menu texture from: {menuPath}");
-                        return;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine($"Menu texture not found at: {menuPath}");
+                // Use ResourceManager to load menu texture with proper skin path resolution
+                _menuTexture = _resourceManager.LoadTexture("Graphics/2_menu.png");
+                System.Diagnostics.Debug.WriteLine("Loaded menu texture using ResourceManager");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load menu texture: {ex.Message}");
+                // Menu texture is optional - we'll draw text-based menu as fallback
             }
-
-            // Menu texture is optional - we'll draw text-based menu as fallback
         }
 
-        private void CreateFallbackBackground()
-        {
-            // Create a simple gradient background as fallback
-            var viewport = _game.GraphicsDevice.Viewport;
-            var width = Math.Max(viewport.Width, 1024);
-            var height = Math.Max(viewport.Height, 768);
 
-            _backgroundTexture = new Texture2D(_game.GraphicsDevice, width, height);
-            var colorData = new Color[width * height];
-
-            // Create a simple gradient from dark blue to black
-            for (int y = 0; y < height; y++)
-            {
-                float factor = (float)y / height;
-                var color = Color.Lerp(new Color(0, 0, 64), Color.Black, factor);
-
-                for (int x = 0; x < width; x++)
-                {
-                    colorData[y * width + x] = color;
-                }
-            }
-
-            _backgroundTexture.SetData(colorData);
-            System.Diagnostics.Debug.WriteLine("Created fallback gradient background");
-        }
 
         #endregion
 
@@ -386,7 +343,7 @@ namespace DTX.Stage
             if (_backgroundTexture != null)
             {
                 var viewport = _game.GraphicsDevice.Viewport;
-                _spriteBatch.Draw(_backgroundTexture,
+                _spriteBatch.Draw(_backgroundTexture.Texture,
                     new Rectangle(0, 0, viewport.Width, viewport.Height),
                     Color.White);
             }

@@ -70,17 +70,21 @@ namespace DTX.Resources
 
             try
             {
-                if (!Directory.Exists(_systemSkinRoot))
+                var fullSystemSkinRoot = Path.GetFullPath(_systemSkinRoot);
+
+                if (!Directory.Exists(fullSystemSkinRoot))
                 {
-                    Debug.WriteLine($"SkinDiscoveryService: System skin root not found: {_systemSkinRoot}");
+                    Debug.WriteLine($"SkinDiscoveryService: System skin root not found: {fullSystemSkinRoot}");
                     return skins;
                 }
 
-                var directories = Directory.GetDirectories(_systemSkinRoot, "*", SearchOption.TopDirectoryOnly);
+                var directories = Directory.GetDirectories(fullSystemSkinRoot, "*", SearchOption.TopDirectoryOnly);
 
                 foreach (var directory in directories)
                 {
-                    var skinInfo = AnalyzeSkin(directory);
+                    // Convert back to relative path for consistency
+                    var relativePath = Path.GetRelativePath(Environment.CurrentDirectory, directory);
+                    var skinInfo = AnalyzeSkin(relativePath);
                     if (skinInfo != null && skinInfo.IsValid)
                     {
                         skins.Add(skinInfo);
@@ -105,16 +109,20 @@ namespace DTX.Resources
         /// <returns>Skin information or null if invalid</returns>
         public SkinInfo? AnalyzeSkin(string skinPath)
         {
-            if (string.IsNullOrEmpty(skinPath) || !Directory.Exists(skinPath))
+            if (string.IsNullOrEmpty(skinPath))
+                return null;
+
+            var fullSkinPath = Path.GetFullPath(skinPath);
+            if (!Directory.Exists(fullSkinPath))
                 return null;
 
             try
             {
                 var skinInfo = new SkinInfo
                 {
-                    FullPath = NormalizePath(skinPath),
+                    FullPath = NormalizePath(skinPath), // Keep relative path
                     Name = GetSkinName(skinPath),
-                    LastModified = Directory.GetLastWriteTime(skinPath)
+                    LastModified = Directory.GetLastWriteTime(fullSkinPath)
                 };
 
                 // Check if this is the default skin
@@ -124,7 +132,7 @@ namespace DTX.Resources
                 var missingFiles = new List<string>();
                 foreach (var requiredFile in _requiredFiles)
                 {
-                    var filePath = Path.Combine(skinPath, requiredFile);
+                    var filePath = Path.GetFullPath(Path.Combine(skinPath, requiredFile));
                     if (!File.Exists(filePath))
                     {
                         missingFiles.Add(requiredFile);
@@ -135,7 +143,7 @@ namespace DTX.Resources
                 skinInfo.IsValid = missingFiles.Count == 0;
 
                 // Calculate total size
-                skinInfo.SizeBytes = CalculateDirectorySize(skinPath);
+                skinInfo.SizeBytes = CalculateDirectorySize(fullSkinPath);
 
                 // Try to read skin metadata from SkinConfig.ini if it exists
                 ReadSkinMetadata(skinInfo);
@@ -156,10 +164,14 @@ namespace DTX.Resources
         /// <returns>True if valid</returns>
         public bool ValidateSkin(string skinPath)
         {
-            if (string.IsNullOrEmpty(skinPath) || !Directory.Exists(skinPath))
+            if (string.IsNullOrEmpty(skinPath))
                 return false;
 
-            return _requiredFiles.All(file => File.Exists(Path.Combine(skinPath, file)));
+            var fullSkinPath = Path.GetFullPath(skinPath);
+            if (!Directory.Exists(fullSkinPath))
+                return false;
+
+            return _requiredFiles.All(file => File.Exists(Path.GetFullPath(Path.Combine(skinPath, file))));
         }
 
         /// <summary>
@@ -169,11 +181,15 @@ namespace DTX.Resources
         /// <returns>Percentage (0-100) of completeness</returns>
         public int GetSkinCompleteness(string skinPath)
         {
-            if (string.IsNullOrEmpty(skinPath) || !Directory.Exists(skinPath))
+            if (string.IsNullOrEmpty(skinPath))
+                return 0;
+
+            var fullSkinPath = Path.GetFullPath(skinPath);
+            if (!Directory.Exists(fullSkinPath))
                 return 0;
 
             var allFiles = _requiredFiles.Concat(_commonFiles).ToArray();
-            var existingFiles = allFiles.Count(file => File.Exists(Path.Combine(skinPath, file)));
+            var existingFiles = allFiles.Count(file => File.Exists(Path.GetFullPath(Path.Combine(skinPath, file))));
 
             return (int)Math.Round((double)existingFiles / allFiles.Length * 100);
         }
@@ -184,7 +200,7 @@ namespace DTX.Resources
 
         private void ReadSkinMetadata(SkinInfo skinInfo)
         {
-            var configPath = Path.Combine(skinInfo.FullPath, "SkinConfig.ini");
+            var configPath = Path.GetFullPath(Path.Combine(skinInfo.FullPath, "SkinConfig.ini"));
             if (!File.Exists(configPath))
                 return;
 

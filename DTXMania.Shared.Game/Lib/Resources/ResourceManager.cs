@@ -386,10 +386,11 @@ namespace DTX.Resources
 
         private void InitializeDefaultSkinPath()
         {
-            // Look for default skin directory
+            // Look for default skin directory relative to current working directory
             var defaultPaths = new[]
             {
                 "System/Default/",
+                "System/",  // DTXMania fallback pattern
                 "Content/Skins/Default/",
                 "Skins/Default/"
             };
@@ -399,12 +400,14 @@ namespace DTX.Resources
                 if (ValidateSkinPath(path))
                 {
                     _currentSkinPath = _fallbackSkinPath = path;
+                    Debug.WriteLine($"ResourceManager: Using skin path: {path}");
                     return;
                 }
             }
 
-            // Fallback to first available directory
-            _currentSkinPath = _fallbackSkinPath = "System/Default/";
+            // Fallback to System/ even if validation fails (DTXMania compatibility)
+            _currentSkinPath = _fallbackSkinPath = "System/";
+            Debug.WriteLine($"ResourceManager: Fallback to System/ skin path");
         }
 
         private string ResolvePathWithSkin(string relativePath, string skinPath)
@@ -412,7 +415,14 @@ namespace DTX.Resources
             if (Path.IsPathRooted(relativePath))
                 return relativePath;
 
-            return Path.Combine(skinPath, relativePath);
+            // Combine skin path with relative path, ensuring it's relative to current working directory
+            var combinedPath = Path.Combine(skinPath, relativePath);
+
+            // Convert to full path relative to current working directory
+            var fullPath = Path.GetFullPath(combinedPath);
+
+            Debug.WriteLine($"ResourceManager: Resolved '{relativePath}' with skin '{skinPath}' to '{fullPath}'");
+            return fullPath;
         }
 
         private string NormalizePath(string path)
@@ -431,11 +441,22 @@ namespace DTX.Resources
             // Based on DTXMania's bIsValid pattern - check for key files
             var validationFiles = new[]
             {
-                Path.Combine(skinPath, "Graphics", "1_background.jpg"),
-                Path.Combine(skinPath, "Graphics", "2_background.jpg")
+                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "1_background.jpg")),
+                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "2_background.jpg"))
             };
 
-            return validationFiles.Any(File.Exists);
+            var isValid = validationFiles.Any(File.Exists);
+            Debug.WriteLine($"ResourceManager: Validating skin path '{skinPath}' - {(isValid ? "VALID" : "INVALID")}");
+
+            if (!isValid)
+            {
+                foreach (var file in validationFiles)
+                {
+                    Debug.WriteLine($"  Missing: {file}");
+                }
+            }
+
+            return isValid;
         }
 
         private ITexture CreateFallbackTexture(string originalPath)
