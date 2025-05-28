@@ -25,6 +25,8 @@ namespace DTX.Resources
 
         private string _currentSkinPath = "System/Default/";
         private string _fallbackSkinPath = "System/Default/";
+        private string _boxDefSkinPath = "";
+        private bool _useBoxDefSkin = true;
         private bool _disposed = false;
 
         // Statistics tracking
@@ -189,13 +191,66 @@ namespace DTX.Resources
 
         public string ResolvePath(string relativePath)
         {
-            return ResolvePathWithSkin(relativePath, _currentSkinPath);
+            // DTXMania-style path resolution: box.def skin takes priority over system skin
+            if (!string.IsNullOrEmpty(_boxDefSkinPath) && _useBoxDefSkin)
+            {
+                return ResolvePathWithSkin(relativePath, _boxDefSkinPath);
+            }
+            else
+            {
+                return ResolvePathWithSkin(relativePath, _currentSkinPath);
+            }
         }
 
         public bool ResourceExists(string relativePath)
         {
             var resolvedPath = ResolvePath(relativePath);
             return File.Exists(resolvedPath);
+        }
+
+        /// <summary>
+        /// Set box.def skin path for temporary skin override
+        /// Based on DTXMania's box.def skin system
+        /// </summary>
+        /// <param name="boxDefSkinPath">Path to box.def skin directory</param>
+        public void SetBoxDefSkinPath(string boxDefSkinPath)
+        {
+            lock (_lockObject)
+            {
+                var oldPath = _boxDefSkinPath;
+                _boxDefSkinPath = NormalizePath(boxDefSkinPath ?? "");
+
+                if (oldPath != _boxDefSkinPath)
+                {
+                    Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enable or disable box.def skin usage
+        /// </summary>
+        /// <param name="useBoxDefSkin">True to use box.def skins when available</param>
+        public void SetUseBoxDefSkin(bool useBoxDefSkin)
+        {
+            lock (_lockObject)
+            {
+                _useBoxDefSkin = useBoxDefSkin;
+                Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
+            }
+        }
+
+        /// <summary>
+        /// Get current effective skin path (considering box.def override)
+        /// </summary>
+        /// <returns>Current skin path being used</returns>
+        public string GetCurrentEffectiveSkinPath()
+        {
+            if (!string.IsNullOrEmpty(_boxDefSkinPath) && _useBoxDefSkin)
+            {
+                return _boxDefSkinPath;
+            }
+            return _currentSkinPath;
         }
 
         public void UnloadAll()

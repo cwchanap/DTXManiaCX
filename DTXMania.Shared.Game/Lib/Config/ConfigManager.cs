@@ -53,6 +53,15 @@ namespace DTX.Config
                 case "DTXPath":
                     Config.DTXPath = value;
                     break;
+                case "UseBoxDefSkin":
+                    Config.UseBoxDefSkin = value.ToLower() == "true";
+                    break;
+                case "SystemSkinRoot":
+                    Config.SystemSkinRoot = value;
+                    break;
+                case "LastUsedSkin":
+                    Config.LastUsedSkin = value;
+                    break;
                 case "ScreenWidth":
                     if (int.TryParse(value, out var width))
                         Config.ScreenWidth = width;
@@ -82,6 +91,12 @@ namespace DTX.Config
             sb.AppendLine($"DTXManiaVersion={Config.DTXManiaVersion}");
             sb.AppendLine($"SkinPath={Config.SkinPath}");
             sb.AppendLine($"DTXPath={Config.DTXPath}");
+            sb.AppendLine();
+
+            sb.AppendLine("[Skin]");
+            sb.AppendLine($"UseBoxDefSkin={Config.UseBoxDefSkin}");
+            sb.AppendLine($"SystemSkinRoot={Config.SystemSkinRoot}");
+            sb.AppendLine($"LastUsedSkin={Config.LastUsedSkin}");
             sb.AppendLine();
 
             sb.AppendLine("[Display]");

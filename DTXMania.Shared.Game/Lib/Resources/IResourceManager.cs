@@ -72,6 +72,25 @@ namespace DTX.Resources
         /// <returns>True if resource exists</returns>
         bool ResourceExists(string relativePath);
 
+        /// <summary>
+        /// Set box.def skin path for temporary skin override
+        /// Based on DTXMania's box.def skin system
+        /// </summary>
+        /// <param name="boxDefSkinPath">Path to box.def skin directory</param>
+        void SetBoxDefSkinPath(string boxDefSkinPath);
+
+        /// <summary>
+        /// Enable or disable box.def skin usage
+        /// </summary>
+        /// <param name="useBoxDefSkin">True to use box.def skins when available</param>
+        void SetUseBoxDefSkin(bool useBoxDefSkin);
+
+        /// <summary>
+        /// Get current effective skin path (considering box.def override)
+        /// </summary>
+        /// <returns>Current skin path being used</returns>
+        string GetCurrentEffectiveSkinPath();
+
         #endregion
 
         #region Resource Management

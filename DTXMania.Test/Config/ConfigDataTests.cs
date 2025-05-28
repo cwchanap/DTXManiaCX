@@ -138,4 +138,35 @@ public class ConfigDataTests
         Assert.Equal(skinPath, config.SkinPath);
         Assert.Equal(dtxPath, config.DTXPath);
     }
+
+    [Theory]
+    [InlineData(true, "System/", "CustomSkin")]
+    [InlineData(false, "Skins/", "Default")]
+    public void ConfigData_SetSkinSettings_ShouldUpdateCorrectly(bool useBoxDefSkin, string systemSkinRoot, string lastUsedSkin)
+    {
+        // Arrange
+        var config = new ConfigData();
+
+        // Act
+        config.UseBoxDefSkin = useBoxDefSkin;
+        config.SystemSkinRoot = systemSkinRoot;
+        config.LastUsedSkin = lastUsedSkin;
+
+        // Assert
+        Assert.Equal(useBoxDefSkin, config.UseBoxDefSkin);
+        Assert.Equal(systemSkinRoot, config.SystemSkinRoot);
+        Assert.Equal(lastUsedSkin, config.LastUsedSkin);
+    }
+
+    [Fact]
+    public void ConfigData_DefaultSkinSettings_ShouldBeCorrect()
+    {
+        // Arrange & Act
+        var config = new ConfigData();
+
+        // Assert
+        Assert.True(config.UseBoxDefSkin);
+        Assert.Equal("System/", config.SystemSkinRoot);
+        Assert.Equal("Default", config.LastUsedSkin);
+    }
 }

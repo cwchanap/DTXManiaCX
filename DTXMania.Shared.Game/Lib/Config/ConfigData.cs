@@ -9,6 +9,11 @@ namespace DTX.Config
         public string SkinPath { get; set; } = "System/Default/";
         public string DTXPath { get; set; } = "DTXFiles/";
 
+        // Skin settings
+        public bool UseBoxDefSkin { get; set; } = true;
+        public string SystemSkinRoot { get; set; } = "System/";
+        public string LastUsedSkin { get; set; } = "Default";
+
         // Display settings
         public int ScreenWidth { get; set; } = 1280;
         public int ScreenHeight { get; set; } = 720;
