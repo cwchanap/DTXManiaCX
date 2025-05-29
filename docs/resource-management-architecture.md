@@ -50,11 +50,14 @@ Implementation of `ITexture`:
 
 #### ManagedFont
 Implementation of `IFont`:
-- **Character Cache**: Performance-optimized character support checking
-- **Text Sanitization**: Automatic replacement of unsupported characters
-- **Advanced Effects**: Outline, gradient, shadow rendering
+- **Character Cache**: Performance-optimized character support checking with Japanese character ranges
+- **Text Sanitization**: Automatic replacement of unsupported characters with intelligent fallbacks
+- **Advanced Effects**: Outline, gradient, shadow rendering with DTXMania-style effects
 - **Word Wrapping**: Intelligent text wrapping with measurement
-- **Text Textures**: Render-to-texture for complex text effects
+- **Text Textures**: Render-to-texture for complex text effects with LRU caching
+- **Font Loading**: Support for TTF/OTF files, SpriteFont content pipeline, and system fonts
+- **Japanese Support**: Full Unicode support for Hiragana, Katakana, and common Kanji characters
+- **Performance Caching**: Text render caching similar to CPrivateFastFont for optimal performance
 
 ## Key Features
 
@@ -157,6 +160,57 @@ var textOptions = new TextRenderOptions
     OutlineThickness = 2
 };
 var textTexture = font.CreateTextTexture(graphicsDevice, "High Score!", textOptions);
+```
+
+### Japanese Character Support
+```csharp
+// Load a font with Japanese character support
+var japaneseFont = resourceManager.LoadFont("NotoSansCJK", 16, FontStyle.Regular);
+
+// Test various Japanese character ranges
+var hiragana = "ひらがな";
+var katakana = "カタカナ";
+var kanji = "漢字";
+var mixed = "こんにちは世界！Hello World!";
+
+// Check character support before rendering
+foreach (char c in mixed)
+{
+    if (!japaneseFont.SupportsCharacter(c))
+    {
+        Debug.WriteLine($"Character '{c}' (U+{(int)c:X4}) not supported");
+    }
+}
+
+// Render Japanese text with effects
+var japaneseOptions = new TextRenderOptions
+{
+    TextColor = Color.White,
+    EnableOutline = true,
+    OutlineColor = Color.DarkBlue,
+    OutlineThickness = 1
+};
+
+japaneseFont.DrawStringWithOutline(spriteBatch, mixed, position,
+    Color.White, Color.DarkBlue, 1);
+
+// Create cached text texture for performance
+var cachedTexture = japaneseFont.CreateTextTexture(graphicsDevice, mixed, japaneseOptions);
+```
+
+### Character Replacement and Fallbacks
+```csharp
+// The font system automatically handles character replacements
+var textWithSpecialChars = "Hello "World" — こんにちは…";
+
+// Unsupported characters are automatically replaced:
+// - Smart quotes (""") become regular quotes (")
+// - Em dash (—) becomes hyphen (-)
+// - Ellipsis (…) becomes period (.)
+// - Hiragana characters may be replaced with Katakana equivalents if available
+// - Fullwidth characters may be replaced with halfwidth equivalents
+
+font.DrawString(spriteBatch, textWithSpecialChars, position, Color.White);
 ```
 
 ## Integration with DTXManiaCX
