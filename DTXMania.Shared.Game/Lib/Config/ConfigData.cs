@@ -6,7 +6,7 @@ namespace DTX.Config
     {
         // System settings
         public string DTXManiaVersion { get; set; } = "NX1.5.0-MG";
-        public string SkinPath { get; set; } = "System/Default/";
+        public string SkinPath { get; set; } = "System/";
         public string DTXPath { get; set; } = "DTXFiles/";
 
         // Skin settings

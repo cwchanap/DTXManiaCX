@@ -70,8 +70,14 @@ texture.RemoveReference(); // Decrements and disposes when count reaches 0
 ### 2. Skin System Integration
 ```csharp
 // DTXMania-style skin switching
-resourceManager.SetSkinPath("System/MyCustomSkin/");
+// Default skin uses System/ directly
+resourceManager.SetSkinPath("System/");
 var texture = resourceManager.LoadTexture("Graphics/background.jpg");
+// Resolves to: System/Graphics/background.jpg
+
+// Custom skin uses System/{SkinName}/
+resourceManager.SetSkinPath("System/MyCustomSkin/");
+var texture2 = resourceManager.LoadTexture("Graphics/background.jpg");
 // Resolves to: System/MyCustomSkin/Graphics/background.jpg
 ```
 
@@ -79,7 +85,7 @@ var texture = resourceManager.LoadTexture("Graphics/background.jpg");
 ```csharp
 // Automatic fallback to default skin if resource not found
 var texture = resourceManager.LoadTexture("Graphics/missing.jpg");
-// Falls back to System/Default/Graphics/missing.jpg if not found in current skin
+// Falls back to System/Graphics/missing.jpg if not found in current skin
 ```
 
 ### 4. Advanced Text Rendering
@@ -106,7 +112,7 @@ resourceManager.CollectUnusedResources();
 ```csharp
 // Initialize resource manager
 var resourceManager = new ResourceManager(graphicsDevice);
-resourceManager.SetSkinPath("System/Default/");
+resourceManager.SetSkinPath("System/"); // Default skin
 
 // Load resources
 var backgroundTexture = resourceManager.LoadTexture("Graphics/background.jpg");
@@ -160,13 +166,13 @@ var textTexture = font.CreateTextTexture(graphicsDevice, "High Score!", textOpti
 public class GameStage : IStage
 {
     private IResourceManager _resourceManager;
-    
+
     public void Initialize(IResourceManager resourceManager)
     {
         _resourceManager = resourceManager;
         LoadStageResources();
     }
-    
+
     private void LoadStageResources()
     {
         // Load stage-specific resources
@@ -177,7 +183,7 @@ public class GameStage : IStage
             [NoteType.Ka] = _resourceManager.LoadTexture("Notes/ka.png")
         };
     }
-    
+
     public void Dispose()
     {
         // Resources automatically disposed via reference counting
@@ -195,16 +201,16 @@ public class GameStage : IStage
 public class SkinManager
 {
     private readonly IResourceManager _resourceManager;
-    
+
     public void ChangeSkin(string skinName)
     {
         // Unload current skin resources
         _resourceManager.UnloadByPattern("Graphics/");
         _resourceManager.UnloadByPattern("Sounds/");
-        
+
         // Set new skin path
         _resourceManager.SetSkinPath($"System/{skinName}/");
-        
+
         // Resources will be reloaded automatically on next access
     }
 }
@@ -213,9 +219,10 @@ public class SkinManager
 ## Performance Considerations
 
 ### 1. Caching Strategy
-- **Texture Caching**: Textures cached by path + parameters
-- **Font Caching**: Fonts cached by path + size + style
-- **Reference Counting**: Prevents duplicate loading of same resource
+- **Path-based Cache**: Same path returns same texture instance with case-insensitive comparison
+- **Texture Caching**: Textures cached by normalized path + parameters
+- **Font Caching**: Fonts cached by normalized path + size + style
+- **Reference Counting**: Prevents duplicate loading of same resource and auto-disposal
 
 ### 2. Memory Management
 - **Automatic Disposal**: Resources disposed when reference count reaches zero
@@ -244,6 +251,29 @@ resourceManager.ResourceLoadFailed += (sender, e) =>
 // Output: "ManagedTexture: Dispose leak detected for texture: background.jpg"
 ```
 
+## Testing
+
+The resource management system includes comprehensive unit tests covering:
+
+### Core Functionality Tests
+- **ResourceManagerTests**: Basic resource loading, path resolution, and skin system
+- **ManagedTextureTests**: Texture creation parameters and validation
+- **ManagedFontTests**: Font loading and character support
+- **ResourceInterfaceTests**: Interface contracts and data structures
+
+### Caching System Tests
+- **CachingSystemTests**: Path-based cache, case-insensitive comparison, reference counting
+- **Path Normalization**: Windows/Unix path compatibility and case handling
+- **Cache Statistics**: Hit/miss tracking and memory usage calculation
+- **Resource Collection**: Unused resource cleanup and pattern-based unloading
+
+### Integration Tests
+- **SkinManagerTests**: Skin discovery, validation, and switching
+- **SkinDiscoveryServiceTests**: Skin analysis and completeness checking
+- **ConfigDataTests**: Configuration persistence and validation
+
+All tests use xUnit framework and follow DTXMania testing patterns with proper setup/teardown.
+
 ## Future Enhancements
 
 1. **Async Loading**: Support for asynchronous resource loading
@@ -251,6 +281,22 @@ resourceManager.ResourceLoadFailed += (sender, e) =>
 3. **Compression**: Built-in texture compression support
 4. **Hot Reloading**: Development-time resource hot reloading
 5. **Custom Formats**: Support for DTXMania-specific resource formats
+
+## DTXMania Skin Path Structure
+
+The system follows the correct DTXMania skin path convention:
+
+### Default Skin
+- **Path**: `System/`
+- **Graphics**: `System/Graphics/`
+- **Example**: `System/Graphics/1_background.jpg`
+
+### Custom Skins
+- **Path**: `System/{SkinName}/`
+- **Graphics**: `System/{SkinName}/Graphics/`
+- **Example**: `System/MyCustomSkin/Graphics/1_background.jpg`
+
+This structure ensures compatibility with original DTXMania while providing proper fallback behavior.
 
 ## Conclusion
 

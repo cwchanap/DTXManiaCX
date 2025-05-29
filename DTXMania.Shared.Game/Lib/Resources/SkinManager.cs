@@ -157,8 +157,16 @@ namespace DTX.Resources
 
             try
             {
-                var parts = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/')
-                                          .Split(Path.DirectorySeparatorChar, '/');
+                var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/');
+
+                // Handle default skin case (System/ -> "Default")
+                if (normalizedPath.Equals("System", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Default";
+                }
+
+                // Handle custom skin case (System/SkinName/ -> "SkinName")
+                var parts = normalizedPath.Split(Path.DirectorySeparatorChar, '/');
                 return parts.LastOrDefault();
             }
             catch
@@ -207,6 +215,14 @@ namespace DTX.Resources
 
             try
             {
+                // Check for default skin (System/ directly)
+                if (ValidateSkinPath(_systemSkinRoot))
+                {
+                    skinPaths.Add(_systemSkinRoot);
+                    Debug.WriteLine($"SkinManager: Found default skin: {_systemSkinRoot}");
+                }
+
+                // Check for custom skins (System/{SkinName}/)
                 var directories = Directory.GetDirectories(fullSystemSkinRoot, "*", SearchOption.TopDirectoryOnly);
 
                 foreach (var directory in directories)
@@ -218,7 +234,7 @@ namespace DTX.Resources
                     if (ValidateSkinPath(normalizedPath))
                     {
                         skinPaths.Add(normalizedPath);
-                        Debug.WriteLine($"SkinManager: Found valid skin: {normalizedPath}");
+                        Debug.WriteLine($"SkinManager: Found custom skin: {normalizedPath}");
                     }
                     else
                     {
@@ -226,8 +242,13 @@ namespace DTX.Resources
                     }
                 }
 
-                // Sort for consistent ordering
-                skinPaths.Sort(StringComparer.OrdinalIgnoreCase);
+                // Sort for consistent ordering (default skin first)
+                skinPaths.Sort((a, b) =>
+                {
+                    if (a == _systemSkinRoot) return -1;
+                    if (b == _systemSkinRoot) return 1;
+                    return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+                });
             }
             catch (Exception ex)
             {

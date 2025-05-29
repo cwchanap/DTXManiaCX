@@ -23,8 +23,8 @@ namespace DTX.Resources
         private readonly ConcurrentDictionary<string, IFont> _fontCache;
         private readonly object _lockObject = new object();
 
-        private string _currentSkinPath = "System/Default/";
-        private string _fallbackSkinPath = "System/Default/";
+        private string _currentSkinPath = "System/";
+        private string _fallbackSkinPath = "System/";
         private string _boxDefSkinPath = "";
         private bool _useBoxDefSkin = true;
         private bool _disposed = false;
@@ -62,7 +62,10 @@ namespace DTX.Resources
             if (string.IsNullOrEmpty(path))
                 throw new ArgumentException("Path cannot be null or empty", nameof(path));
 
-            var cacheKey = $"{path}|{enableTransparency}";
+            // Normalize path for case-insensitive comparison (Windows compatibility)
+            // Don't add directory separator to file paths
+            var normalizedPath = NormalizeFilePath(path);
+            var cacheKey = $"{normalizedPath}|{enableTransparency}";
 
             // Check cache first
             if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
@@ -78,19 +81,19 @@ namespace DTX.Resources
             try
             {
                 // Resolve path using skin system
-                var resolvedPath = ResolvePath(path);
+                var resolvedPath = ResolvePath(normalizedPath);
 
                 // Validate file exists
                 if (!File.Exists(resolvedPath))
                 {
                     // Try fallback skin
-                    var fallbackPath = ResolvePathWithSkin(path, _fallbackSkinPath);
+                    var fallbackPath = ResolvePathWithSkin(normalizedPath, _fallbackSkinPath);
                     if (!File.Exists(fallbackPath))
                     {
-                        var errorMsg = $"Texture not found: {path} (resolved: {resolvedPath})";
-                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
+                        var errorMsg = $"Texture not found: {normalizedPath} (resolved: {resolvedPath})";
+                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(normalizedPath,
                             new FileNotFoundException(errorMsg), errorMsg));
-                        return CreateFallbackTexture(path);
+                        return CreateFallbackTexture(normalizedPath);
                     }
                     resolvedPath = fallbackPath;
                 }
@@ -103,7 +106,7 @@ namespace DTX.Resources
                 };
 
                 // Load and create texture
-                var texture = new ManagedTexture(_graphicsDevice, resolvedPath, path, creationParams);
+                var texture = new ManagedTexture(_graphicsDevice, resolvedPath, normalizedPath, creationParams);
                 texture.AddReference();
 
                 // Cache the texture
@@ -133,7 +136,10 @@ namespace DTX.Resources
             if (string.IsNullOrEmpty(path))
                 throw new ArgumentException("Path cannot be null or empty", nameof(path));
 
-            var cacheKey = $"{path}|{size}|{style}";
+            // Normalize path for case-insensitive comparison (Windows compatibility)
+            // Don't add directory separator to file paths
+            var normalizedPath = NormalizeFilePath(path);
+            var cacheKey = $"{normalizedPath}|{size}|{style}";
 
             // Check cache first
             if (_fontCache.TryGetValue(cacheKey, out var cachedFont))
@@ -149,7 +155,7 @@ namespace DTX.Resources
             try
             {
                 // Create font (handles both system fonts and font files)
-                var font = new ManagedFont(_graphicsDevice, path, size, style);
+                var font = new ManagedFont(_graphicsDevice, normalizedPath, size, style);
                 font.AddReference();
 
                 // Cache the font
@@ -386,28 +392,20 @@ namespace DTX.Resources
 
         private void InitializeDefaultSkinPath()
         {
-            // Look for default skin directory relative to current working directory
-            var defaultPaths = new[]
-            {
-                "System/Default/",
-                "System/",  // DTXMania fallback pattern
-                "Content/Skins/Default/",
-                "Skins/Default/"
-            };
+            // DTXMania pattern: Default skin uses System/ directly, custom skins use System/{SkinName}/
+            var defaultPath = "System/";
 
-            foreach (var path in defaultPaths)
+            if (ValidateSkinPath(defaultPath))
             {
-                if (ValidateSkinPath(path))
-                {
-                    _currentSkinPath = _fallbackSkinPath = path;
-                    Debug.WriteLine($"ResourceManager: Using skin path: {path}");
-                    return;
-                }
+                _currentSkinPath = _fallbackSkinPath = defaultPath;
+                Debug.WriteLine($"ResourceManager: Using default skin path: {defaultPath}");
             }
-
-            // Fallback to System/ even if validation fails (DTXMania compatibility)
-            _currentSkinPath = _fallbackSkinPath = "System/";
-            Debug.WriteLine($"ResourceManager: Fallback to System/ skin path");
+            else
+            {
+                // Fallback to System/ even if validation fails (DTXMania compatibility)
+                _currentSkinPath = _fallbackSkinPath = defaultPath;
+                Debug.WriteLine($"ResourceManager: Fallback to default skin path: {defaultPath} (validation failed)");
+            }
         }
 
         private string ResolvePathWithSkin(string relativePath, string skinPath)
@@ -430,15 +428,26 @@ namespace DTX.Resources
             if (string.IsNullOrEmpty(path))
                 return path;
 
-            // Ensure path ends with directory separator
+            // Ensure directory path ends with directory separator
             return path.EndsWith(Path.DirectorySeparatorChar.ToString())
                 ? path
                 : path + Path.DirectorySeparatorChar;
         }
 
+        private string NormalizeFilePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            // Normalize file path for case-insensitive comparison without adding directory separator
+            return path.Replace('\\', '/').ToLowerInvariant();
+        }
+
         private bool ValidateSkinPath(string skinPath)
         {
             // Based on DTXMania's bIsValid pattern - check for key files
+            // For default skin (System/), files are directly in Graphics/
+            // For custom skins (System/{SkinName}/), files are in Graphics/ subdirectory
             var validationFiles = new[]
             {
                 Path.GetFullPath(Path.Combine(skinPath, "Graphics", "1_background.jpg")),

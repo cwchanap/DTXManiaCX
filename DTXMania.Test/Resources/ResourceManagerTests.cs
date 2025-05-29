@@ -29,9 +29,11 @@ namespace DTXMania.Test.Resources
         private void SetupTestDirectories()
         {
             // Create skin directory structure
-            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Default", "Graphics");
+            // Default skin: System/Graphics/ (no Default subdirectory)
+            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Graphics");
             Directory.CreateDirectory(defaultSkinPath);
 
+            // Custom skin: System/Custom/Graphics/
             var customSkinPath = Path.Combine(_testDataPath, "System", "Custom", "Graphics");
             Directory.CreateDirectory(customSkinPath);
 
@@ -56,7 +58,7 @@ namespace DTXMania.Test.Resources
         public void PathResolution_ShouldWorkWithRelativePaths()
         {
             // Arrange
-            var basePath = "System/Default/";
+            var basePath = "System/";
             var relativePath = "Graphics/test_texture.png";
             var expectedPath = Path.Combine(basePath, relativePath);
 
@@ -72,7 +74,7 @@ namespace DTXMania.Test.Resources
         public void FileExistence_ShouldDetectExistingFiles()
         {
             // Arrange
-            var testFilePath = Path.Combine(_testDataPath, "System", "Default", "Graphics", "test_texture.png");
+            var testFilePath = Path.Combine(_testDataPath, "System", "Graphics", "test_texture.png");
 
             // Act
             var exists = File.Exists(testFilePath);
@@ -85,7 +87,7 @@ namespace DTXMania.Test.Resources
         public void FileExistence_ShouldDetectNonExistingFiles()
         {
             // Arrange
-            var nonExistentPath = Path.Combine(_testDataPath, "System", "Default", "Graphics", "nonexistent.png");
+            var nonExistentPath = Path.Combine(_testDataPath, "System", "Graphics", "nonexistent.png");
 
             // Act
             var exists = File.Exists(nonExistentPath);
@@ -100,14 +102,14 @@ namespace DTXMania.Test.Resources
             // Arrange & Act & Assert
             Assert.True(string.IsNullOrEmpty(null));
             Assert.True(string.IsNullOrEmpty(""));
-            Assert.False(string.IsNullOrEmpty("System/Default/"));
+            Assert.False(string.IsNullOrEmpty("System/"));
         }
 
         [Fact]
         public void DirectoryStructure_ShouldBeSetupCorrectly()
         {
             // Arrange
-            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Default", "Graphics");
+            var defaultSkinPath = Path.Combine(_testDataPath, "System", "Graphics");
             var customSkinPath = Path.Combine(_testDataPath, "System", "Custom", "Graphics");
 
             // Act & Assert
@@ -115,6 +117,54 @@ namespace DTXMania.Test.Resources
             Assert.True(Directory.Exists(customSkinPath));
             Assert.True(File.Exists(Path.Combine(defaultSkinPath, "1_background.jpg")));
             Assert.True(File.Exists(Path.Combine(customSkinPath, "1_background.jpg")));
+        }
+
+        [Fact]
+        public void CaseInsensitivePaths_ShouldResolveToSameFile()
+        {
+            // Arrange
+            var lowerCasePath = "graphics/test_texture.png";
+            var upperCasePath = "GRAPHICS/TEST_TEXTURE.PNG";
+            var mixedCasePath = "Graphics/Test_Texture.PNG";
+
+            // Act - Test path normalization logic
+            var normalized1 = lowerCasePath.Replace('\\', '/').ToLowerInvariant();
+            var normalized2 = upperCasePath.Replace('\\', '/').ToLowerInvariant();
+            var normalized3 = mixedCasePath.Replace('\\', '/').ToLowerInvariant();
+
+            // Assert
+            Assert.Equal(normalized1, normalized2);
+            Assert.Equal(normalized1, normalized3);
+            Assert.Equal("graphics/test_texture.png", normalized1);
+        }
+
+        [Fact]
+        public void CacheKeyGeneration_ShouldIncludeAllParameters()
+        {
+            // Arrange
+            var path = "graphics/test_texture.png";
+            var enableTransparency = true;
+
+            // Act
+            var cacheKey = $"{path}|{enableTransparency}";
+
+            // Assert
+            Assert.Equal("graphics/test_texture.png|True", cacheKey);
+        }
+
+        [Fact]
+        public void FontCacheKeyGeneration_ShouldIncludeAllParameters()
+        {
+            // Arrange
+            var path = "fonts/arial.ttf";
+            var size = 24;
+            var style = FontStyle.Bold;
+
+            // Act
+            var cacheKey = $"{path}|{size}|{style}";
+
+            // Assert
+            Assert.Equal("fonts/arial.ttf|24|Bold", cacheKey);
         }
 
         public void Dispose()

@@ -125,8 +125,9 @@ namespace DTX.Resources
                     LastModified = Directory.GetLastWriteTime(fullSkinPath)
                 };
 
-                // Check if this is the default skin
-                skinInfo.IsDefault = string.Equals(skinInfo.Name, "Default", StringComparison.OrdinalIgnoreCase);
+                // Check if this is the default skin (System/ path)
+                skinInfo.IsDefault = string.Equals(skinInfo.Name, "Default", StringComparison.OrdinalIgnoreCase) ||
+                                   skinPath.TrimEnd(Path.DirectorySeparatorChar, '/').Equals("System", StringComparison.OrdinalIgnoreCase);
 
                 // Validate required files
                 var missingFiles = new List<string>();

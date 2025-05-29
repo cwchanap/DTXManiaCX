@@ -12,7 +12,7 @@ public class ConfigDataTests
 
         // Assert
         Assert.Equal("NX1.5.0-MG", config.DTXManiaVersion);
-        Assert.Equal("System/Default/", config.SkinPath);
+        Assert.Equal("System/", config.SkinPath);
         Assert.Equal("DTXFiles/", config.DTXPath);
         Assert.Equal(1280, config.ScreenWidth);
         Assert.Equal(720, config.ScreenHeight);
@@ -124,7 +124,7 @@ public class ConfigDataTests
     [Theory]
     [InlineData("Custom/Skin/", "Custom/DTX/")]
     [InlineData("", "")]
-    [InlineData("System/Default/", "DTXFiles/")]
+    [InlineData("System/", "DTXFiles/")]
     public void ConfigData_SetPaths_ShouldUpdateCorrectly(string skinPath, string dtxPath)
     {
         // Arrange
