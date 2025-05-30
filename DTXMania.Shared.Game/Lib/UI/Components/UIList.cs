@@ -309,11 +309,7 @@ namespace DTX.UI.Components
 
             var bounds = Bounds;
 
-            // Debug output
-            if (IsFirstUpdate)
-            {
-                System.Diagnostics.Debug.WriteLine($"UIList drawing at {bounds} with {_items.Count} items, font={(_font != null ? "available" : "null")}, bgTexture={(_backgroundTexture != null ? "available" : "null")}");
-            }
+
 
             // Draw background
             DrawBackground(spriteBatch, bounds);
@@ -353,12 +349,7 @@ namespace DTX.UI.Components
         {
             if (_backgroundTexture != null && _backgroundColor != Color.Transparent)
             {
-                System.Diagnostics.Debug.WriteLine($"Drawing UIList background at {bounds} with color {_backgroundColor}");
                 spriteBatch.Draw(_backgroundTexture, bounds, _backgroundColor);
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"NOT drawing UIList background - texture={(_backgroundTexture != null ? "available" : "null")}, color={_backgroundColor}");
             }
         }
 
@@ -409,7 +400,7 @@ namespace DTX.UI.Components
                 backgroundColor = _hoverItemColor;
             }
 
-            System.Diagnostics.Debug.WriteLine($"Drawing item {index} '{item.Text}' at {bounds}, bgColor={backgroundColor}, selected={index == _selectedIndex}");
+
 
             // Draw item background - always draw something to make the list visible
             if (_backgroundTexture != null)
@@ -439,7 +430,6 @@ namespace DTX.UI.Components
                 var indicatorBounds = new Rectangle(bounds.X + 5, bounds.Y + bounds.Height / 2 - 2, bounds.Width - 10, 4);
                 var indicatorColor = index == _selectedIndex ? Color.Yellow : Color.White;
                 spriteBatch.Draw(_backgroundTexture, indicatorBounds, indicatorColor);
-                System.Diagnostics.Debug.WriteLine($"Drawing indicator for item {index} at {indicatorBounds}");
             }
         }
 

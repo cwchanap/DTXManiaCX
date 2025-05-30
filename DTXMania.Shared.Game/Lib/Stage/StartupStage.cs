@@ -121,8 +121,8 @@ namespace DTX.Stage
                 double phaseElapsed = _elapsedTime - _phaseStartTime;
                 if (phaseElapsed >= _phaseInfo[_currentPhase].duration)
                 {
-                    // Transition to Title stage (DTXMania pattern)
-                    _game.StageManager?.ChangeStage(StageType.Title);
+                    // Transition to UITest stage for testing system fonts
+                    _game.StageManager?.ChangeStage(StageType.UITest);
                 }
             }
         }
