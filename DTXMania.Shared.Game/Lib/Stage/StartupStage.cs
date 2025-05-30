@@ -2,6 +2,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Stage;
 using DTX.Resources;
+using DTX.Services;
+using DTX.Config;
 using DTXMania.Shared.Game;
 using System;
 using System.Collections.Generic;
@@ -31,6 +33,11 @@ namespace DTX.Stage
         private StartupPhase _currentPhase = StartupPhase.SystemSounds;
         private bool _isFirstUpdate = true;
 
+        // Services for actual functionality
+        private SongEnumerationService _songEnumerationService;
+        private ConfigurationValidator _configValidator;
+        private ConfigManager _configManager;
+
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
@@ -51,13 +58,19 @@ namespace DTX.Stage
 
             _progressMessages = new List<string>();
 
+            // Initialize services
+            _songEnumerationService = new SongEnumerationService();
+            _configValidator = new ConfigurationValidator();
+            _configManager = new ConfigManager();
+
             // Initialize phase information (based on DTXManiaNX phases)
             _phaseInfo = new Dictionary<StartupPhase, (string, double)>
             {
                 { StartupPhase.SystemSounds, ("Loading system sounds...", 0.5) },
+                { StartupPhase.ConfigValidation, ("Validating configuration...", 0.3) },
                 { StartupPhase.SongListDB, ("Loading songlist.db...", 0.3) },
                 { StartupPhase.SongsDB, ("Loading songs.db...", 0.4) },
-                { StartupPhase.EnumerateSongs, ("Enumerating songs...", 0.8) },
+                { StartupPhase.EnumerateSongs, ("Enumerating songs...", 1.5) },
                 { StartupPhase.LoadScoreCache, ("Loading score properties from songs.db...", 0.6) },
                 { StartupPhase.LoadScoreFiles, ("Loading score properties from files...", 0.7) },
                 { StartupPhase.BuildSongLists, ("Building songlists...", 0.3) },
@@ -121,8 +134,8 @@ namespace DTX.Stage
                 double phaseElapsed = _elapsedTime - _phaseStartTime;
                 if (phaseElapsed >= _phaseInfo[_currentPhase].duration)
                 {
-                    // Transition to UITest stage for testing system fonts
-                    _game.StageManager?.ChangeStage(StageType.UITest);
+                    // Transition to Title stage (proper flow)
+                    _game.StageManager?.ChangeStage(StageType.Title);
                 }
             }
         }
@@ -228,6 +241,9 @@ namespace DTX.Stage
             // Update current progress message
             _currentProgressMessage = currentPhaseInfo.message;
 
+            // Perform phase-specific operations
+            PerformPhaseOperation(_currentPhase, phaseElapsed);
+
             // Check if current phase is complete
             if (phaseElapsed >= currentPhaseInfo.duration)
             {
@@ -245,11 +261,65 @@ namespace DTX.Stage
             }
         }
 
+        private void PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
+        {
+            // Only perform operation once per phase (at the beginning)
+            if (phaseElapsed > 0.1) return;
+
+            switch (phase)
+            {
+                case StartupPhase.SystemSounds:
+                    // Load system sounds (placeholder)
+                    System.Diagnostics.Debug.WriteLine("Loading system sounds...");
+                    break;
+
+                case StartupPhase.ConfigValidation:
+                    // Validate configuration
+                    try
+                    {
+                        _configManager.LoadConfig("config.json");
+                        var config = _configManager.Config;
+                        var isValid = _configValidator.ValidateConfiguration(config);
+                        System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
+                    }
+                    break;
+
+                case StartupPhase.EnumerateSongs:
+                    // Start song enumeration
+                    try
+                    {
+                        var songPaths = new[] { "Songs", "DTX", "Music" };
+                        _ = _songEnumerationService.EnumerateSongsAsync(songPaths);
+                        System.Diagnostics.Debug.WriteLine("Started song enumeration...");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Song enumeration error: {ex.Message}");
+                    }
+                    break;
+
+                case StartupPhase.SongListDB:
+                case StartupPhase.SongsDB:
+                case StartupPhase.LoadScoreCache:
+                case StartupPhase.LoadScoreFiles:
+                case StartupPhase.BuildSongLists:
+                case StartupPhase.SaveSongsDB:
+                    // Placeholder operations for other phases
+                    System.Diagnostics.Debug.WriteLine($"Performing {phase} operation...");
+                    break;
+            }
+        }
+
         private StartupPhase GetNextPhase(StartupPhase currentPhase)
         {
             return currentPhase switch
             {
-                StartupPhase.SystemSounds => StartupPhase.SongListDB,
+                StartupPhase.SystemSounds => StartupPhase.ConfigValidation,
+                StartupPhase.ConfigValidation => StartupPhase.SongListDB,
                 StartupPhase.SongListDB => StartupPhase.SongsDB,
                 StartupPhase.SongsDB => StartupPhase.EnumerateSongs,
                 StartupPhase.EnumerateSongs => StartupPhase.LoadScoreCache,
@@ -358,14 +428,15 @@ namespace DTX.Stage
         private enum StartupPhase
         {
             SystemSounds = 0,
-            SongListDB = 1,
-            SongsDB = 2,
-            EnumerateSongs = 3,
-            LoadScoreCache = 4,
-            LoadScoreFiles = 5,
-            BuildSongLists = 6,
-            SaveSongsDB = 7,
-            Complete = 8
+            ConfigValidation = 1,
+            SongListDB = 2,
+            SongsDB = 3,
+            EnumerateSongs = 4,
+            LoadScoreCache = 5,
+            LoadScoreFiles = 6,
+            BuildSongLists = 7,
+            SaveSongsDB = 8,
+            Complete = 9
         }
 
         #endregion

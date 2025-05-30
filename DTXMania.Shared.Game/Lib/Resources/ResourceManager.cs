@@ -80,20 +80,20 @@ namespace DTX.Resources
 
             try
             {
-                // Resolve path using skin system
-                var resolvedPath = ResolvePath(normalizedPath);
+                // Resolve path using skin system (use original path for file system operations)
+                var resolvedPath = ResolvePath(path);
 
                 // Validate file exists
                 if (!File.Exists(resolvedPath))
                 {
                     // Try fallback skin
-                    var fallbackPath = ResolvePathWithSkin(normalizedPath, _fallbackSkinPath);
+                    var fallbackPath = ResolvePathWithSkin(path, _fallbackSkinPath);
                     if (!File.Exists(fallbackPath))
                     {
-                        var errorMsg = $"Texture not found: {normalizedPath} (resolved: {resolvedPath})";
-                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(normalizedPath,
+                        var errorMsg = $"Texture not found: {path} (resolved: {resolvedPath})";
+                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
                             new FileNotFoundException(errorMsg), errorMsg));
-                        return CreateFallbackTexture(normalizedPath);
+                        return CreateFallbackTexture(path);
                     }
                     resolvedPath = fallbackPath;
                 }
@@ -106,7 +106,7 @@ namespace DTX.Resources
                 };
 
                 // Load and create texture
-                var texture = new ManagedTexture(_graphicsDevice, resolvedPath, normalizedPath, creationParams);
+                var texture = new ManagedTexture(_graphicsDevice, resolvedPath, path, creationParams);
                 texture.AddReference();
 
                 // Cache the texture

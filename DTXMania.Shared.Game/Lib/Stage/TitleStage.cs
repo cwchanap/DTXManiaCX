@@ -29,6 +29,8 @@ namespace DTX.Stage
         private bool _isFirstUpdate = true;
         private TitlePhase _currentPhase = TitlePhase.FadeIn;
 
+
+
         // Menu system
         private int _currentMenuIndex = 0;
         private readonly string[] _menuItems = { "GAME START", "CONFIG", "EXIT" };
@@ -112,14 +114,14 @@ namespace DTX.Stage
             if (_isFirstUpdate)
             {
                 _isFirstUpdate = false;
-                _currentPhase = TitlePhase.Normal;
+                _currentPhase = TitlePhase.Normal; // Go directly to normal menu
                 _cursorFlashTimer = 0;
             }
 
             // Update animations
             UpdateAnimations(deltaTime);
 
-            // Handle input only in normal phase
+            // Handle input
             if (_currentPhase == TitlePhase.Normal)
             {
                 HandleInput();
@@ -228,6 +230,14 @@ namespace DTX.Stage
                 // Menu texture is optional - we'll draw text-based menu as fallback
             }
         }
+
+
+
+
+
+        #endregion
+
+        #region Private Methods - Animation and Input
 
 
 
@@ -415,6 +425,8 @@ namespace DTX.Stage
                 DrawTextRect(MenuX - 2, cursorY - 2, MenuItemWidth + 4, MenuItemHeight + 4, cursorColor);
             }
         }
+
+
 
         private void DrawTextRect(int x, int y, int width, int height, Color color)
         {
