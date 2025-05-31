@@ -25,6 +25,7 @@ namespace DTX.Stage
         private Texture2D _whitePixel;
         private ITexture _backgroundTexture;
         private IResourceManager _resourceManager;
+        private BitmapFont _bitmapFont;
         private bool _disposed = false;
 
         // DTXMania pattern: progress tracking
@@ -97,6 +98,9 @@ namespace DTX.Stage
             // Initialize ResourceManager
             _resourceManager = new ResourceManager(graphicsDevice);
 
+            // Initialize bitmap font for text rendering
+            _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager);
+
             // Load background texture (DTXManiaNX uses 1_background.jpg)
             LoadBackgroundTexture();
 
@@ -109,7 +113,6 @@ namespace DTX.Stage
 
             // Add initial messages (DTXMania pattern)
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
-            _progressMessages.Add($"Release: DTXManiaCX v1.0.0 [MonoGame Edition]");
 
             System.Diagnostics.Debug.WriteLine("Startup Stage activated successfully");
         }
@@ -149,6 +152,9 @@ namespace DTX.Stage
 
             // Draw background
             DrawBackground();
+
+            // Draw version info (DTXMania pattern)
+            DrawVersionInfo();
 
             // Draw progress messages (DTXMania pattern)
             DrawProgressMessages();
@@ -192,11 +198,13 @@ namespace DTX.Stage
 
                     // Cleanup MonoGame resources
                     _backgroundTexture?.Dispose();
+                    _bitmapFont?.Dispose();
                     _whitePixel?.Dispose();
                     _spriteBatch?.Dispose();
                     _resourceManager?.Dispose();
 
                     _backgroundTexture = null;
+                    _bitmapFont = null;
                     _whitePixel = null;
                     _spriteBatch = null;
                     _resourceManager = null;
@@ -354,29 +362,67 @@ namespace DTX.Stage
             }
         }
 
+        private void DrawVersionInfo()
+        {
+            // Draw version info in top-right corner (DTXMania pattern)
+            const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
+            var viewport = _game.GraphicsDevice.Viewport;
+
+            if (_bitmapFont?.IsLoaded == true)
+            {
+                // Calculate position for top-right alignment
+                var textSize = _bitmapFont.MeasureText(versionText);
+                int x = viewport.Width - (int)textSize.X - 10; // 10 pixels from right edge
+                int y = 2; // 2 pixels from top
+
+                _bitmapFont.DrawText(_spriteBatch, versionText, x, y, BitmapFont.FontType.Normal);
+            }
+            else
+            {
+                // Fallback to rectangle in top-right corner
+                int x = viewport.Width - (versionText.Length * 8) - 10;
+                int y = 2;
+                DrawTextRect(x, y, versionText.Length * 8, 16, Color.White);
+            }
+        }
+
         private void DrawProgressMessages()
         {
-            if (_whitePixel == null)
-                return;
-
-            // Draw progress messages (DTXMania pattern)
+            // Draw progress messages using bitmap font (DTXMania pattern)
             int x = 10;
             int y = 10;
-            const int lineHeight = 14;
+            const int lineHeight = 18; // Slightly larger for better readability
 
             lock (_progressMessages)
             {
                 foreach (string message in _progressMessages)
                 {
-                    // Draw text as rectangles (since we don't have fonts yet)
-                    DrawTextRect(x, y, message.Length * 8, 12, Color.White);
+                    if (_bitmapFont?.IsLoaded == true)
+                    {
+                        // Use bitmap font for authentic DTXMania text rendering
+                        _bitmapFont.DrawText(_spriteBatch, message, x, y, BitmapFont.FontType.Normal);
+                    }
+                    else
+                    {
+                        // Fallback to rectangles if font not available
+                        DrawTextRect(x, y, message.Length * 8, 12, Color.White);
+                    }
                     y += lineHeight;
                 }
 
-                // Draw current progress message
+                // Draw current progress message in different color/style
                 if (!string.IsNullOrEmpty(_currentProgressMessage))
                 {
-                    DrawTextRect(x, y, _currentProgressMessage.Length * 8, 12, Color.Yellow);
+                    if (_bitmapFont?.IsLoaded == true)
+                    {
+                        // Use thin font for current progress (DTXMania style)
+                        _bitmapFont.DrawText(_spriteBatch, _currentProgressMessage, x, y, BitmapFont.FontType.Thin);
+                    }
+                    else
+                    {
+                        // Fallback to yellow rectangle
+                        DrawTextRect(x, y, _currentProgressMessage.Length * 8, 12, Color.Yellow);
+                    }
                 }
             }
         }
@@ -395,11 +441,12 @@ namespace DTX.Stage
 
             double overallProgress = (currentPhaseIndex + phaseProgress) / totalPhases;
 
-            // Draw progress bar
-            const int progressBarX = 10;
-            const int progressBarY = 200;
+            // Draw progress bar in lower middle of screen
+            var viewport = _game.GraphicsDevice.Viewport;
             const int progressBarWidth = 400;
             const int progressBarHeight = 20;
+            int progressBarX = (viewport.Width - progressBarWidth) / 2; // Center horizontally
+            int progressBarY = viewport.Height - 120; // 120 pixels from bottom
 
             // Background
             DrawTextRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight, Color.DarkGray);
@@ -410,7 +457,14 @@ namespace DTX.Stage
 
             // Progress percentage
             string progressText = $"{overallProgress * 100:F1}%";
-            DrawTextRect(progressBarX + progressBarWidth + 10, progressBarY + 2, progressText.Length * 8, 16, Color.White);
+            if (_bitmapFont?.IsLoaded == true)
+            {
+                _bitmapFont.DrawText(_spriteBatch, progressText, progressBarX + progressBarWidth + 10, progressBarY + 2, BitmapFont.FontType.Normal);
+            }
+            else
+            {
+                DrawTextRect(progressBarX + progressBarWidth + 10, progressBarY + 2, progressText.Length * 8, 16, Color.White);
+            }
         }
 
         private void DrawTextRect(int x, int y, int width, int height, Color color)
