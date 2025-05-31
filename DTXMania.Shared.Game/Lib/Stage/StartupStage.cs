@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DTX.Stage;
 using DTX.Resources;
 using DTX.Services;
+using DTX.Song;
 using DTX.Config;
 using DTXMania.Shared.Game;
 using System;
@@ -33,6 +34,7 @@ namespace DTX.Stage
 
         // Services for actual functionality
         private SongEnumerationService _songEnumerationService;
+        private SongManager _songManager;
         private ConfigurationValidator _configValidator;
         private ConfigManager _configManager;
 
@@ -57,6 +59,7 @@ namespace DTX.Stage
 
             // Initialize services
             _songEnumerationService = new SongEnumerationService();
+            _songManager = new SongManager();
             _configValidator = new ConfigurationValidator();
             _configManager = new ConfigManager();
 
@@ -272,12 +275,22 @@ namespace DTX.Stage
                     break;
 
                 case StartupPhase.EnumerateSongs:
-                    // Start song enumeration
+                    // Start song enumeration with new SongManager
                     try
                     {
-                        var songPaths = new[] { "Songs", "DTX", "Music" };
+                        // Point to the user's DTXFiles folder
+                        var songPaths = new[] { "DTXFiles" };
+
+                        // Test Phase 1 implementation
+                        _ = SongSystemTest.RunBasicTestAsync();
+
+                        // Use new SongManager for enumeration
+                        _ = _songManager.EnumerateSongsAsync(songPaths);
+                        System.Diagnostics.Debug.WriteLine("Started song enumeration with new SongManager (DTXFiles folder)...");
+
+                        // Keep old service for compatibility
                         _ = _songEnumerationService.EnumerateSongsAsync(songPaths);
-                        System.Diagnostics.Debug.WriteLine("Started song enumeration...");
+                        System.Diagnostics.Debug.WriteLine("Started song enumeration with legacy service (DTXFiles folder)...");
                     }
                     catch (Exception ex)
                     {

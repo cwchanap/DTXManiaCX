@@ -4,12 +4,17 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using DTX.Song;
 
 namespace DTX.Services
 {
     /// <summary>
     /// Service for enumerating and discovering song files
     /// Based on DTXManiaNX CEnumSongs patterns
+    ///
+    /// NOTE: This service is being superseded by the new SongManager class
+    /// which provides more comprehensive song management with metadata parsing
+    /// and hierarchical organization. This class remains for compatibility.
     /// </summary>
     public class SongEnumerationService
     {
