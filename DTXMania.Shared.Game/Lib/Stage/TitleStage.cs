@@ -381,6 +381,95 @@ namespace DTX.Stage
 
         private void DrawMenu()
         {
+            // Use texture-based menu rendering if available, otherwise fallback to rectangles
+            if (_menuTexture != null)
+            {
+                DrawMenuWithTexture();
+            }
+            else if (_whitePixel != null)
+            {
+                DrawMenuWithRectangles();
+            }
+        }
+
+        private void DrawMenuWithTexture()
+        {
+            if (_menuTexture == null)
+                return;
+
+            // Calculate menu position with animation offset
+            int baseY = MenuY;
+            int animationOffset = 0;
+
+            if (_isMovingUp && _menuMoveTimer < 0.1)
+            {
+                float progress = (float)(_menuMoveTimer / 0.1);
+                animationOffset = (int)(MenuItemHeight * 0.5 * (Math.Cos(Math.PI * progress) + 1.0));
+            }
+            else if (_isMovingDown && _menuMoveTimer < 0.1)
+            {
+                float progress = (float)(_menuMoveTimer / 0.1);
+                animationOffset = -(int)(MenuItemHeight * 0.5 * (Math.Cos(Math.PI * progress) + 1.0));
+            }
+
+            // Draw menu items from texture (following DTXMania pattern)
+            // Menu texture layout: GAME START (row 0), OPTION (row 1, skipped), CONFIG (row 2), EXIT (row 3)
+            DrawMenuItemFromTexture(0, MenuX, baseY + animationOffset, 0); // GAME START
+            DrawMenuItemFromTexture(1, MenuX, baseY + MenuItemHeight + animationOffset, 2); // CONFIG (skip OPTION row)
+            DrawMenuItemFromTexture(2, MenuX, baseY + (2 * MenuItemHeight) + animationOffset, 3); // EXIT
+
+            // Draw cursor with DTXMania-style effects
+            DrawMenuCursor(baseY, animationOffset);
+        }
+
+        private void DrawMenuItemFromTexture(int menuIndex, int x, int y, int textureRow)
+        {
+            if (_menuTexture == null)
+                return;
+
+            // Create source rectangle for the menu item from texture
+            var sourceRect = new Rectangle(0, textureRow * MenuItemHeight, MenuItemWidth, MenuItemHeight);
+            var destRect = new Rectangle(x, y, MenuItemWidth, MenuItemHeight);
+
+            // Draw the menu item
+            _spriteBatch.Draw(_menuTexture.Texture, destRect, sourceRect, Color.White);
+        }
+
+        private void DrawMenuCursor(int baseY, int animationOffset)
+        {
+            if (_currentMenuIndex < 0 || _currentMenuIndex >= _menuItems.Length || _menuTexture == null)
+                return;
+
+            int cursorY = baseY + (_currentMenuIndex * MenuItemHeight) + animationOffset;
+
+            // DTXMania cursor effect: scaling and transparency animation
+            float flashProgress = (float)(_cursorFlashTimer / 0.7); // 0.7 second cycle
+            float scaleMagnification = 1.0f + (flashProgress * 0.5f); // Scale up to 1.5x
+            int transparency = (int)(255.0f * (1.0f - flashProgress)); // Fade out during flash
+
+            // Calculate scaled position to center the scaled cursor
+            int scaledWidth = (int)(MenuItemWidth * scaleMagnification);
+            int scaledHeight = (int)(MenuItemHeight * scaleMagnification);
+            int scaledX = MenuX + (int)((MenuItemWidth * (1.0f - scaleMagnification)) / 2.0f);
+            int scaledY = cursorY + (int)((MenuItemHeight * (1.0f - scaleMagnification)) / 2.0f);
+
+            // Draw cursor background (row 4 in texture) with scaling effect
+            var cursorSourceRect = new Rectangle(0, 4 * MenuItemHeight, MenuItemWidth, MenuItemHeight);
+            var cursorDestRect = new Rectangle(scaledX, scaledY, scaledWidth, scaledHeight);
+            var cursorColor = Color.White * (transparency / 255.0f);
+
+            _spriteBatch.Draw(_menuTexture.Texture, cursorDestRect, cursorSourceRect, cursorColor);
+
+            // Draw normal cursor (row 5 in texture) without scaling
+            var normalCursorSourceRect = new Rectangle(0, 5 * MenuItemHeight, MenuItemWidth, MenuItemHeight);
+            var normalCursorDestRect = new Rectangle(MenuX, cursorY, MenuItemWidth, MenuItemHeight);
+
+            _spriteBatch.Draw(_menuTexture.Texture, normalCursorDestRect, normalCursorSourceRect, Color.White);
+        }
+
+        private void DrawMenuWithRectangles()
+        {
+            // Fallback rectangle-based rendering (existing implementation)
             if (_whitePixel == null)
                 return;
 
