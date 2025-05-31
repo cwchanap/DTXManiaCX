@@ -199,8 +199,8 @@ namespace DTX.Stage
         {
             try
             {
-                // Create ResourceManager
-                _resourceManager = new DTX.Resources.ResourceManager(graphicsDevice);
+                // Create ResourceManager using factory
+                _resourceManager = DTX.Resources.ResourceManagerFactory.CreateResourceManager(graphicsDevice);
                 _resourceManager.SetSkinPath("System/");
 
                 System.Diagnostics.Debug.WriteLine("ResourceManager initialized");

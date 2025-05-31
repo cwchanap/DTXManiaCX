@@ -8,48 +8,44 @@ using System.Linq;
 using System.Threading;
 using XnaColor = Microsoft.Xna.Framework.Color;
 using XnaRectangle = Microsoft.Xna.Framework.Rectangle;
-using GdiColor = System.Drawing.Color;
-using GdiRectangle = System.Drawing.Rectangle;
 
 namespace DTX.Resources
 {
     /// <summary>
-    /// Managed font implementation with reference counting
+    /// Abstract managed font implementation with reference counting
     /// Based on DTXMania's CPrivateFont patterns with Japanese support
+    /// Platform-specific implementations handle font loading
     /// </summary>
-    public class ManagedFont : IFont
+    public abstract class ManagedFont : IFont
     {
         #region Private Fields
 
-        private SpriteFont _spriteFont;
-        private readonly string _sourcePath;
-        private readonly int _size;
-        private readonly FontStyle _style;
-        private int _referenceCount;
-        private bool _disposed;
-        private readonly object _lockObject = new object();
-        private char _defaultCharacter = '?';
+        protected SpriteFont _spriteFont;
+        protected readonly string _sourcePath;
+        protected readonly int _size;
+        protected readonly FontStyle _style;
+        protected int _referenceCount;
+        protected bool _disposed;
+        protected readonly object _lockObject = new object();
+        protected char _defaultCharacter = '?';
 
         // Character support cache for performance
-        private readonly HashSet<char> _supportedCharacters = new HashSet<char>();
-        private bool _characterCacheBuilt = false;
+        protected readonly HashSet<char> _supportedCharacters = new HashSet<char>();
+        protected bool _characterCacheBuilt = false;
 
         // Custom font rendering data (when SpriteFont creation fails)
-        private Texture2D _customFontTexture;
-        private Dictionary<char, XnaRectangle> _customFontGlyphs;
-        private HashSet<char> _customFontCharacters;
-        private int _customLineSpacing;
+        protected Texture2D _customFontTexture;
+        protected Dictionary<char, XnaRectangle> _customFontGlyphs;
+        protected HashSet<char> _customFontCharacters;
+        protected int _customLineSpacing;
 
         // Text rendering cache for performance (similar to CPrivateFastFont)
-        private readonly Dictionary<string, CachedTextRender> _textRenderCache = new Dictionary<string, CachedTextRender>();
-        private const int MaxCacheSize = 128;
+        protected readonly Dictionary<string, CachedTextRender> _textRenderCache = new Dictionary<string, CachedTextRender>();
+        protected const int MaxCacheSize = 128;
 
-        // GDI+ font resources (like DTXMania's CPrivateFont)
-        private System.Drawing.Text.PrivateFontCollection _privateFontCollection;
-        private System.Drawing.FontFamily _fontFamily;
-        private System.Drawing.Font _gdiFont;
+        // Platform-specific font resources (implemented by derived classes)
 
-        private struct CachedTextRender
+        protected struct CachedTextRender
         {
             public ITexture Texture;
             public TextRenderOptions Options;
@@ -64,7 +60,7 @@ namespace DTX.Resources
         /// <summary>
         /// Create font from system font name or font file path
         /// </summary>
-        public ManagedFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
+        protected ManagedFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
         {
             if (graphicsDevice == null)
                 throw new ArgumentNullException(nameof(graphicsDevice));
@@ -524,227 +520,23 @@ namespace DTX.Resources
 
         #region Private Methods
 
-        private void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
-        {
-            try
-            {
-                // First, try to load as a SpriteFont from content pipeline
-                if (fontPath.EndsWith(".spritefont", StringComparison.OrdinalIgnoreCase))
-                {
-                    LoadSpriteFontFromContent(graphicsDevice, fontPath);
-                    return;
-                }
-
-                // Try to load as TTF/OTF font file
-                if (File.Exists(fontPath) && IsSupportedFontFile(fontPath))
-                {
-                    LoadTrueTypeFont(graphicsDevice, fontPath, size, style);
-                    return;
-                }
-
-                // Try to load as system font by name
-                LoadSystemFont(graphicsDevice, fontPath, size, style);
-            }
-            catch (Exception ex)
-            {
-                // Fallback to default system font
-                Debug.WriteLine($"ManagedFont: Creating minimal fallback font");
-                try
-                {
-                    // Try Arial as fallback
-                    LoadSystemFont(graphicsDevice, "Arial", size, style);
-                }
-                catch
-                {
-                    // If Arial fails, try Segoe UI
-                    try
-                    {
-                        LoadSystemFont(graphicsDevice, "Segoe UI", size, style);
-                    }
-                    catch
-                    {
-                        // Last resort - create a minimal placeholder
-                        Debug.WriteLine("ManagedFont: All fallback fonts failed, creating minimal placeholder");
-                        _customLineSpacing = size;
-                        _customFontCharacters = new HashSet<char> { '?' };
-                        _customFontGlyphs = new Dictionary<char, XnaRectangle> { { '?', new XnaRectangle(0, 0, size, size) } };
-                        BuildCharacterCache();
-                    }
-                }
-                Debug.WriteLine($"ManagedFont: Failed to load font '{fontPath}', using fallback. Error: {ex.Message}");
-            }
-        }
-
-        private bool IsSupportedFontFile(string fontPath)
-        {
-            var extension = Path.GetExtension(fontPath).ToLowerInvariant();
-            return extension == ".ttf" || extension == ".otf" || extension == ".ttc";
-        }
-
-        private void LoadSpriteFontFromContent(GraphicsDevice graphicsDevice, string fontPath)
-        {
-            // Remove .spritefont extension for content loading
-            var contentName = Path.GetFileNameWithoutExtension(fontPath);
-
-            // This would require a content manager - for now, throw with better error message
-            throw new FontLoadException(fontPath,
-                "SpriteFont loading requires ContentManager integration. " +
-                "Please use TTF/OTF files or system fonts instead.");
-        }
-
-        private void LoadTrueTypeFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
-        {
-            try
-            {
-                // Use DTXMania's approach: load TTF/OTF using PrivateFontCollection
-                LoadPrivateFont(fontPath, size, style);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to load TTF/OTF font {fontPath}: {ex.Message}");
-                // Try system font as fallback
-                var fontName = Path.GetFileNameWithoutExtension(fontPath);
-                LoadSystemFont(graphicsDevice, fontName, size, style);
-            }
-        }
-
-        private void LoadPrivateFont(string fontPath, int size, FontStyle style)
-        {
-            try
-            {
-                Debug.WriteLine($"Attempting to load private font: {fontPath}");
-
-                // Create PrivateFontCollection like DTXMania does
-                _privateFontCollection = new System.Drawing.Text.PrivateFontCollection();
-                _privateFontCollection.AddFontFile(fontPath);
-
-                // Get the font family
-                if (_privateFontCollection.Families.Length == 0)
-                {
-                    throw new FontLoadException(fontPath, "No font families found in font file");
-                }
-
-                _fontFamily = _privateFontCollection.Families[0];
-                Debug.WriteLine($"Loaded font family: {_fontFamily.Name}");
-
-                // Convert our FontStyle to System.Drawing.FontStyle
-                var gdiStyle = ConvertToGdiFontStyle(style);
-                var originalStyle = style;
-
-                // Check if the requested style is available
-                if (!_fontFamily.IsStyleAvailable(gdiStyle))
-                {
-                    Debug.WriteLine($"Style {style} not available, trying alternatives...");
-                    // Try different styles like DTXMania does
-                    var availableStyles = new[] { System.Drawing.FontStyle.Regular, System.Drawing.FontStyle.Bold, System.Drawing.FontStyle.Italic };
-                    foreach (var availableStyle in availableStyles)
-                    {
-                        if (_fontFamily.IsStyleAvailable(availableStyle))
-                        {
-                            gdiStyle = availableStyle;
-                            Debug.WriteLine($"Font style changed from {originalStyle} to {availableStyle} for {fontPath}");
-                            break;
-                        }
-                    }
-                }
-
-                // Create the font with pixel-based sizing like DTXMania
-                float emSize = size * 96.0f / 72.0f; // Convert points to pixels
-                _gdiFont = new System.Drawing.Font(_fontFamily, emSize, gdiStyle, System.Drawing.GraphicsUnit.Pixel);
-
-                Debug.WriteLine($"Successfully loaded private font: {fontPath} ({_fontFamily.Name}, {gdiStyle}, {emSize}px)");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to load private font {fontPath}: {ex.Message}");
-                throw new FontLoadException(fontPath, $"Failed to load private font: {ex.Message}", ex);
-            }
-        }
+        /// <summary>
+        /// Platform-specific font loading implementation
+        /// </summary>
+        protected abstract void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style);
 
         /// <summary>
-        /// Convert our FontStyle enum to System.Drawing.FontStyle
+        /// Check if a font file is supported (implemented by derived classes)
         /// </summary>
-        private static System.Drawing.FontStyle ConvertToGdiFontStyle(FontStyle style)
+        protected virtual bool IsSupportedFontFile(string fontPath)
         {
-            return style switch
-            {
-                FontStyle.Regular => System.Drawing.FontStyle.Regular,
-                FontStyle.Bold => System.Drawing.FontStyle.Bold,
-                FontStyle.Italic => System.Drawing.FontStyle.Italic,
-                _ => System.Drawing.FontStyle.Regular
-            };
+            var extension = Path.GetExtension(fontPath).ToLowerInvariant();
+            return extension == ".ttf" || extension == ".otf" || extension == ".ttc" || extension == ".spritefont";
         }
 
-        private void LoadSystemFont(GraphicsDevice graphicsDevice, string fontName, int size, FontStyle style)
-        {
-            try
-            {
-                Debug.WriteLine($"Attempting to load system font: {fontName} {size}pt {style}");
+        // Windows-specific font loading methods moved to platform-specific implementations
 
-                // Use custom font renderer directly (no SpriteFont fallbacks)
-                if (TryCreateSimpleSystemFont(graphicsDevice, fontName, size, style))
-                {
-                    Debug.WriteLine($"Successfully loaded system font using custom renderer: {fontName}");
-                    return;
-                }
-
-                // If custom font creation fails, throw exception
-                throw new FontLoadException(fontName, "Failed to create custom font renderer");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Failed to load system font {fontName}: {ex.Message}");
-                throw new FontLoadException(fontName, $"Failed to load system font: {ex.Message}", ex);
-            }
-        }
-
-        private bool TryCreateSimpleSystemFont(GraphicsDevice graphicsDevice, string fontName, int size, FontStyle style)
-        {
-            try
-            {
-                Debug.WriteLine($"Creating custom font renderer for {fontName}");
-
-                // Create a minimal character set for testing
-                var basicChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !@#$%^&*()_+-=[]{}|;:,.<>?";
-
-                // Convert our FontStyle to System.Drawing.FontStyle
-                var gdiStyle = ConvertToGdiFontStyle(style);
-
-                // Create GDI+ font
-                float emSize = size * 96.0f / 72.0f; // Convert points to pixels
-                using (var gdiFont = new System.Drawing.Font(fontName, emSize, gdiStyle, System.Drawing.GraphicsUnit.Pixel))
-                {
-                    Debug.WriteLine($"Created GDI font: {gdiFont.Name} {gdiFont.Size}px");
-
-                    // Create a simple texture atlas with just basic characters
-                    var atlas = CreateSimpleFontAtlas(graphicsDevice, gdiFont, basicChars);
-
-                    // Store custom font data directly (skip SpriteFont creation)
-                    _customFontTexture = atlas.Texture;
-                    _customFontGlyphs = atlas.Characters.ToDictionary(kvp => kvp.Key, kvp =>
-                        new XnaRectangle(kvp.Value.AtlasX, kvp.Value.AtlasY, kvp.Value.AtlasWidth, kvp.Value.AtlasHeight));
-                    _customFontCharacters = new HashSet<char>(atlas.Characters.Keys);
-                    _customLineSpacing = atlas.LineSpacing;
-
-                    // Build character cache
-                    BuildCharacterCache();
-
-                    Debug.WriteLine($"Custom font renderer created successfully with {basicChars.Length} characters");
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Custom font creation failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        // Removed CreateSystemFontSpriteFont and CreateSpriteFontFromGdiFont - using custom renderer only
-
-        // Removed LoadFallbackFont, CreateFontAtlas, and CreateSpriteFontFromAtlas - using custom renderer only
-
-        private void BuildCharacterCache()
+        protected void BuildCharacterCache()
         {
             _supportedCharacters.Clear();
 
@@ -766,7 +558,7 @@ namespace DTX.Resources
             _characterCacheBuilt = true;
         }
 
-        private void BuildCharacterRangeCache()
+        protected void BuildCharacterRangeCache()
         {
             // Basic ASCII (0x20-0x7E)
             TestCharacterRange(0x0020, 0x007E, "Basic ASCII");
@@ -793,7 +585,7 @@ namespace DTX.Resources
             Debug.WriteLine($"ManagedFont: Character cache built with {_supportedCharacters.Count} supported characters");
         }
 
-        private void TestCharacterRange(int startCode, int endCode, string rangeName)
+        protected void TestCharacterRange(int startCode, int endCode, string rangeName)
         {
             int supportedCount = 0;
             for (int code = startCode; code <= endCode; code++)
@@ -808,7 +600,7 @@ namespace DTX.Resources
             Debug.WriteLine($"ManagedFont: {rangeName} range - {supportedCount}/{endCode - startCode + 1} characters supported");
         }
 
-        private void TestCommonKanjiCharacters()
+        protected void TestCommonKanjiCharacters()
         {
             // Test a subset of common Kanji characters for performance
             // These are some of the most frequently used Kanji
@@ -835,7 +627,7 @@ namespace DTX.Resources
             Debug.WriteLine($"ManagedFont: Common Kanji - {supportedCount}/{commonKanji.Length} characters supported");
         }
 
-        private bool TestCharacterSupport(char character)
+        protected bool TestCharacterSupport(char character)
         {
             if (_spriteFont == null) return false;
 
@@ -1077,276 +869,34 @@ namespace DTX.Resources
 
         #endregion
 
-        #region Simple Font Creation Methods
-
-        private FontAtlas CreateSimpleFontAtlas(GraphicsDevice graphicsDevice, System.Drawing.Font gdiFont, string characters)
-        {
-            try
-            {
-                Debug.WriteLine($"Creating simple font atlas with {characters.Length} characters");
-
-                // Measure all characters to determine atlas size
-                var charData = new Dictionary<char, CharacterData>();
-                int maxCharWidth = 0;
-                int maxCharHeight = 0;
-
-                using (var bitmap = new System.Drawing.Bitmap(1, 1))
-                using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-                {
-                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-
-                    foreach (char c in characters)
-                    {
-                        var charString = c.ToString();
-                        var size = graphics.MeasureString(charString, gdiFont, System.Drawing.PointF.Empty, System.Drawing.StringFormat.GenericTypographic);
-
-                        var charWidth = (int)Math.Ceiling(size.Width) + 2; // Add padding
-                        var charHeight = (int)Math.Ceiling(size.Height) + 2;
-
-                        maxCharWidth = Math.Max(maxCharWidth, charWidth);
-                        maxCharHeight = Math.Max(maxCharHeight, charHeight);
-
-                        charData[c] = new CharacterData
-                        {
-                            Character = c,
-                            Width = charWidth,
-                            Height = charHeight
-                        };
-                    }
-                }
-
-                // Calculate atlas dimensions (smaller for simple version)
-                int charsPerRow = 16; // Fixed grid for simplicity
-                int atlasWidth = NextPowerOfTwo(charsPerRow * maxCharWidth);
-                int atlasHeight = NextPowerOfTwo((int)Math.Ceiling((double)characters.Length / charsPerRow) * maxCharHeight);
-
-                Debug.WriteLine($"Atlas dimensions: {atlasWidth}x{atlasHeight}, char size: {maxCharWidth}x{maxCharHeight}");
-
-                // Create atlas bitmap
-                using (var atlasBitmap = new System.Drawing.Bitmap(atlasWidth, atlasHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
-                using (var graphics = System.Drawing.Graphics.FromImage(atlasBitmap))
-                {
-                    graphics.Clear(System.Drawing.Color.Transparent);
-                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-
-                    // Render characters to atlas
-                    int x = 0, y = 0;
-                    int charIndex = 0;
-                    foreach (char c in characters)
-                    {
-                        var data = charData[c];
-
-                        // Draw character
-                        graphics.DrawString(c.ToString(), gdiFont, System.Drawing.Brushes.White, x + 1, y + 1, System.Drawing.StringFormat.GenericTypographic);
-
-                        // Update character data with atlas position
-                        data.AtlasX = x;
-                        data.AtlasY = y;
-                        data.AtlasWidth = maxCharWidth;
-                        data.AtlasHeight = maxCharHeight;
-
-                        // Move to next position
-                        x += maxCharWidth;
-                        charIndex++;
-                        if (charIndex % charsPerRow == 0)
-                        {
-                            x = 0;
-                            y += maxCharHeight;
-                        }
-                    }
-
-                    // Convert to MonoGame texture
-                    var texture = CreateTextureFromBitmap(graphicsDevice, atlasBitmap);
-
-                    return new FontAtlas
-                    {
-                        Texture = texture,
-                        Characters = charData,
-                        LineSpacing = maxCharHeight
-                    };
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"CreateSimpleFontAtlas error: {ex.Message}");
-                throw;
-            }
-        }
-
-        private SpriteFont CreateSimpleSpriteFontFromAtlas(GraphicsDevice graphicsDevice, FontAtlas atlas, System.Drawing.Font gdiFont)
-        {
-            try
-            {
-                Debug.WriteLine("Creating simple SpriteFont from atlas");
-
-                // Create character data for SpriteFont
-                var glyphs = new List<XnaRectangle>();
-                var cropping = new List<XnaRectangle>();
-                var characters = new List<char>();
-                var kerning = new List<Vector3>();
-
-                foreach (var kvp in atlas.Characters.OrderBy(x => x.Key))
-                {
-                    var c = kvp.Key;
-                    var data = kvp.Value;
-
-                    characters.Add(c);
-
-                    // Glyph rectangle in atlas texture
-                    glyphs.Add(new XnaRectangle(data.AtlasX, data.AtlasY, data.Width, data.Height));
-
-                    // Cropping rectangle (no cropping for simplicity)
-                    cropping.Add(new XnaRectangle(0, 0, data.Width, data.Height));
-
-                    // Kerning (left bearing, width, right bearing)
-                    kerning.Add(new Vector3(0, data.Width, 0));
-                }
-
-                // Try to create SpriteFont using a simpler approach
-                // Instead of reflection, we'll try to use MonoGame's built-in methods if available
-                return TryCreateSpriteFontDirect(atlas.Texture, glyphs, cropping, characters, atlas.LineSpacing, kerning);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"CreateSimpleSpriteFontFromAtlas error: {ex.Message}");
-                return null;
-            }
-        }
-
-        private SpriteFont TryCreateSpriteFontDirect(Texture2D texture, List<XnaRectangle> glyphs, List<XnaRectangle> cropping, List<char> characters, int lineSpacing, List<Vector3> kerning)
-        {
-            try
-            {
-                Debug.WriteLine("Attempting to create SpriteFont via reflection...");
-
-                // Try multiple constructor signatures that MonoGame might use
-                var spriteFontType = typeof(SpriteFont);
-
-                // Try the most common constructor signature first
-                var constructors = spriteFontType.GetConstructors(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                Debug.WriteLine($"Found {constructors.Length} constructors for SpriteFont");
-
-                foreach (var ctor in constructors)
-                {
-                    var parameters = ctor.GetParameters();
-                    Debug.WriteLine($"Constructor with {parameters.Length} parameters: {string.Join(", ", parameters.Select(p => p.ParameterType.Name))}");
-                }
-
-                // Since reflection is failing, let's create a custom font renderer instead
-                Debug.WriteLine("SpriteFont reflection failed, creating custom font renderer");
-                return CreateCustomSpriteFont(texture, glyphs, cropping, characters, lineSpacing, kerning);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"TryCreateSpriteFontDirect error: {ex.Message}");
-                return null;
-            }
-        }
-
-        private SpriteFont CreateCustomSpriteFont(Texture2D texture, List<XnaRectangle> glyphs, List<XnaRectangle> cropping, List<char> characters, int lineSpacing, List<Vector3> kerning)
-        {
-            try
-            {
-                Debug.WriteLine("Creating custom SpriteFont implementation");
-
-                // Instead of trying to create a real SpriteFont, we'll store the data and create a custom renderer
-                // Store the font atlas data for custom rendering
-                _customFontTexture = texture;
-                _customFontGlyphs = glyphs.ToDictionary(g => characters[glyphs.IndexOf(g)], g => g);
-                _customFontCharacters = new HashSet<char>(characters);
-                _customLineSpacing = lineSpacing;
-
-                Debug.WriteLine($"Custom font data stored: {characters.Count} characters, line spacing: {lineSpacing}");
-
-                // Return null since we can't create a real SpriteFont, but we have the data for custom rendering
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"CreateCustomSpriteFont error: {ex.Message}");
-                return null;
-            }
-        }
-
-        #endregion
-
-        #region Helper Methods
-
-        private static int NextPowerOfTwo(int value)
-        {
-            if (value <= 0) return 1;
-
-            value--;
-            value |= value >> 1;
-            value |= value >> 2;
-            value |= value >> 4;
-            value |= value >> 8;
-            value |= value >> 16;
-            value++;
-
-            return value;
-        }
-
-        private static Texture2D CreateTextureFromBitmap(GraphicsDevice graphicsDevice, System.Drawing.Bitmap bitmap)
-        {
-            try
-            {
-                // Lock bitmap data for reading
-                var bitmapData = bitmap.LockBits(
-                    new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height),
-                    System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                    System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-
-                // Create texture
-                var texture = new Texture2D(graphicsDevice, bitmap.Width, bitmap.Height);
-
-                // Copy pixel data
-                var pixelData = new byte[bitmapData.Stride * bitmap.Height];
-                System.Runtime.InteropServices.Marshal.Copy(bitmapData.Scan0, pixelData, 0, pixelData.Length);
-
-                // Convert BGRA to RGBA
-                for (int i = 0; i < pixelData.Length; i += 4)
-                {
-                    var temp = pixelData[i]; // Blue
-                    pixelData[i] = pixelData[i + 2]; // Red
-                    pixelData[i + 2] = temp; // Blue
-                }
-
-                texture.SetData(pixelData);
-
-                bitmap.UnlockBits(bitmapData);
-
-                return texture;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"CreateTextureFromBitmap error: {ex.Message}");
-                throw;
-            }
-        }
-
-        #endregion
+        // Platform-specific font creation methods moved to derived classes
     }
 
-    #region Helper Classes
+#region Helper Classes
 
-    internal class FontAtlas
-    {
-        public Texture2D Texture { get; set; }
-        public Dictionary<char, CharacterData> Characters { get; set; }
-        public int LineSpacing { get; set; }
-    }
+/// <summary>
+/// Font atlas data structure for platform-specific font implementations
+/// </summary>
+public class FontAtlas
+{
+    public Texture2D Texture { get; set; }
+    public Dictionary<char, CharacterData> Characters { get; set; }
+    public int LineSpacing { get; set; }
+}
 
-    internal class CharacterData
-    {
-        public char Character { get; set; }
-        public int Width { get; set; }
-        public int Height { get; set; }
-        public int AtlasX { get; set; }
-        public int AtlasY { get; set; }
-        public int AtlasWidth { get; set; }
-        public int AtlasHeight { get; set; }
-    }
+/// <summary>
+/// Character data for font atlas
+/// </summary>
+public class CharacterData
+{
+    public char Character { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public int AtlasX { get; set; }
+    public int AtlasY { get; set; }
+    public int AtlasWidth { get; set; }
+    public int AtlasHeight { get; set; }
+}
 
-    #endregion
+#endregion
 }

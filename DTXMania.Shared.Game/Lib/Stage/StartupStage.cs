@@ -95,8 +95,8 @@ namespace DTX.Stage
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
 
-            // Initialize ResourceManager
-            _resourceManager = new ResourceManager(graphicsDevice);
+            // Initialize ResourceManager using factory
+            _resourceManager = ResourceManagerFactory.CreateResourceManager(graphicsDevice);
 
             // Initialize bitmap font for text rendering
             _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager);

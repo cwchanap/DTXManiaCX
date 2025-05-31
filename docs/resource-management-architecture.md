@@ -217,6 +217,62 @@ font.DrawString(spriteBatch, textWithSpecialChars, position, Color.White);
 
 ## Font System Implementation Details
 
+### Cross-Platform Architecture
+
+The DTXManiaCX font system uses a cross-platform architecture that separates platform-specific logic from shared components:
+
+#### 1. Abstract Base Class (Shared Library)
+- **ManagedFont**: Abstract base class in `DTXMania.Shared.Game`
+- **Platform-Agnostic**: Contains no Windows-specific dependencies
+- **Common Interface**: Provides consistent API across all platforms
+- **Reference Counting**: Shared memory management logic
+
+#### 2. Platform-Specific Implementations
+- **WindowsManagedFont**: Windows implementation in `DTXMania.Windows`
+- **Uses GDI+**: System.Drawing.Common for font loading and rendering
+- **TTF/OTF Support**: PrivateFontCollection for custom fonts
+- **Future Platforms**: Easy to add Mac, Linux implementations
+
+#### 3. Factory Pattern for Dependency Injection
+```csharp
+// Platform-specific factory interface
+public interface IFontFactory
+{
+    IFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style);
+    IFont CreateFont(SpriteFont spriteFont, string sourcePath);
+}
+
+// Windows implementation
+public class WindowsFontFactory : IFontFactory
+{
+    public IFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
+    {
+        return new WindowsManagedFont(graphicsDevice, fontPath, size, style);
+    }
+}
+
+// Static factory for dependency injection
+public static class ResourceManagerFactory
+{
+    public static void SetFontFactory(IFontFactory fontFactory) { /* ... */ }
+    public static ResourceManager CreateResourceManager(GraphicsDevice graphicsDevice) { /* ... */ }
+}
+```
+
+#### 4. Platform Initialization
+```csharp
+// Windows application initialization
+public class Game1 : BaseGame
+{
+    protected override void Initialize()
+    {
+        // Configure platform-specific font factory before base initialization
+        ResourceManagerFactory.SetFontFactory(new WindowsFontFactory());
+        base.Initialize();
+    }
+}
+```
+
 ### Custom Font Rendering Architecture
 
 The DTXManiaCX font system implements a custom rendering pipeline that bypasses MonoGame's SpriteFont limitations:

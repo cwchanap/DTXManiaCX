@@ -1,4 +1,6 @@
 ﻿using DTXMania.Shared.Game;
+using DTXMania.Windows.Resources;
+using DTX.Resources;
 
 namespace DTXMania.Windows;
 
@@ -12,7 +14,8 @@ public class Game1 : BaseGame
 
     protected override void Initialize()
     {
-        // TODO: Add your initialization logic here
+        // Configure platform-specific font factory before base initialization
+        ResourceManagerFactory.SetFontFactory(new WindowsFontFactory());
 
         base.Initialize();
     }
