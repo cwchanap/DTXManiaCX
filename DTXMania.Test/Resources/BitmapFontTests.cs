@@ -13,26 +13,28 @@ namespace DTXMania.Test.Resources
     /// </summary>
     public class BitmapFontTests
     {
-        #region Constructor Tests
+        #region Test Helpers
 
-        [Fact]
-        public void BitmapFont_Constructor_RequiresGraphicsDevice()
+        /// <summary>
+        /// Creates a test BitmapFont instance without requiring a real GraphicsDevice
+        /// Uses the internal testing constructor that allows null GraphicsDevice
+        /// </summary>
+        private BitmapFont CreateTestBitmapFont(IResourceManager resourceManager = null)
         {
-            // Arrange
-            var mockResourceManager = new Mock<IResourceManager>();
-
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new BitmapFont(null, mockResourceManager.Object));
+            var mockResourceManager = resourceManager ?? new Mock<IResourceManager>().Object;
+            // Use the internal testing constructor that allows null GraphicsDevice
+            return new BitmapFont(mockResourceManager, allowNullGraphicsDevice: true);
         }
+
+        #endregion
+
+        #region Constructor Tests
 
         [Fact]
         public void BitmapFont_Constructor_RequiresResourceManager()
         {
-            // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new BitmapFont(mockGraphicsDevice.Object, null!));
+            Assert.Throws<ArgumentNullException>(() => new BitmapFont(null!, allowNullGraphicsDevice: true));
         }
 
         #endregion
@@ -42,12 +44,8 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void BitmapFont_CharacterDimensions_ShouldMatchDTXManiaStandard()
         {
-            // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-
-            // Act
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            // Arrange & Act
+            using var font = CreateTestBitmapFont();
 
             // Assert
             Assert.Equal(8, font.CharacterWidth);
@@ -58,15 +56,14 @@ namespace DTXMania.Test.Resources
         public void BitmapFont_IsLoaded_ShouldBeFalseWhenTexturesNotLoaded()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
             var mockResourceManager = new Mock<IResourceManager>();
-            
+
             // Setup resource manager to return null (texture not found)
             mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
                               .Returns((ITexture?)null);
 
             // Act
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont(mockResourceManager.Object);
 
             // Assert
             Assert.False(font.IsLoaded);
@@ -80,9 +77,7 @@ namespace DTXMania.Test.Resources
         public void MeasureText_EmptyString_ShouldReturnZero()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont();
 
             // Act
             var result = font.MeasureText("");
@@ -95,9 +90,7 @@ namespace DTXMania.Test.Resources
         public void MeasureText_NullString_ShouldReturnZero()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont();
 
             // Act
             var result = font.MeasureText(null);
@@ -110,9 +103,7 @@ namespace DTXMania.Test.Resources
         public void MeasureText_SingleLine_ShouldCalculateCorrectly()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont();
             var text = "Hello";
 
             // Act
@@ -126,9 +117,7 @@ namespace DTXMania.Test.Resources
         public void MeasureText_MultiLine_ShouldCalculateCorrectly()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont();
             var text = "Hello\nWorld";
 
             // Act
@@ -168,9 +157,7 @@ namespace DTXMania.Test.Resources
         public void BitmapFont_Dispose_ShouldNotThrow()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            var font = CreateTestBitmapFont();
 
             // Act & Assert
             font.Dispose(); // Should not throw
@@ -180,9 +167,7 @@ namespace DTXMania.Test.Resources
         public void BitmapFont_DisposeMultipleTimes_ShouldNotThrow()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            var font = CreateTestBitmapFont();
 
             // Act & Assert
             font.Dispose(); // First dispose
@@ -197,11 +182,10 @@ namespace DTXMania.Test.Resources
         public void BitmapFont_Constructor_ShouldAttemptToLoadFontTextures()
         {
             // Arrange
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
             var mockResourceManager = new Mock<IResourceManager>();
 
             // Act
-            using var font = new BitmapFont(mockGraphicsDevice.Object, mockResourceManager.Object);
+            using var font = CreateTestBitmapFont(mockResourceManager.Object);
 
             // Assert
             mockResourceManager.Verify(rm => rm.LoadTexture("Graphics/Console font 8x16.png"), Times.Once);

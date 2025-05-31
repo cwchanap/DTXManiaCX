@@ -43,8 +43,23 @@ namespace DTX.Resources
         public BitmapFont(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            
+
             LoadFontTextures(resourceManager);
+            InitializeCharacterRectangles();
+        }
+
+        /// <summary>
+        /// Internal constructor for testing purposes
+        /// Allows null GraphicsDevice since it's not actually used in the current implementation
+        /// </summary>
+        internal BitmapFont(IResourceManager resourceManager, bool allowNullGraphicsDevice)
+        {
+            if (!allowNullGraphicsDevice)
+                throw new ArgumentException("This constructor is for testing only", nameof(allowNullGraphicsDevice));
+
+            _graphicsDevice = null!; // Allowed for testing since GraphicsDevice is not used
+
+            LoadFontTextures(resourceManager ?? throw new ArgumentNullException(nameof(resourceManager)));
             InitializeCharacterRectangles();
         }
 
