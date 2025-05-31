@@ -22,6 +22,7 @@ namespace DTX.Resources
         private readonly IFontFactory _fontFactory;
         private readonly ConcurrentDictionary<string, ITexture> _textureCache;
         private readonly ConcurrentDictionary<string, IFont> _fontCache;
+        private readonly ConcurrentDictionary<string, ISound> _soundCache;
         private readonly object _lockObject = new object();
 
         private string _currentSkinPath = "System/";
@@ -45,6 +46,7 @@ namespace DTX.Resources
             _fontFactory = fontFactory ?? throw new ArgumentNullException(nameof(fontFactory));
             _textureCache = new ConcurrentDictionary<string, ITexture>();
             _fontCache = new ConcurrentDictionary<string, IFont>();
+            _soundCache = new ConcurrentDictionary<string, ISound>();
 
             // Initialize default skin path
             InitializeDefaultSkinPath();
@@ -60,6 +62,7 @@ namespace DTX.Resources
             _fontFactory = null; // Will be set by platform-specific code
             _textureCache = new ConcurrentDictionary<string, ITexture>();
             _fontCache = new ConcurrentDictionary<string, IFont>();
+            _soundCache = new ConcurrentDictionary<string, ISound>();
 
             // Initialize default skin path
             InitializeDefaultSkinPath();
@@ -199,6 +202,67 @@ namespace DTX.Resources
             }
         }
 
+        public ISound LoadSound(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                throw new ArgumentException("Path cannot be null or empty", nameof(path));
+
+            // Normalize path for case-insensitive comparison (Windows compatibility)
+            var normalizedPath = NormalizeFilePath(path);
+            var cacheKey = normalizedPath;
+
+            // Check cache first
+            if (_soundCache.TryGetValue(cacheKey, out var cachedSound))
+            {
+                Interlocked.Increment(ref _cacheHits);
+                cachedSound.AddReference();
+                return cachedSound;
+            }
+
+            Interlocked.Increment(ref _cacheMisses);
+            _totalLoadTime.Start();
+
+            try
+            {
+                // Resolve path using skin system
+                var resolvedPath = ResolvePath(path);
+
+                // Validate file exists
+                if (!File.Exists(resolvedPath))
+                {
+                    // Try fallback skin
+                    var fallbackPath = ResolvePathWithSkin(path, _fallbackSkinPath);
+                    if (!File.Exists(fallbackPath))
+                    {
+                        var errorMsg = $"Sound not found: {path} (resolved: {resolvedPath})";
+                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
+                            new FileNotFoundException(errorMsg), errorMsg));
+                        return CreateFallbackSound(path);
+                    }
+                    resolvedPath = fallbackPath;
+                }
+
+                // Load and create sound
+                var sound = new ManagedSound(resolvedPath, path);
+                sound.AddReference();
+
+                // Cache the sound
+                _soundCache.TryAdd(cacheKey, sound);
+
+                return sound;
+            }
+            catch (Exception ex)
+            {
+                var errorMsg = $"Failed to load sound: {path}";
+                OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path, ex, errorMsg));
+                return CreateFallbackSound(path);
+            }
+            finally
+            {
+                _totalLoadTime.Stop();
+            }
+        }
+
         public void SetSkinPath(string skinPath)
         {
             if (string.IsNullOrEmpty(skinPath))
@@ -301,6 +365,13 @@ namespace DTX.Resources
                 }
                 _fontCache.Clear();
 
+                // Dispose all cached sounds
+                foreach (var sound in _soundCache.Values)
+                {
+                    sound.Dispose();
+                }
+                _soundCache.Clear();
+
                 Debug.WriteLine("ResourceManager: All resources unloaded");
             }
         }
@@ -338,6 +409,19 @@ namespace DTX.Resources
                     }
                 }
 
+                // Unload matching sounds
+                var soundsToRemove = _soundCache.Keys
+                    .Where(key => key.Contains(pathPattern))
+                    .ToList();
+
+                foreach (var key in soundsToRemove)
+                {
+                    if (_soundCache.TryRemove(key, out var sound))
+                    {
+                        sound.Dispose();
+                    }
+                }
+
                 Debug.WriteLine($"ResourceManager: Unloaded resources matching pattern: {pathPattern}");
             }
         }
@@ -348,6 +432,7 @@ namespace DTX.Resources
             {
                 LoadedTextures = _textureCache.Count,
                 LoadedFonts = _fontCache.Count,
+                LoadedSounds = _soundCache.Count,
                 TotalMemoryUsage = CalculateMemoryUsage(),
                 CacheHits = _cacheHits,
                 CacheMisses = _cacheMisses,
@@ -387,7 +472,21 @@ namespace DTX.Resources
                     }
                 }
 
-                Debug.WriteLine($"ResourceManager: Collected {unusedTextures.Count} textures and {unusedFonts.Count} fonts");
+                // Remove sounds with zero references
+                var unusedSounds = _soundCache
+                    .Where(kvp => kvp.Value.ReferenceCount <= 0)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in unusedSounds)
+                {
+                    if (_soundCache.TryRemove(key, out var sound))
+                    {
+                        sound.Dispose();
+                    }
+                }
+
+                Debug.WriteLine($"ResourceManager: Collected {unusedTextures.Count} textures, {unusedFonts.Count} fonts, and {unusedSounds.Count} sounds");
             }
         }
 
@@ -524,6 +623,26 @@ namespace DTX.Resources
             }
         }
 
+        private ISound CreateFallbackSound(string originalPath)
+        {
+            // Create a silent fallback sound (stub implementation)
+            try
+            {
+                // Create a minimal silent sound effect (1 sample at 44.1kHz)
+                var sampleData = new byte[4]; // 1 sample, 16-bit stereo
+                var soundEffect = new Microsoft.Xna.Framework.Audio.SoundEffect(sampleData, 44100, Microsoft.Xna.Framework.Audio.AudioChannels.Stereo);
+
+                var fallback = new ManagedSound(soundEffect, originalPath);
+                fallback.AddReference();
+                return fallback;
+            }
+            catch
+            {
+                // If even silent sound fails, return null - calling code should handle this
+                return null;
+            }
+        }
+
         private long CalculateMemoryUsage()
         {
             long total = 0;
@@ -535,6 +654,9 @@ namespace DTX.Resources
 
             // Font memory usage is harder to calculate, use approximation
             total += _fontCache.Count * 1024; // Rough estimate
+
+            // Sound memory usage approximation (varies by format and length)
+            total += _soundCache.Count * 512; // Rough estimate
 
             return total;
         }

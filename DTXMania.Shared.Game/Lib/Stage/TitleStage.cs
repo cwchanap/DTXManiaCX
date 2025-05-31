@@ -24,6 +24,11 @@ namespace DTX.Stage
         private IResourceManager _resourceManager;
         private bool _disposed = false;
 
+        // Sound effects
+        private ISound _cursorMoveSound;
+        private ISound _selectSound;
+        private ISound _gameStartSound;
+
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
         private bool _isFirstUpdate = true;
@@ -42,6 +47,9 @@ namespace DTX.Stage
         // Input handling
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
+        private MouseState _previousMouseState;
+        private MouseState _currentMouseState;
+        private int _hoveredMenuIndex = -1;
 
         // Animation timers
         private double _cursorFlashTimer = 0;
@@ -89,6 +97,9 @@ namespace DTX.Stage
             // Load menu texture (DTXManiaNX uses 2_menu.png)
             LoadMenuTexture();
 
+            // Load sound effects
+            LoadSoundEffects();
+
             // Initialize state
             _elapsedTime = 0;
             _isFirstUpdate = true;
@@ -98,6 +109,8 @@ namespace DTX.Stage
             // Initialize input state
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
+            _previousMouseState = Mouse.GetState();
+            _currentMouseState = Mouse.GetState();
 
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }
@@ -109,6 +122,8 @@ namespace DTX.Stage
             // Update input state
             _previousKeyboardState = _currentKeyboardState;
             _currentKeyboardState = Keyboard.GetState();
+            _previousMouseState = _currentMouseState;
+            _currentMouseState = Mouse.GetState();
 
             // Handle first update
             if (_isFirstUpdate)
@@ -125,6 +140,7 @@ namespace DTX.Stage
             if (_currentPhase == TitlePhase.Normal)
             {
                 HandleInput();
+                HandleMouseInput();
             }
         }
 
@@ -160,6 +176,9 @@ namespace DTX.Stage
             // Reset input state
             _previousKeyboardState = default;
             _currentKeyboardState = default;
+            _previousMouseState = default;
+            _currentMouseState = default;
+            _hoveredMenuIndex = -1;
         }
 
         #endregion
@@ -187,11 +206,19 @@ namespace DTX.Stage
                     _spriteBatch?.Dispose();
                     _resourceManager?.Dispose();
 
+                    // Cleanup sound resources
+                    _cursorMoveSound?.Dispose();
+                    _selectSound?.Dispose();
+                    _gameStartSound?.Dispose();
+
                     _backgroundTexture = null;
                     _menuTexture = null;
                     _whitePixel = null;
                     _spriteBatch = null;
                     _resourceManager = null;
+                    _cursorMoveSound = null;
+                    _selectSound = null;
+                    _gameStartSound = null;
                 }
                 _disposed = true;
             }
@@ -228,6 +255,51 @@ namespace DTX.Stage
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load menu texture: {ex.Message}");
                 // Menu texture is optional - we'll draw text-based menu as fallback
+            }
+        }
+
+        private void LoadSoundEffects()
+        {
+            try
+            {
+                // Load DTXMania-style sound effects (OGG format)
+                _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
+                System.Diagnostics.Debug.WriteLine("Loaded cursor move sound");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load cursor move sound: {ex.Message}");
+            }
+
+            try
+            {
+                _selectSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                System.Diagnostics.Debug.WriteLine("Loaded select sound");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load select sound: {ex.Message}");
+            }
+
+            try
+            {
+                // Load game start sound (note: file name has space)
+                _gameStartSound = _resourceManager.LoadSound("Sounds/Game start.ogg");
+                System.Diagnostics.Debug.WriteLine("Loaded game start sound");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load game start sound, trying fallback: {ex.Message}");
+                try
+                {
+                    // Fallback to decide sound if Game start.ogg doesn't exist
+                    _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                    System.Diagnostics.Debug.WriteLine("Loaded game start sound (fallback to Decide.ogg)");
+                }
+                catch (Exception fallbackEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to load game start fallback sound: {fallbackEx.Message}");
+                }
             }
         }
 
@@ -300,22 +372,46 @@ namespace DTX.Stage
 
         private void MoveCursorUp()
         {
+            var previousIndex = _currentMenuIndex;
+
             if (_currentMenuIndex > 0)
             {
                 _currentMenuIndex--;
+            }
+            else
+            {
+                // Menu wrapping: go to last item
+                _currentMenuIndex = _menuItems.Length - 1;
+            }
+
+            if (_currentMenuIndex != previousIndex)
+            {
                 _isMovingUp = true;
                 _menuMoveTimer = 0;
+                PlayCursorMoveSound();
                 System.Diagnostics.Debug.WriteLine($"Menu cursor moved up to: {_menuItems[_currentMenuIndex]}");
             }
         }
 
         private void MoveCursorDown()
         {
+            var previousIndex = _currentMenuIndex;
+
             if (_currentMenuIndex < _menuItems.Length - 1)
             {
                 _currentMenuIndex++;
+            }
+            else
+            {
+                // Menu wrapping: go to first item
+                _currentMenuIndex = 0;
+            }
+
+            if (_currentMenuIndex != previousIndex)
+            {
                 _isMovingDown = true;
                 _menuMoveTimer = 0;
+                PlayCursorMoveSound();
                 System.Diagnostics.Debug.WriteLine($"Menu cursor moved down to: {_menuItems[_currentMenuIndex]}");
             }
         }
@@ -327,20 +423,111 @@ namespace DTX.Stage
             switch (_currentMenuIndex)
             {
                 case 0: // GAME START
-                    // Direct to UI Test Stage as requested
+                    PlayGameStartSound();
                     System.Diagnostics.Debug.WriteLine("Starting game - transitioning to UI Test Stage");
                     _game.StageManager?.ChangeStage(StageType.UITest);
                     break;
 
                 case 1: // CONFIG
+                    PlaySelectSound();
                     System.Diagnostics.Debug.WriteLine("Opening config - transitioning to Config Stage");
                     _game.StageManager?.ChangeStage(StageType.Config);
                     break;
 
                 case 2: // EXIT
+                    PlaySelectSound();
                     System.Diagnostics.Debug.WriteLine("Exiting game");
                     _game.Exit();
                     break;
+            }
+        }
+
+        private void HandleMouseInput()
+        {
+            var mousePos = _currentMouseState.Position;
+            var previousHoveredIndex = _hoveredMenuIndex;
+            _hoveredMenuIndex = -1;
+
+            // Check if mouse is over any menu item
+            for (int i = 0; i < _menuItems.Length; i++)
+            {
+                var menuItemRect = new Rectangle(
+                    MenuX,
+                    MenuY + (i * MenuItemHeight),
+                    MenuItemWidth,
+                    MenuItemHeight
+                );
+
+                if (menuItemRect.Contains(mousePos))
+                {
+                    _hoveredMenuIndex = i;
+
+                    // If hover changed, update cursor position and play sound
+                    if (_hoveredMenuIndex != previousHoveredIndex && _hoveredMenuIndex != _currentMenuIndex)
+                    {
+                        _currentMenuIndex = _hoveredMenuIndex;
+                        PlayCursorMoveSound();
+                        System.Diagnostics.Debug.WriteLine($"Mouse hover changed cursor to: {_menuItems[_currentMenuIndex]}");
+                    }
+                    break;
+                }
+            }
+
+            // Handle mouse clicks
+            if (IsMouseButtonPressed(MouseButton.Left) && _hoveredMenuIndex >= 0)
+            {
+                _currentMenuIndex = _hoveredMenuIndex;
+                SelectCurrentMenuItem();
+            }
+        }
+
+        private bool IsMouseButtonPressed(MouseButton button)
+        {
+            return button switch
+            {
+                MouseButton.Left => _currentMouseState.LeftButton == ButtonState.Pressed &&
+                                   _previousMouseState.LeftButton == ButtonState.Released,
+                MouseButton.Right => _currentMouseState.RightButton == ButtonState.Pressed &&
+                                    _previousMouseState.RightButton == ButtonState.Released,
+                MouseButton.Middle => _currentMouseState.MiddleButton == ButtonState.Pressed &&
+                                     _previousMouseState.MiddleButton == ButtonState.Released,
+                _ => false
+            };
+        }
+
+        private void PlayCursorMoveSound()
+        {
+            try
+            {
+                _cursorMoveSound?.Play(0.7f); // Play at 70% volume
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to play cursor move sound: {ex.Message}");
+            }
+        }
+
+        private void PlaySelectSound()
+        {
+            try
+            {
+                _selectSound?.Play(0.8f); // Play at 80% volume
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to play select sound: {ex.Message}");
+            }
+        }
+
+        private void PlayGameStartSound()
+        {
+            try
+            {
+                _gameStartSound?.Play(0.9f); // Play at 90% volume
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to play game start sound: {ex.Message}");
             }
         }
 
@@ -534,6 +721,13 @@ namespace DTX.Stage
             FadeIn,
             Normal,
             FadeOut
+        }
+
+        private enum MouseButton
+        {
+            Left,
+            Right,
+            Middle
         }
 
         #endregion

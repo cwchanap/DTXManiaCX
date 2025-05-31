@@ -375,9 +375,36 @@ The menu rendering now follows the authentic DTXMania pattern:
 
 ### 🔄 Next Steps
 - Test menu texture rendering with actual DTXMania graphics
-- Implement sound effects for menu navigation
 - Add fade transitions between stages
 - Implement song enumeration loading screen
+
+### ✅ Recently Completed - Main Menu Enhancements
+- **Sound Effects System**: Implemented complete sound loading and playback infrastructure
+- **Menu Sound Effects**: Added cursor movement, selection, and game start sounds
+- **Mouse Support**: Full mouse navigation with hover effects and click support
+- **Menu Wrapping**: Added circular navigation (up from first item goes to last, down from last goes to first)
+- **Enhanced Input**: Integrated keyboard and mouse input with proper state management
+
+### 🎵 Sound System Implementation Details
+
+**Sound Infrastructure:**
+- `ISound` interface for sound abstraction with reference counting
+- `ManagedSound` implementation wrapping MonoGame SoundEffect
+- `IResourceManager.LoadSound()` method for centralized sound loading
+- Fallback silent sound creation for missing audio files
+
+**Menu Sound Effects:**
+- **Cursor Movement**: `Sounds/Move.ogg` - Plays when navigating between menu items
+- **Selection**: `Sounds/Decide.ogg` - Plays for CONFIG and EXIT selections
+- **Game Start**: `Sounds/Game start.ogg` - Special sound for GAME START selection (fallback to Decide.ogg)
+- Volume control: Cursor (70%), Select (80%), Game Start (90%)
+- **Format**: OGG Vorbis (authentic DTXManiaNX format)
+
+**Mouse Integration:**
+- Hover detection over menu items with proper bounds checking
+- Automatic cursor movement when mouse hovers over different menu item
+- Left-click support for menu selection
+- Seamless integration with keyboard navigation
 
 ## 🚧 Startup Stage Text Rendering Implementation
 

@@ -46,6 +46,14 @@ namespace DTX.Resources
         /// <returns>Font interface with rendering capabilities</returns>
         IFont LoadFont(string path, int size, FontStyle style);
 
+        /// <summary>
+        /// Load a sound from the specified path
+        /// Supports common audio formats (WAV, OGG, etc.)
+        /// </summary>
+        /// <param name="path">Relative path to sound file</param>
+        /// <returns>Sound interface with playback capabilities</returns>
+        ISound LoadSound(string path);
+
         #endregion
 
         #region Path Management
@@ -155,6 +163,7 @@ namespace DTX.Resources
     {
         public int LoadedTextures { get; set; }
         public int LoadedFonts { get; set; }
+        public int LoadedSounds { get; set; }
         public long TotalMemoryUsage { get; set; }
         public int CacheHits { get; set; }
         public int CacheMisses { get; set; }
