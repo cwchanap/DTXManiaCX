@@ -260,7 +260,7 @@ namespace DTX.Stage
                     // Validate configuration
                     try
                     {
-                        _configManager.LoadConfig("config.json");
+                        _configManager.LoadConfig("Config.ini");
                         var config = _configManager.Config;
                         var isValid = _configValidator.ValidateConfiguration(config);
                         System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");

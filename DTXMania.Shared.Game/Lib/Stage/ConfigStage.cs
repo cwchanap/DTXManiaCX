@@ -359,7 +359,7 @@ namespace DTX.Stage
             // Save to file
             try
             {
-                _configManager.SaveConfig("config.json");
+                _configManager.SaveConfig("Config.ini");
                 _hasUnsavedChanges = false;
                 System.Diagnostics.Debug.WriteLine("Configuration saved successfully");
             }
