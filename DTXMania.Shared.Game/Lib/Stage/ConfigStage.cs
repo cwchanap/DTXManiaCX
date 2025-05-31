@@ -10,23 +10,20 @@ namespace DTX.Stage
     /// <summary>
     /// Placeholder Config stage - will be implemented later
     /// </summary>
-    public class ConfigStage : IStage
+    public class ConfigStage : BaseStage
     {
-        private readonly BaseGame _game;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
-        private bool _disposed = false;
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
 
-        public StageType Type => StageType.Config;
+        public override StageType Type => StageType.Config;
 
-        public ConfigStage(BaseGame game)
+        public ConfigStage(BaseGame game) : base(game)
         {
-            _game = game ?? throw new ArgumentNullException(nameof(game));
         }
 
-        public void Activate()
+        protected override void OnActivate()
         {
             System.Diagnostics.Debug.WriteLine("Activating Config Stage (Placeholder)");
 
@@ -40,20 +37,20 @@ namespace DTX.Stage
             _currentKeyboardState = Keyboard.GetState();
         }
 
-        public void Update(double deltaTime)
+        protected override void OnUpdate(double deltaTime)
         {
             _previousKeyboardState = _currentKeyboardState;
             _currentKeyboardState = Keyboard.GetState();
 
-            // Handle ESC key - return to title stage (previous stage)
+            // Handle ESC key - return to title stage with transition
             if (IsKeyPressed(Keys.Escape))
             {
                 System.Diagnostics.Debug.WriteLine("Config: ESC pressed - returning to Title stage");
-                _game.StageManager?.ChangeStage(StageType.Title);
+                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
             }
         }
 
-        public void Draw(double deltaTime)
+        protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
@@ -73,7 +70,7 @@ namespace DTX.Stage
             _spriteBatch.End();
         }
 
-        public void Deactivate()
+        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
 
@@ -82,34 +79,22 @@ namespace DTX.Stage
             _currentKeyboardState = default;
         }
 
-        #region IDisposable Implementation
-
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            if (disposing)
             {
-                if (disposing)
-                {
-                    System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
+                System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
 
-                    // Cleanup MonoGame resources
-                    _whitePixel?.Dispose();
-                    _spriteBatch?.Dispose();
+                // Cleanup MonoGame resources
+                _whitePixel?.Dispose();
+                _spriteBatch?.Dispose();
 
-                    _whitePixel = null;
-                    _spriteBatch = null;
-                }
-                _disposed = true;
+                _whitePixel = null;
+                _spriteBatch = null;
             }
-        }
 
-        #endregion
+            base.Dispose(disposing);
+        }
 
         private bool IsKeyPressed(Keys key)
         {

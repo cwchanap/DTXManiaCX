@@ -13,17 +13,15 @@ namespace DTX.Stage
     /// Test stage to demonstrate the UI architecture
     /// Shows how UI components work together following DTXMania patterns
     /// </summary>
-    public class UITestStage : IStage
+    public class UITestStage : BaseStage
     {
         #region Private Fields
 
-        private readonly BaseGame _game;
         private UIManager _uiManager;
         private UIContainer _mainContainer;
         private SpriteBatch _spriteBatch;
         private SpriteFont _defaultFont;
         private Texture2D _whitePixel;
-        private bool _disposed = false;
 
         // Font system for testing
         private DTX.Resources.IResourceManager _resourceManager;
@@ -35,22 +33,21 @@ namespace DTX.Stage
 
         #region Properties
 
-        public StageType Type => StageType.UITest;
+        public override StageType Type => StageType.UITest;
 
         #endregion
 
         #region Constructor
 
-        public UITestStage(BaseGame game)
+        public UITestStage(BaseGame game) : base(game)
         {
-            _game = game ?? throw new ArgumentNullException(nameof(game));
         }
 
         #endregion
 
-        #region IStage Implementation
+        #region BaseStage Implementation
 
-        public void Activate()
+        protected override void OnActivate()
         {
             try
             {
@@ -86,7 +83,7 @@ namespace DTX.Stage
             }
         }
 
-        public void Deactivate()
+        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating UITest Stage");
 
@@ -101,7 +98,7 @@ namespace DTX.Stage
             }
         }
 
-        public void Update(double deltaTime)
+        protected override void OnUpdate(double deltaTime)
         {
             // Update UI system
             _uiManager?.Update(deltaTime);
@@ -109,12 +106,12 @@ namespace DTX.Stage
             // Handle stage-specific input (like returning to previous stage)
             if (_uiManager?.InputState.IsKeyPressed(Microsoft.Xna.Framework.Input.Keys.Escape) == true)
             {
-                // Return to title stage (previous stage)
-                _game.StageManager?.ChangeStage(StageType.Title);
+                // Return to title stage with transition
+                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
             }
         }
 
-        public void Draw(double deltaTime)
+        protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
@@ -144,50 +141,38 @@ namespace DTX.Stage
 
         #endregion
 
-        #region IDisposable Implementation
-
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            if (disposing)
             {
-                if (disposing)
-                {
-                    System.Diagnostics.Debug.WriteLine("Disposing UITest Stage resources");
+                System.Diagnostics.Debug.WriteLine("Disposing UITest Stage resources");
 
-                    // Dispose font resources
-                    _testFont?.RemoveReference();
-                    _titleFont?.RemoveReference();
-                    _japaneseFont?.RemoveReference();
-                    _resourceManager?.Dispose();
+                // Dispose font resources
+                _testFont?.RemoveReference();
+                _titleFont?.RemoveReference();
+                _japaneseFont?.RemoveReference();
+                _resourceManager?.Dispose();
 
-                    // Dispose UI system
-                    _uiManager?.Dispose();
-                    _uiManager = null;
-                    _mainContainer = null;
+                // Dispose UI system
+                _uiManager?.Dispose();
+                _uiManager = null;
+                _mainContainer = null;
 
-                    // Dispose MonoGame resources
-                    _whitePixel?.Dispose();
-                    _spriteBatch?.Dispose();
+                // Dispose MonoGame resources
+                _whitePixel?.Dispose();
+                _spriteBatch?.Dispose();
 
-                    _whitePixel = null;
-                    _spriteBatch = null;
-                    _defaultFont = null;
-                    _testFont = null;
-                    _titleFont = null;
-                    _japaneseFont = null;
-                    _resourceManager = null;
-                }
-                _disposed = true;
+                _whitePixel = null;
+                _spriteBatch = null;
+                _defaultFont = null;
+                _testFont = null;
+                _titleFont = null;
+                _japaneseFont = null;
+                _resourceManager = null;
             }
-        }
 
-        #endregion
+            base.Dispose(disposing);
+        }
 
         #region Private Methods
 

@@ -4,14 +4,27 @@ using DTXMania.Shared.Game;
 
 namespace DTX.Stage
 {
+    /// <summary>
+    /// Enhanced stage manager with transition support
+    /// Based on DTXManiaNX stage management patterns with eフェーズID handling
+    /// </summary>
     public class StageManager : IStageManager
     {
         private readonly BaseGame _game;
         private readonly Dictionary<StageType, IStage> _stages;
         private IStage _currentStage;
+        private IStage _previousStage;
+        private IStageTransition _currentTransition;
         private bool _disposed = false;
 
+        // Transition state
+        private bool _isTransitioning = false;
+        private StageType _targetStageType;
+        private Dictionary<string, object> _pendingSharedData;
+
         public IStage CurrentStage => _currentStage;
+        public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
+        public bool IsTransitioning => _isTransitioning;
 
         public StageManager(BaseGame game)
         {
@@ -22,14 +35,33 @@ namespace DTX.Stage
 
         private void InitializeStages()
         {
-            // Initialize all available stages
-            _stages[StageType.Startup] = new StartupStage(_game);
-            _stages[StageType.Title] = new TitleStage(_game);
-            _stages[StageType.Config] = new ConfigStage(_game); // Placeholder for config stage
-            _stages[StageType.UITest] = new UITestStage(_game); // UI test stage
+            // Initialize all available stages and set stage manager reference
+            var stages = new Dictionary<StageType, IStage>
+            {
+                [StageType.Startup] = new StartupStage(_game),
+                [StageType.Title] = new TitleStage(_game),
+                [StageType.Config] = new ConfigStage(_game),
+                [StageType.UITest] = new UITestStage(_game)
+            };
+
+            foreach (var kvp in stages)
+            {
+                kvp.Value.StageManager = this;
+                _stages[kvp.Key] = kvp.Value;
+            }
         }
 
         public void ChangeStage(StageType stageType)
+        {
+            ChangeStage(stageType, new InstantTransition(), null);
+        }
+
+        public void ChangeStage(StageType stageType, IStageTransition transition)
+        {
+            ChangeStage(stageType, transition, null);
+        }
+
+        public void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData)
         {
             if (_disposed)
             {
@@ -37,26 +69,40 @@ namespace DTX.Stage
                 return;
             }
 
-            var previousStageType = _currentStage?.Type;
-
-            // Deactivate current stage
-            if (_currentStage != null)
+            if (_isTransitioning)
             {
-                System.Diagnostics.Debug.WriteLine($"StageManager: Deactivating {previousStageType}");
-                _currentStage.Deactivate();
+                System.Diagnostics.Debug.WriteLine($"StageManager: Already transitioning, ignoring change to {stageType}");
+                return;
             }
 
-            // Activate new stage
-            if (_stages.TryGetValue(stageType, out var stage))
-            {
-                System.Diagnostics.Debug.WriteLine($"StageManager: Activating {stageType}");
-                _currentStage = stage;
-                _currentStage.Activate();
-            }
-            else
+            if (!_stages.TryGetValue(stageType, out var targetStage))
             {
                 System.Diagnostics.Debug.WriteLine($"StageManager: Stage {stageType} not found");
-                _currentStage = null;
+                return;
+            }
+
+            var previousStageType = _currentStage?.Type;
+            System.Diagnostics.Debug.WriteLine($"StageManager: Starting transition from {previousStageType} to {stageType}");
+
+            // Store transition information
+            _targetStageType = stageType;
+            _pendingSharedData = sharedData;
+            _currentTransition = transition ?? new InstantTransition();
+            _isTransitioning = true;
+
+            // Start transition
+            _currentTransition.Start();
+
+            // Notify current stage of transition out
+            if (_currentStage != null)
+            {
+                _currentStage.OnTransitionOut(_currentTransition);
+            }
+
+            // For instant transitions, complete immediately
+            if (_currentTransition is InstantTransition)
+            {
+                CompleteTransition();
             }
         }
 
@@ -65,6 +111,19 @@ namespace DTX.Stage
             if (_disposed)
                 return;
 
+            // Update transition if in progress
+            if (_isTransitioning && _currentTransition != null)
+            {
+                _currentTransition.Update(deltaTime);
+
+                // Check if transition is complete
+                if (_currentTransition.IsComplete)
+                {
+                    CompleteTransition();
+                }
+            }
+
+            // Update current stage
             _currentStage?.Update(deltaTime);
         }
 
@@ -73,7 +132,71 @@ namespace DTX.Stage
             if (_disposed)
                 return;
 
-            _currentStage?.Draw(deltaTime);
+            // During transition, we may need to draw both stages with fade effects
+            if (_isTransitioning && _currentTransition != null)
+            {
+                DrawTransition(deltaTime);
+            }
+            else
+            {
+                // Normal drawing
+                _currentStage?.Draw(deltaTime);
+            }
+        }
+
+        private void CompleteTransition()
+        {
+            if (!_isTransitioning)
+                return;
+
+            System.Diagnostics.Debug.WriteLine($"StageManager: Completing transition to {_targetStageType}");
+
+            // Store previous stage for cleanup
+            _previousStage = _currentStage;
+
+            // Deactivate previous stage
+            if (_previousStage != null)
+            {
+                _previousStage.Deactivate();
+            }
+
+            // Activate new stage
+            if (_stages.TryGetValue(_targetStageType, out var newStage))
+            {
+                _currentStage = newStage;
+                _currentStage.Activate(_pendingSharedData);
+                _currentStage.OnTransitionIn(_currentTransition);
+                _currentStage.OnTransitionComplete();
+            }
+
+            // Clean up transition state
+            _isTransitioning = false;
+            _currentTransition = null;
+            _pendingSharedData = null;
+            _previousStage = null;
+
+            System.Diagnostics.Debug.WriteLine($"StageManager: Transition to {_targetStageType} completed");
+        }
+
+        private void DrawTransition(double deltaTime)
+        {
+            // For now, just draw the current stage
+            // In a more advanced implementation, we could apply fade effects here
+            // by rendering to render targets and blending them based on transition alpha values
+
+            if (_currentStage != null)
+            {
+                // Draw outgoing stage with fade out alpha
+                float fadeOutAlpha = _currentTransition.GetFadeOutAlpha();
+                if (fadeOutAlpha > 0.0f)
+                {
+                    // TODO: Apply fade out alpha to rendering
+                    _currentStage.Draw(deltaTime);
+                }
+            }
+
+            // For crossfade transitions, we would also draw the incoming stage here
+            // with the fade in alpha from _currentTransition.GetFadeInAlpha()
         }
 
         #region IDisposable Implementation

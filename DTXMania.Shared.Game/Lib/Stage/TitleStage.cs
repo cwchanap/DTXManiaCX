@@ -12,17 +12,15 @@ namespace DTX.Stage
     /// Title stage implementation based on DTXManiaNX CStageTitle
     /// Shows DTXMania logo, version, and main menu options
     /// </summary>
-    public class TitleStage : IStage
+    public class TitleStage : BaseStage
     {
         #region Fields
 
-        private readonly BaseGame _game;
         private SpriteBatch _spriteBatch;
         private ITexture _backgroundTexture;
         private ITexture _menuTexture;
         private Texture2D _whitePixel;
         private IResourceManager _resourceManager;
-        private bool _disposed = false;
 
         // Sound effects
         private ISound _cursorMoveSound;
@@ -31,8 +29,7 @@ namespace DTX.Stage
 
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
-        private bool _isFirstUpdate = true;
-        private TitlePhase _currentPhase = TitlePhase.FadeIn;
+        private TitlePhase _titlePhase = TitlePhase.FadeIn;
 
 
 
@@ -61,22 +58,21 @@ namespace DTX.Stage
 
         #region Properties
 
-        public StageType Type => StageType.Title;
+        public override StageType Type => StageType.Title;
 
         #endregion
 
         #region Constructor
 
-        public TitleStage(BaseGame game)
+        public TitleStage(BaseGame game) : base(game)
         {
-            _game = game ?? throw new ArgumentNullException(nameof(game));
         }
 
         #endregion
 
-        #region IStage Implementation
+        #region BaseStage Implementation
 
-        public void Activate()
+        protected override void OnActivate()
         {
             System.Diagnostics.Debug.WriteLine("Activating Title Stage");
 
@@ -102,8 +98,7 @@ namespace DTX.Stage
 
             // Initialize state
             _elapsedTime = 0;
-            _isFirstUpdate = true;
-            _currentPhase = TitlePhase.FadeIn;
+            _titlePhase = TitlePhase.FadeIn;
             _currentMenuIndex = 0;
 
             // Initialize input state
@@ -115,7 +110,13 @@ namespace DTX.Stage
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }
 
-        public void Update(double deltaTime)
+        protected override void OnFirstUpdate(double deltaTime)
+        {
+            _titlePhase = TitlePhase.Normal; // Go directly to normal menu
+            _cursorFlashTimer = 0;
+        }
+
+        protected override void OnUpdate(double deltaTime)
         {
             _elapsedTime += deltaTime;
 
@@ -125,26 +126,18 @@ namespace DTX.Stage
             _previousMouseState = _currentMouseState;
             _currentMouseState = Mouse.GetState();
 
-            // Handle first update
-            if (_isFirstUpdate)
-            {
-                _isFirstUpdate = false;
-                _currentPhase = TitlePhase.Normal; // Go directly to normal menu
-                _cursorFlashTimer = 0;
-            }
-
             // Update animations
             UpdateAnimations(deltaTime);
 
             // Handle input
-            if (_currentPhase == TitlePhase.Normal)
+            if (_titlePhase == TitlePhase.Normal && _currentPhase == StagePhase.Normal)
             {
                 HandleInput();
                 HandleMouseInput();
             }
         }
 
-        public void Draw(double deltaTime)
+        protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
@@ -163,14 +156,13 @@ namespace DTX.Stage
             _spriteBatch.End();
         }
 
-        public void Deactivate()
+        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Title Stage");
 
             // Reset stage state for potential reactivation
             _elapsedTime = 0;
-            _isFirstUpdate = true;
-            _currentPhase = TitlePhase.FadeIn;
+            _titlePhase = TitlePhase.FadeIn;
             _currentMenuIndex = 0;
 
             // Reset input state
@@ -181,50 +173,59 @@ namespace DTX.Stage
             _hoveredMenuIndex = -1;
         }
 
-        #endregion
-
-        #region IDisposable Implementation
-
-        public void Dispose()
+        protected override void OnTransitionInStarted(IStageTransition transition)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
+            System.Diagnostics.Debug.WriteLine($"Title Stage: Transition in started with {transition.GetType().Name}");
 
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            // Handle special transition from startup
+            if (transition is StartupToTitleTransition)
             {
-                if (disposing)
-                {
-                    System.Diagnostics.Debug.WriteLine("Disposing Title Stage resources");
-
-                    // Cleanup MonoGame resources
-                    _backgroundTexture?.Dispose();
-                    _menuTexture?.Dispose();
-                    _whitePixel?.Dispose();
-                    _spriteBatch?.Dispose();
-                    _resourceManager?.Dispose();
-
-                    // Cleanup sound resources
-                    _cursorMoveSound?.Dispose();
-                    _selectSound?.Dispose();
-                    _gameStartSound?.Dispose();
-
-                    _backgroundTexture = null;
-                    _menuTexture = null;
-                    _whitePixel = null;
-                    _spriteBatch = null;
-                    _resourceManager = null;
-                    _cursorMoveSound = null;
-                    _selectSound = null;
-                    _gameStartSound = null;
-                }
-                _disposed = true;
+                _titlePhase = TitlePhase.FadeInFromStartup;
+            }
+            else
+            {
+                _titlePhase = TitlePhase.FadeIn;
             }
         }
 
+        protected override void OnTransitionCompleted()
+        {
+            System.Diagnostics.Debug.WriteLine("Title Stage: Transition completed");
+            _titlePhase = TitlePhase.Normal;
+        }
+
         #endregion
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                System.Diagnostics.Debug.WriteLine("Disposing Title Stage resources");
+
+                // Cleanup MonoGame resources
+                _backgroundTexture?.Dispose();
+                _menuTexture?.Dispose();
+                _whitePixel?.Dispose();
+                _spriteBatch?.Dispose();
+                _resourceManager?.Dispose();
+
+                // Cleanup sound resources
+                _cursorMoveSound?.Dispose();
+                _selectSound?.Dispose();
+                _gameStartSound?.Dispose();
+
+                _backgroundTexture = null;
+                _menuTexture = null;
+                _whitePixel = null;
+                _spriteBatch = null;
+                _resourceManager = null;
+                _cursorMoveSound = null;
+                _selectSound = null;
+                _gameStartSound = null;
+            }
+
+            base.Dispose(disposing);
+        }
 
         #region Private Methods - Resource Loading
 
@@ -425,13 +426,15 @@ namespace DTX.Stage
                 case 0: // GAME START
                     PlayGameStartSound();
                     System.Diagnostics.Debug.WriteLine("Starting game - transitioning to UI Test Stage");
-                    _game.StageManager?.ChangeStage(StageType.UITest);
+                    // Use DTXMania-style fade transition for game start
+                    ChangeStage(StageType.UITest, new DTXManiaFadeTransition(0.7));
                     break;
 
                 case 1: // CONFIG
                     PlaySelectSound();
                     System.Diagnostics.Debug.WriteLine("Opening config - transitioning to Config Stage");
-                    _game.StageManager?.ChangeStage(StageType.Config);
+                    // Use crossfade transition for config
+                    ChangeStage(StageType.Config, new CrossfadeTransition(0.5));
                     break;
 
                 case 2: // EXIT
@@ -720,7 +723,8 @@ namespace DTX.Stage
         {
             FadeIn,
             Normal,
-            FadeOut
+            FadeOut,
+            FadeInFromStartup
         }
 
         private enum MouseButton

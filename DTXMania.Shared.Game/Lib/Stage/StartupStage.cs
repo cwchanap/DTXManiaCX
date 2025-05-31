@@ -15,24 +15,21 @@ namespace DTX.Stage
     /// Startup stage implementation based on DTXManiaNX CStageStartup
     /// Handles initial loading and displays progress information
     /// </summary>
-    public class StartupStage : IStage
+    public class StartupStage : BaseStage
     {
         #region Fields
 
-        private readonly BaseGame _game;
         private double _elapsedTime;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private ITexture _backgroundTexture;
         private IResourceManager _resourceManager;
         private BitmapFont _bitmapFont;
-        private bool _disposed = false;
 
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
         private string _currentProgressMessage = "";
-        private StartupPhase _currentPhase = StartupPhase.SystemSounds;
-        private bool _isFirstUpdate = true;
+        private StartupPhase _startupPhase = StartupPhase.SystemSounds;
 
         // Services for actual functionality
         private SongEnumerationService _songEnumerationService;
@@ -47,15 +44,14 @@ namespace DTX.Stage
 
         #region Properties
 
-        public StageType Type => StageType.Startup;
+        public override StageType Type => StageType.Startup;
 
         #endregion
 
         #region Constructor
 
-        public StartupStage(BaseGame game)
+        public StartupStage(BaseGame game) : base(game)
         {
-            _game = game ?? throw new ArgumentNullException(nameof(game));
 
             _progressMessages = new List<string>();
 
@@ -82,9 +78,9 @@ namespace DTX.Stage
 
         #endregion
 
-        #region IStage Implementation
+        #region BaseStage Implementation
 
-        public void Activate()
+        protected override void OnActivate()
         {
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
@@ -106,8 +102,7 @@ namespace DTX.Stage
 
             // Initialize state
             _elapsedTime = 0;
-            _isFirstUpdate = true;
-            _currentPhase = StartupPhase.SystemSounds;
+            _startupPhase = StartupPhase.SystemSounds;
             _phaseStartTime = 0;
             _progressMessages.Clear();
 
@@ -117,33 +112,26 @@ namespace DTX.Stage
             System.Diagnostics.Debug.WriteLine("Startup Stage activated successfully");
         }
 
-        public void Update(double deltaTime)
+        protected override void OnUpdate(double deltaTime)
         {
             _elapsedTime += deltaTime;
-
-            // Handle first update
-            if (_isFirstUpdate)
-            {
-                _isFirstUpdate = false;
-                _phaseStartTime = _elapsedTime;
-            }
 
             // Update current phase
             UpdateCurrentPhase();
 
             // Check if all phases are complete
-            if (_currentPhase == StartupPhase.Complete)
+            if (_startupPhase == StartupPhase.Complete)
             {
                 double phaseElapsed = _elapsedTime - _phaseStartTime;
-                if (phaseElapsed >= _phaseInfo[_currentPhase].duration)
+                if (phaseElapsed >= _phaseInfo[_startupPhase].duration)
                 {
-                    // Transition to Title stage (proper flow)
-                    _game.StageManager?.ChangeStage(StageType.Title);
+                    // Transition to Title stage with special startup transition
+                    _game.StageManager?.ChangeStage(StageType.Title, new StartupToTitleTransition(1.0));
                 }
             }
         }
 
-        public void Draw(double deltaTime)
+        protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
@@ -165,14 +153,13 @@ namespace DTX.Stage
             _spriteBatch.End();
         }
 
-        public void Deactivate()
+        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
 
             // Reset stage state for potential reactivation
             _elapsedTime = 0;
-            _isFirstUpdate = true;
-            _currentPhase = StartupPhase.SystemSounds;
+            _startupPhase = StartupPhase.SystemSounds;
             _phaseStartTime = 0;
             _progressMessages.Clear();
             _currentProgressMessage = "";
@@ -180,40 +167,28 @@ namespace DTX.Stage
 
         #endregion
 
-        #region IDisposable Implementation
-
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            if (disposing)
             {
-                if (disposing)
-                {
-                    System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
+                System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
 
-                    // Cleanup MonoGame resources
-                    _backgroundTexture?.Dispose();
-                    _bitmapFont?.Dispose();
-                    _whitePixel?.Dispose();
-                    _spriteBatch?.Dispose();
-                    _resourceManager?.Dispose();
+                // Cleanup MonoGame resources
+                _backgroundTexture?.Dispose();
+                _bitmapFont?.Dispose();
+                _whitePixel?.Dispose();
+                _spriteBatch?.Dispose();
+                _resourceManager?.Dispose();
 
-                    _backgroundTexture = null;
-                    _bitmapFont = null;
-                    _whitePixel = null;
-                    _spriteBatch = null;
-                    _resourceManager = null;
-                }
-                _disposed = true;
+                _backgroundTexture = null;
+                _bitmapFont = null;
+                _whitePixel = null;
+                _spriteBatch = null;
+                _resourceManager = null;
             }
-        }
 
-        #endregion
+            base.Dispose(disposing);
+        }
 
         #region Private Methods - Resource Loading
 
@@ -240,17 +215,17 @@ namespace DTX.Stage
 
         private void UpdateCurrentPhase()
         {
-            if (_currentPhase == StartupPhase.Complete)
+            if (_startupPhase == StartupPhase.Complete)
                 return;
 
             double phaseElapsed = _elapsedTime - _phaseStartTime;
-            var currentPhaseInfo = _phaseInfo[_currentPhase];
+            var currentPhaseInfo = _phaseInfo[_startupPhase];
 
             // Update current progress message
             _currentProgressMessage = currentPhaseInfo.message;
 
             // Perform phase-specific operations
-            PerformPhaseOperation(_currentPhase, phaseElapsed);
+            PerformPhaseOperation(_startupPhase, phaseElapsed);
 
             // Check if current phase is complete
             if (phaseElapsed >= currentPhaseInfo.duration)
@@ -259,12 +234,12 @@ namespace DTX.Stage
                 _progressMessages.Add($"{currentPhaseInfo.message} OK");
 
                 // Move to next phase
-                var nextPhase = GetNextPhase(_currentPhase);
-                if (nextPhase != _currentPhase)
+                var nextPhase = GetNextPhase(_startupPhase);
+                if (nextPhase != _startupPhase)
                 {
-                    _currentPhase = nextPhase;
+                    _startupPhase = nextPhase;
                     _phaseStartTime = _elapsedTime;
-                    System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_currentPhase}");
+                    System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_startupPhase}");
                 }
             }
         }
@@ -434,9 +409,9 @@ namespace DTX.Stage
 
             // Calculate overall progress
             int totalPhases = _phaseInfo.Count;
-            int currentPhaseIndex = (int)_currentPhase;
+            int currentPhaseIndex = (int)_startupPhase;
             double phaseElapsed = _elapsedTime - _phaseStartTime;
-            double currentPhaseDuration = _phaseInfo[_currentPhase].duration;
+            double currentPhaseDuration = _phaseInfo[_startupPhase].duration;
             double phaseProgress = Math.Min(phaseElapsed / currentPhaseDuration, 1.0);
 
             double overallProgress = (currentPhaseIndex + phaseProgress) / totalPhases;
