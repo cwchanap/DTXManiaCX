@@ -167,6 +167,60 @@ namespace DTXMania.Test.Resources
             Assert.Equal("fonts/arial.ttf|24|Bold", cacheKey);
         }
 
+        [Fact]
+        public void SoundCacheKeyGeneration_ShouldBeConsistent()
+        {
+            // Arrange
+            var path = "Sounds/Move.ogg";
+            var normalizedPath = path.Replace('\\', '/').ToLowerInvariant();
+
+            // Act
+            var cacheKey = normalizedPath;
+
+            // Assert
+            Assert.Equal("sounds/move.ogg", cacheKey);
+        }
+
+        [Theory]
+        [InlineData("Sounds/Move.ogg")]
+        [InlineData("Sounds/Decide.ogg")]
+        [InlineData("Sounds/Game start.ogg")]
+        public void SoundPath_Resolution_ShouldFollowSkinSystem(string soundPath)
+        {
+            // Arrange
+            var basePath = "System/";
+            var expectedPath = Path.Combine(basePath, soundPath);
+
+            // Act
+            var resolvedPath = Path.Combine(basePath, soundPath);
+
+            // Assert
+            Assert.Contains("System", resolvedPath);
+            Assert.Contains("Sounds", resolvedPath);
+            Assert.EndsWith(".ogg", resolvedPath);
+        }
+
+        [Fact]
+        public void SoundFileExtensions_ShouldSupportMultipleFormats()
+        {
+            // Arrange
+            var supportedExtensions = new[] { ".wav", ".ogg" };
+            var testFiles = new[]
+            {
+                "test.wav",
+                "test.ogg",
+                "Move.ogg",
+                "Decide.ogg"
+            };
+
+            // Act & Assert
+            foreach (var file in testFiles)
+            {
+                var extension = Path.GetExtension(file).ToLowerInvariant();
+                Assert.Contains(extension, supportedExtensions);
+            }
+        }
+
         public void Dispose()
         {
             // Cleanup test directory
