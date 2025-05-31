@@ -71,6 +71,8 @@ namespace DTX.Song
             if (!IsSupported(metadata.FileFormat))
             {
                 Debug.WriteLine($"DTXMetadataParser: Unsupported file format: {metadata.FileFormat}");
+                // Set fallback title for unsupported files
+                metadata.Title = Path.GetFileNameWithoutExtension(filePath);
                 return metadata;
             }
 

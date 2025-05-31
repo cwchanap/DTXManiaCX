@@ -218,6 +218,9 @@ namespace DTX.Song
         /// </summary>
         public int? GetDifficultyLevel(string instrument)
         {
+            if (string.IsNullOrEmpty(instrument))
+                return null;
+
             return instrument.ToUpperInvariant() switch
             {
                 "DRUMS" => DrumLevel,
