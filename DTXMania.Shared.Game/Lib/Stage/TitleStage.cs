@@ -425,9 +425,9 @@ namespace DTX.Stage
             {
                 case 0: // GAME START
                     PlayGameStartSound();
-                    System.Diagnostics.Debug.WriteLine("Starting game - transitioning to UI Test Stage");
+                    System.Diagnostics.Debug.WriteLine("Starting game - transitioning to Song Selection Stage");
                     // Use DTXMania-style fade transition for game start
-                    ChangeStage(StageType.UITest, new DTXManiaFadeTransition(0.7));
+                    ChangeStage(StageType.SongSelect, new DTXManiaFadeTransition(0.7));
                     break;
 
                 case 1: // CONFIG

@@ -41,6 +41,7 @@ namespace DTX.Stage
                 [StageType.Startup] = new StartupStage(_game),
                 [StageType.Title] = new TitleStage(_game),
                 [StageType.Config] = new ConfigStage(_game),
+                [StageType.SongSelect] = new SongSelectionStage(_game),
                 [StageType.UITest] = new UITestStage(_game)
             };
 

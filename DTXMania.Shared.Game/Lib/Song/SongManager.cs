@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
@@ -569,6 +570,13 @@ namespace DTX.Song
 
         /// <summary>
         /// Parses a set.def file for multi-difficulty song definitions
+        /// DTXMania SET.def format:
+        /// #TITLE   Song Title
+        /// #L1LABEL Basic
+        /// #L1FILE  bas.dtx
+        /// #L2LABEL Advanced
+        /// #L2FILE  adv.dtx
+        /// etc.
         /// </summary>
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
         {
@@ -577,9 +585,47 @@ namespace DTX.Song
 
             try
             {
-                var lines = await File.ReadAllLinesAsync(setDefPath, cancellationToken);
+                // Try different encodings for Japanese text support
+                var encodings = new List<Encoding>
+                {
+                    Encoding.UTF8,
+                    Encoding.Default
+                };
+
+                // Try to add Shift_JIS if available
+                try
+                {
+                    encodings.Add(Encoding.GetEncoding("Shift_JIS"));
+                }
+                catch (ArgumentException)
+                {
+                    Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
+                }
+
+                string[] lines = null;
+                foreach (var encoding in encodings)
+                {
+                    try
+                    {
+                        lines = await File.ReadAllLinesAsync(setDefPath, encoding, cancellationToken);
+                        break; // Success, use this encoding
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                        continue;
+                    }
+                }
+
+                if (lines == null)
+                {
+                    Debug.WriteLine($"SongManager: Failed to read SET.def with any encoding: {setDefPath}");
+                    return results;
+                }
+
                 SongListNode? currentSong = null;
-                var difficultyIndex = 0;
+                string songTitle = "";
+                var difficulties = new Dictionary<int, (string label, string file)>();
 
                 foreach (var line in lines)
                 {
@@ -589,78 +635,105 @@ namespace DTX.Song
                     if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
                         continue;
 
-                    // Check if this is a new song definition (starts with #)
+                    // Parse SET.def commands
                     if (trimmedLine.StartsWith("#"))
                     {
-                        // Save previous song if exists
-                        if (currentSong != null && currentSong.AvailableDifficulties > 0)
+                        var parts = trimmedLine.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 2)
                         {
-                            results.Add(currentSong);
-                        }
+                            var command = parts[0].Substring(1).ToUpperInvariant(); // Remove # and convert to uppercase
+                            var value = parts[1].Trim();
 
-                        // Parse song title from #TITLE: format
-                        var titleMatch = trimmedLine.Substring(1);
-                        var colonIndex = titleMatch.IndexOf(':');
-                        if (colonIndex > 0)
-                        {
-                            var command = titleMatch.Substring(0, colonIndex).Trim();
-                            var value = titleMatch.Substring(colonIndex + 1).Trim();
-
-                            if (command.Equals("TITLE", StringComparison.OrdinalIgnoreCase))
+                            if (command == "TITLE")
                             {
-                                // Create new song node
-                                var metadata = new SongMetadata
+                                songTitle = value;
+                                Debug.WriteLine($"SongManager: Found song title: {songTitle}");
+                            }
+                            else if (command.StartsWith("L") && command.EndsWith("LABEL"))
+                            {
+                                // Extract level number (L1LABEL -> 1)
+                                if (int.TryParse(command.Substring(1, command.Length - 6), out int level))
                                 {
-                                    Title = value,
-                                    FilePath = setDefPath
-                                };
-                                currentSong = SongListNode.CreateSongNode(metadata);
-                                currentSong.Parent = parent;
-                                difficultyIndex = 0;
+                                    if (!difficulties.ContainsKey(level))
+                                        difficulties[level] = ("", "");
+                                    difficulties[level] = (value, difficulties[level].file);
+                                    Debug.WriteLine($"SongManager: Found difficulty {level} label: {value}");
+                                }
                             }
-                        }
-                    }
-                    else if (currentSong != null)
-                    {
-                        // This should be a difficulty file path
-                        var filePath = Path.Combine(directory, trimmedLine);
-                        if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
-                        {
-                            var metadata = await _metadataParser.ParseMetadataAsync(filePath);
-
-                            // Use the set.def title if the file doesn't have one
-                            if (string.IsNullOrEmpty(metadata.Title) && currentSong.Metadata != null)
+                            else if (command.StartsWith("L") && command.EndsWith("FILE"))
                             {
-                                metadata.Title = currentSong.Metadata.Title;
+                                // Extract level number (L1FILE -> 1)
+                                if (int.TryParse(command.Substring(1, command.Length - 5), out int level))
+                                {
+                                    if (!difficulties.ContainsKey(level))
+                                        difficulties[level] = ("", "");
+                                    difficulties[level] = (difficulties[level].label, value);
+                                    Debug.WriteLine($"SongManager: Found difficulty {level} file: {value}");
+                                }
                             }
-
-                            var score = new SongScore
-                            {
-                                Metadata = metadata,
-                                Instrument = "DRUMS", // Default to drums for DTX files
-                                DifficultyLevel = metadata.DrumLevel ?? 0,
-                                DifficultyLabel = $"Level {difficultyIndex + 1}"
-                            };
-                            currentSong.SetScore(difficultyIndex, score);
-
-                            // Add to database
-                            lock (_lockObject)
-                            {
-                                _songsDatabase.Add(score);
-                            }
-
-                            difficultyIndex++;
-                            DiscoveredScoreCount++;
-
-                            Debug.WriteLine($"SongManager: Added difficulty {difficultyIndex} for '{currentSong.DisplayTitle}' from {trimmedLine}");
                         }
                     }
                 }
 
-                // Add the last song if exists
-                if (currentSong != null && currentSong.AvailableDifficulties > 0)
+                // Create song node if we have a title and difficulties
+                if (!string.IsNullOrEmpty(songTitle) && difficulties.Count > 0)
                 {
-                    results.Add(currentSong);
+                    var metadata = new SongMetadata
+                    {
+                        Title = songTitle,
+                        FilePath = setDefPath
+                    };
+                    currentSong = SongListNode.CreateSongNode(metadata);
+                    currentSong.Parent = parent;
+
+                    // Process each difficulty
+                    foreach (var kvp in difficulties.OrderBy(d => d.Key))
+                    {
+                        var level = kvp.Key;
+                        var (label, fileName) = kvp.Value;
+
+                        if (!string.IsNullOrEmpty(fileName))
+                        {
+                            var filePath = Path.Combine(directory, fileName);
+                            if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
+                            {
+                                var difficultyMetadata = await _metadataParser.ParseMetadataAsync(filePath);
+
+                                // Use the set.def title if the file doesn't have one
+                                if (string.IsNullOrEmpty(difficultyMetadata.Title))
+                                {
+                                    difficultyMetadata.Title = songTitle;
+                                }
+
+                                var score = new SongScore
+                                {
+                                    Metadata = difficultyMetadata,
+                                    Instrument = "DRUMS", // Default to drums for DTX files
+                                    DifficultyLevel = difficultyMetadata.DrumLevel ?? level,
+                                    DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
+                                };
+                                currentSong.SetScore(level - 1, score); // Convert to 0-based index
+
+                                // Add to database
+                                lock (_lockObject)
+                                {
+                                    _songsDatabase.Add(score);
+                                }
+
+                                DiscoveredScoreCount++;
+                                Debug.WriteLine($"SongManager: Added difficulty '{label}' (level {level}) for '{songTitle}' from {fileName}");
+                            }
+                            else
+                            {
+                                Debug.WriteLine($"SongManager: Difficulty file not found or unsupported: {filePath}");
+                            }
+                        }
+                    }
+
+                    if (currentSong.AvailableDifficulties > 0)
+                    {
+                        results.Add(currentSong);
+                    }
                 }
 
                 Debug.WriteLine($"SongManager: Parsed set.def with {results.Count} songs and {results.Sum(s => s.AvailableDifficulties)} difficulties");
