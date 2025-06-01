@@ -17,9 +17,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     private SpriteBatch _spriteBatch;
     private RenderTarget2D _renderTarget;
 
-    public IStageManager StageManager { get; private set; }
-    public IConfigManager ConfigManager { get; private set; }
-    public InputManager InputManager { get; private set; }
+    public IStageManager StageManager { get; protected set; }
+    public IConfigManager ConfigManager { get; protected set; }
+    public InputManager InputManager { get; protected set; }
     public IGraphicsManager GraphicsManager => _graphicsManager;
 
     public BaseGame()

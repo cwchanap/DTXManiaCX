@@ -235,7 +235,7 @@ public class CActSelectSongList
 #### Phase 2 Implementation Summary
 **Files Enhanced:**
 - `DTXMania.Shared.Game/Lib/Song/SongManager.cs` - Added set.def/box.def parsing, incremental enumeration
-- `DTXMania.Test/Song/SongManagerPhase2Tests.cs` - Comprehensive Phase 2 functionality tests
+- `DTXMania.Test/Song/SongManagerTests.cs` - Comprehensive Phase 2 functionality tests
 
 **Key Features Implemented:**
 - ✅ **Set.def parsing** for multi-difficulty song definitions with proper file path resolution

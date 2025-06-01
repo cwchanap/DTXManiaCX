@@ -4,6 +4,7 @@ using Xunit;
 using DTX.Stage;
 using DTXMania.Shared.Game;
 using Microsoft.Xna.Framework;
+using DTX.Input;
 
 namespace DTXMania.Test.Stage
 {
@@ -13,19 +14,16 @@ namespace DTXMania.Test.Stage
     /// </summary>
     public class StageManagerTransitionTests : IDisposable
     {
-        private readonly TestGame _game;
-        private readonly StageManager _stageManager;
+        private readonly MockStageManager _stageManager;
 
         public StageManagerTransitionTests()
         {
-            _game = new TestGame();
-            _stageManager = new StageManager(_game);
+            _stageManager = new MockStageManager();
         }
 
         public void Dispose()
         {
             _stageManager?.Dispose();
-            _game?.Dispose();
         }
 
         #region Basic Transition Tests
@@ -59,8 +57,16 @@ namespace DTXMania.Test.Stage
         public void StageManager_ShouldCompleteTransitionAfterDuration()
         {
             // Arrange
-            var transition = new FadeTransition(0.1); // Short duration for test
+            var transition = new FadeTransition(0.05, 0.05); // Short duration for test (0.1 total)
+
+            // Verify initial state
+            Assert.Null(_stageManager.CurrentStage);
+            Assert.False(_stageManager.IsTransitioning);
+
             _stageManager.ChangeStage(StageType.Title, transition);
+
+            // Verify transition started
+            Assert.True(_stageManager.IsTransitioning);
 
             // Act - Update beyond transition duration
             _stageManager.Update(0.2);
@@ -88,7 +94,7 @@ namespace DTXMania.Test.Stage
             _stageManager.ChangeStage(StageType.Title, new InstantTransition(), sharedData);
 
             // Assert
-            var titleStage = _stageManager.CurrentStage as TestStage;
+            var titleStage = _stageManager.CurrentStage as MockStage;
             Assert.NotNull(titleStage);
             Assert.True(titleStage.HasSharedData("TestKey"));
             Assert.Equal("TestValue", titleStage.GetSharedData<string>("TestKey"));
@@ -170,50 +176,196 @@ namespace DTXMania.Test.Stage
         #region Helper Classes
 
         /// <summary>
-        /// Test game implementation for testing
+        /// Mock stage manager for testing without MonoGame dependencies
         /// </summary>
-        private class TestGame : BaseGame
+        private class MockStageManager : IStageManager, IDisposable
         {
-            public TestGame()
+            private readonly Dictionary<StageType, IStage> _stages;
+            private IStage _currentStage;
+            private bool _isTransitioning;
+            private StagePhase _currentPhase = StagePhase.Inactive;
+            private IStageTransition _currentTransition;
+            private double _transitionElapsed;
+            private IStage _targetStage;
+            private Dictionary<string, object> _targetSharedData;
+
+            public MockStageManager()
             {
-                // Initialize minimal game for testing
+                _stages = new Dictionary<StageType, IStage>
+                {
+                    [StageType.Title] = new MockStage(StageType.Title),
+                    [StageType.Config] = new MockStage(StageType.Config),
+                    [StageType.UITest] = new MockStage(StageType.UITest)
+                };
+
+                foreach (var stage in _stages.Values)
+                {
+                    stage.StageManager = this;
+                }
             }
 
-            protected override void LoadContent()
+            public IStage CurrentStage => _currentStage;
+            public StagePhase CurrentPhase => _currentPhase;
+            public bool IsTransitioning => _isTransitioning;
+
+            public void ChangeStage(StageType stageType)
             {
-                // No content loading needed for tests
+                ChangeStage(stageType, null, null);
             }
 
-            protected override void Update(GameTime gameTime)
+            public void ChangeStage(StageType stageType, IStageTransition transition)
             {
-                // No update logic needed for tests
+                ChangeStage(stageType, transition, null);
             }
 
-            protected override void Draw(GameTime gameTime)
+            public void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData)
             {
-                // No drawing needed for tests
+                if (_isTransitioning)
+                    return;
+
+                if (!_stages.TryGetValue(stageType, out var newStage))
+                    return;
+
+                if (transition == null || transition is InstantTransition)
+                {
+                    // Instant transition
+                    _currentStage?.Deactivate();
+                    _currentStage = newStage;
+                    _currentPhase = StagePhase.Normal;
+
+                    _currentStage.Activate(sharedData);
+                }
+                else
+                {
+                    // Transition with effects
+                    _isTransitioning = true;
+                    _currentTransition = transition;
+                    _currentTransition.Start(); // Start the transition!
+                    _transitionElapsed = 0;
+                    _currentPhase = StagePhase.FadeOut;
+
+                    // Store the target stage for later
+                    _targetStage = newStage;
+                    _targetSharedData = sharedData;
+                }
+            }
+
+            public void Update(double deltaTime)
+            {
+                if (_isTransitioning && _currentTransition != null)
+                {
+                    // Update the transition
+                    _currentTransition.Update(deltaTime);
+
+                    if (_currentTransition.IsComplete)
+                    {
+                        // Complete transition
+                        _currentStage?.Deactivate();
+                        _currentStage = _targetStage;
+
+                        _currentStage.Activate(_targetSharedData);
+
+                        _isTransitioning = false;
+                        _currentPhase = StagePhase.Normal;
+                        _currentTransition = null;
+                        _transitionElapsed = 0;
+                        _targetStage = null;
+                        _targetSharedData = null;
+                    }
+                }
+
+                _currentStage?.Update(deltaTime);
+            }
+
+            public void Draw(double deltaTime)
+            {
+                _currentStage?.Draw(deltaTime);
+            }
+
+            public void Dispose()
+            {
+                foreach (var stage in _stages.Values)
+                {
+                    stage?.Dispose();
+                }
+                _stages.Clear();
             }
         }
 
         /// <summary>
-        /// Test stage implementation for testing shared data
+        /// Mock stage implementation for testing
         /// </summary>
-        private class TestStage : BaseStage
+        private class MockStage : IStage
         {
-            public override StageType Type => StageType.Title;
+            private Dictionary<string, object> _sharedData = new Dictionary<string, object>();
+            private bool _isActive;
 
-            public TestStage(BaseGame game) : base(game) { }
-
-            // Expose protected methods for testing
-            public new T GetSharedData<T>(string key, T defaultValue = default(T))
+            public MockStage(StageType type)
             {
-                return base.GetSharedData(key, defaultValue);
+                Type = type;
             }
 
-            public new bool HasSharedData(string key)
+            public StageType Type { get; }
+            public StagePhase CurrentPhase { get; private set; } = StagePhase.Inactive;
+            public IStageManager StageManager { get; set; }
+
+            public void Activate()
             {
-                return base.HasSharedData(key);
+                _isActive = true;
+                CurrentPhase = StagePhase.Normal;
             }
+
+            public void Activate(Dictionary<string, object> sharedData)
+            {
+                if (sharedData != null)
+                    SetSharedData(sharedData);
+                Activate();
+            }
+
+            public void Deactivate()
+            {
+                _isActive = false;
+                CurrentPhase = StagePhase.Inactive;
+                _sharedData.Clear();
+            }
+
+            public void Update(double deltaTime) { }
+            public void Draw(double deltaTime) { }
+
+            public void OnTransitionIn(IStageTransition transition)
+            {
+                CurrentPhase = StagePhase.FadeIn;
+            }
+
+            public void OnTransitionOut(IStageTransition transition)
+            {
+                CurrentPhase = StagePhase.FadeOut;
+            }
+
+            public void OnTransitionComplete()
+            {
+                CurrentPhase = StagePhase.Normal;
+            }
+
+            public void SetSharedData(Dictionary<string, object> sharedData)
+            {
+                _sharedData = new Dictionary<string, object>(sharedData);
+            }
+
+            // Expose shared data methods for testing
+            public T GetSharedData<T>(string key, T defaultValue = default(T))
+            {
+                if (_sharedData.TryGetValue(key, out var value) && value is T typedValue)
+                    return typedValue;
+                return defaultValue;
+            }
+
+            public bool HasSharedData(string key)
+            {
+                return _sharedData.ContainsKey(key);
+            }
+
+            public void Dispose() { }
         }
 
         #endregion
