@@ -1,5 +1,5 @@
 DTXManiaCX
 ===========
 
-DTXMania port to .NET 8 with MonoGame.
+DTXMania rewritten in .NET 8 with MonoGame.
 

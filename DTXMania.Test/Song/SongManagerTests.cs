@@ -436,12 +436,15 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(normalDtx, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 30\n");
                 await File.WriteAllTextAsync(hardDtx, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 50\n");
 
-                // Create set.def file
+                // Create set.def file using proper DTXMania format
                 var setDefPath = Path.Combine(setDefDir, "set.def");
-                var setDefContent = @"#TITLE: Test Song Multi-Difficulty
-easy.dtx
-normal.dtx
-hard.dtx";
+                var setDefContent = @"#TITLE Test Song Multi-Difficulty
+#L1LABEL Easy
+#L1FILE easy.dtx
+#L2LABEL Normal
+#L2FILE normal.dtx
+#L3LABEL Hard
+#L3FILE hard.dtx";
                 await File.WriteAllTextAsync(setDefPath, setDefContent);
 
                 var manager = new SongManager();
@@ -519,12 +522,15 @@ hard.dtx";
                 var easyDtx = Path.Combine(setDefDir, "easy.dtx");
                 await File.WriteAllTextAsync(easyDtx, "#TITLE: Partial Song\n#ARTIST: Test Artist\n#DLEVEL: 15\n");
 
-                // Create set.def referencing missing files
+                // Create set.def referencing missing files using proper DTXMania format
                 var setDefPath = Path.Combine(setDefDir, "set.def");
-                var setDefContent = @"#TITLE: Partial Song
-easy.dtx
-missing_normal.dtx
-missing_hard.dtx";
+                var setDefContent = @"#TITLE Partial Song
+#L1LABEL Easy
+#L1FILE easy.dtx
+#L2LABEL Normal
+#L2FILE missing_normal.dtx
+#L3LABEL Hard
+#L3FILE missing_hard.dtx";
                 await File.WriteAllTextAsync(setDefPath, setDefContent);
 
                 var manager = new SongManager();
