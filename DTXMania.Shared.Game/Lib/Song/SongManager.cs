@@ -269,8 +269,8 @@ namespace DTX.Song
         /// Enumerates a directory recursively
         /// </summary>
         private async Task<List<SongListNode>> EnumerateDirectoryAsync(
-            string directoryPath, 
-            SongListNode? parent, 
+            string directoryPath,
+            SongListNode? parent,
             IProgress<EnumerationProgress>? progress,
             CancellationToken cancellationToken)
         {
@@ -283,16 +283,21 @@ namespace DTX.Song
                 var setDefPath = Path.Combine(directoryPath, "set.def");
                 if (File.Exists(setDefPath))
                 {
-                    // TODO: Implement set.def parsing in Phase 2
-                    Debug.WriteLine($"SongManager: Found set.def in {directoryPath} (not implemented yet)");
+                    Debug.WriteLine($"SongManager: Found set.def in {directoryPath}, parsing...");
+                    var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent, cancellationToken);
+                    results.AddRange(setDefSongs);
+
+                    // If set.def exists, don't process individual files in this directory
+                    return results;
                 }
 
                 // Check for box.def (folder metadata)
+                BoxDefinition? boxDef = null;
                 var boxDefPath = Path.Combine(directoryPath, "box.def");
                 if (File.Exists(boxDefPath))
                 {
-                    // TODO: Implement box.def parsing in Phase 2
-                    Debug.WriteLine($"SongManager: Found box.def in {directoryPath} (not implemented yet)");
+                    Debug.WriteLine($"SongManager: Found box.def in {directoryPath}, parsing...");
+                    boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
                 }
 
                 // Process subdirectories as BOX folders
@@ -300,9 +305,17 @@ namespace DTX.Song
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var boxNode = SongListNode.CreateBoxNode(subDir.Name, subDir.FullName, parent);
+                    // Check for box.def in the subdirectory itself
+                    BoxDefinition? subDirBoxDef = null;
+                    var subDirBoxDefPath = Path.Combine(subDir.FullName, "box.def");
+                    if (File.Exists(subDirBoxDefPath))
+                    {
+                        subDirBoxDef = await ParseBoxDefinitionAsync(subDirBoxDefPath, cancellationToken);
+                    }
+
+                    var boxNode = CreateBoxNodeFromDirectory(subDir, parent, subDirBoxDef);
                     var children = await EnumerateDirectoryAsync(subDir.FullName, boxNode, progress, cancellationToken);
-                    
+
                     foreach (var child in children)
                     {
                         boxNode.AddChild(child);
@@ -404,8 +417,109 @@ namespace DTX.Song
         {
             lock (_lockObject)
             {
-                return _songsDatabase.Where(s => 
+                return _songsDatabase.Where(s =>
                     s.Metadata.Genre.Equals(genre, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+        }
+
+        /// <summary>
+        /// Checks if enumeration is needed based on directory modification times
+        /// </summary>
+        public async Task<bool> NeedsEnumerationAsync(string[] searchPaths)
+        {
+            try
+            {
+                // Check if database exists
+                var databasePath = "songs.db";
+                if (!File.Exists(databasePath))
+                    return true;
+
+                // Get database last modified time
+                var dbLastModified = File.GetLastWriteTime(databasePath);
+
+                // Check if any search path has been modified since database was created
+                foreach (var searchPath in searchPaths)
+                {
+                    if (Directory.Exists(searchPath))
+                    {
+                        var dirLastModified = Directory.GetLastWriteTime(searchPath);
+                        if (dirLastModified > dbLastModified)
+                        {
+                            Debug.WriteLine($"SongManager: Directory {searchPath} modified since last enumeration");
+                            return true;
+                        }
+
+                        // Check subdirectories recursively (but limit depth for performance)
+                        if (await HasRecentChangesAsync(searchPath, dbLastModified, 3))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                Debug.WriteLine("SongManager: No enumeration needed - database is up to date");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
+                return true; // Default to enumeration if we can't determine
+            }
+        }
+
+        /// <summary>
+        /// Performs incremental enumeration - only processes changed directories
+        /// </summary>
+        public async Task<int> IncrementalEnumerationAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
+        {
+            if (IsEnumerating)
+            {
+                Debug.WriteLine("SongManager: Enumeration already in progress");
+                return 0;
+            }
+
+            _enumCancellation = new CancellationTokenSource();
+            var initialCount = DiscoveredScoreCount;
+
+            try
+            {
+                Debug.WriteLine($"SongManager: Starting incremental enumeration of {searchPaths.Length} paths");
+
+                var databasePath = "songs.db";
+                var dbLastModified = File.Exists(databasePath) ? File.GetLastWriteTime(databasePath) : DateTime.MinValue;
+
+                foreach (var searchPath in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
+                        continue;
+
+                    await IncrementalEnumerateDirectoryAsync(searchPath, null, dbLastModified, progress, _enumCancellation.Token);
+                }
+
+                var newSongsFound = DiscoveredScoreCount - initialCount;
+                Debug.WriteLine($"SongManager: Incremental enumeration complete. Found {newSongsFound} new songs");
+
+                if (newSongsFound > 0)
+                {
+                    EnumerationCompleted?.Invoke(this, EventArgs.Empty);
+                }
+
+                return newSongsFound;
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine("SongManager: Incremental enumeration was cancelled");
+                return DiscoveredScoreCount - initialCount;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during incremental enumeration: {ex.Message}");
+                return DiscoveredScoreCount - initialCount;
+            }
+            finally
+            {
+                _enumCancellation?.Dispose();
+                _enumCancellation = null;
             }
         }
 
@@ -450,6 +564,370 @@ namespace DTX.Song
             foreach (var child in node.Children)
             {
                 LogNodeHierarchy(child, depth + 1);
+            }
+        }
+
+        /// <summary>
+        /// Parses a set.def file for multi-difficulty song definitions
+        /// </summary>
+        private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
+        {
+            var results = new List<SongListNode>();
+            var directory = Path.GetDirectoryName(setDefPath) ?? "";
+
+            try
+            {
+                var lines = await File.ReadAllLinesAsync(setDefPath, cancellationToken);
+                SongListNode? currentSong = null;
+                var difficultyIndex = 0;
+
+                foreach (var line in lines)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var trimmedLine = line.Trim();
+                    if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
+                        continue;
+
+                    // Check if this is a new song definition (starts with #)
+                    if (trimmedLine.StartsWith("#"))
+                    {
+                        // Save previous song if exists
+                        if (currentSong != null && currentSong.AvailableDifficulties > 0)
+                        {
+                            results.Add(currentSong);
+                        }
+
+                        // Parse song title from #TITLE: format
+                        var titleMatch = trimmedLine.Substring(1);
+                        var colonIndex = titleMatch.IndexOf(':');
+                        if (colonIndex > 0)
+                        {
+                            var command = titleMatch.Substring(0, colonIndex).Trim();
+                            var value = titleMatch.Substring(colonIndex + 1).Trim();
+
+                            if (command.Equals("TITLE", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Create new song node
+                                var metadata = new SongMetadata
+                                {
+                                    Title = value,
+                                    FilePath = setDefPath
+                                };
+                                currentSong = SongListNode.CreateSongNode(metadata);
+                                currentSong.Parent = parent;
+                                difficultyIndex = 0;
+                            }
+                        }
+                    }
+                    else if (currentSong != null)
+                    {
+                        // This should be a difficulty file path
+                        var filePath = Path.Combine(directory, trimmedLine);
+                        if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
+                        {
+                            var metadata = await _metadataParser.ParseMetadataAsync(filePath);
+
+                            // Use the set.def title if the file doesn't have one
+                            if (string.IsNullOrEmpty(metadata.Title) && currentSong.Metadata != null)
+                            {
+                                metadata.Title = currentSong.Metadata.Title;
+                            }
+
+                            var score = new SongScore
+                            {
+                                Metadata = metadata,
+                                Instrument = "DRUMS", // Default to drums for DTX files
+                                DifficultyLevel = metadata.DrumLevel ?? 0,
+                                DifficultyLabel = $"Level {difficultyIndex + 1}"
+                            };
+                            currentSong.SetScore(difficultyIndex, score);
+
+                            // Add to database
+                            lock (_lockObject)
+                            {
+                                _songsDatabase.Add(score);
+                            }
+
+                            difficultyIndex++;
+                            DiscoveredScoreCount++;
+
+                            Debug.WriteLine($"SongManager: Added difficulty {difficultyIndex} for '{currentSong.DisplayTitle}' from {trimmedLine}");
+                        }
+                    }
+                }
+
+                // Add the last song if exists
+                if (currentSong != null && currentSong.AvailableDifficulties > 0)
+                {
+                    results.Add(currentSong);
+                }
+
+                Debug.WriteLine($"SongManager: Parsed set.def with {results.Count} songs and {results.Sum(s => s.AvailableDifficulties)} difficulties");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error parsing set.def {setDefPath}: {ex.Message}");
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Parses a box.def file for folder metadata
+        /// </summary>
+        private async Task<BoxDefinition?> ParseBoxDefinitionAsync(string boxDefPath, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var lines = await File.ReadAllLinesAsync(boxDefPath, cancellationToken);
+                var boxDef = new BoxDefinition();
+
+                foreach (var line in lines)
+                {
+                    var trimmedLine = line.Trim();
+                    if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
+                        continue;
+
+                    var parts = trimmedLine.Split(':', 2);
+                    if (parts.Length == 2)
+                    {
+                        var command = parts[0].Trim().ToUpperInvariant();
+                        var value = parts[1].Trim();
+
+                        switch (command)
+                        {
+                            case "#TITLE":
+                                boxDef.Title = value;
+                                break;
+                            case "#GENRE":
+                                boxDef.Genre = value;
+                                break;
+                            case "#SKINPATH":
+                                boxDef.SkinPath = value;
+                                break;
+                            case "#BGCOLOR":
+                                if (TryParseColor(value, out var bgColor))
+                                    boxDef.BackgroundColor = bgColor;
+                                break;
+                            case "#TEXTCOLOR":
+                                if (TryParseColor(value, out var textColor))
+                                    boxDef.TextColor = textColor;
+                                break;
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"SongManager: Parsed box.def - Title: '{boxDef.Title}', Genre: '{boxDef.Genre}'");
+                return boxDef;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error parsing box.def {boxDefPath}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Creates a box node from directory info and optional box definition
+        /// </summary>
+        private SongListNode CreateBoxNodeFromDirectory(DirectoryInfo directory, SongListNode? parent, BoxDefinition? boxDef)
+        {
+            var title = boxDef?.Title ?? directory.Name;
+            var boxNode = SongListNode.CreateBoxNode(title, directory.FullName, parent);
+
+            if (boxDef != null)
+            {
+                boxNode.Genre = boxDef.Genre ?? "";
+                boxNode.SkinPath = boxDef.SkinPath ?? "";
+                // Note: Color properties would need to be added to SongListNode if needed
+            }
+
+            return boxNode;
+        }
+
+        /// <summary>
+        /// Tries to parse a color value from string
+        /// </summary>
+        private bool TryParseColor(string colorValue, out System.Drawing.Color color)
+        {
+            color = System.Drawing.Color.White;
+
+            try
+            {
+                if (colorValue.StartsWith("#"))
+                {
+                    // Hex color format
+                    var hex = colorValue.Substring(1);
+                    if (hex.Length == 6)
+                    {
+                        var r = Convert.ToByte(hex.Substring(0, 2), 16);
+                        var g = Convert.ToByte(hex.Substring(2, 2), 16);
+                        var b = Convert.ToByte(hex.Substring(4, 2), 16);
+                        color = System.Drawing.Color.FromArgb(r, g, b);
+                        return true;
+                    }
+                }
+                else
+                {
+                    // Named color
+                    color = System.Drawing.Color.FromName(colorValue);
+                    return color.IsKnownColor;
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a directory has recent changes recursively
+        /// </summary>
+        private async Task<bool> HasRecentChangesAsync(string directoryPath, DateTime lastCheck, int maxDepth)
+        {
+            if (maxDepth <= 0)
+                return false;
+
+            try
+            {
+                var directory = new DirectoryInfo(directoryPath);
+
+                // Check if directory itself was modified
+                if (directory.LastWriteTime > lastCheck)
+                    return true;
+
+                // Check files in directory
+                foreach (var file in directory.GetFiles())
+                {
+                    if (file.LastWriteTime > lastCheck)
+                    {
+                        Debug.WriteLine($"SongManager: Found modified file: {file.FullName}");
+                        return true;
+                    }
+                }
+
+                // Check subdirectories
+                foreach (var subDir in directory.GetDirectories())
+                {
+                    if (await HasRecentChangesAsync(subDir.FullName, lastCheck, maxDepth - 1))
+                        return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking directory changes {directoryPath}: {ex.Message}");
+                return true; // Assume changes if we can't check
+            }
+        }
+
+        /// <summary>
+        /// Incremental directory enumeration - only processes changed directories
+        /// </summary>
+        private async Task IncrementalEnumerateDirectoryAsync(
+            string directoryPath,
+            SongListNode? parent,
+            DateTime lastCheck,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var directory = new DirectoryInfo(directoryPath);
+
+                // Skip if directory hasn't been modified
+                if (directory.LastWriteTime <= lastCheck)
+                {
+                    Debug.WriteLine($"SongManager: Skipping unchanged directory: {directoryPath}");
+                    return;
+                }
+
+                Debug.WriteLine($"SongManager: Processing modified directory: {directoryPath}");
+
+                // Check for set.def (multi-difficulty songs)
+                var setDefPath = Path.Combine(directoryPath, "set.def");
+                if (File.Exists(setDefPath))
+                {
+                    var setDefInfo = new FileInfo(setDefPath);
+                    if (setDefInfo.LastWriteTime > lastCheck)
+                    {
+                        Debug.WriteLine($"SongManager: Found modified set.def in {directoryPath}");
+                        var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent, cancellationToken);
+
+                        // Add to root songs if this is a top-level directory
+                        if (parent == null)
+                        {
+                            lock (_lockObject)
+                            {
+                                _rootSongs.AddRange(setDefSongs);
+                            }
+                        }
+                    }
+                    return; // Don't process individual files if set.def exists
+                }
+
+                // Check for box.def (folder metadata)
+                BoxDefinition? boxDef = null;
+                var boxDefPath = Path.Combine(directoryPath, "box.def");
+                if (File.Exists(boxDefPath))
+                {
+                    var boxDefInfo = new FileInfo(boxDefPath);
+                    if (boxDefInfo.LastWriteTime > lastCheck)
+                    {
+                        Debug.WriteLine($"SongManager: Found modified box.def in {directoryPath}");
+                        boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
+                    }
+                }
+
+                // Process modified subdirectories
+                foreach (var subDir in directory.GetDirectories())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await IncrementalEnumerateDirectoryAsync(subDir.FullName, parent, lastCheck, progress, cancellationToken);
+                }
+
+                // Process modified individual song files
+                foreach (var file in directory.GetFiles())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (file.LastWriteTime > lastCheck && DTXMetadataParser.IsSupportedFile(file.FullName))
+                    {
+                        Debug.WriteLine($"SongManager: Processing modified song file: {file.Name}");
+
+                        var songNode = await CreateSongNodeAsync(file.FullName, parent);
+                        if (songNode != null)
+                        {
+                            // Add to root songs if this is a top-level file
+                            if (parent == null)
+                            {
+                                lock (_lockObject)
+                                {
+                                    _rootSongs.Add(songNode);
+                                }
+                            }
+
+                            DiscoveredScoreCount++;
+                            SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(songNode));
+
+                            progress?.Report(new EnumerationProgress
+                            {
+                                CurrentFile = file.Name,
+                                ProcessedCount = ++EnumeratedFileCount,
+                                DiscoveredSongs = DiscoveredScoreCount,
+                                CurrentDirectory = directoryPath
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error in incremental enumeration of {directoryPath}: {ex.Message}");
             }
         }
 
@@ -504,6 +982,18 @@ namespace DTX.Song
         public int ProcessedCount { get; set; }
         public int DiscoveredSongs { get; set; }
         public string CurrentDirectory { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Box definition metadata from box.def files
+    /// </summary>
+    public class BoxDefinition
+    {
+        public string Title { get; set; } = "";
+        public string Genre { get; set; } = "";
+        public string SkinPath { get; set; } = "";
+        public System.Drawing.Color BackgroundColor { get; set; } = System.Drawing.Color.Black;
+        public System.Drawing.Color TextColor { get; set; } = System.Drawing.Color.White;
     }
 
     #endregion
