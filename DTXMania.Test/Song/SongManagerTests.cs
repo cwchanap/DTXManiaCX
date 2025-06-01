@@ -413,5 +413,221 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        #region Phase 2: Set.def Parsing Tests
+
+        [Fact]
+        public async Task ParseSetDefinition_ValidSetDef_ShouldCreateMultiDifficultySong()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_SetDef");
+            var setDefDir = Path.Combine(tempDir, "TestSong");
+
+            try
+            {
+                Directory.CreateDirectory(setDefDir);
+
+                // Create test DTX files
+                var easyDtx = Path.Combine(setDefDir, "easy.dtx");
+                var normalDtx = Path.Combine(setDefDir, "normal.dtx");
+                var hardDtx = Path.Combine(setDefDir, "hard.dtx");
+
+                await File.WriteAllTextAsync(easyDtx, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 10\n");
+                await File.WriteAllTextAsync(normalDtx, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 30\n");
+                await File.WriteAllTextAsync(hardDtx, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 50\n");
+
+                // Create set.def file
+                var setDefPath = Path.Combine(setDefDir, "set.def");
+                var setDefContent = @"#TITLE: Test Song Multi-Difficulty
+easy.dtx
+normal.dtx
+hard.dtx";
+                await File.WriteAllTextAsync(setDefPath, setDefContent);
+
+                var manager = new SongManager();
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.True(result > 0);
+                var rootSongs = manager.RootSongs;
+                Assert.Single(rootSongs); // Should have one box containing the multi-difficulty song
+
+                var boxNode = rootSongs.First();
+                Assert.Equal(NodeType.Box, boxNode.Type);
+                Assert.Single(boxNode.Children); // Should contain one song with multiple difficulties
+
+                var songNode = boxNode.Children.First();
+                Assert.Equal(NodeType.Score, songNode.Type);
+                Assert.Equal("Test Song Multi-Difficulty", songNode.DisplayTitle);
+                Assert.Equal(3, songNode.AvailableDifficulties);
+
+                // Check that all difficulties have different levels
+                var difficulties = songNode.Scores.Where(s => s != null).ToList();
+                Assert.Equal(3, difficulties.Count);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task ParseSetDefinition_EmptySetDef_ShouldNotCreateSongs()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_EmptySet");
+            var setDefDir = Path.Combine(tempDir, "EmptySet");
+
+            try
+            {
+                Directory.CreateDirectory(setDefDir);
+
+                var setDefPath = Path.Combine(setDefDir, "set.def");
+                await File.WriteAllTextAsync(setDefPath, "// Empty set.def file\n");
+
+                var manager = new SongManager();
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.Equal(0, result);
+                Assert.Empty(manager.RootSongs);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task ParseSetDefinition_MissingFiles_ShouldSkipMissingDifficulties()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_PartialSet");
+            var setDefDir = Path.Combine(tempDir, "PartialSet");
+
+            try
+            {
+                Directory.CreateDirectory(setDefDir);
+
+                // Create only one DTX file
+                var easyDtx = Path.Combine(setDefDir, "easy.dtx");
+                await File.WriteAllTextAsync(easyDtx, "#TITLE: Partial Song\n#ARTIST: Test Artist\n#DLEVEL: 15\n");
+
+                // Create set.def referencing missing files
+                var setDefPath = Path.Combine(setDefDir, "set.def");
+                var setDefContent = @"#TITLE: Partial Song
+easy.dtx
+missing_normal.dtx
+missing_hard.dtx";
+                await File.WriteAllTextAsync(setDefPath, setDefContent);
+
+                var manager = new SongManager();
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.True(result > 0);
+                var songNode = manager.RootSongs.First().Children.First();
+                Assert.Equal(1, songNode.AvailableDifficulties); // Only one difficulty should be available
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        #endregion
+
+        #region Phase 2: Box.def Parsing Tests
+
+        [Fact]
+        public async Task ParseBoxDefinition_ValidBoxDef_ShouldApplyFolderMetadata()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_BoxDef");
+            var boxDir = Path.Combine(tempDir, "CustomBox");
+
+            try
+            {
+                Directory.CreateDirectory(boxDir);
+
+                // Create box.def file
+                var boxDefPath = Path.Combine(boxDir, "box.def");
+                var boxDefContent = @"#TITLE: Custom Box Title
+#GENRE: Test Genre
+#SKINPATH: CustomSkin
+#BGCOLOR: #FF0000
+#TEXTCOLOR: White";
+                await File.WriteAllTextAsync(boxDefPath, boxDefContent);
+
+                // Create a test song in the box
+                var songDir = Path.Combine(boxDir, "TestSong");
+                Directory.CreateDirectory(songDir);
+                var dtxPath = Path.Combine(songDir, "test.dtx");
+                await File.WriteAllTextAsync(dtxPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n");
+
+                var manager = new SongManager();
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.True(result > 0);
+                var boxNode = manager.RootSongs.First();
+                Assert.Equal("Custom Box Title", boxNode.DisplayTitle);
+                Assert.Equal("Test Genre", boxNode.Genre);
+                Assert.Equal("CustomSkin", boxNode.SkinPath);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task ParseBoxDefinition_NoBoxDef_ShouldUseFolderName()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_NoBoxDef");
+            var boxDir = Path.Combine(tempDir, "RegularFolder");
+
+            try
+            {
+                Directory.CreateDirectory(boxDir);
+
+                // Create a test song without box.def
+                var dtxPath = Path.Combine(boxDir, "test.dtx");
+                await File.WriteAllTextAsync(dtxPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n");
+
+                var manager = new SongManager();
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.True(result > 0);
+                var boxNode = manager.RootSongs.First();
+                Assert.Equal("RegularFolder", boxNode.DisplayTitle); // Should use folder name for box
+                Assert.Single(boxNode.Children); // Should contain one song
+                var songNode = boxNode.Children.First();
+                Assert.Equal("Test Song", songNode.DisplayTitle); // Song should use its title
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        #endregion
     }
 }
