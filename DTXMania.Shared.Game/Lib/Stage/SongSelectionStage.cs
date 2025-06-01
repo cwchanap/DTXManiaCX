@@ -92,21 +92,34 @@ namespace DTX.Stage
             _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
 
-            // Load font
+            // Load fonts
             try
             {
                 _bitmapFont = new BitmapFont(_game.GraphicsDevice, _resourceManager);
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: BitmapFont loaded successfully");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load BitmapFont: {ex.Message}");
+            }
+
+            // Try to load a SpriteFont for UI components
+            IFont uiFont = null;
+            try
+            {
+                uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: UI font loaded successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load UI font: {ex.Message}");
             }
 
             // Initialize song manager
             _songManager = new SongManager();
 
             // Initialize UI
-            InitializeUI();
+            InitializeUI(uiFont);
 
             // Start song loading
             _ = InitializeSongListAsync();
@@ -142,7 +155,7 @@ namespace DTX.Stage
 
         #region Initialization
 
-        private void InitializeUI()
+        private void InitializeUI(IFont uiFont)
         {
             _uiManager = new UIManager();
 
@@ -181,8 +194,17 @@ namespace DTX.Stage
                 Position = new Vector2(50, 120),
                 Size = new Vector2(700, 400),
                 VisibleItemCount = VISIBLE_SONGS,
-                BackgroundColor = Color.Black * 0.5f
+                BackgroundColor = Color.Black * 0.5f,
+                BackgroundTexture = _whitePixel,
+                SelectedItemColor = Color.Blue * 0.8f,
+                HoverItemColor = Color.LightBlue * 0.6f,
+                TextColor = Color.White,
+                SelectedTextColor = Color.Yellow,
+                ItemHeight = 30,
+                Font = uiFont?.SpriteFont
             };
+
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UIList created with font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
 
             // Create status label
             _statusLabel = new UILabel("Loading songs...")
