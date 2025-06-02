@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.Song;
 using DTX.Input;
+using DTX.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -44,6 +45,11 @@ namespace DTX.UI.Components
         private Color _textColor = Color.White;
         private Color _selectedTextColor = Color.Yellow;
         private float _itemHeight = 30f;
+
+        // Enhanced Phase 4 components
+        private SongBarRenderer _barRenderer;
+        private readonly Dictionary<int, SongBar> _songBarCache;
+        private bool _useEnhancedRendering = true;
 
         #endregion
 
@@ -111,7 +117,11 @@ namespace DTX.UI.Components
         public SpriteFont Font
         {
             get => _font;
-            set => _font = value;
+            set
+            {
+                _font = value;
+                _barRenderer?.SetFont(value);
+            }
         }
 
         /// <summary>
@@ -153,6 +163,9 @@ namespace DTX.UI.Components
             _previewImageCache = new Dictionary<int, Texture2D>();
             _selectedIndex = 0;
             _currentDifficulty = 0;
+
+            // Initialize Phase 4 enhanced components
+            _songBarCache = new Dictionary<int, SongBar>();
 
             Size = new Vector2(700, VISIBLE_ITEMS * _itemHeight);
         }
@@ -221,6 +234,30 @@ namespace DTX.UI.Components
         {
             _titleBarCache.Clear();
             _previewImageCache.Clear();
+            _songBarCache.Clear();
+            _barRenderer?.ClearCache();
+        }
+
+        /// <summary>
+        /// Initialize enhanced rendering with SongBarRenderer
+        /// </summary>
+        public void InitializeEnhancedRendering(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+        {
+            _barRenderer?.Dispose();
+            _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager);
+
+            if (_font != null)
+            {
+                _barRenderer.SetFont(_font);
+            }
+        }
+
+        /// <summary>
+        /// Enable or disable enhanced rendering
+        /// </summary>
+        public void SetEnhancedRendering(bool enabled)
+        {
+            _useEnhancedRendering = enabled;
         }
 
         #endregion
@@ -337,6 +374,41 @@ namespace DTX.UI.Components
 
         private void DrawSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
         {
+            if (_useEnhancedRendering && _barRenderer != null)
+            {
+                DrawEnhancedSongItem(spriteBatch, node, itemBounds, isSelected);
+            }
+            else
+            {
+                DrawBasicSongItem(spriteBatch, node, itemBounds, isSelected);
+            }
+        }
+
+        private void DrawEnhancedSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
+        {
+            // Get or create song bar for this item
+            var songBar = GetOrCreateSongBar(node, itemBounds, isSelected);
+
+            // Update song bar state
+            songBar.Position = new Vector2(itemBounds.X, itemBounds.Y);
+            songBar.Size = new Vector2(itemBounds.Width, itemBounds.Height);
+            songBar.IsSelected = isSelected;
+            songBar.IsCenter = isSelected; // For now, treat selected as center
+            songBar.CurrentDifficulty = _currentDifficulty;
+
+            // Generate textures if needed
+            var titleTexture = _barRenderer.GenerateTitleTexture(node);
+            var previewTexture = _barRenderer.GeneratePreviewImageTexture(node);
+            var clearLampTexture = _barRenderer.GenerateClearLampTexture(node, _currentDifficulty);
+
+            songBar.SetTextures(titleTexture, previewTexture, clearLampTexture);
+
+            // Draw the song bar
+            songBar.Draw(spriteBatch, 0);
+        }
+
+        private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
+        {
             // Draw item background
             if (_whitePixel != null && isSelected)
             {
@@ -349,7 +421,7 @@ namespace DTX.UI.Components
                 var text = GetDisplayText(node);
                 var textColor = isSelected ? _selectedTextColor : _textColor;
                 var textPos = new Vector2(itemBounds.X + 10, itemBounds.Y + 5);
-                
+
                 spriteBatch.DrawString(_font, text, textPos, textColor);
             }
         }
@@ -373,14 +445,48 @@ namespace DTX.UI.Components
         private void UpdateSelection()
         {
             var previousSong = SelectedSong;
-            SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count) 
-                ? _currentList[_selectedIndex] 
+            SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
+                ? _currentList[_selectedIndex]
                 : null;
 
             if (SelectedSong != previousSong)
             {
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty));
             }
+        }
+
+        private SongBar GetOrCreateSongBar(SongListNode node, Rectangle bounds, bool isSelected)
+        {
+            var cacheKey = node.GetHashCode();
+
+            if (!_songBarCache.TryGetValue(cacheKey, out var songBar))
+            {
+                songBar = new SongBar
+                {
+                    SongNode = node,
+                    Font = _font,
+                    WhitePixel = _whitePixel
+                };
+                _songBarCache[cacheKey] = songBar;
+            }
+
+            return songBar;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _barRenderer?.Dispose();
+
+                foreach (var songBar in _songBarCache.Values)
+                {
+                    songBar?.Dispose();
+                }
+                _songBarCache.Clear();
+            }
+
+            base.Dispose(disposing);
         }
 
         #endregion

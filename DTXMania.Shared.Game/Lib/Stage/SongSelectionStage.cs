@@ -197,6 +197,18 @@ namespace DTX.Stage
                 WhitePixel = _whitePixel
             };
 
+            // Initialize Phase 4 enhanced rendering
+            try
+            {
+                _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager);
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Enhanced rendering initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize enhanced rendering: {ex.Message}");
+                _songListDisplay.SetEnhancedRendering(false);
+            }
+
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
 
             // Create DTXManiaNX-style status panel
