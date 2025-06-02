@@ -34,11 +34,11 @@ namespace DTX.Stage
         private int _selectedIndex = 0;
         private int _currentDifficulty = 0;
 
-        // UI Components
+        // UI Components - Enhanced DTXManiaNX style
         private UIManager _uiManager;
-        private UIList _songList;
+        private SongListDisplay _songListDisplay;
+        private SongStatusPanel _statusPanel;
         private UILabel _titleLabel;
-        private UILabel _statusLabel;
         private UILabel _breadcrumbLabel;
         private UIPanel _mainPanel;
 
@@ -188,43 +188,37 @@ namespace DTX.Stage
                 HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
             };
 
-            // Create song list
-            _songList = new UIList
+            // Create DTXManiaNX-style song list display
+            _songListDisplay = new SongListDisplay
             {
                 Position = new Vector2(50, 120),
                 Size = new Vector2(700, 400),
-                VisibleItemCount = VISIBLE_SONGS,
-                BackgroundColor = Color.Black * 0.5f,
-                BackgroundTexture = _whitePixel,
-                SelectedItemColor = Color.Blue * 0.8f,
-                HoverItemColor = Color.LightBlue * 0.6f,
-                TextColor = Color.White,
-                SelectedTextColor = Color.Yellow,
-                ItemHeight = 30,
-                Font = uiFont?.SpriteFont
+                Font = uiFont?.SpriteFont,
+                WhitePixel = _whitePixel
             };
 
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UIList created with font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
 
-            // Create status label
-            _statusLabel = new UILabel("Loading songs...")
+            // Create DTXManiaNX-style status panel
+            _statusPanel = new SongStatusPanel
             {
-                Position = new Vector2(50, 540),
-                Size = new Vector2(600, 30),
-                TextColor = Color.Cyan,
-                HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
+                Position = new Vector2(770, 120),
+                Size = new Vector2(300, 400),
+                Font = uiFont?.SpriteFont,
+                SmallFont = uiFont?.SpriteFont, // Use same font for now
+                WhitePixel = _whitePixel
             };
 
             // Wire up events
-            _songList.SelectionChanged += OnSongSelectionChanged;
-            _songList.ItemActivated += OnSongActivated;
+            _songListDisplay.SelectionChanged += OnSongSelectionChanged;
+            _songListDisplay.SongActivated += OnSongActivated;
+            _songListDisplay.DifficultyChanged += OnDifficultyChanged;
 
             // Add components to panel
             _mainPanel.AddChild(_titleLabel);
             _mainPanel.AddChild(_breadcrumbLabel);
-            _mainPanel.AddChild(_songList);
-            _mainPanel.AddChild(_statusLabel);
+            _mainPanel.AddChild(_songListDisplay);
+            _mainPanel.AddChild(_statusPanel);
 
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
@@ -252,14 +246,14 @@ namespace DTX.Stage
                 _currentSongList = _songManager.RootSongs.ToList();
                 PopulateSongList();
 
-                _statusLabel.Text = $"Loaded {_songManager.DatabaseScoreCount} songs";
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_songManager.DatabaseScoreCount} songs");
 
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_songManager.DatabaseScoreCount} songs");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
-                _statusLabel.Text = $"Error loading songs: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
             }
         }
 
@@ -269,33 +263,25 @@ namespace DTX.Stage
 
         private void PopulateSongList()
         {
-            _songList.ClearItems();
+            var displayList = new List<SongListNode>();
 
             if (_currentSongList == null || _currentSongList.Count == 0)
             {
-                _songList.AddItem("No songs found", null);
+                _songListDisplay.CurrentList = displayList;
                 return;
             }
 
             // Add back navigation if we're in a subfolder
             if (_navigationStack.Count > 0)
             {
-                _songList.AddItem(".. (Back)", new SongListNode { Type = NodeType.BackBox, Title = ".." });
+                displayList.Add(new SongListNode { Type = NodeType.BackBox, Title = ".." });
             }
 
             // Add all songs and folders
-            foreach (var node in _currentSongList)
-            {
-                string displayText = GetDisplayText(node);
-                _songList.AddItem(displayText, node);
-            }
+            displayList.AddRange(_currentSongList);
 
-            // Select first item
-            if (_songList.Items.Count > 0)
-            {
-                _songList.SelectedIndex = 0;
-                UpdateSelectedSong();
-            }
+            // Update the song list display
+            _songListDisplay.CurrentList = displayList;
         }
 
         private string GetDisplayText(SongListNode node)
@@ -322,35 +308,41 @@ namespace DTX.Stage
 
         #region Event Handlers
 
-        private void OnSongSelectionChanged(object sender, ListSelectionChangedEventArgs e)
+        private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
-            UpdateSelectedSong();
+            _selectedSong = e.SelectedSong;
+            _currentDifficulty = e.CurrentDifficulty;
+            UpdateBreadcrumb();
+
+            // Update status panel
+            _statusPanel.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
         }
 
-        private void OnSongActivated(object sender, ListItemActivatedEventArgs e)
+        private void OnSongActivated(object sender, SongActivatedEventArgs e)
         {
-            if (e.Item.Data is SongListNode node)
+            if (e.Song != null)
             {
-                HandleSongActivation(node);
+                HandleSongActivation(e.Song);
             }
+        }
+
+        private void OnDifficultyChanged(object sender, DifficultyChangedEventArgs e)
+        {
+            _currentDifficulty = e.NewDifficulty;
+
+            // Update status panel
+            _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty);
         }
 
         private void OnEnumerationProgress(EnumerationProgress progress)
         {
-            _statusLabel.Text = $"Enumerating: {progress.CurrentFile} ({progress.ProcessedCount} processed)";
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Enumerating: {progress.CurrentFile} ({progress.ProcessedCount} processed)");
         }
 
         private void UpdateSelectedSong()
         {
-            if (_songList.SelectedIndex >= 0 && _songList.SelectedIndex < _songList.Items.Count)
-            {
-                var selectedItem = _songList.Items[_songList.SelectedIndex];
-                if (selectedItem.Data is SongListNode node)
-                {
-                    _selectedSong = node;
-                    UpdateBreadcrumb();
-                }
-            }
+            _selectedSong = _songListDisplay.SelectedSong;
+            UpdateBreadcrumb();
         }
 
         private void HandleSongActivation(SongListNode node)
@@ -415,8 +407,8 @@ namespace DTX.Stage
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Selected song: {songNode.DisplayTitle}");
 
             // TODO: Transition to performance stage with selected song
-            // For now, just show selection in status
-            _statusLabel.Text = $"Selected: {songNode.DisplayTitle}";
+            // For now, just show selection in debug output
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Song selected for play: {songNode.DisplayTitle}");
         }
 
         private void SelectRandomSong()
@@ -544,19 +536,11 @@ namespace DTX.Stage
             // Handle song list navigation (up/down arrows)
             if (IsKeyPressed(Keys.Up))
             {
-                if (_songList.SelectedIndex > 0)
-                {
-                    _songList.SelectedIndex--;
-                    UpdateSelectedSong();
-                }
+                _songListDisplay.MovePrevious();
             }
             else if (IsKeyPressed(Keys.Down))
             {
-                if (_songList.SelectedIndex < _songList.Items.Count - 1)
-                {
-                    _songList.SelectedIndex++;
-                    UpdateSelectedSong();
-                }
+                _songListDisplay.MoveNext();
             }
         }
 
@@ -567,27 +551,42 @@ namespace DTX.Stage
 
         private void CycleDifficulty(int direction)
         {
-            if (_selectedSong?.Type == NodeType.Score && _selectedSong.Scores != null)
+            if (direction > 0)
             {
-                // Find available difficulties
-                var availableDifficulties = new List<int>();
-                for (int i = 0; i < _selectedSong.Scores.Length; i++)
+                // Use the SongListDisplay's built-in difficulty cycling
+                _songListDisplay.CycleDifficulty();
+            }
+            else
+            {
+                // For backward cycling, implement manually
+                if (_selectedSong?.Type == NodeType.Score && _selectedSong.Scores != null)
                 {
-                    if (_selectedSong.Scores[i] != null)
+                    // Find available difficulties
+                    var availableDifficulties = new List<int>();
+                    for (int i = 0; i < _selectedSong.Scores.Length; i++)
                     {
-                        availableDifficulties.Add(i);
+                        if (_selectedSong.Scores[i] != null)
+                        {
+                            availableDifficulties.Add(i);
+                        }
                     }
-                }
 
-                if (availableDifficulties.Count > 1)
-                {
-                    int currentIndex = availableDifficulties.IndexOf(_currentDifficulty);
-                    if (currentIndex >= 0)
+                    if (availableDifficulties.Count > 1)
                     {
-                        currentIndex = (currentIndex + direction + availableDifficulties.Count) % availableDifficulties.Count;
-                        _currentDifficulty = availableDifficulties[currentIndex];
+                        int currentIndex = availableDifficulties.IndexOf(_currentDifficulty);
+                        if (currentIndex >= 0)
+                        {
+                            currentIndex = (currentIndex - 1 + availableDifficulties.Count) % availableDifficulties.Count;
+                            _currentDifficulty = availableDifficulties[currentIndex];
 
-                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Changed difficulty to {_currentDifficulty}");
+                            // Update the display's difficulty
+                            _songListDisplay.CurrentDifficulty = _currentDifficulty;
+
+                            // Update status panel
+                            _statusPanel.UpdateSongInfo(_selectedSong, _currentDifficulty);
+
+                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Changed difficulty to {_currentDifficulty}");
+                        }
                     }
                 }
             }
