@@ -1,39 +1,73 @@
-# DTXMania Song Selection UI System Implementation
+# DTXMania Song Selection System Implementation Plan
 
 ## 📊 Current Implementation Status
 
-### ✅ COMPLETED (Phase 1)
-- **Phase 1**: UI Components & Stage Integration - **✅ COMPLETE** with working song selection UI
+### ✅ COMPLETED PHASES (Phases 1-2)
+- **Phase 1**: Core Data Structures - **100% Complete** with 154 unit tests passing
+- **Phase 2**: Song Discovery & Enumeration - **100% Complete** with comprehensive file format support
 
-### 📋 PLANNED (Phases 2-3)
-- **Phase 2**: Preview System & Audio Integration
-- **Phase 3**: Advanced Navigation & Polish
+### 🔄 IN PROGRESS (Phase 3)
+- **Phase 3**: UI Components & Stage Integration - **Basic Implementation Complete**, needs DTXManiaNX enhancement
+
+### 📋 PLANNED (Phases 4-8) - Updated Based on DTXManiaNX Architecture Analysis
+- **Phase 4**: DTXManiaNX Song List Display Enhancement - CActSelectSongList equivalent
+- **Phase 5**: Status Panel & Song Information - CActSelectStatusPanel equivalent
+- **Phase 6**: Preview Sound System & Audio Integration - CActSelectPresound equivalent
+- **Phase 7**: Visual Polish & Performance Optimization - DTXManiaNX visual parity
+- **Phase 8**: Advanced Features & Complete DTXManiaNX Parity - Remaining components
 
 ### 🎯 Key Achievements
-- ✅ **UI component library** with DTXMania-style effects and rendering
+- ✅ **JSON-based song database system** with caching and incremental enumeration
+- ✅ **Full DTX file parsing** with Japanese text support (Shift_JIS encoding)
+- ✅ **Hierarchical song organization** supporting set.def/box.def folder structures
+- ✅ **Comprehensive unit test coverage** with 154 tests across all components
+- ✅ **Performance optimizations** for medium-sized libraries with background threading
+- ✅ **Cross-platform compatibility** with proper file path handling
+- ✅ **UI component library** ready for song selection integration
 - ✅ **Stage management system** with transitions and phase handling
-- ✅ **Working song selection stage** with visible UI and keyboard navigation
-- ✅ **Font integration** with proper SpriteFont support for UI components
-- ✅ **Background texture rendering** for UI list visibility
+- ✅ **Thread-safe data operations** with proper locking mechanisms
 
-### 🚀 Recent Fixes
-1. **✅ Fixed UI rendering issue** - UIList now properly displays with background texture and font
-2. **✅ Added font loading** - SpriteFont integration for text rendering in UI components
-3. **✅ Enhanced debug output** - Better logging for troubleshooting UI issues
-4. **✅ Improved error handling** - Graceful fallbacks when fonts fail to load
-
-### 🚀 Next Steps
-1. **Enhance visual styling** - Improve colors, spacing, and DTXMania-style effects
-2. **Add preview sound system** with fade effects and timing control
-3. **Implement smooth scrolling** with counter-based animation
-4. **Add difficulty selection** with visual indicators
-
-### 📋 Prerequisites
-> **Note**: This document focuses on UI and stage integration. For song data management (file parsing, database, enumeration), see [Song Data Management System](song-data-management-system.md).
+### 🚀 Next Steps (Updated Based on DTXManiaNX Analysis)
+1. **Create DTXManiaNX Song List Display** - Replace basic UIList with CActSelectSongList equivalent
+2. **Implement Smooth Scrolling System** - Counter-based animation with acceleration (100-unit increments)
+3. **Add Song Bar Generation** - Title textures, preview images, clear lamps
+4. **Create Status Panel Component** - Detailed song information and difficulty statistics
+5. **Implement Preview Sound System** - Audio preview with BGM fade effects
 
 ## Overview
 
-This document provides a comprehensive implementation plan for DTXMania's Song Selection UI System based on examination of the original DTXManiaNX source code. The system handles UI components, stage management, list navigation, preview playback, and visual effects for the song selection experience.
+This document provides a comprehensive analysis and implementation plan for DTXMania's Song Selection System based on examination of the original DTXManiaNX source code. The system handles song discovery, metadata parsing, list navigation, preview playback, and performance optimization for large song libraries.
+
+## 🔍 DTXManiaNX Architecture Analysis Summary
+
+### Key DTXManiaNX Components Analyzed
+Based on examination of `docs/DTXManiaNX/DTXManiaNX-song-selection-ui-existing-architecture.md`, the original DTXManiaNX song selection system consists of:
+
+1. **CStageSongSelection** - Main stage controller coordinating all components
+2. **CActSelectSongList** - Core song list UI with 13-item display and smooth scrolling
+3. **CActSelectStatusPanel** - Detailed song information and difficulty statistics
+4. **CActSelectPresound** - Preview sound player with BGM fade effects
+5. **CActSelectPreimagePanel** - Preview content management (images/videos)
+6. **CActSelectArtistComment** - Artist information and song comments
+7. **CActSelectQuickConfig** - Quick access to game configuration
+8. **CActSortSongs** - Song sorting functionality
+
+### Current Implementation Gaps
+**✅ Already Implemented:**
+- Basic song selection stage with UI integration
+- Song database management with enumeration
+- BOX navigation and breadcrumb tracking
+- Difficulty selection with arrow keys
+- Basic UI components (UIList, UILabel, UIPanel, etc.)
+
+**❌ Missing DTXManiaNX Features:**
+- **Smooth Scrolling Animation**: Counter-based system with acceleration (nTargetScrollCounter/nCurrentScrollCounter)
+- **Song Bar Generation**: Dynamic title textures, preview images, clear lamp indicators
+- **13-Item Centered Display**: Authentic DTXManiaNX 13-visible-item window with center selection
+- **Status Panel**: Comprehensive song information with difficulty statistics
+- **Preview Sound System**: Audio preview with configurable delay and BGM fade effects
+- **Visual Polish**: DTXManiaNX-specific styling, colors, and effects
+- **Performance Optimization**: Texture caching, lazy loading, memory management
 
 ## 📋 Analysis Summary
 
@@ -46,16 +80,61 @@ This document provides a comprehensive implementation plan for DTXMania's Song S
 - **CActSelectStatusPanel.cs** - Status panel showing song info, difficulty, and statistics
 - **CActSelectPresound.cs** - Preview sound player with fade effects
 
-## � UI Architecture Overview
+## 🎵 Song Data Architecture
 
-This section focuses on the user interface components and visual systems for the song selection experience.
+### Song List Node Structure
+```csharp
+public class CSongListNode
+{
+    public ENodeType eNodeType;           // SCORE, BOX, BACKBOX, RANDOM
+    public CScore[] arScore = new CScore[5]; // Up to 5 difficulty levels
+    public string[] arDifficultyLabel = new string[5]; // Difficulty names
+    public List<CSongListNode> list子リスト; // Child nodes for BOX navigation
+    public CSongListNode r親ノード;        // Parent node reference
+    public string strタイトル;             // Song/folder title
+    public string strジャンル;             // Genre information
+    public Color col文字色;                // Text color for display
+    public string strBreadcrumbs;          // Navigation path for position tracking
+    public string strSkinPath;             // Custom skin path for BOX folders
+}
+```
 
-### Key UI Components
-- **UIList**: Scrollable song list with 13-item display window and smooth scrolling
-- **Stage Management**: BaseStage system with phase transitions and state management
-- **Font System**: SpriteFont integration for text rendering with Japanese character support
-- **Visual Effects**: DTXMania-style shadows, outlines, and selection highlighting
-- **Input Handling**: Keyboard navigation with arrow keys and Enter/Escape controls
+### Song Manager Database System
+```csharp
+public class CSongManager
+{
+    public List<CScore> listSongsDB;        // songs.db cache
+    public List<CSongListNode> listSongRoot; // Root song list
+    public int nNbScoresFromSongsDB;        // Database statistics
+    public int nNbScoresFound;              // Enumeration statistics
+    public bool bIsSuspending;              // Thread suspension control
+    public AutoResetEvent autoReset;       // Thread synchronization
+}
+```
+
+## 🔍 Song Discovery & Enumeration
+
+### File Format Support
+- **DTX Files**: `.dtx` - Primary DTXMania format
+- **GDA Files**: `.gda` - Guitar format
+- **BMS Files**: `.bms`, `.bme` - BeatMania format
+- **G2D Files**: `.g2d` - Guitar format variant
+- **Set Definition**: `set.def` - Multi-difficulty song definitions
+- **Box Definition**: `box.def` - Folder organization with metadata
+
+### Folder Organization Patterns
+```
+Songs/
+├── dtxfiles.FolderName/     # DTXFiles-style BOX (title from folder name)
+│   ├── box.def              # Optional metadata override
+│   ├── song1.dtx
+│   └── song2.dtx
+├── CustomFolder/            # box.def-style BOX
+│   ├── box.def              # Required for metadata
+│   ├── set.def              # Multi-difficulty definitions
+│   └── songs/
+└── IndividualSong.dtx       # Standalone song file
+```
 
 ## 🎮 Navigation & Scrolling System
 
@@ -160,51 +239,277 @@ public class CActSelectSongList
 
 ## 🎯 Implementation Status for DTXManiaCX
 
-### Phase 1: UI Components & Stage Integration ✅ COMPLETE
-**Objective**: Create song selection UI components and integrate with stage system
+### Phase 1: Core Data Structures ✅ COMPLETED
+**Objective**: Implement fundamental song data structures and file parsing capabilities
+
+**Implementation Summary:**
+- ✅ **Song Node System**: Complete hierarchical structure with NodeType support (Score, Box, BackBox, Random)
+- ✅ **Song Manager**: Full database management with JSON serialization and async enumeration
+- ✅ **Score Data**: Comprehensive metadata storage with performance tracking and skill calculation
+- ✅ **File Parsing**: DTX file header parsing with Shift_JIS encoding for Japanese text support
+
+**Files Created:**
+- `DTXMania.Shared.Game/Lib/Song/SongMetadata.cs` - Song metadata with DTX parsing support
+- `DTXMania.Shared.Game/Lib/Song/SongScore.cs` - Performance score tracking with skill calculation
+- `DTXMania.Shared.Game/Lib/Song/SongListNode.cs` - Hierarchical song list structure
+- `DTXMania.Shared.Game/Lib/Song/DTXMetadataParser.cs` - DTX file parsing with Japanese text support
+- `DTXMania.Shared.Game/Lib/Song/SongManager.cs` - Song database management and enumeration
+- `DTXMania.Shared.Game/Lib/Song/SongSystemTest.cs` - Basic functionality tests
+
+**Key Features Implemented:**
+- ✅ DTX file metadata parsing with Shift_JIS encoding support
+- ✅ Hierarchical song organization (Score, Box, BackBox, Random nodes)
+- ✅ Multi-difficulty support (up to 5 levels per song)
+- ✅ Performance score tracking with rank calculation
+- ✅ JSON-based database serialization for caching
+- ✅ Async song enumeration with progress tracking
+- ✅ Cross-platform file path handling
+- ✅ Comprehensive error handling and logging
+
+**Integration Status:**
+- ✅ Integrated with existing StartupStage for testing
+- ✅ Compatible with existing resource management system
+- ✅ Added System.Text.Encoding.CodePages package for Japanese text support
+- ✅ Configured to read from user's DTXFiles folder
+- ✅ All file I/O conflicts resolved
+
+**Unit Test Coverage:**
+- ✅ **154 unit tests** created and passing for all Phase 1 components
+- ✅ **SongMetadataTests** (26 tests) - metadata handling, calculated properties, cloning
+- ✅ **SongScoreTests** (20 tests) - score tracking, rank calculation, skill computation
+- ✅ **SongListNodeTests** (25 tests) - hierarchical organization, node operations, sorting
+- ✅ **DTXMetadataParserTests** (18 tests) - file parsing, encoding support, error handling
+- ✅ **SongManagerTests** (22 tests) - database management, enumeration, event handling
+- ✅ **xUnit framework** with Theory/InlineData patterns following project standards
+
+### Phase 2: Song Discovery & Enumeration ✅ COMPLETED
+**Objective**: Implement comprehensive song discovery with advanced folder organization support
+
+**Implementation Summary:**
+- ✅ **File Enumeration**: Complete recursive directory scanning for all supported formats (.dtx, .gda, .bms, .bme, .g2d)
+- ✅ **JSON-Based Caching**: Full songs.db equivalent using JSON serialization with incremental updates
+- ✅ **Background Threading**: Async enumeration with progress tracking and cancellation support
+- ✅ **Set.def Support**: Multi-difficulty song definition parsing with proper file path resolution
+- ✅ **Box.def Support**: Folder metadata parsing including title, genre, skin path, and colors
+
+**Current Data Storage Implementation:**
+- ✅ **JSON Database**: `SongDatabaseData` class with JSON serialization for persistence
+- ✅ **In-Memory Collections**: `List<SongScore>` and `List<SongListNode>` for runtime operations
+- ✅ **File-Based Caching**: songs.db JSON file with modification time checking for incremental updates
+- ✅ **Thread-Safe Operations**: Proper locking mechanisms for concurrent access
+
+**Files Enhanced:**
+- `DTXMania.Shared.Game/Lib/Song/SongManager.cs` - Added set.def/box.def parsing, incremental enumeration
+- `DTXMania.Test/Song/SongManagerTests.cs` - Comprehensive Phase 2 functionality tests
+
+**Key Features Implemented:**
+- ✅ **Set.def parsing** for multi-difficulty song definitions with proper file path resolution
+- ✅ **Box.def parsing** for folder metadata including title, genre, skin path, and colors
+- ✅ **Enhanced database caching** with incremental updates and modification time checking
+- ✅ **Background threading improvements** with better progress tracking and cancellation support
+- ✅ **Incremental enumeration** that only processes changed directories for better performance
+- ✅ **Hierarchical folder organization** with proper box node creation and metadata application
+- ✅ **Comprehensive error handling** for corrupted definition files and missing resources
+
+**Integration Status:**
+- ✅ Seamlessly integrated with existing Phase 1 song management system
+- ✅ Maintains backward compatibility with individual DTX file enumeration
+- ✅ Enhanced progress reporting with detailed file and directory tracking
+- ✅ Proper cancellation token support for responsive UI during enumeration
+- ✅ Cross-platform file path handling for Windows/Unix compatibility
+
+**Unit Test Coverage:**
+- ✅ **22 comprehensive unit tests** covering all Phase 1 & 2 functionality (consolidated)
+- ✅ **Set.def parsing tests** - multi-difficulty songs, missing files, empty definitions
+- ✅ **Box.def parsing tests** - folder metadata, custom titles, fallback behavior
+- ✅ **Database management tests** - save/load operations, round-trip serialization
+- ✅ **Enumeration tests** - recursive directory scanning, progress tracking
+- ✅ **Error handling tests** - corrupted files, graceful degradation, invalid paths
+- ✅ **100% test success rate** - All tests passing
+
+**Performance Improvements:**
+- ✅ **Incremental enumeration** reduces startup time by only processing changed directories
+- ✅ **Modification time checking** prevents unnecessary re-parsing of unchanged content
+- ✅ **Background threading** with proper cancellation for responsive user experience
+- ✅ **Efficient memory usage** with lazy loading and proper resource disposal
+
+### Phase 3: UI Components & Stage Integration 🔄 NEEDS DTXManiaNX ENHANCEMENT
+**Objective**: Create song selection UI components matching DTXManiaNX architecture
 
 **Current Status:**
 - ✅ **Base UI System**: Complete UI component library with DTXMania-style effects
 - ✅ **Stage System**: Full stage management with transitions and phase handling
-- ✅ **Song Selection Stage**: Complete implementation with keyboard navigation
+- ✅ **Basic Song Selection Stage**: Functional implementation with keyboard navigation
 - ✅ **SET.def Parser**: Fixed for proper DTXMania format with Shift_JIS encoding
 - ✅ **BOX Navigation**: Folder enter/exit with breadcrumb tracking
 - ✅ **Difficulty Selection**: Left/right arrow navigation between difficulties
 - ✅ **UI Components**: UILabel, UIButton, UIPanel, UIList, UIImage with shadow/outline effects
 
+**❌ Missing DTXManiaNX Features (Based on Architecture Analysis):**
+1. **Smooth Scrolling Animation**: Current UIList uses basic scrolling, needs counter-based animation with acceleration
+2. **Song Bar Generation**: Missing song title textures, preview images, and clear lamp indicators
+3. **13-Item Centered Display**: Current implementation doesn't match DTXManiaNX 13-visible-item window
+4. **Status Panel**: No detailed song information display with difficulty statistics
+5. **Preview Sound System**: No audio preview with BGM fade effects
+6. **Visual Polish**: Missing DTXManiaNX-specific styling and effects
+7. **Performance Optimization**: Missing texture caching and lazy loading patterns
+
 **Files Available:**
-- `DTXMania.Shared.Game/Lib/UI/Components/UIList.cs` - Scrollable list component (ready for song integration)
+- `DTXMania.Shared.Game/Lib/Stage/SongSelectionStage.cs` - Basic implementation (needs DTXManiaNX enhancement)
+- `DTXMania.Shared.Game/Lib/UI/Components/UIList.cs` - Generic scrollable list (needs song-specific features)
 - `DTXMania.Shared.Game/Lib/Stage/BaseStage.cs` - Stage base class with phase management
 - `DTXMania.Shared.Game/Lib/Stage/StageManager.cs` - Stage transition system
-- `DTXMania.Shared.Game/Lib/Stage/TitleStage.cs` - Example stage implementation
-- `DTXMania.Shared.Game/Lib/Stage/UITestStage.cs` - UI component demonstration
+
+**Enhanced Implementation Tasks:**
+1. **Create DTXManiaNX Song List Display** (`SongListDisplay.cs`) - Replace basic UIList with CActSelectSongList equivalent
+2. **Implement Smooth Scrolling System** - Counter-based animation with 100-unit increments and acceleration
+3. **Add Song Bar Visual Elements** - Title textures, preview images, clear lamps
+4. **Create Status Panel Component** (`SongStatusPanel.cs`) - CActSelectStatusPanel equivalent
+5. **Implement Preview Sound System** (`PreviewSoundManager.cs`) - CActSelectPresound equivalent
+6. **Performance Optimization** - Texture caching, lazy loading, memory management
+
+### Phase 4: DTXManiaNX Song List Display Enhancement 📋 PLANNED
+**Objective**: Implement CActSelectSongList equivalent with authentic DTXManiaNX behavior
 
 **Implementation Tasks:**
-1. **Song Selection Stage**: Create stage class integrating SongManager with UI components
-2. **Song List Display**: Enhance UIList for 13-item song display with smooth scrolling
-3. **BOX Navigation**: Implement folder enter/exit with breadcrumb tracking
-4. **Selection Management**: Current song and difficulty tracking with visual feedback
-5. **Performance Optimization**: Lazy loading and texture caching for song titles
+1. **Create SongListDisplay Component** - Replace basic UIList with DTXManiaNX-style song list
+   - 13-item visible window with center selection (index 6)
+   - Counter-based smooth scrolling system (nTargetScrollCounter/nCurrentScrollCounter)
+   - Scroll acceleration logic: Distance ≤100→2x, ≤300→3x, ≤500→4x, >500→8x
+   - Song bar reconstruction on selection changes
 
-### Phase 2: Preview System & Audio Integration 📋 PLANNED
-**Objective**: Implement preview sound system with fade effects
+2. **Song Bar Generation System** - Implement t現在選択中の曲を元に曲バーを再構成する() equivalent
+   - Dynamic song title texture generation (tGenerateSongNameBar)
+   - Preview image loading and display (tGeneratePreviewImageTexture)
+   - Clear lamp indicators with difficulty colors (tGenerateClearLampTexture)
+   - Bar type indicators (Score/Box/BackBox/Random)
+
+3. **Visual Integration** - Match DTXManiaNX appearance and behavior
+   - 13 visible song bars with center selection highlighting
+   - Smooth animation during scrolling with proper timing
+   - Color-coded text and backgrounds based on node type
+   - Preview image display with fallback system
+
+### Phase 5: Status Panel & Song Information 📋 PLANNED
+**Objective**: Implement CActSelectStatusPanel equivalent for detailed song information
 
 **Implementation Tasks:**
-1. **Audio Integration**: Preview sound loading and playback using existing resource system
-2. **Fade Effects**: BGM fade in/out during preview transitions
-3. **Timing Control**: Configurable preview delay and duration
-4. **Resource Management**: Proper audio disposal and cleanup
-5. **Scroll Integration**: Prevent preview during active scrolling
+1. **Create SongStatusPanel Component** - CActSelectStatusPanel equivalent
+   - Difficulty level display for all available charts (up to 5 difficulties)
+   - Best ranks and skill values per difficulty
+   - Full combo status indicators
+   - Song metadata display (BPM, duration, note counts)
 
-### Phase 3: Advanced Navigation & Polish 📋 PLANNED
-**Objective**: Complete song selection experience with advanced features
+2. **Performance Statistics Integration**
+   - Real-time updates when selection or difficulty changes
+   - Display calculated skill points and rankings
+   - Show play count and last played information
+   - Multiple instrument support (Drums/Guitar/Bass)
+
+3. **Visual Design** - Match DTXManiaNX status panel layout
+   - Difficulty labels with proper color coding
+   - Performance indicators and progress bars
+   - Clean layout with proper spacing and alignment
+
+### Phase 6: Preview Sound System & Audio Integration 📋 PLANNED
+**Objective**: Implement CActSelectPresound equivalent with fade effects
 
 **Implementation Tasks:**
-1. **Smooth Scrolling**: Counter-based animation with 100-unit increments per song
-2. **Difficulty Selection**: Visual difficulty indicator and cycling with sound effects
-3. **Input Handling**: Keyboard, gamepad, and drum pad support
-4. **Visual Effects**: Selection highlighting, transition animations
-5. **Status Panel**: Metadata and statistics display
+1. **Create PreviewSoundManager Component** - CActSelectPresound equivalent
+   - Configurable preview delay (ct再生待ちウェイト) - default 1000ms
+   - BGM fade out/in system (ctBGMフェードアウト用/ctBGMフェードイン用)
+   - Preview volume control (default 80%)
+   - Automatic sound cleanup and resource management
+
+2. **Audio Integration** - t選択曲が変更された() equivalent behavior
+   - Preview sound loading from song metadata (PREVIEW tag)
+   - Background music fade coordination
+   - Scroll prevention during preview playback
+   - Proper audio disposal on selection changes
+
+3. **Fade Effect System** - tBGMフェードアウト開始()/tBGMフェードイン開始() equivalent
+   - Smooth volume transitions for BGM
+   - Preview sound volume management
+   - Timing coordination with selection changes
+   - Audio resource cleanup
+
+### Phase 7: Visual Polish & Performance Optimization 📋 PLANNED
+**Objective**: Complete DTXManiaNX visual experience and optimize performance
+
+**Implementation Tasks:**
+1. **Visual Effects Enhancement**
+   - Selection highlighting with DTXManiaNX colors and effects
+   - Transition animations between song selections
+   - Loading indicators during song enumeration
+   - Background effects and styling matching DTXManiaNX
+
+2. **Performance Optimization** - Match DTXManiaNX efficiency patterns
+   - Texture caching for song titles and preview images
+   - Lazy loading for visible items only (13-item window)
+   - Memory management for large song lists
+   - Background threading for resource loading
+
+3. **DTXManiaNX Integration Patterns**
+   - Component communication via tSelectedSongChanged() equivalent
+   - Centralized state management through main stage
+   - Proper resource cleanup on selection changes
+   - Efficient font rendering with caching
+
+### Phase 8: Advanced Features & Complete DTXManiaNX Parity 📋 PLANNED
+**Objective**: Implement remaining DTXManiaNX features and database migration
+
+**Implementation Tasks:**
+1. **Additional UI Components**
+   - CActSelectArtistComment equivalent - Artist information and song comments
+   - CActSelectQuickConfig equivalent - Quick access to game configuration
+   - CActSortSongs equivalent - Song sorting functionality
+
+2. **Advanced Navigation Features**
+   - Random song selection (RANDOM node type)
+   - Skin support per BOX folder (custom graphics and layout)
+   - Advanced input handling (gamepad, drum pad support)
+   - Configuration integration
+
+3. **Database Migration & Advanced Features**
+   - SQLite migration with Entity Framework Core
+   - Search system with real-time filtering
+   - Multiple sort criteria with database optimization
+   - Performance optimization for large libraries (10,000+ songs)
+
+## 💾 Current Data Storage Architecture
+
+### ✅ JSON-Based Implementation (Current)
+The current implementation uses a simple but effective JSON-based storage system:
+
+**Storage Format:**
+```csharp
+public class SongDatabaseData
+{
+    public List<SongScore> Scores { get; set; } = new();
+    public List<SongListNode> RootNodes { get; set; } = new();
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+    public string Version { get; set; } = "1.0";
+}
+```
+
+**Key Features:**
+- ✅ **JSON Serialization**: Human-readable format for debugging and manual editing
+- ✅ **Incremental Updates**: Only processes changed files based on modification time
+- ✅ **Thread-Safe Operations**: Proper locking for concurrent access
+- ✅ **Cross-Platform**: Works on all MonoGame supported platforms
+- ✅ **Simple Backup**: Easy to backup/restore with file copy operations
+
+**Performance Characteristics:**
+- **Load Time**: ~100-500ms for 1,000-5,000 songs
+- **Memory Usage**: ~50-200MB for typical song libraries
+- **Search Performance**: O(n) linear search through in-memory collections
+- **Update Performance**: Fast incremental updates with modification time checking
+
+**Limitations:**
+- **Large Libraries**: Performance degrades with 10,000+ songs
+- **Search Speed**: No indexing for complex queries
+- **Concurrent Access**: Limited to single-process access
+- **Data Integrity**: No transaction support or referential integrity
 
 ## 🔧 Technical Considerations
 
@@ -226,261 +531,307 @@ public class CActSelectSongList
 - **Input System**: Leverage enhanced input state management
 - **UI Components**: Utilize existing UI component library
 
-## 🏗️ UI Implementation Architecture
+## 🏗️ Detailed Implementation Architecture
 
-### Core UI Classes Structure
+### Core Classes Structure
 
-#### SongSelectionStage (Main Stage)
+#### SongListNode (DTXManiaCX Implementation)
 ```csharp
-public class SongSelectionStage : BaseStage
+public class SongListNode
 {
-    private UIManager _uiManager;
-    private UIList _songList;
-    private SongManager _songManager;
-    private ITexture _whitePixel;
-    private BitmapFont _bitmapFont;
+    public NodeType Type { get; set; }           // Score, Box, BackBox, Random
+    public SongScore[] Scores { get; set; }      // Up to 5 difficulties
+    public string[] DifficultyLabels { get; set; } // Difficulty names
+    public List<SongListNode> Children { get; set; } // Child nodes
+    public SongListNode Parent { get; set; }     // Parent reference
+    public string Title { get; set; }            // Display title
+    public string Genre { get; set; }            // Genre classification
+    public Color TextColor { get; set; }         // Display color
+    public string BreadcrumbPath { get; set; }   // Navigation path
+    public string SkinPath { get; set; }         // Custom skin override
+    public SongMetadata Metadata { get; set; }   // Additional properties
+}
 
-    // Constants
-    private const int VISIBLE_SONGS = 13;
-    private const int CENTER_POSITION = 6;
+public enum NodeType
+{
+    Score,      // Individual song
+    Box,        // Folder container
+    BackBox,    // Parent folder navigation
+    Random      // Random selection placeholder
+}
+```
+
+#### SongManager (Database & Enumeration)
+```csharp
+public class SongManager
+{
+    private List<SongScore> _songsDatabase;      // Cached song data
+    private List<SongListNode> _rootSongs;       // Root level songs
+    private CancellationTokenSource _enumCancellation;
+    private readonly object _lockObject = new object();
+
+    // Statistics
+    public int DatabaseScoreCount { get; private set; }
+    public int DiscoveredScoreCount { get; private set; }
+    public int EnumeratedFileCount { get; private set; }
+
+    // Events
+    public event EventHandler<SongDiscoveredEventArgs> SongDiscovered;
+    public event EventHandler<EnumerationProgressEventArgs> ProgressChanged;
+    public event EventHandler EnumerationCompleted;
+
+    // Methods
+    public async Task<bool> LoadSongsDatabaseAsync(string databasePath);
+    public async Task SaveSongsDatabaseAsync(string databasePath);
+    public async Task EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress> progress);
+    public void SuspendEnumeration();
+    public void ResumeEnumeration();
+}
+```
+
+#### SongListDisplay (UI Component)
+```csharp
+public class SongListDisplay : UIElement
+{
+    private const int VISIBLE_ITEMS = 13;
+    private const int CENTER_INDEX = 6;
+    private const int SCROLL_UNIT = 100;
+
+    private List<SongListNode> _currentList;
+    private int _selectedIndex;
+    private int _scrollOffset;
+    private int _targetScrollCounter;
+    private int _currentScrollCounter;
+    private Dictionary<int, ITexture> _titleBarCache;
+    private Dictionary<int, ITexture> _previewImageCache;
 
     // Properties
     public SongListNode SelectedSong { get; private set; }
     public int CurrentDifficulty { get; private set; }
+    public bool IsScrolling => _targetScrollCounter != 0 || _currentScrollCounter != 0;
 
-    // Stage lifecycle
-    public override void Initialize();
-    public override void Update(GameTime gameTime);
-    public override void Draw(SpriteBatch spriteBatch);
-    public override void HandleInput(InputState inputState);
-}
-```
-
-#### UIList (Song List Component)
-```csharp
-public class UIList : UIElement
-{
-    // Display properties
-    public Vector2 Position { get; set; }
-    public Vector2 Size { get; set; }
-    public int VisibleItemCount { get; set; } = 13;
-    public int ItemHeight { get; set; } = 30;
-
-    // Visual styling
-    public Color BackgroundColor { get; set; }
-    public Color SelectedItemColor { get; set; }
-    public Color HoverItemColor { get; set; }
-    public Color TextColor { get; set; }
-    public Color SelectedTextColor { get; set; }
-    public ITexture BackgroundTexture { get; set; }
-    public SpriteFont Font { get; set; }
-
-    // Data and selection
-    public List<string> Items { get; set; } = new();
-    public int SelectedIndex { get; set; }
+    // Events
+    public event EventHandler<SongSelectionChangedEventArgs> SelectionChanged;
+    public event EventHandler<DifficultyChangedEventArgs> DifficultyChanged;
 
     // Methods
-    public override void Update(GameTime gameTime);
-    public override void Draw(SpriteBatch spriteBatch);
     public void MoveNext();
     public void MovePrevious();
+    public void CycleDifficulty();
+    public bool EnterBox();
+    public bool ExitBox();
+    public void RefreshDisplay();
 }
 ```
 
-#### BaseStage (Stage Management)
+### Song Enumeration Implementation
+
+#### File Discovery Process
 ```csharp
-public abstract class BaseStage : IDisposable
+public class SongEnumerationService
 {
-    // Stage lifecycle
-    public abstract void Initialize();
-    public abstract void Update(GameTime gameTime);
-    public abstract void Draw(SpriteBatch spriteBatch);
-    public abstract void HandleInput(InputState inputState);
+    private readonly string[] SUPPORTED_EXTENSIONS = { ".dtx", ".gda", ".bms", ".bme", ".g2d" };
 
-    // Phase management
-    public StagePhase CurrentPhase { get; protected set; }
-    public bool IsActive { get; protected set; }
-
-    // Transition support
-    public virtual void OnEnter() { }
-    public virtual void OnExit() { }
-    public virtual void Dispose() { }
-}
-
-public enum StagePhase
-{
-    Initializing,
-    FadingIn,
-    Active,
-    FadingOut,
-    Complete
-}
-```
-
-#### UIManager (Component Management)
-```csharp
-public class UIManager
-{
-    private List<UIElement> _elements = new();
-    private UIElement _focusedElement;
-
-    // Component management
-    public void AddElement(UIElement element);
-    public void RemoveElement(UIElement element);
-    public void SetFocus(UIElement element);
-
-    // Update and rendering
-    public void Update(GameTime gameTime);
-    public void Draw(SpriteBatch spriteBatch);
-
-    // Input handling
-    public void HandleInput(InputState inputState);
-}
-```
-
-### UI Implementation Details
-
-#### Input Handling System
-```csharp
-public class SongSelectionInputHandler
-{
-    private readonly SongSelectionStage _stage;
-    private readonly UIList _songList;
-
-    public void HandleInput(InputState inputState)
+    public async Task<List<SongListNode>> EnumerateDirectoryAsync(
+        string basePath,
+        SongListNode parent = null,
+        IProgress<EnumerationProgress> progress = null,
+        CancellationToken cancellationToken = default)
     {
-        // Navigation controls
-        if (inputState.IsKeyPressed(Keys.Up) || inputState.IsKeyPressed(Keys.W))
+        var results = new List<SongListNode>();
+        var directory = new DirectoryInfo(basePath);
+
+        // Check for set.def (multi-difficulty songs)
+        var setDefPath = Path.Combine(basePath, "set.def");
+        if (File.Exists(setDefPath))
         {
-            _songList.MovePrevious();
-            PlayNavigationSound();
-        }
-        else if (inputState.IsKeyPressed(Keys.Down) || inputState.IsKeyPressed(Keys.S))
-        {
-            _songList.MoveNext();
-            PlayNavigationSound();
+            var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent);
+            results.AddRange(setDefSongs);
+            return results;
         }
 
-        // Difficulty selection
-        if (inputState.IsKeyPressed(Keys.Left) || inputState.IsKeyPressed(Keys.A))
+        // Check for box.def (folder metadata)
+        var boxDefPath = Path.Combine(basePath, "box.def");
+        BoxDefinition boxDef = null;
+        if (File.Exists(boxDefPath))
         {
-            _stage.CycleDifficultyPrevious();
-            PlayDifficultySound();
-        }
-        else if (inputState.IsKeyPressed(Keys.Right) || inputState.IsKeyPressed(Keys.D))
-        {
-            _stage.CycleDifficultyNext();
-            PlayDifficultySound();
+            boxDef = await ParseBoxDefinitionAsync(boxDefPath);
         }
 
-        // Selection and navigation
-        if (inputState.IsKeyPressed(Keys.Enter) || inputState.IsKeyPressed(Keys.Space))
+        // Process subdirectories as BOX folders
+        foreach (var subDir in directory.GetDirectories())
         {
-            _stage.SelectCurrentSong();
-        }
-        else if (inputState.IsKeyPressed(Keys.Escape))
-        {
-            _stage.ExitToParent();
-        }
-    }
+            cancellationToken.ThrowIfCancellationRequested();
 
-    private void PlayNavigationSound() { /* Play sound effect */ }
-    private void PlayDifficultySound() { /* Play sound effect */ }
-}
-```
+            var boxNode = CreateBoxNode(subDir, parent, boxDef);
+            boxNode.Children = await EnumerateDirectoryAsync(
+                subDir.FullName, boxNode, progress, cancellationToken);
 
-#### Visual Effects System
-```csharp
-public class UIEffects
-{
-    // DTXMania-style text rendering with shadows and outlines
-    public static void DrawTextWithEffects(
-        SpriteBatch spriteBatch,
-        SpriteFont font,
-        string text,
-        Vector2 position,
-        Color textColor,
-        Color shadowColor = default,
-        Color outlineColor = default,
-        int shadowOffset = 2,
-        int outlineThickness = 1)
-    {
-        // Draw outline
-        if (outlineColor != Color.Transparent)
-        {
-            for (int x = -outlineThickness; x <= outlineThickness; x++)
+            if (boxNode.Children.Count > 0)
             {
-                for (int y = -outlineThickness; y <= outlineThickness; y++)
+                results.Add(boxNode);
+            }
+        }
+
+        // Process individual song files
+        foreach (var file in directory.GetFiles())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (SUPPORTED_EXTENSIONS.Contains(file.Extension.ToLowerInvariant()))
+            {
+                var songNode = await CreateSongNodeAsync(file.FullName, parent);
+                if (songNode != null)
                 {
-                    if (x != 0 || y != 0)
+                    results.Add(songNode);
+                    progress?.Report(new EnumerationProgress
                     {
-                        spriteBatch.DrawString(font, text,
-                            position + new Vector2(x, y), outlineColor);
-                    }
+                        CurrentFile = file.Name,
+                        ProcessedCount = results.Count
+                    });
                 }
             }
         }
 
-        // Draw shadow
-        if (shadowColor != Color.Transparent)
-        {
-            spriteBatch.DrawString(font, text,
-                position + new Vector2(shadowOffset, shadowOffset), shadowColor);
-        }
-
-        // Draw main text
-        spriteBatch.DrawString(font, text, position, textColor);
-    }
-
-    // Selection highlighting with smooth transitions
-    public static void DrawSelectionHighlight(
-        SpriteBatch spriteBatch,
-        ITexture backgroundTexture,
-        Rectangle bounds,
-        Color highlightColor,
-        float alpha = 1.0f)
-    {
-        var color = highlightColor * alpha;
-        spriteBatch.Draw(backgroundTexture.Texture2D, bounds, color);
+        return results;
     }
 }
 ```
 
-#### Preview Sound System (Phase 2)
+#### DTX Metadata Parser
+```csharp
+public class DTXMetadataParser
+{
+    public async Task<SongMetadata> ParseMetadataAsync(string filePath)
+    {
+        var metadata = new SongMetadata();
+
+        using var reader = new StreamReader(filePath, Encoding.GetEncoding("Shift_JIS"));
+        string line;
+
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (line.StartsWith("#"))
+            {
+                var parts = line.Split(':', 2);
+                if (parts.Length == 2)
+                {
+                    var command = parts[0].Trim().ToUpperInvariant();
+                    var value = parts[1].Trim();
+
+                    switch (command)
+                    {
+                        case "#TITLE":
+                            metadata.Title = value;
+                            break;
+                        case "#ARTIST":
+                            metadata.Artist = value;
+                            break;
+                        case "#GENRE":
+                            metadata.Genre = value;
+                            break;
+                        case "#BPM":
+                            if (double.TryParse(value, out var bpm))
+                                metadata.BPM = bpm;
+                            break;
+                        case "#LEVEL":
+                            ParseLevelData(value, metadata);
+                            break;
+                        case "#PREVIEW":
+                            metadata.PreviewFile = value;
+                            break;
+                        case "#PREIMAGE":
+                            metadata.PreviewImage = value;
+                            break;
+                        case "#COMMENT":
+                            metadata.Comment = value;
+                            break;
+                    }
+                }
+            }
+
+            // Stop parsing after header section
+            if (line.StartsWith("*") || line.Contains("|"))
+                break;
+        }
+
+        return metadata;
+    }
+
+    private void ParseLevelData(string levelData, SongMetadata metadata)
+    {
+        // Parse level data: "DRUMS:85,GUITAR:78,BASS:65"
+        var parts = levelData.Split(',');
+        foreach (var part in parts)
+        {
+            var instrumentLevel = part.Split(':');
+            if (instrumentLevel.Length == 2)
+            {
+                var instrument = instrumentLevel[0].Trim().ToUpperInvariant();
+                if (int.TryParse(instrumentLevel[1].Trim(), out var level))
+                {
+                    switch (instrument)
+                    {
+                        case "DRUMS":
+                            metadata.DrumLevel = level;
+                            break;
+                        case "GUITAR":
+                            metadata.GuitarLevel = level;
+                            break;
+                        case "BASS":
+                            metadata.BassLevel = level;
+                            break;
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Preview Sound System
 ```csharp
 public class PreviewSoundManager
 {
     private ISound _currentPreview;
     private ISound _backgroundMusic;
     private Timer _previewDelayTimer;
+    private Timer _fadeTimer;
     private readonly IResourceManager _resourceManager;
 
     public int PreviewDelayMs { get; set; } = 1000;
     public int PreviewVolumePercent { get; set; } = 80;
     public bool IsScrolling { get; set; }
 
-    public async Task PlayPreviewAsync(string previewPath)
+    public async Task PlayPreviewAsync(SongListNode song)
     {
         // Stop current preview
         StopPreview();
 
-        if (!string.IsNullOrEmpty(previewPath))
+        // Start BGM fade in
+        StartBGMFadeIn();
+
+        if (song?.Metadata?.PreviewFile != null)
         {
             // Set delay timer before preview starts
             _previewDelayTimer = new Timer(async _ =>
             {
                 if (!IsScrolling)
                 {
-                    await StartPreviewPlayback(previewPath);
+                    await StartPreviewPlayback(song);
                 }
             }, null, PreviewDelayMs, Timeout.Infinite);
         }
     }
 
-    private async Task StartPreviewPlayback(string previewPath)
+    private async Task StartPreviewPlayback(SongListNode song)
     {
         try
         {
+            var previewPath = Path.Combine(
+                Path.GetDirectoryName(song.Scores[0].FilePath),
+                song.Metadata.PreviewFile);
+
             _currentPreview = _resourceManager.LoadSound(previewPath);
             _currentPreview.Volume = PreviewVolumePercent / 100f;
             _currentPreview.IsLooping = true;
@@ -524,54 +875,656 @@ public class PreviewSoundManager
         var targetVolume = 1.0f;
         AnimateVolume(_backgroundMusic, 0.0f, targetVolume, 1000);
     }
+}
+```
 
-    private void AnimateVolume(ISound sound, float from, float to, int durationMs)
+### 📋 Future Database Migration (Phase 6)
+
+#### Planned: Entity Framework Core + SQLite Implementation
+
+**Effort Assessment: MEDIUM** ⭐⭐⭐ (1-2 weeks)
+
+The current JSON-based system works well for medium-sized libraries, but for large libraries (10,000+ songs) and advanced features, migrating to SQLite with Entity Framework Core would provide significant benefits:
+
+**Benefits:**
+- **Type Safety**: Strongly-typed queries with compile-time checking
+- **LINQ Support**: Natural C# query syntax instead of raw SQL
+- **Automatic Migrations**: Schema changes handled automatically
+- **Change Tracking**: Automatic dirty checking and optimized updates
+- **Relationship Management**: Automatic foreign key handling and navigation properties
+- **Performance**: Built-in query optimization and caching
+- **Testing**: Easy to mock and unit test with InMemory provider
+
+**Required Changes:**
+1. Add EF Core NuGet packages (2 packages, cross-platform)
+2. Define entity models with attributes/fluent API
+3. Create DbContext with DbSets
+4. Replace manual SQL with LINQ queries
+
+**NuGet Packages:**
+```xml
+<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="7.0.0" />
+<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="7.0.0" />
+```
+
+**Entity Models:**
+```csharp
+// Song entity (replaces both songlist.db and songs.db)
+public class Song
+{
+    public int Id { get; set; }
+
+    [Required, MaxLength(500)]
+    public string FilePath { get; set; } = "";
+
+    public long FileSize { get; set; }
+    public DateTime LastModified { get; set; }
+
+    [MaxLength(200)]
+    public string? Title { get; set; }
+
+    [MaxLength(200)]
+    public string? Artist { get; set; }
+
+    [MaxLength(100)]
+    public string? Genre { get; set; }
+
+    public double? BPM { get; set; }
+    public int? DrumLevel { get; set; }
+    public int? GuitarLevel { get; set; }
+    public int? BassLevel { get; set; }
+
+    [MaxLength(200)]
+    public string? PreviewFile { get; set; }
+
+    [MaxLength(200)]
+    public string? PreviewImage { get; set; }
+
+    [MaxLength(1000)]
+    public string? Comment { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    // Navigation properties
+    public virtual ICollection<SongScore> Scores { get; set; } = new List<SongScore>();
+    public virtual ICollection<SongHierarchy> HierarchyNodes { get; set; } = new List<SongHierarchy>();
+}
+
+// Song hierarchy (replaces songlist.db structure)
+public class SongHierarchy
+{
+    public int Id { get; set; }
+
+    public int? SongId { get; set; }
+    public virtual Song? Song { get; set; }
+
+    public int? ParentId { get; set; }
+    public virtual SongHierarchy? Parent { get; set; }
+    public virtual ICollection<SongHierarchy> Children { get; set; } = new List<SongHierarchy>();
+
+    [Required]
+    public NodeType NodeType { get; set; }
+
+    [MaxLength(200)]
+    public string? Title { get; set; }
+
+    public int DisplayOrder { get; set; }
+
+    [MaxLength(1000)]
+    public string? BreadcrumbPath { get; set; }
+
+    [MaxLength(500)]
+    public string? SkinPath { get; set; }
+}
+
+// Performance scores (replaces songs.db score data)
+public class SongScore
+{
+    public int Id { get; set; }
+
+    public int SongId { get; set; }
+    public virtual Song Song { get; set; } = null!;
+
+    public int Difficulty { get; set; }
+    public int BestScore { get; set; }
+    public int BestRank { get; set; }
+    public bool FullCombo { get; set; }
+    public int PlayCount { get; set; }
+    public DateTime? LastPlayed { get; set; }
+
+    public double HighSkill { get; set; }
+    public double SongSkill { get; set; }
+}
+
+public enum NodeType
+{
+    Song = 0,
+    Box = 1,
+    BackBox = 2,
+    Random = 3
+}
+
+**DbContext:**
+```csharp
+public class SongDbContext : DbContext
+{
+    public DbSet<Song> Songs { get; set; } = null!;
+    public DbSet<SongHierarchy> SongHierarchy { get; set; } = null!;
+    public DbSet<SongScore> SongScores { get; set; } = null!;
+
+    public SongDbContext(DbContextOptions<SongDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Implement smooth volume transition animation
-        // This will be part of Phase 2 implementation
+        // Song entity configuration
+        modelBuilder.Entity<Song>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.FilePath).IsUnique();
+            entity.HasIndex(e => e.Title);
+            entity.HasIndex(e => e.Artist);
+            entity.HasIndex(e => e.Genre);
+            entity.HasIndex(e => e.LastModified);
+
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+        });
+
+        // Song hierarchy configuration
+        modelBuilder.Entity<SongHierarchy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ParentId, e.DisplayOrder });
+
+            // Self-referencing relationship
+            entity.HasOne(e => e.Parent)
+                .WithMany(e => e.Children)
+                .HasForeignKey(e => e.ParentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Song relationship
+            entity.HasOne(e => e.Song)
+                .WithMany(e => e.HierarchyNodes)
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Song score configuration
+        modelBuilder.Entity<SongScore>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SongId, e.Difficulty }).IsUnique();
+
+            entity.HasOne(e => e.Song)
+                .WithMany(e => e.Scores)
+                .HasForeignKey(e => e.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+}
+
+**Repository Service (EF Core LINQ Queries):**
+```csharp
+public class SongRepository
+{
+    private readonly SongDbContext _context;
+
+    public SongRepository(SongDbContext context)
+    {
+        _context = context;
+    }
+
+    // Get song by file path (replaces manual SQL)
+    public async Task<Song?> GetSongAsync(string filePath)
+    {
+        return await _context.Songs
+            .Include(s => s.Scores)
+            .Include(s => s.HierarchyNodes)
+            .FirstOrDefaultAsync(s => s.FilePath == filePath);
+    }
+
+    // Search songs with LINQ (much cleaner than SQL)
+    public async Task<List<Song>> SearchSongsAsync(string searchTerm, int limit = 100)
+    {
+        return await _context.Songs
+            .Where(s => s.Title!.Contains(searchTerm) ||
+                       s.Artist!.Contains(searchTerm) ||
+                       s.Genre!.Contains(searchTerm))
+            .OrderBy(s => s.Title)
+            .Take(limit)
+            .ToListAsync();
+    }
+
+    // Upsert song (EF Core handles this automatically)
+    public async Task UpsertSongAsync(Song song)
+    {
+        var existing = await _context.Songs
+            .FirstOrDefaultAsync(s => s.FilePath == song.FilePath);
+
+        if (existing != null)
+        {
+            // Update existing
+            _context.Entry(existing).CurrentValues.SetValues(song);
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            // Add new
+            _context.Songs.Add(song);
+        }
+
+        await _context.SaveChangesAsync();
+    }
+
+    // Get songs modified after date
+    public async Task<List<Song>> GetSongsModifiedAfterAsync(DateTime lastCheck)
+    {
+        return await _context.Songs
+            .Where(s => s.LastModified > lastCheck)
+            .OrderByDescending(s => s.LastModified)
+            .ToListAsync();
+    }
+
+    // Get song hierarchy (replaces songlist.db loading)
+    public async Task<List<SongHierarchy>> GetSongHierarchyAsync(int? parentId = null)
+    {
+        return await _context.SongHierarchy
+            .Include(h => h.Song)
+            .Include(h => h.Children)
+            .Where(h => h.ParentId == parentId)
+            .OrderBy(h => h.DisplayOrder)
+            .ToListAsync();
+    }
+
+    // Advanced search with multiple criteria
+    public async Task<List<Song>> AdvancedSearchAsync(SearchCriteria criteria)
+    {
+        var query = _context.Songs.AsQueryable();
+
+        if (!string.IsNullOrEmpty(criteria.Title))
+            query = query.Where(s => s.Title!.Contains(criteria.Title));
+
+        if (!string.IsNullOrEmpty(criteria.Artist))
+            query = query.Where(s => s.Artist!.Contains(criteria.Artist));
+
+        if (criteria.MinBPM.HasValue)
+            query = query.Where(s => s.BPM >= criteria.MinBPM);
+
+        if (criteria.MaxBPM.HasValue)
+            query = query.Where(s => s.BPM <= criteria.MaxBPM);
+
+        // Dynamic sorting
+        query = criteria.SortBy switch
+        {
+            "Title" => criteria.SortDirection == "DESC"
+                ? query.OrderByDescending(s => s.Title)
+                : query.OrderBy(s => s.Title),
+            "Artist" => criteria.SortDirection == "DESC"
+                ? query.OrderByDescending(s => s.Artist)
+                : query.OrderBy(s => s.Artist),
+            "BPM" => criteria.SortDirection == "DESC"
+                ? query.OrderByDescending(s => s.BPM)
+                : query.OrderBy(s => s.BPM),
+            _ => query.OrderBy(s => s.Title)
+        };
+
+        return await query
+            .Skip(criteria.Offset)
+            .Take(criteria.Limit)
+            .ToListAsync();
+    }
+
+    // Get statistics (replaces manual SQL aggregation)
+    public async Task<SongStatistics> GetStatisticsAsync()
+    {
+        var stats = await _context.Songs
+            .GroupBy(s => 1)
+            .Select(g => new SongStatistics
+            {
+                TotalSongs = g.Count(),
+                UniqueArtists = g.Select(s => s.Artist).Distinct().Count(),
+                UniqueGenres = g.Select(s => s.Genre).Distinct().Count(),
+                AverageBPM = g.Average(s => s.BPM) ?? 0,
+                MinBPM = g.Min(s => s.BPM) ?? 0,
+                MaxBPM = g.Max(s => s.BPM) ?? 0
+            })
+            .FirstOrDefaultAsync();
+
+        return stats ?? new SongStatistics();
     }
 }
 ```
 
-## � Implementation Files
+**Dependency Injection Setup:**
+```csharp
+// In Program.cs or Startup.cs
+services.AddDbContext<SongDbContext>(options =>
+    options.UseSqlite("Data Source=songs.db"));
 
-### Current UI Files (Phase 1 - Complete)
-- `DTXMania.Shared.Game/Lib/Stage/SongSelectionStage.cs` - Main song selection stage with UI integration
-- `DTXMania.Shared.Game/Lib/UI/Components/UIList.cs` - Scrollable list component with song display
-- `DTXMania.Shared.Game/Lib/UI/Components/UIManager.cs` - UI component management system
+services.AddScoped<SongRepository>();
+```
+
+**Automatic Migrations:**
+```bash
+# Create initial migration
+dotnet ef migrations add InitialCreate
+
+# Update database
+dotnet ef database update
+```
+
+#### Entity Framework Core Benefits vs Raw SQLite
+
+**Effort Comparison:**
+
+| Task | Raw SQLite | EF Core | Time Saved |
+|------|------------|---------|------------|
+| **Setup** | Write SQL schema, indexes, connections | Define entities, DbContext | 80% less |
+| **CRUD Operations** | Write SQL + parameter mapping | LINQ queries | 90% less |
+| **Relationships** | Manual JOIN queries | Navigation properties | 95% less |
+| **Migrations** | Manual schema versioning | Automatic migrations | 99% less |
+| **Testing** | Mock SQL connections | InMemory provider | 90% less |
+
+**Code Quality Benefits:**
+
+1. **Type Safety**: Compile-time checking prevents SQL injection and typos
+2. **IntelliSense**: Full IDE support with autocomplete for properties and methods
+3. **Refactoring**: Rename properties and EF Core updates all queries automatically
+4. **LINQ**: Natural C# syntax instead of string-based SQL
+5. **Navigation Properties**: Access related data without writing JOINs
+6. **Change Tracking**: Automatic dirty checking and optimized updates
+7. **Unit Testing**: Easy mocking with InMemory provider
+
+**Example Comparison:**
+
+```csharp
+// Raw SQLite (error-prone, no IntelliSense)
+var sql = "SELECT * FROM Songs WHERE Title LIKE @search AND BPM > @minBpm";
+command.Parameters.AddWithValue("@search", $"%{searchTerm}%");
+command.Parameters.AddWithValue("@minBpm", minBpm);
+
+// EF Core (type-safe, IntelliSense, refactor-friendly)
+var songs = await _context.Songs
+    .Where(s => s.Title.Contains(searchTerm) && s.BPM > minBpm)
+    .ToListAsync();
+```
+
+**Migration from Binary Files:**
+```csharp
+public class BinaryToEFCoreMigration
+{
+    public async Task MigrateAsync(SongDbContext context, string binaryPath)
+    {
+        if (!File.Exists(binaryPath))
+            return;
+
+        // Read existing binary data
+        var existingSongs = await ReadBinaryDatabaseAsync(binaryPath);
+
+        // Use EF Core transaction
+        using var transaction = await context.Database.BeginTransactionAsync();
+        try
+        {
+            foreach (var songData in existingSongs)
+            {
+                var song = new Song
+                {
+                    FilePath = songData.FilePath,
+                    Title = songData.Title,
+                    Artist = songData.Artist,
+                    // ... map other properties
+                };
+
+                context.Songs.Add(song);
+            }
+
+            await context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Backup old file
+            File.Move(binaryPath, binaryPath + ".backup");
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+}
+```
+
+**Performance Comparison:**
+
+| Operation | Binary File | SQLite | Improvement |
+|-----------|-------------|---------|-------------|
+| **Load All Songs** | O(n) - Read entire file | O(1) - Index lookup | 10-100x faster |
+| **Search by Title** | O(n) - Linear scan | O(log n) - Index search | 100-1000x faster |
+| **Update Single Song** | O(n) - Rewrite entire file | O(1) - Single UPDATE | 1000x+ faster |
+| **Add New Song** | O(n) - Rewrite entire file | O(1) - Single INSERT | 1000x+ faster |
+| **Memory Usage** | Load all in RAM | Stream results | 10-100x less memory |
+
+**Real-World Impact:**
+- **10,000 songs**: Binary load ~5-10 seconds → SQLite ~0.1 seconds
+- **Search "Beatles"**: Binary ~2 seconds → SQLite ~0.01 seconds
+- **Add new song**: Binary ~5 seconds → SQLite ~0.001 seconds
+- **Memory**: Binary ~500MB → SQLite ~50MB
+
+**Implementation Effort Breakdown:**
+
+1. **NuGet Package** (5 minutes)
+   ```xml
+   <PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.0" />
+   ```
+
+2. **Schema Creation** (30 minutes)
+   - Define tables and indexes
+   - Add foreign key relationships
+   - Create migration scripts
+
+3. **Replace Binary Methods** (2-3 hours)
+   - Convert Load/Save methods to SQL
+   - Add search and filter methods
+   - Implement upsert operations
+
+4. **Migration Tool** (1 hour)
+   - Read existing binary database
+   - Batch insert into SQLite
+   - Handle errors and rollback
+
+5. **Testing** (2-3 hours)
+   - Unit tests for database operations
+   - Performance testing with large datasets
+   - Migration testing
+
+**Total Effort: 1-2 days** for a massive improvement in performance and functionality.
+
+**Additional SQLite Features:**
+```csharp
+// Advanced search with multiple criteria
+public async Task<List<SongScore>> AdvancedSearchAsync(SearchCriteria criteria)
+{
+    var sql = new StringBuilder("SELECT * FROM Songs WHERE 1=1");
+    var parameters = new List<SqliteParameter>();
+
+    if (!string.IsNullOrEmpty(criteria.Title))
+    {
+        sql.Append(" AND Title LIKE @title");
+        parameters.Add(new SqliteParameter("@title", $"%{criteria.Title}%"));
+    }
+
+    if (!string.IsNullOrEmpty(criteria.Artist))
+    {
+        sql.Append(" AND Artist LIKE @artist");
+        parameters.Add(new SqliteParameter("@artist", $"%{criteria.Artist}%"));
+    }
+
+    if (criteria.MinBPM.HasValue)
+    {
+        sql.Append(" AND BPM >= @minBpm");
+        parameters.Add(new SqliteParameter("@minBpm", criteria.MinBPM.Value));
+    }
+
+    if (criteria.MaxBPM.HasValue)
+    {
+        sql.Append(" AND BPM <= @maxBpm");
+        parameters.Add(new SqliteParameter("@maxBpm", criteria.MaxBPM.Value));
+    }
+
+    sql.Append($" ORDER BY {criteria.SortBy} {criteria.SortDirection}");
+    sql.Append(" LIMIT @limit OFFSET @offset");
+
+    // Execute query with pagination
+    return await ExecuteSearchAsync(sql.ToString(), parameters, criteria.Limit, criteria.Offset);
+}
+
+// Incremental enumeration - only process changed files
+public async Task<bool> NeedsEnumerationAsync(string directoryPath)
+{
+    var lastEnumeration = await GetLastEnumerationTimeAsync(directoryPath);
+    var directoryInfo = new DirectoryInfo(directoryPath);
+
+    return directoryInfo.LastWriteTime > lastEnumeration;
+}
+
+// Statistics and analytics
+public async Task<SongStatistics> GetStatisticsAsync()
+{
+    const string sql = @"
+        SELECT
+            COUNT(*) as TotalSongs,
+            COUNT(DISTINCT Artist) as UniqueArtists,
+            COUNT(DISTINCT Genre) as UniqueGenres,
+            AVG(BPM) as AverageBPM,
+            MIN(BPM) as MinBPM,
+            MAX(BPM) as MaxBPM
+        FROM Songs";
+
+    // Execute and return statistics
+}
+```
+
+### Integration with DTXManiaCX Architecture
+
+#### Song Selection Stage
+```csharp
+public class SongSelectionStage : BaseStage
+{
+    private SongManager _songManager;
+    private SongListDisplay _songListDisplay;
+    private PreviewSoundManager _previewManager;
+    private StatusPanel _statusPanel;
+    private IResourceManager _resourceManager;
+
+    public override void OnActivate()
+    {
+        base.OnActivate();
+
+        // Initialize components
+        _songManager = new SongManager();
+        _songListDisplay = new SongListDisplay();
+        _previewManager = new PreviewSoundManager(_resourceManager);
+        _statusPanel = new StatusPanel();
+
+        // Wire up events
+        _songListDisplay.SelectionChanged += OnSongSelectionChanged;
+        _songListDisplay.DifficultyChanged += OnDifficultyChanged;
+
+        // Load song database and start enumeration if needed
+        _ = InitializeSongListAsync();
+    }
+
+    private async Task InitializeSongListAsync()
+    {
+        // Load cached song database
+        await _songManager.LoadSongsDatabaseAsync("songs.db");
+
+        // Check if enumeration is needed
+        if (_songManager.DatabaseScoreCount == 0 || ShouldReenumerate())
+        {
+            var progress = new Progress<EnumerationProgress>(OnEnumerationProgress);
+            await _songManager.EnumerateSongsAsync(
+                new[] { "Songs", "DTX", "Music" },
+                progress);
+        }
+
+        // Initialize display with song list
+        _songListDisplay.SetSongList(_songManager.RootSongs);
+    }
+
+    private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
+    {
+        // Update preview sound
+        _ = _previewManager.PlayPreviewAsync(e.SelectedSong);
+
+        // Update status panel
+        _statusPanel.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+
+        // Notify other components
+        NotifySelectionChanged(e.SelectedSong);
+    }
+
+    protected override void OnUpdate(double deltaTime)
+    {
+        base.OnUpdate(deltaTime);
+
+        // Update scrolling animation
+        _songListDisplay.Update(deltaTime);
+
+        // Update preview manager
+        _previewManager.IsScrolling = _songListDisplay.IsScrolling;
+    }
+
+    protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
+    {
+        // Draw background
+        DrawBackground(spriteBatch);
+
+        // Draw song list
+        _songListDisplay.Draw(spriteBatch, deltaTime);
+
+        // Draw status panel
+        _statusPanel.Draw(spriteBatch, deltaTime);
+
+        base.OnDraw(spriteBatch, deltaTime);
+    }
+}
+```
+
+
+
+## 🏗️ Implementation Files Summary
+
+### ✅ Current Implementation Files (Phases 1-3)
+**Phase 1-2 Complete (Song Data & Enumeration):**
+- `DTXMania.Shared.Game/Lib/Song/SongManager.cs` - Song database management and enumeration
+- `DTXMania.Shared.Game/Lib/Song/SongListNode.cs` - Hierarchical song list structure
+- `DTXMania.Shared.Game/Lib/Song/SongMetadata.cs` - Song metadata with DTX parsing support
+- `DTXMania.Shared.Game/Lib/Song/SongScore.cs` - Performance score tracking
+- `DTXMania.Shared.Game/Lib/Song/DTXMetadataParser.cs` - DTX file parsing with Japanese support
+
+**Phase 3 Basic Implementation (UI Foundation):**
+- `DTXMania.Shared.Game/Lib/Stage/SongSelectionStage.cs` - Basic song selection stage (needs DTXManiaNX enhancement)
+- `DTXMania.Shared.Game/Lib/UI/Components/UIList.cs` - Generic scrollable list (needs song-specific features)
+- `DTXMania.Shared.Game/Lib/UI/Components/UILabel.cs` - Text display with DTXMania effects
+- `DTXMania.Shared.Game/Lib/UI/Components/UIPanel.cs` - Layout container
 - `DTXMania.Shared.Game/Lib/Stage/BaseStage.cs` - Stage base class with lifecycle management
 - `DTXMania.Shared.Game/Lib/Stage/StageManager.cs` - Stage transition and management system
 
-### Planned Files (Phases 2-3)
-- `DTXMania.Shared.Game/Lib/Audio/PreviewSoundManager.cs` - Preview audio system with fade effects
-- `DTXMania.Shared.Game/Lib/UI/Effects/UIEffects.cs` - DTXMania-style visual effects
-- `DTXMania.Shared.Game/Lib/UI/Components/StatusPanel.cs` - Song metadata and statistics display
-- `DTXMania.Shared.Game/Lib/Input/SongSelectionInputHandler.cs` - Specialized input handling
-- `DTXMania.Shared.Game/Lib/UI/Animation/ScrollAnimation.cs` - Smooth scrolling animation system
+### 📋 Planned Implementation Files (Phases 4-8)
+**Phase 4 - DTXManiaNX Song List Display Enhancement:**
+- `DTXMania.Shared.Game/Lib/UI/Components/SongListDisplay.cs` - CActSelectSongList equivalent with 13-item display
+- `DTXMania.Shared.Game/Lib/UI/Components/SongBar.cs` - Individual song bar with textures and effects
+- `DTXMania.Shared.Game/Lib/UI/Components/SongBarRenderer.cs` - Song bar generation and caching
 
-### Integration Points
-- **Song Data**: Integrates with [Song Data Management System](song-data-management-system.md) for song information
-- **Resource Manager**: Uses existing texture and font loading systems
-- **Input System**: Leverages enhanced input state management
-- **Audio System**: Integrates with MonoGame audio for preview playback
+**Phase 5 - Status Panel & Song Information:**
+- `DTXMania.Shared.Game/Lib/UI/Components/SongStatusPanel.cs` - CActSelectStatusPanel equivalent
 
-## 🎯 Summary
+**Phase 6 - Preview Sound System:**
+- `DTXMania.Shared.Game/Lib/Audio/PreviewSoundManager.cs` - CActSelectPresound equivalent with fade effects
 
-This document provides a complete implementation plan for DTXMania's Song Selection UI System, focusing on user interface components, stage management, and visual effects. The system is designed to integrate seamlessly with the song data management system while providing a smooth, responsive user experience.
-
-### ✅ **Completed (Phase 1)**
-- **UI Component Library**: Complete set of UI elements with DTXMania-style effects
-- **Stage Management**: Full stage lifecycle with transitions and phase handling
-- **Song Selection Stage**: Working implementation with visible UI and keyboard navigation
-- **Font Integration**: Proper SpriteFont support for text rendering
-- **Background Rendering**: Fixed UI list visibility with texture and font support
-
-### 📋 **Next Steps (Phases 2-3)**
-- **Phase 2**: Preview sound system with BGM fade effects and timing control
-- **Phase 3**: Advanced navigation with smooth scrolling, difficulty selection, and visual polish
-
-### 🔗 **Related Documentation**
-- [Song Data Management System](song-data-management-system.md) - Data structures, file parsing, and database management
-- [UI Architecture Summary](ui-architecture-summary.md) - Complete UI component library documentation
-
-The song selection UI system provides the foundation for an authentic DTXMania experience with modern C# and MonoGame implementation.
+**Phase 7-8 - Additional DTXManiaNX Components:**
+- `DTXMania.Shared.Game/Lib/UI/Components/ArtistCommentPanel.cs` - CActSelectArtistComment equivalent
+- `DTXMania.Shared.Game/Lib/UI/Components/QuickConfigPanel.cs` - CActSelectQuickConfig equivalent
+- `DTXMania.Shared.Game/Lib/UI/Components/SongSortPanel.cs` - CActSortSongs equivalent
+- `DTXMania.Shared.Game/Lib/UI/Components/PreviewImagePanel.cs` - CActSelectPreimagePanel equivalent
