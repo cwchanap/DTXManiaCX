@@ -260,3 +260,71 @@ When a song selection changes, `tSelectedSongChanged()` notifies:
 - Configuration set management
 
 This implementation provides a comprehensive and user-friendly song selection experience with smooth animations, rich preview content, and extensive customization options.
+
+## UI Layout Structure
+
+### Screen Layout Overview
+The DTXManiaNX song selection screen follows this layout structure:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Title Bar & Breadcrumb Navigation                                          │
+├─────────────────────────────────────┬───────────────────────────────────────┤
+│                                     │                                       │
+│ Song List (Left Panel)              │ Status Panel (Right Panel)           │
+│ ┌─────────────────────────────────┐ │ ┌───────────────────────────────────┐ │
+│ │ [BOX] Folder Name               │ │ │ ♪ SONG                            │ │
+│ │ Song Title 1 - Artist 1         │ │ │ Song Title                        │ │
+│ │ Song Title 2 - Artist 2         │ │ │                                   │ │
+│ │ Song Title 3 - Artist 3         │ │ │ Artist: Artist Name               │ │
+│ │ Song Title 4 - Artist 4         │ │ │ Genre: Rock                       │ │
+│ │ Song Title 5 - Artist 5         │ │ │ BPM: 120                          │ │
+│ │ ► Song Title 6 - Artist 6 ◄     │ │ │ Duration: 3:45                    │ │
+│ │ Song Title 7 - Artist 7         │ │ │                                   │ │
+│ │ Song Title 8 - Artist 8         │ │ │ Difficulties:                     │ │
+│ │ Song Title 9 - Artist 9         │ │ │ ► DRUMS: Level 85 (1,234 notes)  │ │
+│ │ Song Title 10 - Artist 10       │ │ │   GUITAR: Level 78 (987 notes)   │ │
+│ │ Song Title 11 - Artist 11       │ │ │   BASS: Level 65 (654 notes)     │ │
+│ │ Song Title 12 - Artist 12       │ │ │                                   │ │
+│ │ Song Title 13 - Artist 13       │ │ │ Performance:                      │ │
+│ │ └─────────────────────────────────┘ │ │ Best Score: 95,432                │ │
+│                                     │ │ Best Rank: A                      │ │
+│                                     │ │ Full Combo: Yes                   │ │
+│                                     │ │ Play Count: 15                    │ │
+│                                     │ └───────────────────────────────────┘ │
+├─────────────────────────────────────┴───────────────────────────────────────┤
+│ Preview Image/Video Area & Artist Comments                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Layout Principles
+
+1. **Song List (Left Panel)**:
+   - 13 visible items with center selection (item 6)
+   - Smooth scrolling with acceleration
+   - Shows song titles, artists, and folder navigation
+   - Up/Down arrows navigate through songs
+   - Enter activates selection (play song or enter folder)
+
+2. **Status Panel (Right Panel)**:
+   - Shows detailed information for currently selected song
+   - Displays ALL available difficulties simultaneously
+   - Current difficulty highlighted with ► indicator
+   - Left/Right arrows cycle through difficulties
+   - Shows performance statistics and metadata
+
+3. **Difficulty Selection**:
+   - **NOT a separate navigation mode**
+   - Difficulties shown in status panel at all times
+   - Left/Right arrows change current difficulty
+   - Current difficulty highlighted in status panel
+   - Song list remains visible and navigable
+
+### Navigation Flow
+
+1. **Song Navigation**: Up/Down arrows move through song list
+2. **Difficulty Selection**: Left/Right arrows cycle through available difficulties
+3. **Folder Navigation**: Enter key enters folders, Escape/Back exits
+4. **Song Selection**: Enter key on a song starts gameplay
+
+This layout ensures that users can see both the song list and all available difficulties simultaneously, providing a comprehensive view of available content without requiring separate navigation modes.
