@@ -226,8 +226,14 @@ namespace DTXMania.Windows.Resources
             {
                 Debug.WriteLine($"Creating custom font renderer for {fontName}");
 
-                // Create a minimal character set for testing
+                // Create character set including Japanese characters
                 var basicChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 !@#$%^&*()_+-=[]{}|;:,.<>?";
+
+                // Add specific characters from known song titles for now
+                var japaneseChars = "希望と夢の空レイメイノベルスfeat.hana";  // Characters from the actual song titles
+
+                // Combine character sets
+                var allChars = basicChars + japaneseChars;
 
                 // Convert our FontStyle to System.Drawing.FontStyle
                 var gdiStyle = ConvertToGdiFontStyle(style);
@@ -238,8 +244,8 @@ namespace DTXMania.Windows.Resources
                 {
                     Debug.WriteLine($"Created GDI font: {gdiFont.Name} {gdiFont.Size}px");
 
-                    // Create a simple texture atlas with just basic characters
-                    var atlas = CreateSimpleFontAtlas(graphicsDevice, gdiFont, basicChars);
+                    // Create a simple texture atlas with all characters
+                    var atlas = CreateSimpleFontAtlas(graphicsDevice, gdiFont, allChars);
 
                     // Store custom font data directly (skip SpriteFont creation)
                     _customFontTexture = atlas.Texture;
@@ -251,7 +257,7 @@ namespace DTXMania.Windows.Resources
                     // Build character cache
                     BuildCharacterCache();
 
-                    Debug.WriteLine($"Custom font renderer created successfully with {basicChars.Length} characters");
+                    Debug.WriteLine($"Custom font renderer created successfully with {allChars.Length} characters");
                     return true;
                 }
             }

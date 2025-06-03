@@ -227,12 +227,6 @@ namespace DTX.Song
 
                 Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
 
-                // Log discovered songs for debugging
-                foreach (var rootNode in newRootNodes)
-                {
-                    LogNodeHierarchy(rootNode, 0);
-                }
-
                 EnumerationCompleted?.Invoke(this, EventArgs.Empty);
 
                 return DiscoveredScoreCount;
@@ -284,7 +278,6 @@ namespace DTX.Song
                 var setDefPath = Path.Combine(directoryPath, "set.def");
                 if (File.Exists(setDefPath))
                 {
-                    Debug.WriteLine($"SongManager: Found set.def in {directoryPath}, parsing...");
                     var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent, cancellationToken);
                     results.AddRange(setDefSongs);
 
@@ -297,7 +290,6 @@ namespace DTX.Song
                 var boxDefPath = Path.Combine(directoryPath, "box.def");
                 if (File.Exists(boxDefPath))
                 {
-                    Debug.WriteLine($"SongManager: Found box.def in {directoryPath}, parsing...");
                     boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
                 }
 
@@ -340,8 +332,6 @@ namespace DTX.Song
                         {
                             results.Add(songNode);
                             DiscoveredScoreCount++;
-
-                            Debug.WriteLine($"SongManager: Discovered song '{songNode.DisplayTitle}' by {songNode.Metadata?.DisplayArtist} ({file.Name})");
 
                             SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(songNode));
 
@@ -647,7 +637,6 @@ namespace DTX.Song
                             if (command == "TITLE")
                             {
                                 songTitle = value;
-                                Debug.WriteLine($"SongManager: Found song title: {songTitle}");
                             }
                             else if (command.StartsWith("L") && command.EndsWith("LABEL"))
                             {
@@ -657,7 +646,6 @@ namespace DTX.Song
                                     if (!difficulties.ContainsKey(level))
                                         difficulties[level] = ("", "");
                                     difficulties[level] = (value, difficulties[level].file);
-                                    Debug.WriteLine($"SongManager: Found difficulty {level} label: {value}");
                                 }
                             }
                             else if (command.StartsWith("L") && command.EndsWith("FILE"))
@@ -668,7 +656,6 @@ namespace DTX.Song
                                     if (!difficulties.ContainsKey(level))
                                         difficulties[level] = ("", "");
                                     difficulties[level] = (difficulties[level].label, value);
-                                    Debug.WriteLine($"SongManager: Found difficulty {level} file: {value}");
                                 }
                             }
                         }
@@ -721,7 +708,6 @@ namespace DTX.Song
                                 }
 
                                 DiscoveredScoreCount++;
-                                Debug.WriteLine($"SongManager: Added difficulty '{label}' (level {level}) for '{songTitle}' from {fileName}");
                             }
                             else
                             {
@@ -736,7 +722,7 @@ namespace DTX.Song
                     }
                 }
 
-                Debug.WriteLine($"SongManager: Parsed set.def with {results.Count} songs and {results.Sum(s => s.AvailableDifficulties)} difficulties");
+
             }
             catch (Exception ex)
             {
@@ -791,7 +777,6 @@ namespace DTX.Song
                     }
                 }
 
-                Debug.WriteLine($"SongManager: Parsed box.def - Title: '{boxDef.Title}', Genre: '{boxDef.Genre}'");
                 return boxDef;
             }
             catch (Exception ex)

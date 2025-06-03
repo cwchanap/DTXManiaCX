@@ -37,6 +37,7 @@ namespace DTX.UI.Components
         private Dictionary<int, Texture2D> _previewImageCache;
         private int _currentDifficulty;
         private SpriteFont _font;
+        private IFont _managedFont;
         private Texture2D _whitePixel;
 
         // Visual properties
@@ -131,6 +132,20 @@ namespace DTX.UI.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
+        }
+
+        /// <summary>
+        /// Managed font for advanced text rendering
+        /// </summary>
+        public IFont ManagedFont
+        {
+            get => _managedFont;
+            set
+            {
+                _managedFont = value;
+                _font = value?.SpriteFont; // Update SpriteFont reference
+                _barRenderer?.SetFont(_font);
+            }
         }
 
         #endregion
@@ -339,15 +354,25 @@ namespace DTX.UI.Components
             if (_currentList.Count == 0)
             {
                 // Draw "No songs" message
+                var message = "No songs found";
+
                 if (_font != null)
                 {
-                    var message = "No songs found";
                     var messageSize = _font.MeasureString(message);
                     var messagePos = new Vector2(
                         bounds.X + (bounds.Width - messageSize.X) / 2,
                         bounds.Y + (bounds.Height - messageSize.Y) / 2
                     );
                     spriteBatch.DrawString(_font, message, messagePos, _textColor);
+                }
+                else if (_managedFont != null)
+                {
+                    var messageSize = _managedFont.MeasureString(message);
+                    var messagePos = new Vector2(
+                        bounds.X + (bounds.Width - messageSize.X) / 2,
+                        bounds.Y + (bounds.Height - messageSize.Y) / 2
+                    );
+                    _managedFont.DrawString(spriteBatch, message, messagePos, _textColor);
                 }
                 return;
             }
@@ -374,7 +399,8 @@ namespace DTX.UI.Components
 
         private void DrawSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
         {
-            if (_useEnhancedRendering && _barRenderer != null)
+            // Use enhanced rendering only if we have both a renderer and a SpriteFont
+            if (_useEnhancedRendering && _barRenderer != null && _font != null)
             {
                 DrawEnhancedSongItem(spriteBatch, node, itemBounds, isSelected);
             }
@@ -416,13 +442,28 @@ namespace DTX.UI.Components
             }
 
             // Draw text
+            var text = GetDisplayText(node);
+            var textColor = isSelected ? _selectedTextColor : _textColor;
+            var textPos = new Vector2(itemBounds.X + 10, itemBounds.Y + 5);
+
             if (_font != null)
             {
-                var text = GetDisplayText(node);
-                var textColor = isSelected ? _selectedTextColor : _textColor;
-                var textPos = new Vector2(itemBounds.X + 10, itemBounds.Y + 5);
-
                 spriteBatch.DrawString(_font, text, textPos, textColor);
+            }
+            else if (_managedFont != null)
+            {
+                // Use managed font's drawing method
+                _managedFont.DrawString(spriteBatch, text, textPos, textColor);
+            }
+            else
+            {
+                // Fallback: draw a simple rectangle to show the item exists
+                if (_whitePixel != null)
+                {
+                    var fallbackColor = isSelected ? Color.Yellow : Color.Gray;
+                    var textBounds = new Rectangle(itemBounds.X + 10, itemBounds.Y + 5, itemBounds.Width - 20, itemBounds.Height - 10);
+                    spriteBatch.Draw(_whitePixel, textBounds, fallbackColor * 0.5f);
+                }
             }
         }
 

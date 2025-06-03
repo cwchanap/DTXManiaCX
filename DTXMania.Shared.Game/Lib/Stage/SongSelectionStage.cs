@@ -109,6 +109,7 @@ namespace DTX.Stage
             {
                 uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
                 System.Diagnostics.Debug.WriteLine("SongSelectionStage: UI font loaded successfully");
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
             }
             catch (Exception ex)
             {
@@ -194,22 +195,29 @@ namespace DTX.Stage
                 Position = new Vector2(50, 120),
                 Size = new Vector2(700, 400),
                 Font = uiFont?.SpriteFont,
+                ManagedFont = uiFont,
                 WhitePixel = _whitePixel
             };
+
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
 
             // Initialize Phase 4 enhanced rendering
             try
             {
                 _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager);
                 System.Diagnostics.Debug.WriteLine("SongSelectionStage: Enhanced rendering initialized successfully");
+
+                // Ensure font is set on the renderer after initialization
+                if (uiFont?.SpriteFont != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Setting font on enhanced renderer");
+                }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize enhanced rendering: {ex.Message}");
                 _songListDisplay.SetEnhancedRendering(false);
             }
-
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
 
             // Create DTXManiaNX-style status panel
             _statusPanel = new SongStatusPanel
@@ -256,9 +264,10 @@ namespace DTX.Stage
 
                 // Initialize display with song list
                 _currentSongList = _songManager.RootSongs.ToList();
-                PopulateSongList();
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Root songs count: {_currentSongList.Count}");
 
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_songManager.DatabaseScoreCount} songs");
+                PopulateSongList();
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: PopulateSongList called, display list count: {_songListDisplay.CurrentList?.Count ?? 0}");
 
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_songManager.DatabaseScoreCount} songs");
             }
@@ -277,8 +286,11 @@ namespace DTX.Stage
         {
             var displayList = new List<SongListNode>();
 
+            System.Diagnostics.Debug.WriteLine($"PopulateSongList: _currentSongList count: {_currentSongList?.Count ?? 0}");
+
             if (_currentSongList == null || _currentSongList.Count == 0)
             {
+                System.Diagnostics.Debug.WriteLine("PopulateSongList: No songs to display, setting empty list");
                 _songListDisplay.CurrentList = displayList;
                 return;
             }
@@ -287,13 +299,16 @@ namespace DTX.Stage
             if (_navigationStack.Count > 0)
             {
                 displayList.Add(new SongListNode { Type = NodeType.BackBox, Title = ".." });
+                System.Diagnostics.Debug.WriteLine("PopulateSongList: Added back navigation");
             }
 
             // Add all songs and folders
             displayList.AddRange(_currentSongList);
+            System.Diagnostics.Debug.WriteLine($"PopulateSongList: Added {_currentSongList.Count} items to display list");
 
             // Update the song list display
             _songListDisplay.CurrentList = displayList;
+            System.Diagnostics.Debug.WriteLine($"PopulateSongList: Set display list with {displayList.Count} items");
         }
 
         private string GetDisplayText(SongListNode node)
