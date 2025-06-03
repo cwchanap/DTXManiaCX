@@ -41,7 +41,7 @@ namespace DTX.Song
         public double? BPM { get; set; }
 
         /// <summary>
-        /// Song duration in seconds (calculated during parsing)
+        /// Song duration in seconds (calculated from DTX data)
         /// </summary>
         public double? Duration { get; set; }
 
@@ -68,6 +68,30 @@ namespace DTX.Song
         /// Difficulty labels for each instrument
         /// </summary>
         public Dictionary<string, string> DifficultyLabels { get; set; } = new();
+
+        #endregion
+
+        #region Note Counts
+
+        /// <summary>
+        /// Total note count for drums
+        /// </summary>
+        public int? DrumNoteCount { get; set; }
+
+        /// <summary>
+        /// Total note count for guitar
+        /// </summary>
+        public int? GuitarNoteCount { get; set; }
+
+        /// <summary>
+        /// Total note count for bass
+        /// </summary>
+        public int? BassNoteCount { get; set; }
+
+        /// <summary>
+        /// Total chip count across all instruments
+        /// </summary>
+        public int TotalNoteCount => (DrumNoteCount ?? 0) + (GuitarNoteCount ?? 0) + (BassNoteCount ?? 0);
 
         #endregion
 
@@ -202,6 +226,9 @@ namespace DTX.Song
                 GuitarLevel = GuitarLevel,
                 BassLevel = BassLevel,
                 DifficultyLabels = new Dictionary<string, string>(DifficultyLabels),
+                DrumNoteCount = DrumNoteCount,
+                GuitarNoteCount = GuitarNoteCount,
+                BassNoteCount = BassNoteCount,
                 PreviewFile = PreviewFile,
                 PreviewImage = PreviewImage,
                 BackgroundImage = BackgroundImage,
@@ -246,6 +273,59 @@ namespace DTX.Song
                 case "BASS":
                     BassLevel = level;
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Gets note count for specified instrument
+        /// </summary>
+        public int? GetNoteCount(string instrument)
+        {
+            if (string.IsNullOrEmpty(instrument))
+                return null;
+
+            return instrument.ToUpperInvariant() switch
+            {
+                "DRUMS" => DrumNoteCount,
+                "GUITAR" => GuitarNoteCount,
+                "BASS" => BassNoteCount,
+                _ => null
+            };
+        }
+
+        /// <summary>
+        /// Sets note count for specified instrument
+        /// </summary>
+        public void SetNoteCount(string instrument, int count)
+        {
+            switch (instrument.ToUpperInvariant())
+            {
+                case "DRUMS":
+                    DrumNoteCount = count;
+                    break;
+                case "GUITAR":
+                    GuitarNoteCount = count;
+                    break;
+                case "BASS":
+                    BassNoteCount = count;
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Gets formatted duration string (MM:SS)
+        /// </summary>
+        public string FormattedDuration
+        {
+            get
+            {
+                if (!Duration.HasValue || Duration.Value <= 0)
+                    return "--:--";
+
+                var totalSeconds = (int)Duration.Value;
+                var minutes = totalSeconds / 60;
+                var seconds = totalSeconds % 60;
+                return $"{minutes:D2}:{seconds:D2}";
             }
         }
 

@@ -274,9 +274,13 @@ namespace DTXMania.Test.Song
                 Genre = "Test Genre",
                 Comment = "Test Comment",
                 BPM = 120.5,
+                Duration = 180.5,
                 DrumLevel = 85,
                 GuitarLevel = 78,
                 BassLevel = 65,
+                DrumNoteCount = 1250,
+                GuitarNoteCount = 890,
+                BassNoteCount = 650,
                 PreviewFile = "preview.ogg",
                 FilePath = @"C:\Songs\test.dtx",
                 FileSize = 1024,
@@ -294,9 +298,13 @@ namespace DTXMania.Test.Song
             Assert.Equal(original.Genre, clone.Genre);
             Assert.Equal(original.Comment, clone.Comment);
             Assert.Equal(original.BPM, clone.BPM);
+            Assert.Equal(original.Duration, clone.Duration);
             Assert.Equal(original.DrumLevel, clone.DrumLevel);
             Assert.Equal(original.GuitarLevel, clone.GuitarLevel);
             Assert.Equal(original.BassLevel, clone.BassLevel);
+            Assert.Equal(original.DrumNoteCount, clone.DrumNoteCount);
+            Assert.Equal(original.GuitarNoteCount, clone.GuitarNoteCount);
+            Assert.Equal(original.BassNoteCount, clone.BassNoteCount);
             Assert.Equal(original.PreviewFile, clone.PreviewFile);
             Assert.Equal(original.FilePath, clone.FilePath);
             Assert.Equal(original.FileSize, clone.FileSize);
@@ -323,6 +331,128 @@ namespace DTXMania.Test.Song
             Assert.Equal("Modified Title", clone.Title);
             Assert.False(original.DifficultyLabels.ContainsKey("DRUMS"));
             Assert.True(clone.DifficultyLabels.ContainsKey("DRUMS"));
+        }
+
+        #endregion
+
+        #region Phase 5 Enhancement Tests
+
+        [Theory]
+        [InlineData(0, "--:--")]
+        [InlineData(60, "01:00")]
+        [InlineData(125, "02:05")]
+        [InlineData(3661, "61:01")]
+        public void FormattedDuration_ShouldReturnCorrectFormat(double seconds, string expected)
+        {
+            // Arrange
+            var metadata = new SongMetadata { Duration = seconds };
+
+            // Act
+            var result = metadata.FormattedDuration;
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void FormattedDuration_WithNullDuration_ShouldReturnDashes()
+        {
+            // Arrange
+            var metadata = new SongMetadata { Duration = null };
+
+            // Act
+            var result = metadata.FormattedDuration;
+
+            // Assert
+            Assert.Equal("--:--", result);
+        }
+
+        [Theory]
+        [InlineData("DRUMS", 1250)]
+        [InlineData("GUITAR", 890)]
+        [InlineData("BASS", 650)]
+        [InlineData("INVALID", null)]
+        public void GetNoteCount_ShouldReturnCorrectValue(string instrument, int? expected)
+        {
+            // Arrange
+            var metadata = new SongMetadata
+            {
+                DrumNoteCount = 1250,
+                GuitarNoteCount = 890,
+                BassNoteCount = 650
+            };
+
+            // Act
+            var result = metadata.GetNoteCount(instrument);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData("DRUMS", 1500)]
+        [InlineData("GUITAR", 1200)]
+        [InlineData("BASS", 800)]
+        public void SetNoteCount_ShouldSetCorrectValue(string instrument, int count)
+        {
+            // Arrange
+            var metadata = new SongMetadata();
+
+            // Act
+            metadata.SetNoteCount(instrument, count);
+
+            // Assert
+            var result = metadata.GetNoteCount(instrument);
+            Assert.Equal(count, result);
+        }
+
+        [Fact]
+        public void TotalNoteCount_ShouldSumAllInstruments()
+        {
+            // Arrange
+            var metadata = new SongMetadata
+            {
+                DrumNoteCount = 1250,
+                GuitarNoteCount = 890,
+                BassNoteCount = 650
+            };
+
+            // Act
+            var result = metadata.TotalNoteCount;
+
+            // Assert
+            Assert.Equal(2790, result);
+        }
+
+        [Fact]
+        public void TotalNoteCount_WithNullValues_ShouldTreatAsZero()
+        {
+            // Arrange
+            var metadata = new SongMetadata
+            {
+                DrumNoteCount = 1250,
+                GuitarNoteCount = null,
+                BassNoteCount = 650
+            };
+
+            // Act
+            var result = metadata.TotalNoteCount;
+
+            // Assert
+            Assert.Equal(1900, result);
+        }
+
+        [Fact]
+        public void TotalNoteCount_WithAllNullValues_ShouldReturnZero()
+        {
+            // Arrange
+            var metadata = new SongMetadata();
+
+            // Act
+            var result = metadata.TotalNoteCount;
+
+            // Assert
+            Assert.Equal(0, result);
         }
 
         #endregion

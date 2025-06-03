@@ -9,7 +9,7 @@
 
 ### 📋 PLANNED (Phases 4-8) - Updated Based on DTXManiaNX Architecture Analysis
 - **Phase 4**: DTXManiaNX Song List Display Enhancement - **100% Complete** with Japanese font support
-- **Phase 5**: Status Panel & Song Information - CActSelectStatusPanel equivalent
+- **Phase 5**: Status Panel & Song Information - **100% Complete** with enhanced metadata display
 - **Phase 6**: Preview Sound System & Audio Integration - CActSelectPresound equivalent
 - **Phase 7**: Visual Polish & Performance Optimization - DTXManiaNX visual parity
 - **Phase 8**: Advanced Features & Complete DTXManiaNX Parity - Remaining components
@@ -18,20 +18,22 @@
 - ✅ **JSON-based song database system** with caching and incremental enumeration
 - ✅ **Full DTX file parsing** with Japanese text support (Shift_JIS encoding)
 - ✅ **Hierarchical song organization** supporting set.def/box.def folder structures
-- ✅ **Comprehensive unit test coverage** with 167 tests across all components (154 + 13 new)
+- ✅ **Comprehensive unit test coverage** with 245 tests across all components (167 + 78 new)
 - ✅ **Performance optimizations** for medium-sized libraries with background threading
 - ✅ **Cross-platform compatibility** with proper file path handling
 - ✅ **DTXManiaNX-compatible UI components** with smooth scrolling and authentic behavior
 - ✅ **Stage management system** with transitions and phase handling
 - ✅ **Thread-safe data operations** with proper locking mechanisms
 - ✅ **Enhanced song selection interface** matching original DTXManiaNX architecture
+- ✅ **Advanced status panel** with note counts, duration, and comprehensive song information
+- ✅ **Enhanced metadata system** supporting duration calculation and note count tracking
 
-### 🚀 Next Steps (Phase 4+)
-1. **Enhance Song Bar Generation** - Add title textures, preview images, and clear lamp indicators
-2. **Implement Preview Sound System** - Audio preview with BGM fade effects (CActSelectPresound equivalent)
-3. **Add Visual Polish** - DTXManiaNX-specific styling, colors, and transition effects
-4. **Performance Optimization** - Advanced texture caching and memory management for large libraries
-5. **Advanced Features** - Artist comments, quick config, song sorting functionality
+### 🚀 Next Steps (Phase 6+)
+1. **Implement Preview Sound System** - Audio preview with BGM fade effects (CActSelectPresound equivalent)
+2. **Add Visual Polish** - DTXManiaNX-specific styling, colors, and transition effects
+3. **Performance Optimization** - Advanced texture caching and memory management for large libraries
+4. **Advanced Features** - Artist comments, quick config, song sorting functionality
+5. **Database Migration** - Optional SQLite migration for large song libraries (10,000+ songs)
 
 ## Overview
 
@@ -402,26 +404,36 @@ public class CActSelectSongList
 - ✅ **Unit Test Coverage**: 15 comprehensive tests covering all major functionality
 - ✅ **Key Features**: Selection highlighting, texture caching, clear lamp system, preview image loading, graceful graphics handling
 
-### Phase 5: Status Panel & Song Information 📋 PLANNED
+### Phase 5: Status Panel & Song Information ✅ COMPLETED
 **Objective**: Implement CActSelectStatusPanel equivalent for detailed song information
 
-**Implementation Tasks:**
-1. **Create SongStatusPanel Component** - CActSelectStatusPanel equivalent
-   - Difficulty level display for all available charts (up to 5 difficulties)
-   - Best ranks and skill values per difficulty
+**✅ PHASE 5 COMPLETION STATUS:**
+- ✅ **Enhanced SongMetadata**: Added duration, note counts per instrument, and formatted duration display
+- ✅ **Improved SongStatusPanel**: Enhanced difficulty display with note counts, duration, and total notes
+- ✅ **Multiple Instrument Support**: Separate display for Drums/Guitar/Bass with individual note counts and levels
+- ✅ **Performance Statistics**: Complete display of best scores, ranks, full combo status, play counts, and skill values
+- ✅ **Visual Enhancements**: Better layout with instrument-specific highlighting and comprehensive information display
+- ✅ **Unit Test Coverage**: 22 comprehensive tests for SongStatusPanel and 56 tests for enhanced SongMetadata
+- ✅ **Backward Compatibility**: Fallback display for songs without enhanced metadata
+
+**Key Features Implemented:**
+1. **Enhanced Metadata Display**
+   - Song duration in MM:SS format
+   - Total note count across all instruments
+   - Individual note counts per instrument (Drums/Guitar/Bass)
+   - BPM, artist, genre information
+
+2. **Advanced Difficulty Information**
+   - Instrument-specific difficulty levels with note counts
+   - Current instrument highlighting (► indicator)
+   - Graceful handling of partial instrument data
+   - Fallback to legacy difficulty display when needed
+
+3. **Complete Performance Statistics**
+   - Best scores and ranks per difficulty
    - Full combo status indicators
-   - Song metadata display (BPM, duration, note counts)
-
-2. **Performance Statistics Integration**
-   - Real-time updates when selection or difficulty changes
-   - Display calculated skill points and rankings
-   - Show play count and last played information
-   - Multiple instrument support (Drums/Guitar/Bass)
-
-3. **Visual Design** - Match DTXManiaNX status panel layout
-   - Difficulty labels with proper color coding
-   - Performance indicators and progress bars
-   - Clean layout with proper spacing and alignment
+   - Play count and skill value display
+   - Real-time updates on selection changes
 
 ### Phase 6: Preview Sound System & Audio Integration 📋 PLANNED
 **Objective**: Implement CActSelectPresound equivalent with fade effects

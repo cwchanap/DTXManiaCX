@@ -204,6 +204,20 @@ namespace DTX.UI.Components
                 y += LINE_HEIGHT;
             }
 
+            // Duration
+            if (metadata.Duration.HasValue && metadata.Duration.Value > 0)
+            {
+                DrawLabelValue(spriteBatch, "Duration:", metadata.FormattedDuration, x, y);
+                y += LINE_HEIGHT;
+            }
+
+            // Total notes
+            if (metadata.TotalNoteCount > 0)
+            {
+                DrawLabelValue(spriteBatch, "Total Notes:", metadata.TotalNoteCount.ToString("N0"), x, y);
+                y += LINE_HEIGHT;
+            }
+
             y += SECTION_SPACING;
         }
 
@@ -212,22 +226,55 @@ namespace DTX.UI.Components
             spriteBatch.DrawString(_font, "Difficulties:", new Vector2(x, y), _labelColor);
             y += LINE_HEIGHT;
 
-            // Show all available difficulties
-            for (int i = 0; i < 5; i++)
+            var score = GetCurrentScore();
+            if (score?.Metadata != null)
             {
-                if (_currentSong.Scores?.Length > i && _currentSong.Scores[i] != null)
+                // Show available instruments with their difficulty levels and note counts
+                var instruments = new[] { "DRUMS", "GUITAR", "BASS" };
+
+                foreach (var instrument in instruments)
                 {
-                    var score = _currentSong.Scores[i];
-                    var difficultyName = GetDifficultyName(i);
-                    var level = GetDifficultyLevel(score, i);
-                    var isSelected = i == _currentDifficulty;
+                    var level = score.Metadata.GetDifficultyLevel(instrument);
+                    var noteCount = score.Metadata.GetNoteCount(instrument);
 
-                    var color = isSelected ? _difficultyColor : _valueColor;
-                    var prefix = isSelected ? "► " : "  ";
-                    var text = $"{prefix}{difficultyName}: {level}";
+                    if (level.HasValue && level.Value > 0)
+                    {
+                        var instrumentName = GetInstrumentDisplayName(instrument);
+                        var isCurrentInstrument = GetInstrumentFromDifficulty(_currentDifficulty) == instrument;
 
-                    spriteBatch.DrawString(_smallFont ?? _font, text, new Vector2(x + INDENT, y), color);
-                    y += LINE_HEIGHT * 0.8f;
+                        var color = isCurrentInstrument ? _difficultyColor : _valueColor;
+                        var prefix = isCurrentInstrument ? "► " : "  ";
+
+                        var text = $"{prefix}{instrumentName}: Lv.{level}";
+                        if (noteCount.HasValue && noteCount.Value > 0)
+                        {
+                            text += $" ({noteCount:N0} notes)";
+                        }
+
+                        spriteBatch.DrawString(_smallFont ?? _font, text, new Vector2(x + INDENT, y), color);
+                        y += LINE_HEIGHT * 0.8f;
+                    }
+                }
+            }
+            else
+            {
+                // Fallback to old difficulty display for compatibility
+                for (int i = 0; i < 5; i++)
+                {
+                    if (_currentSong.Scores?.Length > i && _currentSong.Scores[i] != null)
+                    {
+                        var scoreItem = _currentSong.Scores[i];
+                        var difficultyName = GetDifficultyName(i);
+                        var level = GetDifficultyLevel(scoreItem, i);
+                        var isSelected = i == _currentDifficulty;
+
+                        var color = isSelected ? _difficultyColor : _valueColor;
+                        var prefix = isSelected ? "► " : "  ";
+                        var text = $"{prefix}{difficultyName}: {level}";
+
+                        spriteBatch.DrawString(_smallFont ?? _font, text, new Vector2(x + INDENT, y), color);
+                        y += LINE_HEIGHT * 0.8f;
+                    }
                 }
             }
 
@@ -348,6 +395,28 @@ namespace DTX.UI.Components
                 >= 60 => "C",
                 >= 50 => "D",
                 _ => "E"
+            };
+        }
+
+        private string GetInstrumentDisplayName(string instrument)
+        {
+            return instrument.ToUpperInvariant() switch
+            {
+                "DRUMS" => "Drums",
+                "GUITAR" => "Guitar",
+                "BASS" => "Bass",
+                _ => instrument
+            };
+        }
+
+        private string GetInstrumentFromDifficulty(int difficulty)
+        {
+            return difficulty switch
+            {
+                0 => "DRUMS",
+                1 => "GUITAR",
+                2 => "BASS",
+                _ => "DRUMS" // Default to drums
             };
         }
 
