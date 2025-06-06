@@ -19,11 +19,30 @@ namespace DTX.UI.Components
         #region Constants
 
         private const int VISIBLE_ITEMS = 13;
-        private const int CENTER_INDEX = 6;
+        private const int CENTER_INDEX = 5; // DTXManiaNX uses index 5 as center (0-based)
         private const int SCROLL_UNIT = 100;
         private const float SCROLL_ACCELERATION_THRESHOLD_1 = 100f;
         private const float SCROLL_ACCELERATION_THRESHOLD_2 = 300f;
         private const float SCROLL_ACCELERATION_THRESHOLD_3 = 500f;
+
+        // DTXManiaNX Curved Layout Coordinates (ptバーの基本座標)
+        // These are the exact coordinates from DTXManiaNX for authentic curved layout
+        private static readonly Point[] CurvedBarCoordinates = new Point[]
+        {
+            new Point(708, 5),      // Bar 0 (top)
+            new Point(626, 56),     // Bar 1
+            new Point(578, 107),    // Bar 2
+            new Point(546, 158),    // Bar 3
+            new Point(528, 209),    // Bar 4
+            new Point(464, 270),    // Bar 5 (CENTER/SELECTED) ← KEY POSITION
+            new Point(548, 362),    // Bar 6
+            new Point(578, 413),    // Bar 7
+            new Point(624, 464),    // Bar 8
+            new Point(686, 515),    // Bar 9
+            new Point(788, 566),    // Bar 10
+            new Point(996, 617),    // Bar 11
+            new Point(1280, 668)    // Bar 12 (bottom)
+        };
 
         #endregion
 
@@ -51,6 +70,7 @@ namespace DTX.UI.Components
         private SongBarRenderer _barRenderer;
         private readonly Dictionary<int, SongBar> _songBarCache;
         private bool _useEnhancedRendering = true;
+        private DefaultGraphicsGenerator _graphicsGenerator;
 
         #endregion
 
@@ -190,25 +210,37 @@ namespace DTX.UI.Components
         #region Public Methods
 
         /// <summary>
-        /// Move selection to next song
+        /// Move selection to next song (DTXManiaNX curved layout style)
         /// </summary>
         public void MoveNext()
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
 
-            SelectedIndex = (_selectedIndex + 1) % _currentList.Count;
+            // Move to next song with proper wrap-around
+            _selectedIndex = (_selectedIndex + 1) % _currentList.Count;
+
+            // Update scroll target immediately for responsive feel
+            _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
+
+            UpdateSelection();
         }
 
         /// <summary>
-        /// Move selection to previous song
+        /// Move selection to previous song (DTXManiaNX curved layout style)
         /// </summary>
         public void MovePrevious()
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
 
-            SelectedIndex = (_selectedIndex - 1 + _currentList.Count) % _currentList.Count;
+            // Move to previous song with proper wrap-around
+            _selectedIndex = (_selectedIndex - 1 + _currentList.Count) % _currentList.Count;
+
+            // Update scroll target immediately for responsive feel
+            _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
+
+            UpdateSelection();
         }
 
         /// <summary>
@@ -265,6 +297,16 @@ namespace DTX.UI.Components
             {
                 _barRenderer.SetFont(_font);
             }
+
+            // Initialize graphics generator for default styling
+            _graphicsGenerator?.Dispose();
+            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
+
+            // Initialize graphics generators for cached song bars
+            foreach (var songBar in _songBarCache.Values)
+            {
+                songBar.InitializeGraphicsGenerator(graphicsDevice);
+            }
         }
 
         /// <summary>
@@ -312,7 +354,8 @@ namespace DTX.UI.Components
 
         private void UpdateScrollTarget()
         {
-            // Calculate target scroll position to center selected item
+            // In DTXManiaNX curved layout, the target scroll counter directly corresponds to the selected song
+            // The center position (bar 5) always shows the selected song
             _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
         }
 
@@ -377,49 +420,61 @@ namespace DTX.UI.Components
                 return;
             }
 
-            // Calculate visible range based on scroll position
-            int centerItem = _currentScrollCounter / SCROLL_UNIT;
-            int startItem = Math.Max(0, centerItem - CENTER_INDEX);
-            int endItem = Math.Min(_currentList.Count, startItem + VISIBLE_ITEMS);
+            // Calculate center song index based on scroll position
+            int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
 
-            // Draw visible items
-            for (int i = startItem; i < endItem; i++)
+            // Draw 13 visible bars using DTXManiaNX curved coordinates
+            for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
-                var node = _currentList[i];
+                // Calculate which song should be displayed at this bar position
+                int songIndex = centerSongIndex + (barIndex - CENTER_INDEX);
+
+                // Skip if song index is out of bounds
+                if (songIndex < 0 || songIndex >= _currentList.Count)
+                    continue;
+
+                var node = _currentList[songIndex];
+                var barCoords = CurvedBarCoordinates[barIndex];
+
+                // Create item bounds using curved coordinates
                 var itemBounds = new Rectangle(
-                    bounds.X,
-                    bounds.Y + (i - startItem) * (int)_itemHeight,
-                    bounds.Width,
+                    barCoords.X,
+                    barCoords.Y,
+                    500, // Wider bar width for better coverage
                     (int)_itemHeight
                 );
 
-                DrawSongItem(spriteBatch, node, itemBounds, i == _selectedIndex);
+                // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
+                bool isSelected = (barIndex == CENTER_INDEX);
+                bool isCenter = isSelected; // Center bar is the selected bar
+
+                DrawSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
             }
         }
 
-        private void DrawSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
+        private void DrawSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter = false, int barIndex = 0)
         {
             // Use enhanced rendering only if we have both a renderer and a SpriteFont
             if (_useEnhancedRendering && _barRenderer != null && _font != null)
             {
-                DrawEnhancedSongItem(spriteBatch, node, itemBounds, isSelected);
+                DrawEnhancedSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
             }
             else
             {
-                DrawBasicSongItem(spriteBatch, node, itemBounds, isSelected);
+                DrawBasicSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
             }
         }
 
-        private void DrawEnhancedSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
+        private void DrawEnhancedSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
         {
             // Get or create song bar for this item
             var songBar = GetOrCreateSongBar(node, itemBounds, isSelected);
 
-            // Update song bar state
+            // Update song bar state with DTXManiaNX curved layout information
             songBar.Position = new Vector2(itemBounds.X, itemBounds.Y);
             songBar.Size = new Vector2(itemBounds.Width, itemBounds.Height);
             songBar.IsSelected = isSelected;
-            songBar.IsCenter = isSelected; // For now, treat selected as center
+            songBar.IsCenter = isCenter;
             songBar.CurrentDifficulty = _currentDifficulty;
 
             // Generate textures if needed
@@ -433,17 +488,48 @@ namespace DTX.UI.Components
             songBar.Draw(spriteBatch, 0);
         }
 
-        private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected)
+        private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
         {
-            // Draw item background
-            if (_whitePixel != null && isSelected)
+            // Draw item background with DTXManiaNX curved layout styling
+            if (_whitePixel != null)
             {
-                spriteBatch.Draw(_whitePixel, itemBounds, _selectedItemColor);
+                // Use different colors for center vs selected vs normal bars
+                Color backgroundColor;
+                if (isCenter)
+                {
+                    backgroundColor = Color.Gold * 0.8f; // Center bar gets gold highlight
+                }
+                else if (isSelected)
+                {
+                    backgroundColor = _selectedItemColor;
+                }
+                else
+                {
+                    backgroundColor = Color.DarkBlue * 0.3f; // Normal bars get subtle background
+                }
+
+                spriteBatch.Draw(_whitePixel, itemBounds, backgroundColor);
+
+                // Draw border for center bar
+                if (isCenter && _whitePixel != null)
+                {
+                    var borderColor = Color.Yellow;
+                    var borderThickness = 2;
+
+                    // Top border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, borderThickness), borderColor);
+                    // Bottom border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Bottom - borderThickness, itemBounds.Width, borderThickness), borderColor);
+                    // Left border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
+                    // Right border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.Right - borderThickness, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
+                }
             }
 
             // Draw text
             var text = GetDisplayText(node);
-            var textColor = isSelected ? _selectedTextColor : _textColor;
+            var textColor = isCenter ? Color.White : (isSelected ? _selectedTextColor : _textColor);
             var textPos = new Vector2(itemBounds.X + 10, itemBounds.Y + 5);
 
             if (_font != null)
@@ -519,6 +605,7 @@ namespace DTX.UI.Components
             if (disposing)
             {
                 _barRenderer?.Dispose();
+                _graphicsGenerator?.Dispose();
 
                 foreach (var songBar in _songBarCache.Values)
                 {

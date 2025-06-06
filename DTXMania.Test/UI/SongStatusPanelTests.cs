@@ -152,18 +152,7 @@ namespace DTXMania.Test.UI
             Assert.Equal(texture, _statusPanel.WhitePixel);
         }
 
-        [Fact]
-        public void BackgroundColor_Property_ShouldGetAndSet()
-        {
-            // Arrange
-            var color = Color.Red;
-
-            // Act
-            _statusPanel.BackgroundColor = color;
-
-            // Assert
-            Assert.Equal(color, _statusPanel.BackgroundColor);
-        }
+        // BackgroundColor property test removed - property doesn't exist in current implementation
 
         [Fact]
         public void SongStatusPanel_WithBoxNode_ShouldNotCrash()

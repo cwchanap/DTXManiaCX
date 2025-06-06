@@ -263,68 +263,182 @@ This implementation provides a comprehensive and user-friendly song selection ex
 
 ## UI Layout Structure
 
+### Critical Implementation Details from DTXManiaNX
+
+#### Curved Song Bar Layout Coordinates (ptバーの基本座標)
+**Source**: `CActSelectSongList.cs:1334`
+
+The most important aspect of DTXManiaNX's song selection is the **curved layout positioning system**:
+
+```csharp
+private readonly Point[] ptバーの基本座標 = new Point[] { 
+    new Point(0x2c4, 5),     // 708, 5    - Bar 0 (top)
+    new Point(0x272, 56),    // 626, 56   - Bar 1
+    new Point(0x242, 107),   // 578, 107  - Bar 2
+    new Point(0x222, 158),   // 546, 158  - Bar 3
+    new Point(0x210, 209),   // 528, 209  - Bar 4
+    new Point(0x1d0, 270),   // 464, 270  - Bar 5 (CENTER/SELECTED)
+    new Point(0x224, 362),   // 548, 362  - Bar 6
+    new Point(0x242, 413),   // 578, 413  - Bar 7
+    new Point(0x270, 464),   // 624, 464  - Bar 8
+    new Point(0x2ae, 515),   // 686, 515  - Bar 9
+    new Point(0x314, 566),   // 788, 566  - Bar 10
+    new Point(0x3e4, 617),   // 996, 617  - Bar 11
+    new Point(0x500, 668)    // 1280, 668 - Bar 12 (bottom)
+};
+```
+
+**Key Points**:
+- **13 bars total** (indices 0-12)
+- **Bar 5 (index 5)** is the **selected/center position** at coordinates (464, 270)
+- Creates a **curved layout** where bars curve outward from center
+- Bars above center curve to the right (increasing X)
+- Bars below center curve further right (increasing X)
+- Selected bar is positioned leftmost for visual emphasis
+
+#### Component Initialization and Coordination
+**Source**: `CStageSongSelection.cs:114-127`
+
+```csharp
+base.listChildActivities.Add( this.actSongList = new CActSelectSongList() );
+base.listChildActivities.Add( this.actStatusPanel = new CActSelectStatusPanel() );
+base.listChildActivities.Add( this.actPerHistoryPanel = new CActSelectPerfHistoryPanel() );
+base.listChildActivities.Add( this.actPreimagePanel = new CActSelectPreimagePanel() );
+base.listChildActivities.Add( this.actPresound = new CActSelectPresound() );
+base.listChildActivities.Add( this.actArtistComment = new CActSelectArtistComment() );
+base.listChildActivities.Add( this.actInformation = new CActSelectInformation() );
+base.listChildActivities.Add( this.actSortSongs = new CActSortSongs() );
+base.listChildActivities.Add( this.actShowCurrentPosition = new CActSelectShowCurrentPosition() );
+base.listChildActivities.Add( this.actBackgroundVideoAVI = new CActSelectBackgroundAVI() );
+base.listChildActivities.Add( this.actQuickConfig = new CActSelectQuickConfig() );
+```
+
+#### Panel Positioning and Background Graphics
+**Source**: `CStageSongSelection.cs:276-281, 394-399`
+
+```csharp
+// Graphics loading
+this.txBackground = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_background.jpg" ), false );
+this.txTopPanel = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_header panel.png" ), false );
+this.txBottomPanel = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_footer panel.png" ), false );
+
+// Drawing positions
+if( this.txTopPanel != null )
+    this.txTopPanel.tDraw2D( CDTXMania.app.Device, 0, y );  // y varies with animation
+    
+if( this.txBottomPanel != null )
+    this.txBottomPanel.tDraw2D( CDTXMania.app.Device, 0, 720 - this.txBottomPanel.szImageSize.Height );
+```
+
+#### Selected Song Bar Positioning Logic
+**Source**: `CActSelectSongList.cs:1091-1095, 1178-1181`
+
+```csharp
+int i選曲バーX座標 = 673;         // Regular song bar X coordinate  
+int i選択曲バーX座標 = 665;       // Selected song bar X coordinate (special highlighting)
+int y選曲 = 269;                  // Selected song Y position
+
+// Drawing the selected song bar with special offset
+this.tDrawBar(i選択曲バーX座標, y選曲 - 30, this.stBarInformation[nパネル番号].eBarType, true);
+```
+
+#### Graphics Resource Files and Bar Types
+**Source**: `CActSelectSongList.cs:557-565`
+
+```csharp
+// Different bar types for different content
+this.txSongNameBar.Score = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar score.png" ), false );
+this.txSongNameBar.Box = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar box.png" ), false );
+this.txSongNameBar.Other = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar other.png" ), false );
+this.txSongSelectionBar.Score = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar score selected.png" ), false );
+this.txSongSelectionBar.Box = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar box selected.png" ), false );
+this.txSongSelectionBar.Other = CDTXMania.tGenerateTexture( CSkin.Path( @"Graphics\5_bar other selected.png" ), false );
+```
+
+#### Bar Information Structure
+**Source**: `CActSelectSongList.cs:1261-1272`
+
+```csharp
+private struct STBarInformation
+{
+    public CActSelectSongList.EBarType eBarType;      // Score, Box, or Other
+    public string strTitleString;                     // Song title text
+    public CTexture txTitleName;                      // Generated title texture
+    public STDGBVALUE<int> nSkillValue;              // Skill/difficulty values
+    public Color colLetter;                          // Text color
+    public CTexture txPreviewImage;                  // Preview image texture
+    public CTexture txClearLamp;                     // Clear status lamp
+    public string strPreviewImageFullPath;           // Preview image path
+    public STDGBVALUE<int[]> nClearLamps;           // Clear lamp data per instrument
+}
+```
+
 ### Screen Layout Overview
-The DTXManiaNX song selection screen follows this layout structure:
+
+Based on the actual DTXManiaNX implementation:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Title Bar & Breadcrumb Navigation                                          │
-├─────────────────────────────────────┬───────────────────────────────────────┤
-│                                     │                                       │
-│ Song List (Left Panel)              │ Status Panel (Right Panel)           │
-│ ┌─────────────────────────────────┐ │ ┌───────────────────────────────────┐ │
-│ │ [BOX] Folder Name               │ │ │ ♪ SONG                            │ │
-│ │ Song Title 1 - Artist 1         │ │ │ Song Title                        │ │
-│ │ Song Title 2 - Artist 2         │ │ │                                   │ │
-│ │ Song Title 3 - Artist 3         │ │ │ Artist: Artist Name               │ │
-│ │ Song Title 4 - Artist 4         │ │ │ Genre: Rock                       │ │
-│ │ Song Title 5 - Artist 5         │ │ │ BPM: 120                          │ │
-│ │ ► Song Title 6 - Artist 6 ◄     │ │ │ Duration: 3:45                    │ │
-│ │ Song Title 7 - Artist 7         │ │ │                                   │ │
-│ │ Song Title 8 - Artist 8         │ │ │ Difficulties:                     │ │
-│ │ Song Title 9 - Artist 9         │ │ │ ► DRUMS: Level 85 (1,234 notes)  │ │
-│ │ Song Title 10 - Artist 10       │ │ │   GUITAR: Level 78 (987 notes)   │ │
-│ │ Song Title 11 - Artist 11       │ │ │   BASS: Level 65 (654 notes)     │ │
-│ │ Song Title 12 - Artist 12       │ │ │                                   │ │
-│ │ Song Title 13 - Artist 13       │ │ │ Performance:                      │ │
-│ │ └─────────────────────────────────┘ │ │ Best Score: 95,432                │ │
-│                                     │ │ Best Rank: A                      │ │
-│                                     │ │ Full Combo: Yes                   │ │
-│                                     │ │ Play Count: 15                    │ │
-│                                     │ └───────────────────────────────────┘ │
-├─────────────────────────────────────┴───────────────────────────────────────┤
-│ Preview Image/Video Area & Artist Comments                                  │
+│ Header Panel (5_header panel.png)                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Background (5_background.jpg)                                              │
+│                                                                             │
+│                    Song Bar 0 (708, 5)                                     │
+│                Song Bar 1 (626, 56)                                        │
+│              Song Bar 2 (578, 107)                                         │
+│            Song Bar 3 (546, 158)                                           │
+│           Song Bar 4 (528, 209)                                            │
+│       ► Song Bar 5 (464, 270) ◄ [SELECTED/CENTER]                         │
+│            Song Bar 6 (548, 362)                                           │
+│              Song Bar 7 (578, 413)                                         │
+│                Song Bar 8 (624, 464)                                       │
+│                  Song Bar 9 (686, 515)                                     │
+│                    Song Bar 10 (788, 566)                                  │
+│                         Song Bar 11 (996, 617)                             │
+│                                Song Bar 12 (1280, 668)                     │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Footer Panel (5_footer panel.png)                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Layout Principles
+### Key Implementation Requirements
 
-1. **Song List (Left Panel)**:
-   - 13 visible items with center selection (item 6)
-   - Smooth scrolling with acceleration
-   - Shows song titles, artists, and folder navigation
-   - Up/Down arrows navigate through songs
-   - Enter activates selection (play song or enter folder)
+1. **Curved Layout System**:
+   - Must use exact `ptバーの基本座標` coordinates for authentic feel
+   - Bar 5 (index 5) is always the selected song at (464, 270)
+   - Songs scroll through these fixed positions
+   - Different X coordinates create the curved visual effect
 
-2. **Status Panel (Right Panel)**:
-   - Shows detailed information for currently selected song
-   - Displays ALL available difficulties simultaneously
-   - Current difficulty highlighted with ► indicator
-   - Left/Right arrows cycle through difficulties
-   - Shows performance statistics and metadata
+2. **Song Bar Types**:
+   - **Score bars**: Regular songs with different graphics for normal/selected
+   - **Box bars**: Folders with different graphics for normal/selected  
+   - **Other bars**: Special items (random, back navigation)
 
-3. **Difficulty Selection**:
-   - **NOT a separate navigation mode**
-   - Difficulties shown in status panel at all times
-   - Left/Right arrows change current difficulty
-   - Current difficulty highlighted in status panel
-   - Song list remains visible and navigable
+3. **Component Coordination**:
+   - Main stage (`CStageSongSelection`) coordinates all components
+   - Song list (`CActSelectSongList`) handles curved layout and scrolling
+   - Status panel, preview panel, sound preview work in concert
+   - All components notified via `tSelectedSongChanged()` when selection changes
+
+4. **Graphics Resources**:
+   - Background: `Graphics\5_background.jpg`
+   - Header panel: `Graphics\5_header panel.png`
+   - Footer panel: `Graphics\5_footer panel.png`
+   - Song bars: `Graphics\5_bar score.png`, `Graphics\5_bar box.png`, etc.
+   - Selected bars: `Graphics\5_bar score selected.png`, etc.
+
+5. **Animation System**:
+   - Smooth scrolling with target-based animation
+   - Acceleration based on distance to target
+   - Song bars regenerated during scroll animation
+   - Preview content updates with delays
 
 ### Navigation Flow
 
-1. **Song Navigation**: Up/Down arrows move through song list
+1. **Song Navigation**: Up/Down arrows move songs through curved positions
 2. **Difficulty Selection**: Left/Right arrows cycle through available difficulties
 3. **Folder Navigation**: Enter key enters folders, Escape/Back exits
 4. **Song Selection**: Enter key on a song starts gameplay
 
-This layout ensures that users can see both the song list and all available difficulties simultaneously, providing a comprehensive view of available content without requiring separate navigation modes.
+This curved layout system is the **defining visual characteristic** of DTXMania's song selection interface and must be implemented exactly to achieve authentic DTXMania behavior.

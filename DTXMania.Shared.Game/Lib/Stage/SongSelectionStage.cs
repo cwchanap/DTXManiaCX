@@ -229,6 +229,9 @@ namespace DTX.Stage
                 WhitePixel = _whitePixel
             };
 
+            // Initialize graphics generator for status panel
+            _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice);
+
             // Wire up events
             _songListDisplay.SelectionChanged += OnSongSelectionChanged;
             _songListDisplay.SongActivated += OnSongActivated;
@@ -264,12 +267,7 @@ namespace DTX.Stage
 
                 // Initialize display with song list
                 _currentSongList = _songManager.RootSongs.ToList();
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Root songs count: {_currentSongList.Count}");
-
                 PopulateSongList();
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: PopulateSongList called, display list count: {_songListDisplay.CurrentList?.Count ?? 0}");
-
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_songManager.DatabaseScoreCount} songs");
             }
             catch (Exception ex)
             {
@@ -286,11 +284,8 @@ namespace DTX.Stage
         {
             var displayList = new List<SongListNode>();
 
-            System.Diagnostics.Debug.WriteLine($"PopulateSongList: _currentSongList count: {_currentSongList?.Count ?? 0}");
-
             if (_currentSongList == null || _currentSongList.Count == 0)
             {
-                System.Diagnostics.Debug.WriteLine("PopulateSongList: No songs to display, setting empty list");
                 _songListDisplay.CurrentList = displayList;
                 return;
             }
@@ -299,16 +294,13 @@ namespace DTX.Stage
             if (_navigationStack.Count > 0)
             {
                 displayList.Add(new SongListNode { Type = NodeType.BackBox, Title = ".." });
-                System.Diagnostics.Debug.WriteLine("PopulateSongList: Added back navigation");
             }
 
             // Add all songs and folders
             displayList.AddRange(_currentSongList);
-            System.Diagnostics.Debug.WriteLine($"PopulateSongList: Added {_currentSongList.Count} items to display list");
 
             // Update the song list display
             _songListDisplay.CurrentList = displayList;
-            System.Diagnostics.Debug.WriteLine($"PopulateSongList: Set display list with {displayList.Count} items");
         }
 
         private string GetDisplayText(SongListNode node)
@@ -363,7 +355,7 @@ namespace DTX.Stage
 
         private void OnEnumerationProgress(EnumerationProgress progress)
         {
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Enumerating: {progress.CurrentFile} ({progress.ProcessedCount} processed)");
+            // Progress tracking for song enumeration
         }
 
         private void UpdateSelectedSong()
@@ -412,7 +404,6 @@ namespace DTX.Stage
                     : $"{_currentBreadcrumb} > {boxNode.DisplayTitle}";
 
                 PopulateSongList();
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Navigated into box: {boxNode.DisplayTitle}");
             }
         }
 
@@ -425,17 +416,13 @@ namespace DTX.Stage
                 _currentBreadcrumb = previousState.Title ?? "";
 
                 PopulateSongList();
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Navigated back");
             }
         }
 
         private void SelectSong(SongListNode songNode)
         {
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Selected song: {songNode.DisplayTitle}");
-
             // TODO: Transition to performance stage with selected song
             // For now, just show selection in debug output
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Song selected for play: {songNode.DisplayTitle}");
         }
 
         private void SelectRandomSong()
@@ -612,7 +599,7 @@ namespace DTX.Stage
                             // Update status panel
                             _statusPanel.UpdateSongInfo(_selectedSong, _currentDifficulty);
 
-                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Changed difficulty to {_currentDifficulty}");
+                            // Difficulty changed
                         }
                     }
                 }
@@ -623,9 +610,24 @@ namespace DTX.Stage
         {
             var viewport = _game.GraphicsDevice.Viewport;
 
-            // Draw gradient background
-            _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, viewport.Width, viewport.Height),
-                Color.DarkBlue * 0.3f);
+            // Draw DTXManiaNX-style gradient background
+            DrawGradientBackground(viewport);
+        }
+
+        private void DrawGradientBackground(Viewport viewport)
+        {
+            var topColor = DTXManiaVisualTheme.SongSelection.BackgroundGradientTop;
+            var bottomColor = DTXManiaVisualTheme.SongSelection.BackgroundGradientBottom;
+
+            // Simple vertical gradient using multiple horizontal lines
+            int height = viewport.Height;
+            for (int y = 0; y < height; y += 4) // Draw every 4th line for performance
+            {
+                float ratio = (float)y / height;
+                var color = Color.Lerp(topColor, bottomColor, ratio);
+                var lineRect = new Rectangle(0, y, viewport.Width, 4);
+                _spriteBatch.Draw(_whitePixel, lineRect, color);
+            }
         }
 
         private void DrawSongInfo()

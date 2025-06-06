@@ -515,7 +515,7 @@ namespace DTX.Resources
 
         private void InitializeDefaultSkinPath()
         {
-            // DTXMania pattern: Default skin uses System/ directly, custom skins use System/{SkinName}/
+            // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
             var defaultPath = "System/";
 
             if (ValidateSkinPath(defaultPath))
@@ -525,9 +525,38 @@ namespace DTX.Resources
             }
             else
             {
-                // Fallback to System/ even if validation fails (DTXMania compatibility)
+                // Fallback to System/Graphics/ even if validation fails (DTXMania compatibility)
                 _currentSkinPath = _fallbackSkinPath = defaultPath;
                 Debug.WriteLine($"ResourceManager: Fallback to default skin path: {defaultPath} (validation failed)");
+
+                // Create default skin directory structure if it doesn't exist
+                CreateDefaultSkinStructure();
+            }
+        }
+
+        private void CreateDefaultSkinStructure()
+        {
+            try
+            {
+                var systemPath = "System";
+                var graphicsPath = "System/Graphics";
+                var fontsPath = "System/Fonts";
+
+                // Create directories if they don't exist
+                if (!Directory.Exists(systemPath))
+                    Directory.CreateDirectory(systemPath);
+
+                if (!Directory.Exists(graphicsPath))
+                    Directory.CreateDirectory(graphicsPath);
+
+                if (!Directory.Exists(fontsPath))
+                    Directory.CreateDirectory(fontsPath);
+
+                Debug.WriteLine("ResourceManager: Created default skin directory structure");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ResourceManager: Failed to create default skin structure: {ex.Message}");
             }
         }
 

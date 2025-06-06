@@ -36,18 +36,10 @@ namespace DTX.UI.Components
         private SpriteFont _font;
         private Texture2D _whitePixel;
 
-        // Colors for different node types
-        private Color _backgroundColor = Color.Black * 0.7f;
-        private Color _selectedBackgroundColor = Color.Blue * 0.8f;
-        private Color _centerBackgroundColor = Color.Yellow * 0.3f;
-        private Color _textColor = Color.White;
-        private Color _selectedTextColor = Color.Yellow;
-
-        // Node type specific colors
-        private static readonly Color BoxColor = Color.Cyan;
-        private static readonly Color BackBoxColor = Color.Orange;
-        private static readonly Color RandomColor = Color.Magenta;
-        private static readonly Color ScoreColor = Color.White;
+        // Visual state
+        private Color _backgroundColor;
+        private Color _textColor;
+        private DefaultGraphicsGenerator _graphicsGenerator;
 
         #endregion
 
@@ -148,7 +140,8 @@ namespace DTX.UI.Components
 
         public SongBar()
         {
-            Size = new Vector2(600, BAR_HEIGHT);
+            Size = new Vector2(600, DTXManiaVisualTheme.Layout.SongBarHeight);
+            UpdateVisualState();
         }
 
         #endregion
@@ -170,22 +163,28 @@ namespace DTX.UI.Components
         /// </summary>
         public void UpdateVisualState()
         {
-            // Update colors based on state
-            if (_isSelected && _isCenter)
+            // Update colors using DTXManiaNX theme
+            var baseColor = DTXManiaVisualTheme.SongSelection.SongBarBackground;
+            _backgroundColor = DTXManiaVisualTheme.ApplySelectionHighlight(baseColor, _isSelected, _isCenter);
+
+            // Update text color based on selection and node type
+            if (_isSelected)
             {
-                _backgroundColor = _centerBackgroundColor;
-                _textColor = _selectedTextColor;
-            }
-            else if (_isSelected)
-            {
-                _backgroundColor = _selectedBackgroundColor;
-                _textColor = _selectedTextColor;
+                _textColor = DTXManiaVisualTheme.SongSelection.SongSelectedText;
             }
             else
             {
-                _backgroundColor = Color.Black * 0.7f;
-                _textColor = GetNodeTypeColor();
+                _textColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
             }
+        }
+
+        /// <summary>
+        /// Initialize graphics generator for fallback rendering
+        /// </summary>
+        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice)
+        {
+            _graphicsGenerator?.Dispose();
+            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
         }
 
         #endregion
@@ -223,11 +222,23 @@ namespace DTX.UI.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            // Try to use generated background texture first
+            if (_graphicsGenerator != null)
+            {
+                var backgroundTexture = _graphicsGenerator.GenerateSongBarBackground(bounds.Width, bounds.Height, _isSelected, _isCenter);
+                if (backgroundTexture != null)
+                {
+                    backgroundTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
+                    return;
+                }
+            }
+
+            // Fallback to simple rectangle rendering
             if (_whitePixel != null)
             {
                 spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
 
-                // Draw selection border
+                // Draw selection border with DTXManiaNX styling
                 if (_isSelected)
                 {
                     var borderColor = _isCenter ? Color.Yellow : Color.White;
@@ -243,12 +254,27 @@ namespace DTX.UI.Components
 
         private void DrawClearLamp(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            if (_clearLampTexture != null && _songNode.Type == NodeType.Score)
-            {
-                var lampPosition = new Vector2(bounds.X, bounds.Y);
-                var lampDestRect = new Rectangle(bounds.X, bounds.Y, CLEAR_LAMP_WIDTH, bounds.Height);
+            if (_songNode?.Type != NodeType.Score)
+                return;
 
+            // Use existing clear lamp texture if available
+            if (_clearLampTexture != null)
+            {
+                var lampDestRect = new Rectangle(bounds.X, bounds.Y, DTXManiaVisualTheme.Layout.ClearLampWidth, bounds.Height);
                 _clearLampTexture.Draw(spriteBatch, lampDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                return;
+            }
+
+            // Generate default clear lamp if graphics generator is available
+            if (_graphicsGenerator != null)
+            {
+                var hasCleared = _songNode.Scores?[_currentDifficulty]?.BestScore > 0;
+                var lampTexture = _graphicsGenerator.GenerateClearLamp(_currentDifficulty, hasCleared);
+                if (lampTexture != null)
+                {
+                    var lampDestRect = new Rectangle(bounds.X, bounds.Y, DTXManiaVisualTheme.Layout.ClearLampWidth, bounds.Height);
+                    lampTexture.Draw(spriteBatch, new Vector2(lampDestRect.X, lampDestRect.Y));
+                }
             }
         }
 
@@ -256,9 +282,9 @@ namespace DTX.UI.Components
         {
             if (_previewImageTexture != null)
             {
-                var imageX = bounds.X + CLEAR_LAMP_WIDTH + 5;
-                var imageY = bounds.Y + (bounds.Height - PREVIEW_IMAGE_SIZE) / 2;
-                var imageDestRect = new Rectangle(imageX, imageY, PREVIEW_IMAGE_SIZE, PREVIEW_IMAGE_SIZE);
+                var imageX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + 5;
+                var imageY = bounds.Y + (bounds.Height - DTXManiaVisualTheme.Layout.PreviewImageSize) / 2;
+                var imageDestRect = new Rectangle(imageX, imageY, DTXManiaVisualTheme.Layout.PreviewImageSize, DTXManiaVisualTheme.Layout.PreviewImageSize);
 
                 _previewImageTexture.Draw(spriteBatch, imageDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
@@ -268,7 +294,7 @@ namespace DTX.UI.Components
         {
             if (_titleTexture != null)
             {
-                var textX = bounds.X + CLEAR_LAMP_WIDTH + (_previewImageTexture != null ? PREVIEW_IMAGE_SIZE + 10 : 5);
+                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
                 var textY = bounds.Y + (bounds.Height - _titleTexture.Height) / 2;
                 var textPosition = new Vector2(textX, textY);
 
@@ -276,12 +302,18 @@ namespace DTX.UI.Components
             }
             else if (_font != null)
             {
-                // Fallback to direct text rendering
+                // Fallback to direct text rendering with DTXManiaNX-style shadow
                 var displayText = GetDisplayText();
-                var textX = bounds.X + CLEAR_LAMP_WIDTH + (_previewImageTexture != null ? PREVIEW_IMAGE_SIZE + 10 : 5);
+                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
                 var textY = bounds.Y + (bounds.Height - _font.LineSpacing) / 2;
+                var textPosition = new Vector2(textX, textY);
 
-                spriteBatch.DrawString(_font, displayText, new Vector2(textX, textY), _textColor);
+                // Draw shadow first
+                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset;
+                spriteBatch.DrawString(_font, displayText, shadowPosition, DTXManiaVisualTheme.FontEffects.SongTextShadowColor);
+
+                // Draw main text
+                spriteBatch.DrawString(_font, displayText, textPosition, _textColor);
             }
         }
 
@@ -290,24 +322,12 @@ namespace DTX.UI.Components
             if (_whitePixel == null)
                 return;
 
-            // Draw a small indicator on the right side for node type
+            // Draw a small indicator on the right side for node type using DTXManiaNX colors
             var indicatorWidth = 4;
             var indicatorBounds = new Rectangle(bounds.Right - indicatorWidth, bounds.Y, indicatorWidth, bounds.Height);
-            var indicatorColor = GetNodeTypeColor();
+            var indicatorColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
 
             spriteBatch.Draw(_whitePixel, indicatorBounds, indicatorColor);
-        }
-
-        private Color GetNodeTypeColor()
-        {
-            return _songNode?.Type switch
-            {
-                NodeType.Box => BoxColor,
-                NodeType.BackBox => BackBoxColor,
-                NodeType.Random => RandomColor,
-                NodeType.Score => ScoreColor,
-                _ => ScoreColor
-            };
         }
 
         private string GetDisplayText()
@@ -335,6 +355,16 @@ namespace DTX.UI.Components
         private void InvalidateClearLamp()
         {
             _clearLampTexture = null;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _graphicsGenerator?.Dispose();
+                _graphicsGenerator = null;
+            }
+            base.Dispose(disposing);
         }
 
         #endregion
