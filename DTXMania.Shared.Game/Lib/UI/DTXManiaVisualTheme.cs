@@ -28,6 +28,10 @@ namespace DTX.UI
             public static readonly Color SongBarCenter = new Color(120, 160, 255);
             public static readonly Color SongBarHover = new Color(60, 80, 140);
 
+            // Bar type specific backgrounds (Phase 2)
+            public static readonly Color FolderBackground = new Color(40, 60, 40);
+            public static readonly Color SpecialBackground = new Color(60, 40, 60);
+
             // Text colors
             public static readonly Color SongTitleText = Color.White;
             public static readonly Color SongArtistText = new Color(200, 200, 255);

@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Resources;
+using DTX.UI.Components;
 using System;
 using System.Collections.Generic;
 
@@ -69,11 +70,41 @@ namespace DTX.UI
         public ITexture GenerateClearLamp(int difficulty, bool hasCleared = false)
         {
             var cacheKey = $"ClearLamp_{difficulty}_{hasCleared}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
             var texture = CreateClearLampTexture(difficulty, hasCleared);
+            _generatedTextures[cacheKey] = texture;
+            return texture;
+        }
+
+        /// <summary>
+        /// Generate enhanced clear lamp texture with clear status (Phase 2)
+        /// </summary>
+        public ITexture GenerateEnhancedClearLamp(int difficulty, ClearStatus clearStatus)
+        {
+            var cacheKey = $"EnhancedClearLamp_{difficulty}_{clearStatus}";
+
+            if (_generatedTextures.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            var texture = CreateEnhancedClearLampTexture(difficulty, clearStatus);
+            _generatedTextures[cacheKey] = texture;
+            return texture;
+        }
+
+        /// <summary>
+        /// Generate bar type specific background (Phase 2)
+        /// </summary>
+        public ITexture GenerateBarTypeBackground(int width, int height, BarType barType, bool isSelected = false, bool isCenter = false)
+        {
+            var cacheKey = $"BarType_{width}x{height}_{barType}_{isSelected}_{isCenter}";
+
+            if (_generatedTextures.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            var texture = CreateBarTypeTexture(width, height, barType, isSelected, isCenter);
             _generatedTextures[cacheKey] = texture;
             return texture;
         }
@@ -253,6 +284,102 @@ namespace DTX.UI
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, thickness, bounds.Height), color);
             // Right
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - thickness, bounds.Y, thickness, bounds.Height), color);
+        }
+
+        private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
+        {
+            var renderTarget = new RenderTarget2D(_graphicsDevice, 8, 24);
+
+            _graphicsDevice.SetRenderTarget(renderTarget);
+            _graphicsDevice.Clear(Color.Transparent);
+
+            _spriteBatch.Begin();
+
+            // Get base color for difficulty
+            var difficultyColors = DTXManiaVisualTheme.SongSelection.DifficultyColors;
+            var baseColor = difficulty < difficultyColors.Length ? difficultyColors[difficulty] : Color.Gray;
+
+            // Modify color based on clear status
+            Color lampColor = clearStatus switch
+            {
+                ClearStatus.FullCombo => Color.Gold,
+                ClearStatus.Clear => baseColor,
+                ClearStatus.Failed => baseColor * 0.5f,
+                ClearStatus.NotPlayed => Color.Gray * 0.3f,
+                _ => Color.Gray * 0.3f
+            };
+
+            // Draw lamp with gradient effect
+            DrawGradientRectangle(_spriteBatch, new Rectangle(0, 0, 8, 24),
+                                Color.Lerp(lampColor, Color.White, 0.3f), lampColor);
+
+            // Add border for better definition
+            if (clearStatus != ClearStatus.NotPlayed)
+            {
+                DrawRectangleBorder(_spriteBatch, new Rectangle(0, 0, 8, 24), Color.White * 0.8f, 1);
+            }
+
+            _spriteBatch.End();
+            _graphicsDevice.SetRenderTarget(null);
+
+            return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}");
+        }
+
+        private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
+        {
+            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
+
+            _graphicsDevice.SetRenderTarget(renderTarget);
+            _graphicsDevice.Clear(Color.Transparent);
+
+            _spriteBatch.Begin();
+
+            // Get base color based on bar type
+            Color baseColor = barType switch
+            {
+                BarType.Score => DTXManiaVisualTheme.SongSelection.SongBarBackground,
+                BarType.Box => DTXManiaVisualTheme.SongSelection.FolderBackground,
+                BarType.Other => DTXManiaVisualTheme.SongSelection.SpecialBackground,
+                _ => DTXManiaVisualTheme.SongSelection.SongBarBackground
+            };
+
+            // Apply selection highlighting
+            if (isCenter)
+                baseColor = DTXManiaVisualTheme.SongSelection.SongBarCenter;
+            else if (isSelected)
+                baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
+
+            // Draw background with gradient effect
+            DrawGradientRectangle(_spriteBatch, new Rectangle(0, 0, width, height),
+                                baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
+
+            // Draw border for selected items
+            if (isSelected || isCenter)
+            {
+                var borderColor = isCenter ? Color.Yellow : Color.White;
+                var borderThickness = isCenter ? 2 : 1;
+                DrawRectangleBorder(_spriteBatch, new Rectangle(0, 0, width, height), borderColor, borderThickness);
+            }
+
+            // Add special effects for different bar types
+            if (barType == BarType.Box)
+            {
+                // Add folder icon indicator (simple rectangle on left side)
+                var iconRect = new Rectangle(2, height / 4, 4, height / 2);
+                _spriteBatch.Draw(_whitePixel, iconRect, Color.Cyan * 0.7f);
+            }
+            else if (barType == BarType.Other)
+            {
+                // Add special indicator (diamond pattern)
+                var centerY = height / 2;
+                var indicatorRect = new Rectangle(width - 8, centerY - 2, 4, 4);
+                _spriteBatch.Draw(_whitePixel, indicatorRect, Color.Magenta * 0.8f);
+            }
+
+            _spriteBatch.End();
+            _graphicsDevice.SetRenderTarget(null);
+
+            return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_BarType_{barType}_{width}x{height}");
         }
 
         #endregion

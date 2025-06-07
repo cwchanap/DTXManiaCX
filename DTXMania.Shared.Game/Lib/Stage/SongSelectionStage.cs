@@ -190,10 +190,11 @@ namespace DTX.Stage
             };
 
             // Create DTXManiaNX-style song list display
+            // Use full screen width to accommodate curved layout coordinates
             _songListDisplay = new SongListDisplay
             {
-                Position = new Vector2(50, 120),
-                Size = new Vector2(700, 400),
+                Position = new Vector2(0, 0),
+                Size = new Vector2(1280, 720), // Full screen for curved layout
                 Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont,
                 WhitePixel = _whitePixel
@@ -201,11 +202,12 @@ namespace DTX.Stage
 
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
 
-            // Initialize Phase 4 enhanced rendering
+            // Initialize Phase 2 enhanced rendering
             try
             {
                 _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager);
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Enhanced rendering initialized successfully");
+                _songListDisplay.SetEnhancedRendering(true); // Explicitly enable enhanced rendering
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Enhanced rendering initialized and enabled successfully");
 
                 // Ensure font is set on the renderer after initialization
                 if (uiFont?.SpriteFont != null)
@@ -220,9 +222,10 @@ namespace DTX.Stage
             }
 
             // Create DTXManiaNX-style status panel
+            // Position on the right side of the screen
             _statusPanel = new SongStatusPanel
             {
-                Position = new Vector2(770, 120),
+                Position = new Vector2(950, 120),
                 Size = new Vector2(300, 400),
                 Font = uiFont?.SpriteFont,
                 SmallFont = uiFont?.SpriteFont, // Use same font for now

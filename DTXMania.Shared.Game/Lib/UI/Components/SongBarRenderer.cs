@@ -105,7 +105,7 @@ namespace DTX.UI.Components
                 return null;
 
             var cacheKey = songNode.Metadata.PreviewImage;
-            
+
             if (_previewImageCache.TryGetValue(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
@@ -119,7 +119,57 @@ namespace DTX.UI.Components
         }
 
         /// <summary>
+        /// Generate complete bar information for a song node
+        /// Equivalent to DTXManiaNX t現在選択中の曲を元に曲バーを再構成する() method
+        /// </summary>
+        public SongBarInfo GenerateBarInfo(SongListNode songNode, int difficulty, bool isSelected = false)
+        {
+            if (songNode == null)
+                return null;
+
+            var barInfo = new SongBarInfo
+            {
+                SongNode = songNode,
+                BarType = GetBarType(songNode),
+                TitleString = GetDisplayText(songNode),
+                TextColor = GetNodeTypeColor(songNode),
+                DifficultyLevel = difficulty,
+                IsSelected = isSelected
+            };
+
+            // Generate textures
+            barInfo.TitleTexture = GenerateTitleTexture(songNode);
+            barInfo.PreviewImage = GeneratePreviewImageTexture(songNode);
+            barInfo.ClearLamp = GenerateClearLampTexture(songNode, difficulty);
+
+            return barInfo;
+        }
+
+        /// <summary>
+        /// Update bar information when state changes (selection, difficulty)
+        /// </summary>
+        public void UpdateBarInfo(SongBarInfo barInfo, int newDifficulty, bool isSelected)
+        {
+            if (barInfo == null)
+                return;
+
+            var stateChanged = barInfo.DifficultyLevel != newDifficulty || barInfo.IsSelected != isSelected;
+
+            barInfo.DifficultyLevel = newDifficulty;
+            barInfo.IsSelected = isSelected;
+            barInfo.TextColor = isSelected ? Color.Yellow : GetNodeTypeColor(barInfo.SongNode);
+
+            // Regenerate clear lamp if difficulty changed
+            if (stateChanged && barInfo.SongNode?.Type == NodeType.Score)
+            {
+                barInfo.ClearLamp?.Dispose();
+                barInfo.ClearLamp = GenerateClearLampTexture(barInfo.SongNode, newDifficulty);
+            }
+        }
+
+        /// <summary>
         /// Generate or retrieve cached clear lamp texture
+        /// Uses Phase 2 enhanced clear lamp generation
         /// </summary>
         public ITexture GenerateClearLampTexture(SongListNode songNode, int difficulty)
         {
@@ -127,11 +177,15 @@ namespace DTX.UI.Components
                 return null;
 
             var cacheKey = GetClearLampCacheKey(songNode, difficulty);
-            
+
             if (_clearLampCache.TryGetValue(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            var texture = CreateClearLampTexture(songNode, difficulty);
+            // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
+            var clearStatus = GetClearStatus(songNode, difficulty);
+            var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice);
+            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
+
             if (texture != null)
             {
                 _clearLampCache[cacheKey] = texture;
@@ -357,7 +411,7 @@ namespace DTX.UI.Components
         private Color GetClearLampColor(ClearStatus clearStatus, int difficulty)
         {
             var baseColor = difficulty < DifficultyColors.Length ? DifficultyColors[difficulty] : Color.Gray;
-            
+
             return clearStatus switch
             {
                 ClearStatus.FullCombo => Color.Gold,
@@ -365,6 +419,18 @@ namespace DTX.UI.Components
                 ClearStatus.Failed => baseColor * 0.5f,
                 ClearStatus.NotPlayed => Color.Gray * 0.3f,
                 _ => Color.Gray * 0.3f
+            };
+        }
+
+        private BarType GetBarType(SongListNode songNode)
+        {
+            return songNode.Type switch
+            {
+                NodeType.Score => BarType.Score,
+                NodeType.Box => BarType.Box,
+                NodeType.BackBox => BarType.Other,
+                NodeType.Random => BarType.Other,
+                _ => BarType.Other
             };
         }
 
@@ -399,5 +465,40 @@ namespace DTX.UI.Components
         Failed,
         Clear,
         FullCombo
+    }
+
+    /// <summary>
+    /// Bar type for different content types
+    /// Equivalent to DTXManiaNX EBarType
+    /// </summary>
+    public enum BarType
+    {
+        Score,      // Regular songs
+        Box,        // Folders/directories
+        Other       // Random, back navigation, etc.
+    }
+
+    /// <summary>
+    /// Complete bar information structure
+    /// Equivalent to DTXManiaNX STBarInformation
+    /// </summary>
+    public class SongBarInfo : IDisposable
+    {
+        public SongListNode SongNode { get; set; }
+        public BarType BarType { get; set; }
+        public string TitleString { get; set; }
+        public ITexture TitleTexture { get; set; }
+        public Color TextColor { get; set; }
+        public ITexture PreviewImage { get; set; }
+        public ITexture ClearLamp { get; set; }
+        public int DifficultyLevel { get; set; }
+        public bool IsSelected { get; set; }
+
+        public void Dispose()
+        {
+            TitleTexture?.Dispose();
+            PreviewImage?.Dispose();
+            ClearLamp?.Dispose();
+        }
     }
 }

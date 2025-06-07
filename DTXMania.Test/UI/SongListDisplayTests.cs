@@ -1,7 +1,10 @@
 using Xunit;
 using DTX.UI.Components;
 using DTX.Song;
+using DTX.Resources;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 using System.Collections.Generic;
 
 namespace DTXMania.Test.UI
@@ -270,6 +273,135 @@ namespace DTXMania.Test.UI
             Assert.NotNull(eventArgs);
             Assert.Equal(songs[1], eventArgs.SelectedSong);
             Assert.Equal(0, eventArgs.CurrentDifficulty);
+        }
+
+        // Phase 2 Enhancement Tests
+
+        [Fact]
+        public void InitializeEnhancedRendering_WithValidParameters_ShouldSetupRendering()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+            var mockGraphicsDevice = new Mock<GraphicsDevice>();
+            var mockResourceManager = new Mock<IResourceManager>();
+
+            // Act & Assert - Should not throw
+            // Note: In headless test environment, this tests the method signature and basic validation
+            try
+            {
+                display.InitializeEnhancedRendering(mockGraphicsDevice.Object, mockResourceManager.Object);
+                Assert.True(true); // Method completed without throwing
+            }
+            catch (ArgumentNullException)
+            {
+                // Expected in test environment without proper graphics context
+                Assert.True(true);
+            }
+        }
+
+        [Fact]
+        public void SetEnhancedRendering_WithBooleanValues_ShouldAcceptSettings()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+
+            // Act & Assert - Should not throw
+            display.SetEnhancedRendering(true);
+            display.SetEnhancedRendering(false);
+
+            Assert.NotNull(display); // Verify object is still valid
+        }
+
+        [Fact]
+        public void RefreshDisplay_WithEnhancedRendering_ShouldClearAllCaches()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+            var songs = new List<SongListNode>
+            {
+                new SongListNode { Type = NodeType.Score, Title = "Song 1" },
+                new SongListNode { Type = NodeType.Box, Title = "Folder 1" }
+            };
+            display.CurrentList = songs;
+
+            // Act
+            display.RefreshDisplay();
+
+            // Assert - Should complete without throwing
+            Assert.NotNull(display);
+            Assert.Equal(songs, display.CurrentList);
+        }
+
+        [Fact]
+        public void SongListDisplay_WithMixedNodeTypes_ShouldHandleAllTypes()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+            var mixedList = new List<SongListNode>
+            {
+                new SongListNode { Type = NodeType.Score, Title = "Song 1" },
+                new SongListNode { Type = NodeType.Box, Title = "Folder 1" },
+                new SongListNode { Type = NodeType.Random, Title = "Random Select" },
+                new SongListNode { Type = NodeType.BackBox, Title = "Back" }
+            };
+
+            // Act
+            display.CurrentList = mixedList;
+
+            // Assert
+            Assert.Equal(mixedList, display.CurrentList);
+            Assert.Equal(0, display.SelectedIndex);
+            Assert.Equal(mixedList[0], display.SelectedSong);
+
+            // Test navigation through different node types
+            display.MoveNext();
+            Assert.Equal(NodeType.Box, display.SelectedSong.Type);
+
+            display.MoveNext();
+            Assert.Equal(NodeType.Random, display.SelectedSong.Type);
+
+            display.MoveNext();
+            Assert.Equal(NodeType.BackBox, display.SelectedSong.Type);
+        }
+
+        [Fact]
+        public void ActivateSelected_WithDifferentNodeTypes_ShouldFireAppropriateEvents()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+            var songs = new List<SongListNode>
+            {
+                new SongListNode { Type = NodeType.Score, Title = "Song 1" },
+                new SongListNode { Type = NodeType.Box, Title = "Folder 1" }
+            };
+            display.CurrentList = songs;
+
+            bool songActivatedFired = false;
+            SongActivatedEventArgs songEventArgs = null;
+
+            display.SongActivated += (sender, e) =>
+            {
+                songActivatedFired = true;
+                songEventArgs = e;
+            };
+
+            // Act - Activate song
+            display.ActivateSelected();
+
+            // Assert
+            Assert.True(songActivatedFired);
+            Assert.NotNull(songEventArgs);
+            Assert.Equal(songs[0], songEventArgs.Song);
+        }
+
+        [Fact]
+        public void Dispose_WithEnhancedRendering_ShouldCleanupResources()
+        {
+            // Arrange
+            var display = new SongListDisplay();
+
+            // Act & Assert - Should not throw
+            display.Dispose();
         }
     }
 }

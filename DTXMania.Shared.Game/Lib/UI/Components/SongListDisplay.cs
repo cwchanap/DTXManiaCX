@@ -72,6 +72,9 @@ namespace DTX.UI.Components
         private bool _useEnhancedRendering = true;
         private DefaultGraphicsGenerator _graphicsGenerator;
 
+        // Phase 2 enhancements: Bar information caching
+        private readonly Dictionary<string, SongBarInfo> _barInfoCache;
+
         #endregion
 
         #region Properties
@@ -202,6 +205,9 @@ namespace DTX.UI.Components
             // Initialize Phase 4 enhanced components
             _songBarCache = new Dictionary<int, SongBar>();
 
+            // Initialize Phase 2 enhanced bar information caching
+            _barInfoCache = new Dictionary<string, SongBarInfo>();
+
             Size = new Vector2(700, VISIBLE_ITEMS * _itemHeight);
         }
 
@@ -283,6 +289,41 @@ namespace DTX.UI.Components
             _previewImageCache.Clear();
             _songBarCache.Clear();
             _barRenderer?.ClearCache();
+
+            // Phase 2: Clear bar information cache
+            foreach (var barInfo in _barInfoCache.Values)
+            {
+                barInfo?.Dispose();
+            }
+            _barInfoCache.Clear();
+        }
+
+        /// <summary>
+        /// Get or create bar information for a song node (Phase 2 enhancement)
+        /// Equivalent to DTXManiaNX bar reconstruction system
+        /// </summary>
+        private SongBarInfo GetOrCreateBarInfo(SongListNode node, int difficulty, bool isSelected)
+        {
+            if (node == null || _barRenderer == null)
+                return null;
+
+            var cacheKey = $"{node.GetHashCode()}_{difficulty}_{isSelected}";
+
+            if (_barInfoCache.TryGetValue(cacheKey, out var cachedInfo))
+            {
+                // Update state if needed
+                _barRenderer.UpdateBarInfo(cachedInfo, difficulty, isSelected);
+                return cachedInfo;
+            }
+
+            // Generate new bar information
+            var barInfo = _barRenderer.GenerateBarInfo(node, difficulty, isSelected);
+            if (barInfo != null)
+            {
+                _barInfoCache[cacheKey] = barInfo;
+            }
+
+            return barInfo;
         }
 
         /// <summary>
@@ -467,6 +508,23 @@ namespace DTX.UI.Components
 
         private void DrawEnhancedSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
         {
+            // Phase 2 Enhancement: Use bar information caching system
+            var barInfo = GetOrCreateBarInfo(node, _currentDifficulty, isSelected);
+
+            if (barInfo != null)
+            {
+                // Draw using cached bar information
+                DrawBarInfo(spriteBatch, barInfo, itemBounds, isSelected, isCenter);
+            }
+            else
+            {
+                // Fallback to original method if bar info generation fails
+                DrawEnhancedSongItemFallback(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
+            }
+        }
+
+        private void DrawEnhancedSongItemFallback(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
+        {
             // Get or create song bar for this item
             var songBar = GetOrCreateSongBar(node, itemBounds, isSelected);
 
@@ -486,6 +544,61 @@ namespace DTX.UI.Components
 
             // Draw the song bar
             songBar.Draw(spriteBatch, 0);
+        }
+
+        /// <summary>
+        /// Draw song bar using cached bar information (Phase 2 enhancement)
+        /// </summary>
+        private void DrawBarInfo(SpriteBatch spriteBatch, SongBarInfo barInfo, Rectangle itemBounds, bool isSelected, bool isCenter)
+        {
+            // Draw background using Phase 2 bar type specific graphics generator
+            if (_graphicsGenerator != null)
+            {
+                var backgroundTexture = _graphicsGenerator.GenerateBarTypeBackground(itemBounds.Width, itemBounds.Height, barInfo.BarType, isSelected, isCenter);
+                if (backgroundTexture != null)
+                {
+                    backgroundTexture.Draw(spriteBatch, new Vector2(itemBounds.X, itemBounds.Y));
+                }
+            }
+
+            // Draw clear lamp
+            if (barInfo.ClearLamp != null)
+            {
+                var lampDestRect = new Rectangle(itemBounds.X, itemBounds.Y, DTXManiaVisualTheme.Layout.ClearLampWidth, itemBounds.Height);
+                barInfo.ClearLamp.Draw(spriteBatch, lampDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+
+            // Draw preview image
+            if (barInfo.PreviewImage != null)
+            {
+                var imageX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + 5;
+                var imageY = itemBounds.Y + (itemBounds.Height - DTXManiaVisualTheme.Layout.PreviewImageSize) / 2;
+                var imageDestRect = new Rectangle(imageX, imageY, DTXManiaVisualTheme.Layout.PreviewImageSize, DTXManiaVisualTheme.Layout.PreviewImageSize);
+                barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+
+            // Draw title
+            if (barInfo.TitleTexture != null)
+            {
+                var textX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (barInfo.PreviewImage != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
+                var textY = itemBounds.Y + (itemBounds.Height - barInfo.TitleTexture.Height) / 2;
+                var textPosition = new Vector2(textX, textY);
+                barInfo.TitleTexture.Draw(spriteBatch, textPosition);
+            }
+            else if (_font != null)
+            {
+                // Fallback to direct text rendering
+                var textX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (barInfo.PreviewImage != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
+                var textY = itemBounds.Y + (itemBounds.Height - _font.LineSpacing) / 2;
+                var textPosition = new Vector2(textX, textY);
+
+                // Draw shadow first
+                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset;
+                spriteBatch.DrawString(_font, barInfo.TitleString, shadowPosition, DTXManiaVisualTheme.FontEffects.SongTextShadowColor);
+
+                // Draw main text
+                spriteBatch.DrawString(_font, barInfo.TitleString, textPosition, barInfo.TextColor);
+            }
         }
 
         private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
@@ -612,6 +725,13 @@ namespace DTX.UI.Components
                     songBar?.Dispose();
                 }
                 _songBarCache.Clear();
+
+                // Phase 2: Dispose bar information cache
+                foreach (var barInfo in _barInfoCache.Values)
+                {
+                    barInfo?.Dispose();
+                }
+                _barInfoCache.Clear();
             }
 
             base.Dispose(disposing);

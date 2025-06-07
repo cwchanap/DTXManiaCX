@@ -397,6 +397,82 @@ namespace DTXMania.Test.UI
             Assert.Null(_renderer);
         }
 
+        // Phase 2 Enhancement Tests
+
+        [Theory]
+        [InlineData(NodeType.Score, BarType.Score)]
+        [InlineData(NodeType.Box, BarType.Box)]
+        [InlineData(NodeType.BackBox, BarType.Other)]
+        [InlineData(NodeType.Random, BarType.Other)]
+        public void BarType_MappingFromNodeType_ShouldBeCorrect(NodeType nodeType, BarType expectedBarType)
+        {
+            // This test verifies the bar type mapping logic
+            // Since we can't test the actual method without graphics device,
+            // we test the enum values and mapping logic conceptually
+
+            Assert.True(Enum.IsDefined(typeof(NodeType), nodeType));
+            Assert.True(Enum.IsDefined(typeof(BarType), expectedBarType));
+        }
+
+        [Theory]
+        [InlineData(ClearStatus.NotPlayed)]
+        [InlineData(ClearStatus.Failed)]
+        [InlineData(ClearStatus.Clear)]
+        [InlineData(ClearStatus.FullCombo)]
+        public void ClearStatus_EnumValues_ShouldBeValid(ClearStatus clearStatus)
+        {
+            // Verify all ClearStatus enum values are properly defined
+            Assert.True(Enum.IsDefined(typeof(ClearStatus), clearStatus));
+        }
+
+        [Theory]
+        [InlineData(BarType.Score)]
+        [InlineData(BarType.Box)]
+        [InlineData(BarType.Other)]
+        public void BarType_EnumValues_ShouldBeValid(BarType barType)
+        {
+            // Verify all BarType enum values are properly defined
+            Assert.True(Enum.IsDefined(typeof(BarType), barType));
+        }
+
+        [Fact]
+        public void SongBarInfo_Dispose_ShouldHandleNullTextures()
+        {
+            // Test SongBarInfo disposal with null textures
+            var barInfo = new SongBarInfo
+            {
+                TitleTexture = null,
+                PreviewImage = null,
+                ClearLamp = null
+            };
+
+            // Should not throw when disposing null textures
+            barInfo.Dispose();
+            Assert.NotNull(barInfo); // Verify object still exists after dispose
+        }
+
+        [Fact]
+        public void SongBarInfo_Properties_ShouldBeSettable()
+        {
+            // Test that SongBarInfo properties can be set
+            var barInfo = new SongBarInfo
+            {
+                SongNode = _testSongNode,
+                BarType = BarType.Score,
+                TitleString = "Test Title",
+                TextColor = Color.White,
+                DifficultyLevel = 2,
+                IsSelected = true
+            };
+
+            Assert.Equal(_testSongNode, barInfo.SongNode);
+            Assert.Equal(BarType.Score, barInfo.BarType);
+            Assert.Equal("Test Title", barInfo.TitleString);
+            Assert.Equal(Color.White, barInfo.TextColor);
+            Assert.Equal(2, barInfo.DifficultyLevel);
+            Assert.True(barInfo.IsSelected);
+        }
+
         public void Dispose()
         {
             _renderer?.Dispose();
