@@ -166,7 +166,7 @@ public class SongSelectionStage : BaseStage
 1. **✅ Enhanced Song Bar Rendering**
    - ✅ Generate title textures with proper fonts
    - ✅ Load and scale preview images
-   - ✅ Create clear lamp indicators with difficulty-specific colors
+   - ✅ Create clear lamp indicaorts with difficulty-specific colors
    - ✅ Support multiple bar types (Score, Box, Other)
 
 2. **✅ Bar Information Management**

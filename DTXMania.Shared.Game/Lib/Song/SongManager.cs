@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Text.Json;
 
+#nullable enable
+
 namespace DTX.Song
 {
     /// <summary>
@@ -117,7 +119,7 @@ namespace DTX.Song
             {
                 if (!File.Exists(databasePath))
                 {
-                    Debug.WriteLine($"SongManager: Database file not found: {databasePath}");
+                // Database file check - no logging for normal operation
                     return false;
                 }
 
@@ -135,7 +137,7 @@ namespace DTX.Song
                         _rootSongs.AddRange(data.RootNodes);
                     }
 
-                    Debug.WriteLine($"SongManager: Loaded {_songsDatabase.Count} scores from database");
+                    // Debug.WriteLine($"SongManager: Loaded {_songsDatabase.Count} scores from database");
                     return true;
                 }
             }
@@ -171,7 +173,7 @@ namespace DTX.Song
                 var json = JsonSerializer.Serialize(data, options);
                 await File.WriteAllTextAsync(databasePath, json);
 
-                Debug.WriteLine($"SongManager: Saved {data.Scores.Count} scores to database");
+                // Debug.WriteLine($"SongManager: Saved {data.Scores.Count} scores to database");
                 return true;
             }
             catch (Exception ex)
@@ -183,16 +185,14 @@ namespace DTX.Song
 
         #endregion
 
-        #region Song Enumeration
-
-        /// <summary>
+        #region Song Enumeration        /// <summary>
         /// Enumerates songs from specified search paths
         /// </summary>
         public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
         {
             if (IsEnumerating)
             {
-                Debug.WriteLine("SongManager: Enumeration already in progress");
+                // Debug.WriteLine("SongManager: Enumeration already in progress");
                 return 0;
             }
 
@@ -202,7 +202,7 @@ namespace DTX.Song
 
             try
             {
-                Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
+                // Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
 
                 var newRootNodes = new List<SongListNode>();
 
@@ -210,7 +210,7 @@ namespace DTX.Song
                 {
                     if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
                     {
-                        Debug.WriteLine($"SongManager: Skipping invalid path: {searchPath}");
+                        // Debug.WriteLine($"SongManager: Skipping invalid path: {searchPath}");
                         continue;
                     }
 
@@ -225,7 +225,7 @@ namespace DTX.Song
                     _rootSongs.AddRange(newRootNodes);
                 }
 
-                Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
+                // Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
 
                 EnumerationCompleted?.Invoke(this, EventArgs.Empty);
 
@@ -233,7 +233,7 @@ namespace DTX.Song
             }
             catch (OperationCanceledException)
             {
-                Debug.WriteLine("SongManager: Enumeration was cancelled");
+                // Debug.WriteLine("SongManager: Enumeration was cancelled");
                 return DiscoveredScoreCount;
             }
             catch (Exception ex)
@@ -433,10 +433,9 @@ namespace DTX.Song
                 {
                     if (Directory.Exists(searchPath))
                     {
-                        var dirLastModified = Directory.GetLastWriteTime(searchPath);
-                        if (dirLastModified > dbLastModified)
+                        var dirLastModified = Directory.GetLastWriteTime(searchPath);                        if (dirLastModified > dbLastModified)
                         {
-                            Debug.WriteLine($"SongManager: Directory {searchPath} modified since last enumeration");
+                            // Directory modification detected - removed verbose logging
                             return true;
                         }
 
@@ -445,10 +444,9 @@ namespace DTX.Song
                         {
                             return true;
                         }
-                    }
-                }
+                    }                }
 
-                Debug.WriteLine("SongManager: No enumeration needed - database is up to date");
+                // No enumeration needed - removed verbose logging
                 return false;
             }
             catch (Exception ex)
@@ -462,19 +460,16 @@ namespace DTX.Song
         /// Performs incremental enumeration - only processes changed directories
         /// </summary>
         public async Task<int> IncrementalEnumerationAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
-        {
-            if (IsEnumerating)
+        {            if (IsEnumerating)
             {
-                Debug.WriteLine("SongManager: Enumeration already in progress");
+                // Enumeration already in progress - no logging needed for normal operation
                 return 0;
             }
 
             _enumCancellation = new CancellationTokenSource();
-            var initialCount = DiscoveredScoreCount;
-
-            try
+            var initialCount = DiscoveredScoreCount;            try
             {
-                Debug.WriteLine($"SongManager: Starting incremental enumeration of {searchPaths.Length} paths");
+                // Incremental enumeration in progress - removed verbose logging
 
                 var databasePath = "songs.db";
                 var dbLastModified = File.Exists(databasePath) ? File.GetLastWriteTime(databasePath) : DateTime.MinValue;
@@ -485,10 +480,8 @@ namespace DTX.Song
                         continue;
 
                     await IncrementalEnumerateDirectoryAsync(searchPath, null, dbLastModified, progress, _enumCancellation.Token);
-                }
-
-                var newSongsFound = DiscoveredScoreCount - initialCount;
-                Debug.WriteLine($"SongManager: Incremental enumeration complete. Found {newSongsFound} new songs");
+                }                var newSongsFound = DiscoveredScoreCount - initialCount;
+                // Incremental enumeration complete - removed verbose logging
 
                 if (newSongsFound > 0)
                 {
@@ -496,10 +489,9 @@ namespace DTX.Song
                 }
 
                 return newSongsFound;
-            }
-            catch (OperationCanceledException)
+            }            catch (OperationCanceledException)
             {
-                Debug.WriteLine("SongManager: Incremental enumeration was cancelled");
+                // Incremental enumeration cancelled - no logging needed for normal operation
                 return DiscoveredScoreCount - initialCount;
             }
             catch (Exception ex)
@@ -526,36 +518,6 @@ namespace DTX.Song
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
-        }
-
-        /// <summary>
-        /// Logs the node hierarchy for debugging
-        /// </summary>
-        private void LogNodeHierarchy(SongListNode node, int depth)
-        {
-            var indent = new string(' ', depth * 2);
-            var nodeInfo = $"{indent}[{node.Type}] {node.DisplayTitle}";
-
-            if (node.Type == NodeType.Score && node.Metadata != null)
-            {
-                nodeInfo += $" - {node.Metadata.DisplayArtist} ({node.Metadata.FileFormat})";
-                if (node.AvailableDifficulties > 0)
-                {
-                    nodeInfo += $" [{node.AvailableDifficulties} difficulties]";
-                }
-            }
-            else if (node.Type == NodeType.Box)
-            {
-                nodeInfo += $" ({node.Children.Count} items)";
-            }
-
-            Debug.WriteLine($"SongManager: {nodeInfo}");
-
-            // Recursively log children
-            foreach (var child in node.Children)
-            {
-                LogNodeHierarchy(child, depth + 1);
-            }
         }
 
         /// <summary>
@@ -592,7 +554,7 @@ namespace DTX.Song
                     Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
                 }
 
-                string[] lines = null;
+                string[]? lines = null;
                 foreach (var encoding in encodings)
                 {
                     try
@@ -707,11 +669,10 @@ namespace DTX.Song
                                     _songsDatabase.Add(score);
                                 }
 
-                                DiscoveredScoreCount++;
-                            }
+                                DiscoveredScoreCount++;                            }
                             else
                             {
-                                Debug.WriteLine($"SongManager: Difficulty file not found or unsupported: {filePath}");
+                                // Difficulty file not found or unsupported - continue silently
                             }
                         }
                     }

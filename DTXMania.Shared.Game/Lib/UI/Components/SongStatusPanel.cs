@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.Song;
+using DTX.Resources;
 using System;
 using System.Linq;
 
@@ -19,10 +20,16 @@ namespace DTX.UI.Components
         private int _currentDifficulty;
         private SpriteFont _font;
         private SpriteFont _smallFont;
+        private IFont _managedFont;
+        private IFont _managedSmallFont;
         private Texture2D _whitePixel;
 
         // Visual properties using DTXManiaNX theme
         private DefaultGraphicsGenerator _graphicsGenerator;
+
+        // DTXManiaNX authentic graphics (Phase 3)
+        private ITexture _statusPanelTexture;
+        private IResourceManager _resourceManager;
 
         // Layout constants from DTXManiaNX theme
         private float LINE_HEIGHT => DTXManiaVisualTheme.Layout.StatusLineHeight;
@@ -52,6 +59,32 @@ namespace DTX.UI.Components
         }
 
         /// <summary>
+        /// Managed font for advanced text rendering
+        /// </summary>
+        public IFont ManagedFont
+        {
+            get => _managedFont;
+            set
+            {
+                _managedFont = value;
+                _font = value?.SpriteFont; // Update SpriteFont reference
+            }
+        }
+
+        /// <summary>
+        /// Managed font for smaller text
+        /// </summary>
+        public IFont ManagedSmallFont
+        {
+            get => _managedSmallFont;
+            set
+            {
+                _managedSmallFont = value;
+                _smallFont = value?.SpriteFont; // Update SpriteFont reference
+            }
+        }
+
+        /// <summary>
         /// White pixel texture for backgrounds
         /// </summary>
         public Texture2D WhitePixel
@@ -67,6 +100,29 @@ namespace DTX.UI.Components
         {
             _graphicsGenerator?.Dispose();
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
+        }
+
+        /// <summary>
+        /// Initialize DTXManiaNX authentic graphics (Phase 3)
+        /// </summary>
+        public void InitializeAuthenticGraphics(IResourceManager resourceManager)
+        {
+            _resourceManager = resourceManager;
+            LoadStatusPanelGraphics();
+        }
+
+        private void LoadStatusPanelGraphics()
+        {
+            try
+            {
+                // Load DTXManiaNX status panel background
+                _statusPanelTexture = _resourceManager.LoadTexture("Graphics/5_status panel.png");
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loaded 5_status panel.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
+            }
         }
 
         #endregion
@@ -100,21 +156,45 @@ namespace DTX.UI.Components
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!Visible)
+            {
                 return;
+            }
 
             var bounds = Bounds;
+
+            // Only log occasionally to reduce noise
+            if (System.Environment.TickCount % 1000 < 50) // Log roughly once per second
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Drawing at bounds {bounds}, Font: {(_font != null ? "Available" : "Null")}, Song: {(_currentSong != null ? _currentSong.DisplayTitle : "None")}");
+            }
 
             // Draw background using DTXManiaNX styling
             DrawBackground(spriteBatch, bounds);
 
-            // Draw content
-            if (_currentSong != null && _font != null)
+            // Draw content - try fonts in order of preference
+            if (_currentSong != null && (_font != null || _managedFont != null))
             {
                 DrawSongInfo(spriteBatch, bounds);
             }
-            else if (_font != null)
+            else if (_font != null || _managedFont != null)
             {
                 DrawNoSongMessage(spriteBatch, bounds);
+            }
+            else
+            {
+                // Fallback rendering when no fonts are available - this should always show something
+                DrawFallbackContent(spriteBatch, bounds);
+            }
+
+            // Debug: Always show fallback content for now to test visibility
+            if (_currentSong != null)
+            {
+                // Draw a small indicator in the corner to show the panel is working
+                if (_whitePixel != null)
+                {
+                    var indicator = new Rectangle(bounds.Right - 20, bounds.Y + 5, 15, 15);
+                    spriteBatch.Draw(_whitePixel, indicator, Color.Lime);
+                }
             }
 
             base.OnDraw(spriteBatch, deltaTime);
@@ -126,7 +206,18 @@ namespace DTX.UI.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Try to use generated panel background first
+            // Use DTXManiaNX authentic status panel background (Phase 3)
+            if (_statusPanelTexture != null)
+            {
+                // Scale the authentic background to fit the panel bounds
+                var sourceRect = new Rectangle(0, 0, _statusPanelTexture.Width, _statusPanelTexture.Height);
+                var destRect = bounds;
+
+                spriteBatch.Draw(_statusPanelTexture.Texture, destRect, sourceRect, Color.White);
+                return;
+            }
+
+            // Try to use generated panel background as fallback
             if (_graphicsGenerator != null)
             {
                 var panelTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
@@ -137,7 +228,7 @@ namespace DTX.UI.Components
                 }
             }
 
-            // Fallback to simple background
+            // Final fallback to simple background
             if (_whitePixel != null)
             {
                 spriteBatch.Draw(_whitePixel, bounds, DTXManiaVisualTheme.SongSelection.StatusBackground);
@@ -356,7 +447,22 @@ namespace DTX.UI.Components
         private void DrawNoSongMessage(SpriteBatch spriteBatch, Rectangle bounds)
         {
             var message = "No song selected";
-            var messageSize = _font.MeasureString(message);
+
+            // Calculate message size and position
+            Vector2 messageSize;
+            if (_font != null)
+            {
+                messageSize = _font.MeasureString(message);
+            }
+            else if (_managedFont != null)
+            {
+                messageSize = _managedFont.MeasureString(message);
+            }
+            else
+            {
+                messageSize = new Vector2(message.Length * 8, 16); // Rough estimate
+            }
+
             var messagePos = new Vector2(
                 bounds.X + (bounds.Width - messageSize.X) / 2,
                 bounds.Y + (bounds.Height - messageSize.Y) / 2
@@ -364,26 +470,135 @@ namespace DTX.UI.Components
             DrawTextWithShadow(spriteBatch, _font, message, messagePos, DTXManiaVisualTheme.SongSelection.StatusValueText);
         }
 
+        private void DrawFallbackContent(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            if (_whitePixel == null)
+                return;
+
+            // Draw status indicators using colored rectangles when font is unavailable
+            var y = bounds.Y + 10;
+            var x = bounds.X + 10;
+            var lineHeight = 25;
+
+            // Draw panel title indicator with bright border to make it visible
+            spriteBatch.Draw(_whitePixel, new Rectangle(x - 2, y - 2, bounds.Width - 16, 24), Color.White);
+            spriteBatch.Draw(_whitePixel, new Rectangle(x, y, bounds.Width - 20, 20), Color.DarkBlue * 0.8f);
+            y += lineHeight;
+
+            // Song type indicator
+            if (_currentSong != null)
+            {
+                var typeColor = _currentSong.Type switch
+                {
+                    NodeType.Score => Color.LightBlue,
+                    NodeType.Box => Color.Yellow,
+                    NodeType.BackBox => Color.Orange,
+                    NodeType.Random => Color.Magenta,
+                    _ => Color.Gray
+                };
+
+                // Song type bar
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 120, 18), typeColor);
+                y += lineHeight;
+
+                // Title indicator (wider and more visible)
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 200, 15), Color.White);
+                y += lineHeight;
+
+                // Difficulty indicators (if it's a score)
+                if (_currentSong.Type == NodeType.Score && _currentSong.Scores != null)
+                {
+                    // Draw difficulty label area
+                    spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 60, 12), Color.Gray);
+
+                    // Draw individual difficulty indicators
+                    for (int i = 0; i < Math.Min(5, _currentSong.Scores.Length); i++)
+                    {
+                        if (_currentSong.Scores[i] != null)
+                        {
+                            var diffColor = i == _currentDifficulty ? Color.Gold : Color.LightGray;
+                            spriteBatch.Draw(_whitePixel, new Rectangle(x + 70 + i * 35, y, 30, 12), diffColor);
+                        }
+                    }
+                    y += lineHeight;
+
+                    // BPM indicator (if available)
+                    if (_currentSong.Metadata?.BPM > 0)
+                    {
+                        var bpmValue = _currentSong.Metadata.BPM.GetValueOrDefault(0);
+                        var bpmWidth = (int)Math.Min(150, bpmValue * 0.8);
+                        spriteBatch.Draw(_whitePixel, new Rectangle(x, y, bpmWidth, 8), Color.Green);
+                    }
+                    y += 15;
+
+                    // Score indicator (if available)
+                    var currentScore = GetCurrentScore();
+                    if (currentScore?.BestScore > 0)
+                    {
+                        var scoreWidth = (int)Math.Min(180, currentScore.BestScore / 1000);
+                        spriteBatch.Draw(_whitePixel, new Rectangle(x, y, scoreWidth, 8), Color.Cyan);
+                    }
+                }
+            }
+            else
+            {
+                // No song selected indicator
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 120, 18), Color.DarkGray);
+                y += lineHeight;
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 80, 12), Color.Red * 0.5f);
+            }
+        }
+
         private void DrawLabelValue(SpriteBatch spriteBatch, string label, string value, float x, float y)
         {
             var font = _smallFont ?? _font;
+            var managedFont = _managedSmallFont ?? _managedFont;
+
             DrawTextWithShadow(spriteBatch, font, label, new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusLabelText);
 
-            var labelSize = font.MeasureString(label);
+            // Calculate label width for positioning the value
+            Vector2 labelSize;
+            if (font != null)
+            {
+                labelSize = font.MeasureString(label);
+            }
+            else if (managedFont != null)
+            {
+                labelSize = managedFont.MeasureString(label);
+            }
+            else
+            {
+                labelSize = new Vector2(label.Length * 8, 16); // Rough estimate
+            }
+
             DrawTextWithShadow(spriteBatch, font, value, new Vector2(x + labelSize.X + 5, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
         }
 
         private void DrawTextWithShadow(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)
         {
-            if (font == null || string.IsNullOrEmpty(text))
+            if (string.IsNullOrEmpty(text))
                 return;
 
-            // Draw shadow first
-            var shadowPosition = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
-            spriteBatch.DrawString(font, text, shadowPosition, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
+            // Try SpriteFont first
+            if (font != null)
+            {
+                // Draw shadow first
+                var shadowPosition = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
+                spriteBatch.DrawString(font, text, shadowPosition, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
 
-            // Draw main text
-            spriteBatch.DrawString(font, text, position, color);
+                // Draw main text
+                spriteBatch.DrawString(font, text, position, color);
+            }
+            // Fallback to managed font
+            else if (_managedFont != null)
+            {
+                // Draw shadow first
+                var shadowPosition = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
+                _managedFont.DrawString(spriteBatch, text, shadowPosition, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
+
+                // Draw main text
+                _managedFont.DrawString(spriteBatch, text, position, color);
+            }
         }
 
         private SongScore GetCurrentScore()
@@ -465,6 +680,9 @@ namespace DTX.UI.Components
             {
                 _graphicsGenerator?.Dispose();
                 _graphicsGenerator = null;
+
+                _statusPanelTexture?.Dispose();
+                _statusPanelTexture = null;
             }
             base.Dispose(disposing);
         }

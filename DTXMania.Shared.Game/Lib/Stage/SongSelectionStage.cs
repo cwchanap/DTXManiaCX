@@ -27,6 +27,11 @@ namespace DTX.Stage
         private BitmapFont _bitmapFont;
         private Texture2D _whitePixel;
 
+        // DTXManiaNX Background Graphics (Phase 3)
+        private ITexture _backgroundTexture;
+        private ITexture _headerPanelTexture;
+        private ITexture _footerPanelTexture;
+
         // Song management
         private SongManager _songManager;
         private List<SongListNode> _currentSongList;
@@ -86,7 +91,9 @@ namespace DTX.Stage
 
             // Initialize graphics resources
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Creating ResourceManager, HasFontFactory: {ResourceManagerFactory.HasFontFactory}");
             _resourceManager = ResourceManagerFactory.CreateResourceManager(_game.GraphicsDevice);
+            System.Diagnostics.Debug.WriteLine("SongSelectionStage: ResourceManager created successfully");
 
             // Create white pixel for drawing
             _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
@@ -107,14 +114,40 @@ namespace DTX.Stage
             IFont uiFont = null;
             try
             {
-                uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: UI font loaded successfully");
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: ResourceManagerFactory has font factory: {ResourceManagerFactory.HasFontFactory}");
+
+                if (ResourceManagerFactory.HasFontFactory)
+                {
+                    uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: UI font loaded successfully");
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: No font factory available - creating fallback font");
+                    // Create a minimal fallback font using MonoGame's built-in capabilities
+                    uiFont = CreateFallbackFont();
+                }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load UI font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Exception details: {ex}");
+
+                // Create a simple fallback font for testing
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Attempting to create fallback font...");
+                    uiFont = CreateFallbackFont();
+                }
+                catch (Exception fallbackEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
+                }
             }
+
+            // Load DTXManiaNX background graphics (Phase 3)
+            LoadBackgroundGraphics();
 
             // Initialize song manager
             _songManager = new SongManager();
@@ -140,6 +173,11 @@ namespace DTX.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
+            // Clean up DTXManiaNX background graphics (Phase 3)
+            _backgroundTexture?.Dispose();
+            _headerPanelTexture?.Dispose();
+            _footerPanelTexture?.Dispose();
+
             // Clean up graphics resources
             _whitePixel?.Dispose();
             _spriteBatch?.Dispose();
@@ -150,6 +188,66 @@ namespace DTX.Stage
             base.Deactivate();
 
             System.Diagnostics.Debug.WriteLine("SongSelectionStage: Deactivated");
+        }
+
+        #endregion
+
+        #region Font Management
+
+        /// <summary>
+        /// Create a fallback font when the font factory is not available
+        /// </summary>
+        private IFont CreateFallbackFont()
+        {
+            try
+            {
+                // Try to create a simple fallback using the resource manager's fallback mechanism
+                return _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
+            }
+            catch
+            {
+                // If that fails, return null - the UI components will handle this gracefully
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: All fallback font creation attempts failed");
+                return null;
+            }
+        }
+
+        #endregion
+
+        #region Background Graphics Loading (Phase 3)
+
+        private void LoadBackgroundGraphics()
+        {
+            try
+            {
+                // Load DTXManiaNX song selection background graphics
+                _backgroundTexture = _resourceManager.LoadTexture("Graphics/5_background.jpg");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_background.jpg");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load background: {ex.Message}");
+            }
+
+            try
+            {
+                _headerPanelTexture = _resourceManager.LoadTexture("Graphics/5_header panel.png");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_header panel.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load header panel: {ex.Message}");
+            }
+
+            try
+            {
+                _footerPanelTexture = _resourceManager.LoadTexture("Graphics/5_footer panel.png");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_footer panel.png");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load footer panel: {ex.Message}");
+            }
         }
 
         #endregion
@@ -169,10 +267,10 @@ namespace DTX.Stage
                 LayoutMode = PanelLayoutMode.Manual
             };
 
-            // Create title label
+            // Create title label (positioned below header panel)
             _titleLabel = new UILabel("Song Selection")
             {
-                Position = new Vector2(50, 30),
+                Position = new Vector2(50, 100), // Moved down to account for header panel
                 Size = new Vector2(400, 40),
                 TextColor = Color.White,
                 HasShadow = true,
@@ -182,7 +280,7 @@ namespace DTX.Stage
             // Create breadcrumb label
             _breadcrumbLabel = new UILabel("")
             {
-                Position = new Vector2(50, 80),
+                Position = new Vector2(50, 150), // Moved down to account for header panel
                 Size = new Vector2(600, 30),
                 TextColor = Color.Yellow,
                 HasShadow = true,
@@ -222,18 +320,29 @@ namespace DTX.Stage
             }
 
             // Create DTXManiaNX-style status panel
-            // Position on the right side of the screen
+            // Position in the bottom left corner as per DTXManiaNX layout
             _statusPanel = new SongStatusPanel
             {
-                Position = new Vector2(950, 120),
-                Size = new Vector2(300, 400),
+                Position = new Vector2(50, 400), // Bottom left corner
+                Size = new Vector2(350, 250), // Reasonable size for status info
                 Font = uiFont?.SpriteFont,
                 SmallFont = uiFont?.SpriteFont, // Use same font for now
+                ManagedFont = uiFont,
+                ManagedSmallFont = uiFont, // Use same font for now
                 WhitePixel = _whitePixel
             };
 
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured with Font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
+
             // Initialize graphics generator for status panel
             _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice);
+
+            // Initialize DTXManiaNX authentic graphics for status panel (Phase 3)
+            _statusPanel.InitializeAuthenticGraphics(_resourceManager);
+
+            // Ensure status panel is visible and properly configured
+            _statusPanel.Visible = true;
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured - Visible: {_statusPanel.Visible}, Position: {_statusPanel.Position}, Size: {_statusPanel.Size}");
 
             // Wire up events
             _songListDisplay.SelectionChanged += OnSongSelectionChanged;
@@ -248,6 +357,11 @@ namespace DTX.Stage
 
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
+
+            // Activate the main panel and all its children
+            _mainPanel.Activate();
+
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI initialization complete. Status panel in main panel: {_mainPanel.Children.Contains(_statusPanel)}");
         }
 
         private async Task InitializeSongListAsync()
@@ -613,8 +727,36 @@ namespace DTX.Stage
         {
             var viewport = _game.GraphicsDevice.Viewport;
 
-            // Draw DTXManiaNX-style gradient background
-            DrawGradientBackground(viewport);
+            // Draw DTXManiaNX authentic background graphics (Phase 3)
+            DrawDTXManiaNXBackground(viewport);
+        }
+
+        private void DrawDTXManiaNXBackground(Viewport viewport)
+        {
+            // Draw main background (5_background.jpg)
+            if (_backgroundTexture != null)
+            {
+                _backgroundTexture.Draw(_spriteBatch, Vector2.Zero);
+            }
+            else
+            {
+                // Fallback to gradient if background texture failed to load
+                DrawGradientBackground(viewport);
+            }
+
+            // Draw header panel (5_header panel.png) at top
+            if (_headerPanelTexture != null)
+            {
+                _headerPanelTexture.Draw(_spriteBatch, Vector2.Zero);
+            }
+
+            // Draw footer panel (5_footer panel.png) at bottom
+            if (_footerPanelTexture != null)
+            {
+                // Position footer panel at bottom of screen
+                var footerY = viewport.Height - _footerPanelTexture.Height;
+                _footerPanelTexture.Draw(_spriteBatch, new Vector2(0, footerY));
+            }
         }
 
         private void DrawGradientBackground(Viewport viewport)

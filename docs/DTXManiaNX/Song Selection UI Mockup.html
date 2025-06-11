@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DTXManiaNX - Song Selection UI Mockup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main-container {
+            width: 1280px;
+            height: 720px;
+            position: relative;
+            background: linear-gradient(45deg, #0f3460, #16537e);
+        }
+
+        /* Background Video Area */
+        .background-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #1e3c72, #2a5298);
+            opacity: 0.3;
+            z-index: 1;
+        }
+
+        /* Header Panel - From Graphics/5_header panel.png */
+        .header-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.6));
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .system-info {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        /* Footer Panel - From Graphics/5_footer panel.png */
+        .footer-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 100px;
+            background: linear-gradient(0deg, rgba(0,0,0,0.9), rgba(0,0,0,0.6));
+            border-top: 2px solid rgba(255,255,255,0.2);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            backdrop-filter: blur(5px);
+        }
+
+        .control-hint {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        /* Song List Container - Curved layout on right side */
+        .song-list-container {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            width: 1280px;
+            height: 720px;
+            z-index: 5;
+        }
+
+        .song-bar {
+            position: absolute;
+            width: 400px;
+            height: 40px;
+            background: linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            font-size: 14px;
+        }
+
+        /* Position each of the 13 bars - adjusted to avoid overlap with status panel */
+        /* Unselected bars - vertical list positioned to right to avoid overlap */
+        .song-bar:nth-child(1) { left: 850px; top: 5px; opacity: 0.7; }
+        .song-bar:nth-child(2) { left: 850px; top: 56px; opacity: 0.8; }
+        .song-bar:nth-child(3) { left: 850px; top: 107px; opacity: 0.85; }
+        .song-bar:nth-child(4) { left: 850px; top: 158px; opacity: 0.9; }
+        .song-bar:nth-child(5) { left: 850px; top: 209px; opacity: 0.95; }
+        
+        /* Selected bar (index 5) - Curves out from list slightly to the left */
+        .song-bar:nth-child(6) { 
+            left: 842px; 
+            top: 269px; 
+            opacity: 1; 
+            transform: scale(1.1); 
+            background: linear-gradient(90deg, #ff6b35, #f7931e);
+            border: 2px solid #fff;
+            box-shadow: 0 0 20px rgba(255, 107, 53, 0.5);
+            z-index: 6;
+            width: 430px;
+        }
+        
+        .song-bar:nth-child(7) { left: 850px; top: 362px; opacity: 0.95; }
+        .song-bar:nth-child(8) { left: 850px; top: 413px; opacity: 0.9; }
+        .song-bar:nth-child(9) { left: 850px; top: 464px; opacity: 0.85; }
+        .song-bar:nth-child(10) { left: 850px; top: 515px; opacity: 0.8; }
+        .song-bar:nth-child(11) { left: 850px; top: 566px; opacity: 0.7; }
+        .song-bar:nth-child(12) { left: 850px; top: 617px; opacity: 0.6; }
+        .song-bar:nth-child(13) { left: 850px; top: 668px; opacity: 0.5; }
+
+        .song-title {
+            flex: 1;
+            font-size: 14px;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .difficulty-indicator {
+            width: 60px;
+            height: 20px;
+            border-radius: 4px;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 10px;
+        }
+
+        .diff-novice { background: #4CAF50; }
+        .diff-regular { background: #FF9800; }
+        .diff-expert { background: #F44336; }
+        .diff-master { background: #9C27B0; }
+
+        .clear-lamp {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+
+        .clear-none { background: #666; }
+        .clear-assist { background: #4CAF50; }
+        .clear-clear { background: #2196F3; }
+        .clear-full { background: #FF9800; }
+        .clear-excellent { background: #F44336; }
+
+        /* Status Panel - Exact Position from Code (X:130, Y:350) */
+        .status-panel {
+            position: absolute;
+            left: 130px;
+            top: 350px;
+            width: 580px;
+            height: 320px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 10px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .status-header {
+            color: #00ff88;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        /* 3x5 Difficulty Grid */
+        .difficulty-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(3, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 2px;
+            flex: 1;
+        }
+
+        .grid-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .difficulty-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #ccc;
+            text-align: center;
+        }
+
+        .difficulty-cell {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            font-size: 10px;
+            padding: 2px;
+        }
+
+        .difficulty-cell.selected {
+            border: 2px solid #ff6b35;
+            background: rgba(255, 107, 53, 0.2);
+            box-shadow: 0 0 8px rgba(255, 107, 53, 0.4);
+        }
+
+        .difficulty-cell.no-chart {
+            background: rgba(128,128,128,0.1);
+            color: #666;
+        }
+
+        .diff-level {
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        .diff-rank {
+            width: 16px;
+            height: 12px;
+            border-radius: 2px;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1px 0;
+            font-weight: bold;
+        }
+
+        .rank-e { background: #666; color: white; }
+        .rank-d { background: #8B4513; color: white; }
+        .rank-c { background: #4169E1; color: white; }
+        .rank-b { background: #32CD32; color: white; }
+        .rank-a { background: #FFD700; color: black; }
+        .rank-s { background: #FF4500; color: white; }
+        .rank-ss { background: #FF1493; color: white; }
+
+        .achievement-rate {
+            font-size: 8px;
+            color: #ccc;
+        }
+
+        .fc-badge {
+            position: absolute;
+            top: 1px;
+            right: 1px;
+            width: 12px;
+            height: 8px;
+            background: #00ff88;
+            color: black;
+            font-size: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
+        .skill-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 16px;
+            height: 16px;
+            background: #ff6b35;
+            color: white;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: bold;
+            border: 1px solid #fff;
+        }
+
+        /* Preview Image Panel - Exact Position from Code (X:250, Y:34) */
+        .preview-panel {
+            position: absolute;
+            left: 250px;
+            top: 34px;
+            width: 300px;
+            height: 300px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 10px;
+            padding: 8px;
+            backdrop-filter: blur(10px);
+            z-index: 4;
+        }
+
+        .preview-image {
+            width: 100%;
+            height: 284px;
+            background: linear-gradient(45deg, #ff6b35, #f7931e);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .preview-image::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50" font-size="40" fill="%23fff">🎵</text></svg>') center/cover;
+            opacity: 0.3;
+        }
+
+        /* Graph Panel - Left of Status Panel (X:15, Y:368) */
+        .graph-panel {
+            position: absolute;
+            left: 15px;
+            top: 368px;
+            width: 100px;
+            height: 330px;
+            background: rgba(0,0,0,0.8);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 8px;
+            backdrop-filter: blur(10px);
+            z-index: 5;
+        }
+
+        .graph-title {
+            color: #00ff88;
+            font-size: 10px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .total-notes {
+            position: absolute;
+            left: 81px; /* 15 + 66 */
+            top: 666px; /* 368 + 298 */
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 6;
+        }
+
+        .bar-graph-container {
+            position: absolute;
+            left: 46px; /* 15 + 31 for drums */
+            top: 389px; /* 368 + 21 */
+            width: 80px;
+            height: 252px;
+            z-index: 6;
+        }
+
+        .note-bar {
+            position: absolute;
+            width: 4px;
+            background: linear-gradient(to bottom, #ff6b35, #f7931e);
+            border-radius: 1px;
+            bottom: 0;
+        }
+
+        /* Drum bars - 9 lanes */
+        .note-bar:nth-child(1) { left: 0px; height: 80%; background: #ff4444; } /* LC */
+        .note-bar:nth-child(2) { left: 8px; height: 95%; background: #ffaa44; } /* HH */
+        .note-bar:nth-child(3) { left: 16px; height: 60%; background: #44ff44; } /* LP */
+        .note-bar:nth-child(4) { left: 24px; height: 100%; background: #4444ff; } /* SD */
+        .note-bar:nth-child(5) { left: 32px; height: 75%; background: #ff44aa; } /* HT */
+        .note-bar:nth-child(6) { left: 40px; height: 90%; background: #aa44ff; } /* BD */
+        .note-bar:nth-child(7) { left: 48px; height: 65%; background: #44aaff; } /* LT */
+        .note-bar:nth-child(8) { left: 56px; height: 70%; background: #ffaa88; } /* FT */
+        .note-bar:nth-child(9) { left: 64px; height: 85%; background: #88ffaa; } /* CY */
+
+        .progress-bar-container {
+            position: absolute;
+            left: 33px; /* 15 + 18 */
+            top: 389px; /* 368 + 21 */
+            width: 60px;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            z-index: 6;
+        }
+
+        .progress-bar-fill {
+            width: 75%;
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #44ff44);
+            border-radius: 4px;
+        }
+
+        .lane-labels {
+            position: absolute;
+            left: 46px;
+            top: 645px; /* Below bars */
+            display: flex;
+            gap: 4px;
+            font-size: 8px;
+            color: #ccc;
+            z-index: 6;
+        }
+
+        .lane-label {
+            width: 8px;
+            text-align: center;
+        }
+
+        /* DTXMania Logo/Title - Top Left Corner */
+        .dtx-logo {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            z-index: 15;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .logo-text {
+            font-size: 20px;
+            font-weight: bold;
+            color: #00ff88;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            margin-bottom: 2px;
+        }
+
+        .version-text {
+            font-size: 12px;
+            color: #ccc;
+            opacity: 0.8;
+        }
+
+        /* Artist Comment Bar - Background layer behind song bar */
+        .comment-bar-background {
+            position: absolute;
+            left: 560px;
+            top: 257px;
+            width: 700px;
+            height: 100px;
+            background: linear-gradient(90deg, rgba(0,0,0,0.1), rgba(0,0,0,0.8));
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            z-index: 4; /* Behind song bars (z-index 5-6) */
+        }
+
+        /* Artist name - Right aligned, positioned behind selected song bar */
+        .artist-name {
+            position: absolute;
+            right: 25px;
+            top: 320px;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-align: right;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            max-width: 510px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            z-index: 4; /* Behind song bars */
+        }
+
+        /* Song comment - Below artist name */
+        .song-comment {
+            position: absolute;
+            left: 683px;
+            top: 339px;
+            color: #ccc;
+            font-size: 14px;
+            max-width: 510px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            z-index: 4; /* Behind song bars */
+        }
+
+        /* Play History Panel - Bottom Overlay */
+        .play-history-panel {
+            position: absolute;
+            left: 700px; /* 700px when status panel present, 210px when absent */
+            top: 570px;
+            width: 400px;
+            height: 100px;
+            background: linear-gradient(135deg, rgba(20,20,20,0.95), rgba(40,40,40,0.9));
+            border: 2px solid rgba(255,215,0,0.6);
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            z-index: 7; /* Above song bars but below popups */
+            box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+            animation: slideUpHistory 0.5s ease-out;
+        }
+
+        @keyframes slideUpHistory {
+            from { 
+                transform: translateY(100px);
+                opacity: 0;
+            }
+            to { 
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .history-panel-title {
+            position: absolute;
+            top: 8px;
+            left: 18px;
+            color: #FFD700;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .history-content {
+            position: absolute;
+            left: 18px;
+            top: 32px;
+            width: 364px; /* 400 - 18*2 */
+            height: 60px;
+            overflow: hidden;
+        }
+
+        .history-entry {
+            color: #FFD700;
+            font-size: 13px;
+            font-weight: bold;
+            line-height: 18px; /* 36px / 2 due to 0.5x scaling */
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .info-panel {
+            background: rgba(0,0,0,0.8);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 12px;
+        }
+
+        .panel-title {
+            color: #00ff88;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 11px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Performance History Panel */
+        .history-panel {
+            background: rgba(0,0,0,0.7);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .history-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            font-size: 11px;
+        }
+
+        .history-item {
+            text-align: center;
+            padding: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+        }
+
+        /* BPM and Song Information Section */
+        .bpm-section {
+            position: absolute;
+            left: 90px;
+            top: 275px;
+            width: 140px;
+            height: 60px;
+            background: rgba(0,0,0,0.8);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            backdrop-filter: blur(10px);
+            z-index: 6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .info-row {
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .info-label {
+            color: #00ff88;
+            font-weight: bold;
+            margin-right: 6px;
+            min-width: 50px;
+        }
+
+        .info-value {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Skill Point Section */
+        .skill-point-section {
+            position: absolute;
+            left: 32px;
+            top: 180px;
+            width: 120px;
+            height: 50px;
+            background: rgba(0,0,0,0.8);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            backdrop-filter: blur(10px);
+            z-index: 6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .skill-label {
+            font-size: 12px;
+            color: #00ff88;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .skill-value {
+            font-size: 18px;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Search Input Notification */
+        .search-notification {
+            position: absolute;
+            left: 10px;
+            top: 130px;
+            background: rgba(0,0,0,0.9);
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            border: 1px solid #00ff88;
+            display: none;
+            z-index: 15;
+        }
+
+        /* Quick Config Popup */
+        .quick-config {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px;
+            background: rgba(0,0,0,0.95);
+            border: 2px solid #00ff88;
+            border-radius: 10px;
+            padding: 20px;
+            z-index: 20;
+            display: none;
+        }
+
+        .config-title {
+            text-align: center;
+            color: #00ff88;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Scrollbar */
+        .scrollbar {
+            position: absolute;
+            right: 15px;
+            top: 100px;
+            width: 8px;
+            height: 400px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+            z-index: 7;
+        }
+
+        .scrollbar-thumb {
+            width: 100%;
+            height: 60px;
+            background: #00ff88;
+            border-radius: 4px;
+            position: relative;
+            top: 30%;
+        }
+
+        /* Animation classes */
+        .scroll-up {
+            animation: scrollUp 0.3s ease-out;
+        }
+
+        .scroll-down {
+            animation: scrollDown 0.3s ease-out;
+        }
+
+        @keyframes scrollUp {
+            from { transform: translateY(0); }
+            to { transform: translateY(-20px); }
+        }
+
+        @keyframes scrollDown {
+            from { transform: translateY(0); }
+            to { transform: translateY(20px); }
+        }
+
+        /* Interactive elements */
+        .interactive-hint {
+            position: absolute;
+            bottom: 100px;
+            left: 20px;
+            font-size: 11px;
+            opacity: 0.7;
+            z-index: 15;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Background Video/Image -->
+        <div class="background-video">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; opacity: 0.3;">
+                Background Video/Animation
+            </div>
+        </div>
+
+        <!-- Header Panel - Graphics/5_header panel.png -->
+        <div class="header-panel">
+            <div class="logo">DTXManiaNX</div>
+            <div class="system-info">
+                <div>Songs: 1,247</div>
+                <div>FPS: 60</div>
+                <div>Mode: Guitar/Bass</div>
+            </div>
+        </div>
+
+        <!-- DTXMania Logo/Title - Top Left Corner -->
+        <div class="dtx-logo">
+            <div class="logo-text">DTXManiaNX</div>
+            <div class="version-text">v1.4.2</div>
+        </div>
+
+        <!-- Skill Point Section -->
+        <div class="skill-point-section">
+            <div class="skill-label">SKILL POINT</div>
+            <div class="skill-value">85.42</div>
+        </div>
+
+        <!-- BPM and Song Information Section -->
+        <div class="bpm-section">
+            <div class="info-row">
+                <span class="info-label">Length:</span>
+                <span class="info-value">2:34</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">BPM:</span>
+                <span class="info-value">145</span>
+            </div>
+        </div>
+
+        <!-- Song List Container (13 bars) -->
+        <div class="song-list-container">
+            <div class="song-bar">
+                <div class="song-title">Far Above The Clouds</div>
+                <div class="difficulty-indicator diff-expert">EXT 8.50</div>
+                <div class="clear-lamp clear-clear"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Eclipse Zero</div>
+                <div class="difficulty-indicator diff-master">MAS 9.20</div>
+                <div class="clear-lamp clear-full"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Infinite Rebellion</div>
+                <div class="difficulty-indicator diff-expert">EXT 8.75</div>
+                <div class="clear-lamp clear-assist"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Model DD8</div>
+                <div class="difficulty-indicator diff-regular">REG 5.30</div>
+                <div class="clear-lamp clear-clear"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Timepiece Phase II</div>
+                <div class="difficulty-indicator diff-expert">EXT 7.90</div>
+                <div class="clear-lamp clear-none"></div>
+            </div>
+            
+            <!-- Selected Song (index 5) -->
+            <div class="song-bar">
+                <div class="song-title">🎵 FIRE IN THE DARK</div>
+                <div class="difficulty-indicator diff-expert">EXT 8.20</div>
+                <div class="clear-lamp clear-excellent"></div>
+            </div>
+            
+            <div class="song-bar">
+                <div class="song-title">Chain Reaction</div>
+                <div class="difficulty-indicator diff-master">MAS 9.45</div>
+                <div class="clear-lamp clear-clear"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Digital Revolution</div>
+                <div class="difficulty-indicator diff-novice">NOV 3.50</div>
+                <div class="clear-lamp clear-assist"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Plasma Storm</div>
+                <div class="difficulty-indicator diff-expert">EXT 8.65</div>
+                <div class="clear-lamp clear-full"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Neon Highway</div>
+                <div class="difficulty-indicator diff-regular">REG 6.20</div>
+                <div class="clear-lamp clear-clear"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Cybernetic Dreams</div>
+                <div class="difficulty-indicator diff-expert">EXT 7.80</div>
+                <div class="clear-lamp clear-none"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Thunder Force</div>
+                <div class="difficulty-indicator diff-master">MAS 9.10</div>
+                <div class="clear-lamp clear-excellent"></div>
+            </div>
+            <div class="song-bar">
+                <div class="song-title">Astral Journey</div>
+                <div class="difficulty-indicator diff-regular">REG 5.75</div>
+                <div class="clear-lamp clear-assist"></div>
+            </div>
+        </div>
+
+        <!-- Scrollbar -->
+        <div class="scrollbar">
+            <div class="scrollbar-thumb"></div>
+        </div>
+
+        <!-- Status Panel - Bottom Left (X:130, Y:350) - 3x5 Difficulty Grid -->
+        <div class="status-panel">
+            <div class="status-header">FIRE IN THE DARK - Difficulty Grid</div>
+            
+            <div class="difficulty-grid">
+                <!-- Grid Headers -->
+                <div class="grid-header"></div>
+                <div class="grid-header">D</div>
+                <div class="grid-header">G</div>
+                <div class="grid-header">B</div>
+                
+                <!-- Ultimate (Level 4) -->
+                <div class="difficulty-label">ULT</div>
+                <div class="difficulty-cell no-chart">
+                    <div class="diff-level">--</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">9.85</div>
+                    <div class="diff-rank rank-s">S</div>
+                    <div class="achievement-rate">96.2%</div>
+                    <div class="fc-badge">FC</div>
+                    <div class="skill-badge">★</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">9.60</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">89.5%</div>
+                </div>
+                
+                <!-- Master (Level 3) -->
+                <div class="difficulty-label">MAS</div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">8.95</div>
+                    <div class="diff-rank rank-b">B</div>
+                    <div class="achievement-rate">82.1%</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">8.75</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">91.8%</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">8.50</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">88.7%</div>
+                </div>
+                
+                <!-- Expert (Level 2) - Currently Selected -->
+                <div class="difficulty-label">EXT</div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">7.20</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">94.3%</div>
+                </div>
+                <div class="difficulty-cell selected">
+                    <div class="diff-level">8.20</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">92.4%</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">7.95</div>
+                    <div class="diff-rank rank-b">B</div>
+                    <div class="achievement-rate">87.1%</div>
+                </div>
+                
+                <!-- Regular (Level 1) -->
+                <div class="difficulty-label">REG</div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">4.50</div>
+                    <div class="diff-rank rank-s">S</div>
+                    <div class="achievement-rate">98.1%</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">5.30</div>
+                    <div class="diff-rank rank-s">S</div>
+                    <div class="achievement-rate">97.5%</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">5.10</div>
+                    <div class="diff-rank rank-a">A</div>
+                    <div class="achievement-rate">91.2%</div>
+                </div>
+                
+                <!-- Novice (Level 0) -->
+                <div class="difficulty-label">NOV</div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">2.80</div>
+                    <div class="diff-rank rank-ss">SS</div>
+                    <div class="achievement-rate">MAX</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">3.50</div>
+                    <div class="diff-rank rank-ss">SS</div>
+                    <div class="achievement-rate">MAX</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+                <div class="difficulty-cell">
+                    <div class="diff-level">3.20</div>
+                    <div class="diff-rank rank-s">S</div>
+                    <div class="achievement-rate">99.1%</div>
+                    <div class="fc-badge">FC</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Image Panel - Left Side -->
+        <div class="preview-panel">
+            <div class="preview-image">
+                <div style="position: relative; z-index: 2;">
+                    Preview Image
+                    <br>
+                    <small style="opacity: 0.8;">Album Art / Video</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comment Bar Background - Behind Song Bars -->
+        <div class="comment-bar-background"></div>
+        
+        <!-- Artist Name - Right Aligned Behind Selected Song Bar -->
+        <div class="artist-name">Hiroshi Watanabe</div>
+        
+        <!-- Song Comment - Below Artist -->
+        <div class="song-comment">High-energy rock anthem with complex drum patterns</div>
+
+        <!-- Graph Panel - Note Distribution and Analysis -->
+        <div class="graph-panel">
+            <div class="graph-title">NOTE ANALYSIS</div>
+            <div style="font-size: 8px; color: #ccc; text-align: center; margin-bottom: 4px;">Drums - Expert</div>
+        </div>
+
+        <!-- Total Notes Display -->
+        <div class="total-notes">1247</div>
+
+        <!-- Note Distribution Bar Graph -->
+        <div class="bar-graph-container">
+            <div class="note-bar"></div> <!-- LC -->
+            <div class="note-bar"></div> <!-- HH -->
+            <div class="note-bar"></div> <!-- LP -->
+            <div class="note-bar"></div> <!-- SD -->
+            <div class="note-bar"></div> <!-- HT -->
+            <div class="note-bar"></div> <!-- BD -->
+            <div class="note-bar"></div> <!-- LT -->
+            <div class="note-bar"></div> <!-- FT -->
+            <div class="note-bar"></div> <!-- CY -->
+        </div>
+
+        <!-- Lane Labels -->
+        <div class="lane-labels">
+            <div class="lane-label">LC</div>
+            <div class="lane-label">HH</div>
+            <div class="lane-label">LP</div>
+            <div class="lane-label">SD</div>
+            <div class="lane-label">HT</div>
+            <div class="lane-label">BD</div>
+            <div class="lane-label">LT</div>
+            <div class="lane-label">FT</div>
+            <div class="lane-label">CY</div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill"></div>
+        </div>
+
+        <!-- Play History Panel - Bottom Overlay -->
+        <div class="play-history-panel">
+            <div class="history-panel-title">PERFORMANCE HISTORY</div>
+            <div class="history-content">
+                <div class="history-entry">2024/06/10 14:32 - Expert: 95.67% A FC</div>
+                <div class="history-entry">2024/06/08 19:45 - Expert: 91.23% B</div>
+                <div class="history-entry">2024/06/05 21:18 - Regular: 98.45% S FC</div>
+            </div>
+        </div>
+
+        <!-- Footer Panel - Graphics/5_footer panel.png -->
+        <div class="footer-panel">
+            <div class="control-hint">↑↓: Navigate | Enter: Select | HH×2: Difficulty | BD×2: Quick Config</div>
+            <div class="control-hint">Y+P: Sort | Search: Song Search | ESC: Back to Title</div>
+        </div>
+
+        <!-- Search Notification (hidden by default) -->
+        <div class="search-notification" id="searchNotification">
+            Search Input: fire
+            <br>3 songs found
+        </div>
+
+        <!-- Quick Config Popup (hidden by default) -->
+        <div class="quick-config" id="quickConfig">
+            <div class="config-title">Quick Config - Drums</div>
+            <div class="config-item">
+                <span>Scroll Speed:</span>
+                <span>[  ×4  ]</span>
+            </div>
+            <div class="config-item">
+                <span>Auto Mode:</span>
+                <span>[ OFF ]</span>
+            </div>
+            <div class="config-item">
+                <span>Play Speed:</span>
+                <span>[×1.0]</span>
+            </div>
+            <div class="config-item">
+                <span>Risky Mode:</span>
+                <span>[ OFF ]</span>
+            </div>
+            <div class="config-item">
+                <span>Hidden/Sudden:</span>
+                <span>[NONE]</span>
+            </div>
+            <div class="config-item">
+                <span style="color: #00ff88;">More...</span>
+                <span></span>
+            </div>
+            <div class="config-item">
+                <span style="color: #ff6b35;">EXIT</span>
+                <span></span>
+            </div>
+        </div>
+
+        <!-- Interactive Hints -->
+        <div class="interactive-hint">
+            <strong>Interactive Demo:</strong><br>
+            • Click song bars to select<br>
+            • Press 'S' for search demo<br>
+            • Press 'C' for quick config<br>
+            • Use arrow keys to scroll<br>
+            <br>
+            <strong>Status Panel:</strong><br>
+            • 3×5 grid shows all difficulties<br>
+            • D/G/B columns for instruments<br>
+            • Selected difficulty highlighted<br>
+            • FC badges and skill stars shown
+        </div>
+    </div>
+
+    <script>
+        // Interactive functionality
+        let selectedIndex = 5; // Current selection (0-based, bar 6 is selected)
+        let searchShown = false;
+        let configShown = false;
+
+        // Song data for demonstration
+        const songs = [
+            "Far Above The Clouds", "Eclipse Zero", "Infinite Rebellion", "Model DD8", 
+            "Timepiece Phase II", "FIRE IN THE DARK", "Chain Reaction", "Digital Revolution",
+            "Plasma Storm", "Neon Highway", "Cybernetic Dreams", "Thunder Force", "Astral Journey",
+            "Blazing Comet", "Neural Network", "Sonic Velocity", "Quantum Leap", "Dark Matter",
+            "Energy Surge", "Crystal Palace"
+        ];
+
+        const difficulties = ["NOV 3.50", "REG 5.30", "EXT 8.20", "MAS 9.45", "EXT 7.90"];
+        const diffClasses = ["diff-novice", "diff-regular", "diff-expert", "diff-master", "diff-expert"];
+
+        function updateSongBars() {
+            const bars = document.querySelectorAll('.song-bar');
+            bars.forEach((bar, index) => {
+                const titleElement = bar.querySelector('.song-title');
+                const diffElement = bar.querySelector('.difficulty-indicator');
+                
+                // Calculate song index based on current selection
+                const songIndex = (selectedIndex - 5 + index + songs.length) % songs.length;
+                const title = songs[songIndex];
+                
+                // Update content
+                if (index === 5) { // Selected bar
+                    titleElement.textContent = `🎵 ${title}`;
+                } else {
+                    titleElement.textContent = title;
+                }
+                
+                // Update difficulty
+                const diffIndex = Math.floor(Math.random() * difficulties.length);
+                diffElement.textContent = difficulties[diffIndex];
+                diffElement.className = `difficulty-indicator ${diffClasses[diffIndex]}`;
+            });
+        }
+
+        function scrollUp() {
+            selectedIndex = (selectedIndex - 1 + songs.length) % songs.length;
+            const container = document.querySelector('.song-list-container');
+            container.classList.add('scroll-up');
+            setTimeout(() => container.classList.remove('scroll-up'), 300);
+            updateSongBars();
+        }
+
+        function scrollDown() {
+            selectedIndex = (selectedIndex + 1) % songs.length;
+            const container = document.querySelector('.song-list-container');
+            container.classList.add('scroll-down');
+            setTimeout(() => container.classList.remove('scroll-down'), 300);
+            updateSongBars();
+        }
+
+        function toggleSearch() {
+            const notification = document.getElementById('searchNotification');
+            searchShown = !searchShown;
+            notification.style.display = searchShown ? 'block' : 'none';
+        }
+
+        function toggleQuickConfig() {
+            const config = document.getElementById('quickConfig');
+            configShown = !configShown;
+            config.style.display = configShown ? 'block' : 'none';
+        }
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp':
+                    scrollUp();
+                    break;
+                case 'ArrowDown':
+                    scrollDown();
+                    break;
+                case 's':
+                case 'S':
+                    toggleSearch();
+                    break;
+                case 'c':
+                case 'C':
+                    toggleQuickConfig();
+                    break;
+                case 'Escape':
+                    if (searchShown) toggleSearch();
+                    if (configShown) toggleQuickConfig();
+                    break;
+            }
+        });
+
+        // Click handlers for song bars
+        document.querySelectorAll('.song-bar').forEach((bar, index) => {
+            bar.addEventListener('click', () => {
+                // Calculate scroll direction and amount
+                const targetIndex = selectedIndex + (index - 5);
+                const scrollAmount = index - 5;
+                
+                if (scrollAmount !== 0) {
+                    selectedIndex = (targetIndex + songs.length) % songs.length;
+                    updateSongBars();
+                }
+            });
+        });
+
+        // Initialize
+        updateSongBars();
+
+        // Auto-demo (optional)
+        let autoDemo = false;
+        if (autoDemo) {
+            setInterval(() => {
+                if (!searchShown && !configShown) {
+                    Math.random() > 0.5 ? scrollDown() : scrollUp();
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
