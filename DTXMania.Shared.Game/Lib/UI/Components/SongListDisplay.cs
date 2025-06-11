@@ -44,6 +44,41 @@ namespace DTX.UI.Components
             new Point(1280, 668)    // Bar 12 (bottom)
         };
 
+        // DTXManiaNX Visual Effects - Perspective scaling and opacity for curved layout
+        private static readonly float[] BarScaleFactors = new float[]
+        {
+            0.8f,   // Bar 0 (top) - smaller
+            0.85f,  // Bar 1
+            0.9f,   // Bar 2
+            0.95f,  // Bar 3
+            1.0f,   // Bar 4
+            1.1f,   // Bar 5 (CENTER) - largest
+            1.0f,   // Bar 6
+            0.95f,  // Bar 7
+            0.9f,   // Bar 8
+            0.85f,  // Bar 9
+            0.8f,   // Bar 10
+            0.75f,  // Bar 11
+            0.7f    // Bar 12 (bottom) - smallest
+        };
+
+        private static readonly float[] BarOpacityFactors = new float[]
+        {
+            0.4f,   // Bar 0 (top) - faded
+            0.5f,   // Bar 1
+            0.6f,   // Bar 2
+            0.7f,   // Bar 3
+            0.8f,   // Bar 4
+            1.0f,   // Bar 5 (CENTER) - full opacity
+            0.8f,   // Bar 6
+            0.7f,   // Bar 7
+            0.6f,   // Bar 8
+            0.5f,   // Bar 9
+            0.4f,   // Bar 10
+            0.3f,   // Bar 11
+            0.2f    // Bar 12 (bottom) - most faded
+        };
+
         #endregion
 
         #region Fields
@@ -464,7 +499,7 @@ namespace DTX.UI.Components
             // Calculate center song index based on scroll position
             int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
 
-            // Draw 13 visible bars using DTXManiaNX curved coordinates
+            // Draw 13 visible bars using DTXManiaNX curved coordinates with perspective effects
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
                 // Calculate which song should be displayed at this bar position
@@ -477,19 +512,27 @@ namespace DTX.UI.Components
                 var node = _currentList[songIndex];
                 var barCoords = CurvedBarCoordinates[barIndex];
 
-                // Create item bounds using curved coordinates
+                // Apply DTXManiaNX perspective scaling
+                var scaleFactor = BarScaleFactors[barIndex];
+                var opacityFactor = BarOpacityFactors[barIndex];
+
+                // Calculate scaled dimensions
+                var scaledWidth = (int)(500 * scaleFactor); // Base width scaled by perspective
+                var scaledHeight = (int)(_itemHeight * scaleFactor);
+
+                // Create item bounds using curved coordinates with perspective scaling
                 var itemBounds = new Rectangle(
                     barCoords.X,
                     barCoords.Y,
-                    500, // Wider bar width for better coverage
-                    (int)_itemHeight
+                    scaledWidth,
+                    scaledHeight
                 );
 
                 // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
                 bool isSelected = (barIndex == CENTER_INDEX);
                 bool isCenter = isSelected; // Center bar is the selected bar
 
-                DrawSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
+                DrawSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
             }
         }
 
@@ -503,6 +546,19 @@ namespace DTX.UI.Components
             else
             {
                 DrawBasicSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
+            }
+        }
+
+        private void DrawSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
+        {
+            // Use enhanced rendering with perspective effects
+            if (_useEnhancedRendering && _barRenderer != null && _font != null)
+            {
+                DrawEnhancedSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
+            }
+            else
+            {
+                DrawBasicSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
             }
         }
 
@@ -520,6 +576,23 @@ namespace DTX.UI.Components
             {
                 // Fallback to original method if bar info generation fails
                 DrawEnhancedSongItemFallback(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
+            }
+        }
+
+        private void DrawEnhancedSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
+        {
+            // Phase 2 Enhancement: Use bar information caching system with perspective effects
+            var barInfo = GetOrCreateBarInfo(node, _currentDifficulty, isSelected);
+
+            if (barInfo != null)
+            {
+                // Draw using cached bar information with perspective effects
+                DrawBarInfoWithPerspective(spriteBatch, barInfo, itemBounds, isSelected, isCenter, scaleFactor, opacityFactor);
+            }
+            else
+            {
+                // Fallback to basic perspective rendering
+                DrawBasicSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
             }
         }
 
@@ -601,6 +674,70 @@ namespace DTX.UI.Components
             }
         }
 
+        /// <summary>
+        /// Draw song bar using cached bar information with DTXManiaNX perspective effects
+        /// </summary>
+        private void DrawBarInfoWithPerspective(SpriteBatch spriteBatch, SongBarInfo barInfo, Rectangle itemBounds, bool isSelected, bool isCenter, float scaleFactor, float opacityFactor)
+        {
+            // Apply opacity to all colors
+            var opacity = Color.White * opacityFactor;
+
+            // Draw background using Phase 2 bar type specific graphics generator with perspective
+            if (_graphicsGenerator != null)
+            {
+                var backgroundTexture = _graphicsGenerator.GenerateBarTypeBackground(itemBounds.Width, itemBounds.Height, barInfo.BarType, isSelected, isCenter);
+                if (backgroundTexture != null)
+                {
+                    backgroundTexture.Draw(spriteBatch, new Vector2(itemBounds.X, itemBounds.Y), null);
+                }
+            }
+
+            // Draw clear lamp with perspective
+            if (barInfo.ClearLamp != null)
+            {
+                var lampWidth = (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor);
+                var lampDestRect = new Rectangle(itemBounds.X, itemBounds.Y, lampWidth, itemBounds.Height);
+                barInfo.ClearLamp.Draw(spriteBatch, lampDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+
+            // Draw preview image with perspective
+            if (barInfo.PreviewImage != null)
+            {
+                var imageSize = (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor);
+                var imageX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + 5;
+                var imageY = itemBounds.Y + (itemBounds.Height - imageSize) / 2;
+                var imageDestRect = new Rectangle(imageX, imageY, imageSize, imageSize);
+                barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+
+            // Draw title with perspective
+            if (barInfo.TitleTexture != null)
+            {
+                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
+                var textY = itemBounds.Y + (itemBounds.Height - (int)(barInfo.TitleTexture.Height * scaleFactor)) / 2;
+                var textPosition = new Vector2(textX, textY);
+                var textScale = new Vector2(scaleFactor, scaleFactor);
+                barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
+            }
+            else if (_font != null)
+            {
+                // Fallback to direct text rendering with perspective
+                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
+                var textY = itemBounds.Y + (itemBounds.Height - (int)(_font.LineSpacing * scaleFactor)) / 2;
+                var textPosition = new Vector2(textX, textY);
+                var textScale = new Vector2(scaleFactor, scaleFactor);
+
+                // Draw shadow first with perspective
+                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset * scaleFactor;
+                var shadowColor = DTXManiaVisualTheme.FontEffects.SongTextShadowColor * opacityFactor;
+                spriteBatch.DrawString(_font, barInfo.TitleString, shadowPosition, shadowColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
+                // Draw main text with perspective
+                var textColor = barInfo.TextColor * opacityFactor;
+                spriteBatch.DrawString(_font, barInfo.TitleString, textPosition, textColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+            }
+        }
+
         private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
         {
             // Draw item background with DTXManiaNX curved layout styling
@@ -662,6 +799,78 @@ namespace DTX.UI.Components
                     var fallbackColor = isSelected ? Color.Yellow : Color.Gray;
                     var textBounds = new Rectangle(itemBounds.X + 10, itemBounds.Y + 5, itemBounds.Width - 20, itemBounds.Height - 10);
                     spriteBatch.Draw(_whitePixel, textBounds, fallbackColor * 0.5f);
+                }
+            }
+        }
+
+        private void DrawBasicSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
+        {
+            // Draw item background with DTXManiaNX curved layout styling and perspective effects
+            if (_whitePixel != null)
+            {
+                // Use different colors for center vs selected vs normal bars with opacity
+                Color backgroundColor;
+                if (isCenter)
+                {
+                    backgroundColor = Color.Gold * 0.8f * opacityFactor; // Center bar gets gold highlight
+                }
+                else if (isSelected)
+                {
+                    backgroundColor = _selectedItemColor * opacityFactor;
+                }
+                else
+                {
+                    backgroundColor = Color.DarkBlue * 0.3f * opacityFactor; // Normal bars get subtle background
+                }
+
+                spriteBatch.Draw(_whitePixel, itemBounds, backgroundColor);
+
+                // Draw border for center bar with perspective
+                if (isCenter && _whitePixel != null)
+                {
+                    var borderColor = Color.Yellow * opacityFactor;
+                    var borderThickness = Math.Max(1, (int)(2 * scaleFactor));
+
+                    // Top border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, borderThickness), borderColor);
+                    // Bottom border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Bottom - borderThickness, itemBounds.Width, borderThickness), borderColor);
+                    // Left border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
+                    // Right border
+                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.Right - borderThickness, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
+                }
+            }
+
+            // Draw text with perspective scaling and opacity
+            var text = GetDisplayText(node);
+            var baseTextColor = isCenter ? Color.White : (isSelected ? _selectedTextColor : _textColor);
+            var textColor = baseTextColor * opacityFactor;
+            var textPos = new Vector2(itemBounds.X + (int)(10 * scaleFactor), itemBounds.Y + (int)(5 * scaleFactor));
+            var textScale = new Vector2(scaleFactor, scaleFactor);
+
+            if (_font != null)
+            {
+                spriteBatch.DrawString(_font, text, textPos, textColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+            }
+            else if (_managedFont != null)
+            {
+                // Use managed font's drawing method with scaling (if supported)
+                _managedFont.DrawString(spriteBatch, text, textPos, textColor);
+            }
+            else
+            {
+                // Fallback: draw a simple rectangle to show the item exists with perspective
+                if (_whitePixel != null)
+                {
+                    var fallbackColor = (isSelected ? Color.Yellow : Color.Gray) * 0.5f * opacityFactor;
+                    var textBounds = new Rectangle(
+                        itemBounds.X + (int)(10 * scaleFactor),
+                        itemBounds.Y + (int)(5 * scaleFactor),
+                        itemBounds.Width - (int)(20 * scaleFactor),
+                        itemBounds.Height - (int)(10 * scaleFactor)
+                    );
+                    spriteBatch.Draw(_whitePixel, textBounds, fallbackColor);
                 }
             }
         }

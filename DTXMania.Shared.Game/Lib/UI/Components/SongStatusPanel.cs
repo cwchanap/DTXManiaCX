@@ -31,6 +31,16 @@ namespace DTX.UI.Components
         private ITexture _statusPanelTexture;
         private IResourceManager _resourceManager;
 
+        // DTXManiaNX layout constants (authentic positioning)
+        private const int DIFFICULTY_GRID_X = 15; // Grid base X position
+        private const int DIFFICULTY_GRID_Y = 50; // Grid base Y position
+        private const int DIFFICULTY_CELL_WIDTH = 187; // Panel width per difficulty
+        private const int DIFFICULTY_CELL_HEIGHT = 60; // Panel height per difficulty
+        private const int BPM_SECTION_X = 90; // BPM section X position
+        private const int BPM_SECTION_Y = 25; // BPM section Y position (relative to panel)
+        private const int SKILL_POINT_X = 32; // Skill point section X position
+        private const int SKILL_POINT_Y = 5; // Skill point section Y position (relative to panel)
+
         // Layout constants from DTXManiaNX theme
         private float LINE_HEIGHT => DTXManiaVisualTheme.Layout.StatusLineHeight;
         private float SECTION_SPACING => DTXManiaVisualTheme.Layout.StatusSectionSpacing;
@@ -109,15 +119,12 @@ namespace DTX.UI.Components
         {
             _resourceManager = resourceManager;
             LoadStatusPanelGraphics();
-        }
-
-        private void LoadStatusPanelGraphics()
+        }        private void LoadStatusPanelGraphics()
         {
             try
             {
                 // Load DTXManiaNX status panel background
                 _statusPanelTexture = _resourceManager.LoadTexture("Graphics/5_status panel.png");
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loaded 5_status panel.png");
             }
             catch (Exception ex)
             {
@@ -131,7 +138,7 @@ namespace DTX.UI.Components
 
         public SongStatusPanel()
         {
-            Size = new Vector2(DTXManiaVisualTheme.Layout.StatusPanelWidth, 400);
+            Size = new Vector2(DTXManiaVisualTheme.Layout.StatusPanelWidth, DTXManiaVisualTheme.Layout.StatusPanelHeight);
         }
 
         #endregion
@@ -160,13 +167,7 @@ namespace DTX.UI.Components
                 return;
             }
 
-            var bounds = Bounds;
-
-            // Only log occasionally to reduce noise
-            if (System.Environment.TickCount % 1000 < 50) // Log roughly once per second
-            {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Drawing at bounds {bounds}, Font: {(_font != null ? "Available" : "Null")}, Song: {(_currentSong != null ? _currentSong.DisplayTitle : "None")}");
-            }
+            var bounds = Bounds;            // Debug logging removed for cleaner code
 
             // Draw background using DTXManiaNX styling
             DrawBackground(spriteBatch, bounds);
@@ -179,22 +180,10 @@ namespace DTX.UI.Components
             else if (_font != null || _managedFont != null)
             {
                 DrawNoSongMessage(spriteBatch, bounds);
-            }
-            else
+            }            else
             {
-                // Fallback rendering when no fonts are available - this should always show something
-                DrawFallbackContent(spriteBatch, bounds);
-            }
-
-            // Debug: Always show fallback content for now to test visibility
-            if (_currentSong != null)
-            {
-                // Draw a small indicator in the corner to show the panel is working
-                if (_whitePixel != null)
-                {
-                    var indicator = new Rectangle(bounds.Right - 20, bounds.Y + 5, 15, 15);
-                    spriteBatch.Draw(_whitePixel, indicator, Color.Lime);
-                }
+                // Fallback rendering when no fonts are available
+                DrawNoSongMessage(spriteBatch, bounds);
             }
 
             base.OnDraw(spriteBatch, deltaTime);
@@ -250,23 +239,40 @@ namespace DTX.UI.Components
 
         private void DrawSongInfo(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            if (_currentSong.Type == NodeType.Score && _currentSong.Scores?.Length > 0)
+            {
+                // Draw DTXManiaNX authentic layout
+                DrawDTXManiaNXLayout(spriteBatch, bounds);
+            }
+            else
+            {
+                // Draw simplified info for non-score items
+                DrawSimplifiedInfo(spriteBatch, bounds);
+            }
+        }
+
+        private void DrawDTXManiaNXLayout(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            // Draw BPM and song duration section (top area)
+            DrawBPMSection(spriteBatch, bounds);
+
+            // Draw skill point section (above BPM)
+            DrawSkillPointSection(spriteBatch, bounds);
+
+            // Draw 3×5 difficulty grid (main area)
+            DrawDifficultyGrid(spriteBatch, bounds);
+
+            // Draw graph panel area (bottom area)
+            DrawGraphPanel(spriteBatch, bounds);
+        }
+
+        private void DrawSimplifiedInfo(SpriteBatch spriteBatch, Rectangle bounds)
+        {
             float y = bounds.Y + 10;
             float x = bounds.X + 10;
 
             // Draw song type indicator
             DrawSongTypeInfo(spriteBatch, ref x, ref y, bounds.Width - 20);
-
-            if (_currentSong.Type == NodeType.Score && _currentSong.Scores?.Length > 0)
-            {
-                // Draw song metadata
-                DrawSongMetadata(spriteBatch, ref x, ref y, bounds.Width - 20);
-
-                // Draw difficulty information
-                DrawDifficultyInfo(spriteBatch, ref x, ref y, bounds.Width - 20);
-
-                // Draw performance statistics
-                DrawPerformanceStats(spriteBatch, ref x, ref y, bounds.Width - 20);
-            }
         }
 
         private void DrawSongTypeInfo(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
@@ -444,6 +450,170 @@ namespace DTX.UI.Components
             }
         }
 
+        #region DTXManiaNX Authentic Layout Methods
+
+        private void DrawBPMSection(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            var score = GetCurrentScore();
+            if (score?.Metadata == null)
+                return;
+
+            var metadata = score.Metadata;
+            var x = bounds.X + BPM_SECTION_X;
+            var y = bounds.Y + BPM_SECTION_Y;
+
+            // Draw BPM label and value (DTXManiaNX format: "BPM: 145")
+            if (metadata.BPM.HasValue && metadata.BPM.Value > 0)
+            {
+                var bpmText = $"BPM: {metadata.BPM.Value:F0}";
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
+            }
+
+            // Draw duration label and value (DTXManiaNX format: "Length: 2:34")
+            if (metadata.Duration.HasValue && metadata.Duration.Value > 0)
+            {
+                var durationText = $"Length: {metadata.FormattedDuration}";
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(x, y + 20), DTXManiaVisualTheme.SongSelection.StatusValueText);
+            }
+        }
+
+        private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            var score = GetCurrentScore();
+            if (score == null)
+                return;
+
+            var x = bounds.X + SKILL_POINT_X;
+            var y = bounds.Y + SKILL_POINT_Y;
+
+            // Draw skill point background panel (if available)
+            if (_whitePixel != null)
+            {
+                var skillPanelRect = new Rectangle(x, y, 120, 20);
+                spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
+            }
+
+            // Draw highest skill point value (DTXManiaNX format: "##0.00")
+            var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, $"Skill: {skillValue}", new Vector2(x + 5, y + 2), Color.Yellow);
+        }
+
+        private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            if (_currentSong.Scores == null)
+                return;
+
+            var baseX = bounds.X + DIFFICULTY_GRID_X;
+            var baseY = bounds.Y + DIFFICULTY_GRID_Y;
+
+            // Draw 3×5 grid header
+            DrawTextWithShadow(spriteBatch, _font, "Difficulties", new Vector2(baseX, baseY), DTXManiaVisualTheme.SongSelection.StatusLabelText);
+
+            // Draw instrument headers (D, G, B)
+            var instruments = new[] { "D", "G", "B" };
+            for (int col = 0; col < 3; col++)
+            {
+                var headerX = baseX + 80 + (col * DIFFICULTY_CELL_WIDTH / 3);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, instruments[col], new Vector2(headerX, baseY + 25), Color.White);
+            }
+
+            // Draw difficulty levels (5 rows: Ultimate, Master, Expert, Regular, Novice)
+            var difficultyNames = new[] { "Ultimate", "Master", "Expert", "Regular", "Novice" };
+            for (int row = 0; row < 5; row++)
+            {
+                var cellY = baseY + 50 + (row * (DIFFICULTY_CELL_HEIGHT / 2));
+
+                // Draw difficulty name
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, difficultyNames[row], new Vector2(baseX, cellY), DTXManiaVisualTheme.SongSelection.StatusLabelText);
+
+                // Draw difficulty cells for each instrument
+                for (int col = 0; col < 3; col++)
+                {
+                    var cellX = baseX + 80 + (col * DIFFICULTY_CELL_WIDTH / 3);
+                    DrawDifficultyCell(spriteBatch, cellX, cellY, row, col);
+                }
+            }
+        }
+
+        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int difficultyLevel, int instrument)
+        {
+            var cellWidth = DIFFICULTY_CELL_WIDTH / 3 - 5;
+            var cellHeight = DIFFICULTY_CELL_HEIGHT / 2 - 5;
+
+            // Draw cell background
+            if (_whitePixel != null)
+            {
+                var isSelected = difficultyLevel == _currentDifficulty;
+                var cellColor = isSelected ? Color.Yellow * 0.3f : Color.Gray * 0.2f;
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, cellWidth, cellHeight), cellColor);
+
+                // Draw cell border
+                var borderColor = isSelected ? Color.Yellow : Color.Gray;
+                // Top border
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, cellWidth, 1), borderColor);
+                // Bottom border
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y + cellHeight - 1, cellWidth, 1), borderColor);
+                // Left border
+                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 1, cellHeight), borderColor);
+                // Right border
+                spriteBatch.Draw(_whitePixel, new Rectangle(x + cellWidth - 1, y, 1, cellHeight), borderColor);
+            }            // Draw difficulty level or "--" if not available
+            var score = (_currentSong?.Scores != null && difficultyLevel >= 0 && difficultyLevel < _currentSong.Scores.Length) 
+                ? _currentSong.Scores[difficultyLevel] : null;
+            var levelText = score != null ? GetDifficultyLevel(score, difficultyLevel) : "--";
+
+            var textColor = difficultyLevel == _currentDifficulty ? Color.Yellow : Color.White;
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(x + 5, y + 5), textColor);
+        }
+
+        private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            var score = GetCurrentScore();
+            if (score?.Metadata == null)
+                return;
+
+            var baseX = bounds.X + 15;
+            var baseY = bounds.Y + 200; // Bottom area of the panel
+
+            // Draw graph panel background
+            if (_whitePixel != null)
+            {
+                var graphRect = new Rectangle(baseX, baseY, bounds.Width - 30, 100);
+                spriteBatch.Draw(_whitePixel, graphRect, Color.Black * 0.5f);
+            }
+
+            // Draw total notes count
+            var totalNotes = score.Metadata.TotalNoteCount;
+            if (totalNotes > 0)
+            {
+                var notesText = $"Total Notes: {totalNotes:N0}";
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, new Vector2(baseX + 10, baseY + 10), Color.Cyan);
+            }
+
+            // Draw note distribution bars (simplified)
+            if (totalNotes > 0)
+            {
+                var barY = baseY + 40;
+                var barWidth = 4;
+                var maxBarHeight = 50;
+
+                // Draw simplified note distribution bars
+                for (int i = 0; i < 6; i++) // 6 lanes for guitar/bass
+                {
+                    var barX = baseX + 20 + (i * 10);
+                    var barHeight = (int)(maxBarHeight * (0.3f + (i % 3) * 0.2f)); // Simulated distribution
+                    var barColor = DTXManiaVisualTheme.SongSelection.DifficultyColors[i % DTXManiaVisualTheme.SongSelection.DifficultyColors.Length];
+
+                    if (_whitePixel != null)
+                    {
+                        spriteBatch.Draw(_whitePixel, new Rectangle(barX, barY + maxBarHeight - barHeight, barWidth, barHeight), barColor);
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         private void DrawNoSongMessage(SpriteBatch spriteBatch, Rectangle bounds)
         {
             var message = "No song selected";
@@ -469,86 +639,6 @@ namespace DTX.UI.Components
             );
             DrawTextWithShadow(spriteBatch, _font, message, messagePos, DTXManiaVisualTheme.SongSelection.StatusValueText);
         }
-
-        private void DrawFallbackContent(SpriteBatch spriteBatch, Rectangle bounds)
-        {
-            if (_whitePixel == null)
-                return;
-
-            // Draw status indicators using colored rectangles when font is unavailable
-            var y = bounds.Y + 10;
-            var x = bounds.X + 10;
-            var lineHeight = 25;
-
-            // Draw panel title indicator with bright border to make it visible
-            spriteBatch.Draw(_whitePixel, new Rectangle(x - 2, y - 2, bounds.Width - 16, 24), Color.White);
-            spriteBatch.Draw(_whitePixel, new Rectangle(x, y, bounds.Width - 20, 20), Color.DarkBlue * 0.8f);
-            y += lineHeight;
-
-            // Song type indicator
-            if (_currentSong != null)
-            {
-                var typeColor = _currentSong.Type switch
-                {
-                    NodeType.Score => Color.LightBlue,
-                    NodeType.Box => Color.Yellow,
-                    NodeType.BackBox => Color.Orange,
-                    NodeType.Random => Color.Magenta,
-                    _ => Color.Gray
-                };
-
-                // Song type bar
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 120, 18), typeColor);
-                y += lineHeight;
-
-                // Title indicator (wider and more visible)
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 200, 15), Color.White);
-                y += lineHeight;
-
-                // Difficulty indicators (if it's a score)
-                if (_currentSong.Type == NodeType.Score && _currentSong.Scores != null)
-                {
-                    // Draw difficulty label area
-                    spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 60, 12), Color.Gray);
-
-                    // Draw individual difficulty indicators
-                    for (int i = 0; i < Math.Min(5, _currentSong.Scores.Length); i++)
-                    {
-                        if (_currentSong.Scores[i] != null)
-                        {
-                            var diffColor = i == _currentDifficulty ? Color.Gold : Color.LightGray;
-                            spriteBatch.Draw(_whitePixel, new Rectangle(x + 70 + i * 35, y, 30, 12), diffColor);
-                        }
-                    }
-                    y += lineHeight;
-
-                    // BPM indicator (if available)
-                    if (_currentSong.Metadata?.BPM > 0)
-                    {
-                        var bpmValue = _currentSong.Metadata.BPM.GetValueOrDefault(0);
-                        var bpmWidth = (int)Math.Min(150, bpmValue * 0.8);
-                        spriteBatch.Draw(_whitePixel, new Rectangle(x, y, bpmWidth, 8), Color.Green);
-                    }
-                    y += 15;
-
-                    // Score indicator (if available)
-                    var currentScore = GetCurrentScore();
-                    if (currentScore?.BestScore > 0)
-                    {
-                        var scoreWidth = (int)Math.Min(180, currentScore.BestScore / 1000);
-                        spriteBatch.Draw(_whitePixel, new Rectangle(x, y, scoreWidth, 8), Color.Cyan);
-                    }
-                }
-            }
-            else
-            {
-                // No song selected indicator
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 120, 18), Color.DarkGray);
-                y += lineHeight;
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, 80, 12), Color.Red * 0.5f);
-            }
-        }
-
         private void DrawLabelValue(SpriteBatch spriteBatch, string label, string value, float x, float y)
         {
             var font = _smallFont ?? _font;

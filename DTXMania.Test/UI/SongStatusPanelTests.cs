@@ -61,7 +61,7 @@ namespace DTXMania.Test.UI
             var panel = new SongStatusPanel();
 
             Assert.NotNull(panel);
-            Assert.Equal(new Vector2(300, 400), panel.Size);
+            Assert.Equal(new Vector2(580, 320), panel.Size); // Updated to DTXManiaNX authentic size
             Assert.True(panel.Visible);
         }
 

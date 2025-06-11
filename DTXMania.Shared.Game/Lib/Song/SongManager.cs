@@ -293,30 +293,45 @@ namespace DTX.Song
                     boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
                 }
 
-                // Process subdirectories as BOX folders
+                // Process subdirectories - distinguish between BOX folders and song folders
                 foreach (var subDir in directory.GetDirectories())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    // Check if this is a DTXFiles.* prefixed folder (should be NodeType.Box)
+                    var isDTXFilesFolder = subDir.Name.StartsWith("DTXFiles.", StringComparison.OrdinalIgnoreCase);
+
                     // Check for box.def in the subdirectory itself
                     BoxDefinition? subDirBoxDef = null;
                     var subDirBoxDefPath = Path.Combine(subDir.FullName, "box.def");
-                    if (File.Exists(subDirBoxDefPath))
+                    var hasBoxDef = File.Exists(subDirBoxDefPath);
+                    if (hasBoxDef)
                     {
                         subDirBoxDef = await ParseBoxDefinitionAsync(subDirBoxDefPath, cancellationToken);
                     }
 
-                    var boxNode = CreateBoxNodeFromDirectory(subDir, parent, subDirBoxDef);
-                    var children = await EnumerateDirectoryAsync(subDir.FullName, boxNode, progress, cancellationToken);
-
-                    foreach (var child in children)
+                    // Determine if this should be a BOX (folder container) or treated as individual songs
+                    if (isDTXFilesFolder || hasBoxDef)
                     {
-                        boxNode.AddChild(child);
+                        // This is a BOX folder (DTXFiles.* prefix or has box.def)
+                        var boxNode = CreateBoxNodeFromDirectory(subDir, parent, subDirBoxDef);
+                        var children = await EnumerateDirectoryAsync(subDir.FullName, boxNode, progress, cancellationToken);
+
+                        foreach (var child in children)
+                        {
+                            boxNode.AddChild(child);
+                        }
+
+                        if (boxNode.Children.Count > 0)
+                        {
+                            results.Add(boxNode);
+                        }
                     }
-
-                    if (boxNode.Children.Count > 0)
+                    else
                     {
-                        results.Add(boxNode);
+                        // This is a regular song folder - treat contents as individual songs
+                        var children = await EnumerateDirectoryAsync(subDir.FullName, parent, progress, cancellationToken);
+                        results.AddRange(children);
                     }
                 }
 

@@ -111,8 +111,9 @@ namespace DTX.UI
             public static readonly int VisibleSongCount = 13;
             public static readonly int CenterSongIndex = 6;
 
-            // Status panel dimensions
-            public static readonly int StatusPanelWidth = 320;
+            // Status panel dimensions (DTXManiaNX authentic)
+            public static readonly int StatusPanelWidth = 580; // Updated to match DTXManiaNX layout
+            public static readonly int StatusPanelHeight = 320; // DTXManiaNX authentic height
             public static readonly int StatusPanelPadding = 15;
             public static readonly int StatusLineHeight = 20;
             public static readonly int StatusSectionSpacing = 10;

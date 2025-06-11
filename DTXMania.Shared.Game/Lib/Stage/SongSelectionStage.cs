@@ -320,11 +320,11 @@ namespace DTX.Stage
             }
 
             // Create DTXManiaNX-style status panel
-            // Position in the bottom left corner as per DTXManiaNX layout
+            // Position at authentic DTXManiaNX coordinates (X:130, Y:350)
             _statusPanel = new SongStatusPanel
             {
-                Position = new Vector2(50, 400), // Bottom left corner
-                Size = new Vector2(350, 250), // Reasonable size for status info
+                Position = new Vector2(130, 350), // DTXManiaNX authentic position
+                Size = new Vector2(580, 320), // DTXManiaNX authentic size for 3×5 difficulty grid
                 Font = uiFont?.SpriteFont,
                 SmallFont = uiFont?.SpriteFont, // Use same font for now
                 ManagedFont = uiFont,

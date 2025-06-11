@@ -205,12 +205,12 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithSubdirectories_ShouldCreateBoxNodes()
+        public async Task EnumerateSongsAsync_WithDTXFilesPrefix_ShouldCreateBoxNodes()
         {
             // Arrange
             var manager = new SongManager();
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest");
-            var subDir = Path.Combine(tempDir, "SubFolder");
+            var subDir = Path.Combine(tempDir, "DTXFiles.TestFolder"); // DTXFiles prefix makes it a box
             var dtxFile = Path.Combine(subDir, "test.dtx");
 
             try
@@ -227,9 +227,9 @@ namespace DTXMania.Test.Song
                 // Assert
                 Assert.Equal(1, result);
                 Assert.True(manager.RootSongs.Any(n => n.Type == NodeType.Box));
-                
+
                 var boxNode = manager.RootSongs.First(n => n.Type == NodeType.Box);
-                Assert.Equal("SubFolder", boxNode.Title);
+                Assert.Equal("DTXFiles.TestFolder", boxNode.Title);
                 Assert.True(boxNode.Children.Any(c => c.Type == NodeType.Score));
             }
             finally
@@ -455,13 +455,9 @@ namespace DTXMania.Test.Song
                 // Assert
                 Assert.True(result > 0);
                 var rootSongs = manager.RootSongs;
-                Assert.Single(rootSongs); // Should have one box containing the multi-difficulty song
+                Assert.Single(rootSongs); // Should have one song with multiple difficulties (no box wrapper for regular folders)
 
-                var boxNode = rootSongs.First();
-                Assert.Equal(NodeType.Box, boxNode.Type);
-                Assert.Single(boxNode.Children); // Should contain one song with multiple difficulties
-
-                var songNode = boxNode.Children.First();
+                var songNode = rootSongs.First();
                 Assert.Equal(NodeType.Score, songNode.Type);
                 Assert.Equal("Test Song Multi-Difficulty", songNode.DisplayTitle);
                 Assert.Equal(3, songNode.AvailableDifficulties);
@@ -540,7 +536,7 @@ namespace DTXMania.Test.Song
 
                 // Assert
                 Assert.True(result > 0);
-                var songNode = manager.RootSongs.First().Children.First();
+                var songNode = manager.RootSongs.First(); // No box wrapper for regular folders
                 Assert.Equal(1, songNode.AvailableDifficulties); // Only one difficulty should be available
             }
             finally
@@ -600,18 +596,18 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseBoxDefinition_NoBoxDef_ShouldUseFolderName()
+        public async Task ParseBoxDefinition_NoBoxDef_ShouldTreatAsIndividualSong()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_NoBoxDef");
-            var boxDir = Path.Combine(tempDir, "RegularFolder");
+            var songDir = Path.Combine(tempDir, "RegularFolder");
 
             try
             {
-                Directory.CreateDirectory(boxDir);
+                Directory.CreateDirectory(songDir);
 
-                // Create a test song without box.def
-                var dtxPath = Path.Combine(boxDir, "test.dtx");
+                // Create a test song without box.def (regular song folder)
+                var dtxPath = Path.Combine(songDir, "test.dtx");
                 await File.WriteAllTextAsync(dtxPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n");
 
                 var manager = new SongManager();
@@ -621,11 +617,44 @@ namespace DTXMania.Test.Song
 
                 // Assert
                 Assert.True(result > 0);
-                var boxNode = manager.RootSongs.First();
-                Assert.Equal("RegularFolder", boxNode.DisplayTitle); // Should use folder name for box
-                Assert.Single(boxNode.Children); // Should contain one song
-                var songNode = boxNode.Children.First();
+                var songNode = manager.RootSongs.First();
+                Assert.Equal(NodeType.Score, songNode.Type); // Should be a song, not a box
                 Assert.Equal("Test Song", songNode.DisplayTitle); // Song should use its title
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task EnumerateSongsAsync_WithRegularSongFolder_ShouldTreatAsIndividualSong()
+        {
+            // Arrange
+            var manager = new SongManager();
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTest_RegularFolder");
+            var songDir = Path.Combine(tempDir, "MySong"); // Regular folder (no DTXFiles. prefix)
+            var dtxFile = Path.Combine(songDir, "song.dtx");
+
+            try
+            {
+                Directory.CreateDirectory(songDir);
+                await File.WriteAllTextAsync(dtxFile, @"#TITLE: My Song
+#ARTIST: My Artist
+#DLEVEL: 45
+");
+
+                // Act
+                var result = await manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                Assert.Equal(1, result);
+                Assert.Single(manager.RootSongs);
+
+                var songNode = manager.RootSongs.First();
+                Assert.Equal(NodeType.Score, songNode.Type); // Should be a song, not a box
+                Assert.Equal("My Song", songNode.DisplayTitle);
             }
             finally
             {
