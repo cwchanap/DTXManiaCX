@@ -179,9 +179,7 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region StageType Enum Tests
-
-        [Fact]
+        #region StageType Enum Tests        [Fact]
         public void StageType_AllValuesAreDefined()
         {
             // Act & Assert - Verify all expected stage types exist
@@ -191,25 +189,19 @@ namespace DTXMania.Test.Stage
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.SongSelect));
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.Performance));
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.Result));
-            Assert.True(Enum.IsDefined(typeof(StageType), StageType.UITest));
-        }
-
-        [Fact]
+        }        [Fact]
         public void StageType_HasExpectedValues()
         {
             // Act & Assert - Verify stage type values
             Assert.Equal(0, (int)StageType.Startup);
             Assert.Equal(1, (int)StageType.Title);
             Assert.Equal(2, (int)StageType.Config);
-            Assert.Equal(6, (int)StageType.UITest);
-        }
-
-        [Fact]
+        }        [Fact]
         public void StageType_EnumCount_IsCorrect()
         {
             // Verify we have the expected number of stage types
             var stageTypes = Enum.GetValues(typeof(StageType));
-            Assert.Equal(7, stageTypes.Length); // Startup, Title, Config, SongSelect, Performance, Result, UITest
+            Assert.Equal(6, stageTypes.Length); // Startup, Title, Config, SongSelect, Performance, Result
         }
 
         #endregion

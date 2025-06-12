@@ -18,9 +18,7 @@ namespace DTX.Stage
         void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData);
         void Update(double deltaTime);
         void Draw(double deltaTime);
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Stage types available in DTXManiaCX
     /// </summary>
     public enum StageType
@@ -30,8 +28,7 @@ namespace DTX.Stage
         Config,
         SongSelect,
         Performance,
-        Result,
-        UITest  // For testing UI components
+        Result
     }
 
     /// <summary>

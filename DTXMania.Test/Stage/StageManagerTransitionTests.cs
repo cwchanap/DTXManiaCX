@@ -187,15 +187,12 @@ namespace DTXMania.Test.Stage
             private IStageTransition _currentTransition;
             private double _transitionElapsed;
             private IStage _targetStage;
-            private Dictionary<string, object> _targetSharedData;
-
-            public MockStageManager()
+            private Dictionary<string, object> _targetSharedData;            public MockStageManager()
             {
                 _stages = new Dictionary<StageType, IStage>
                 {
                     [StageType.Title] = new MockStage(StageType.Title),
-                    [StageType.Config] = new MockStage(StageType.Config),
-                    [StageType.UITest] = new MockStage(StageType.UITest)
+                    [StageType.Config] = new MockStage(StageType.Config)
                 };
 
                 foreach (var stage in _stages.Values)

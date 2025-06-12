@@ -234,21 +234,19 @@ namespace DTXMania.Test.Stage
             Assert.Contains("FadeIn", phases);
             Assert.Contains("Normal", phases);
             Assert.Contains("FadeOut", phases);
-        }
-
-        [Fact]
+        }        [Fact]
         public void StageTransitions_ShouldMapToCorrectStages()
         {
             // Arrange - Simulate stage mapping
             var stageMapping = new Dictionary<int, string>
             {
-                { 0, "UITest" },    // GAME START
-                { 1, "Config" },    // CONFIG
-                { 2, "Exit" }       // EXIT
+                { 0, "SongSelect" },    // GAME START
+                { 1, "Config" },       // CONFIG
+                { 2, "Exit" }          // EXIT
             };
 
             // Act & Assert
-            Assert.Equal("UITest", stageMapping[0]);
+            Assert.Equal("SongSelect", stageMapping[0]);
             Assert.Equal("Config", stageMapping[1]);
             Assert.Equal("Exit", stageMapping[2]);
         }

@@ -31,9 +31,7 @@ namespace DTX.Stage
             _game = game;
             _stages = new Dictionary<StageType, IStage>();
             InitializeStages();
-        }
-
-        private void InitializeStages()
+        }        private void InitializeStages()
         {
             // Initialize all available stages and set stage manager reference
             var stages = new Dictionary<StageType, IStage>
@@ -41,8 +39,7 @@ namespace DTX.Stage
                 [StageType.Startup] = new StartupStage(_game),
                 [StageType.Title] = new TitleStage(_game),
                 [StageType.Config] = new ConfigStage(_game),
-                [StageType.SongSelect] = new SongSelectionStage(_game),
-                [StageType.UITest] = new UITestStage(_game)
+                [StageType.SongSelect] = new SongSelectionStage(_game)
             };
 
             foreach (var kvp in stages)

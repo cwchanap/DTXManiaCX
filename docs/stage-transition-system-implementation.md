@@ -92,7 +92,7 @@ ChangeStage(StageType.Title);
 ChangeStage(StageType.Config, new CrossfadeTransition(0.5));
 
 // DTXMania-style transition
-ChangeStage(StageType.UITest, new DTXManiaFadeTransition(0.7));
+ChangeStage(StageType.SongSelect, new DTXManiaFadeTransition(0.7));
 ```
 
 #### Special Transitions
@@ -108,7 +108,6 @@ All existing stages have been updated to inherit from `BaseStage`:
 - **StartupStage**: Uses `StartupToTitleTransition` for authentic feel
 - **TitleStage**: Uses `DTXManiaFadeTransition` for game start, `CrossfadeTransition` for config
 - **ConfigStage**: Uses `CrossfadeTransition` for return to title
-- **UITestStage**: Uses `CrossfadeTransition` for return to title
 
 ## Testing
 

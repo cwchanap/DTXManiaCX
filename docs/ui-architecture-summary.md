@@ -107,7 +107,6 @@ uiManager.Draw(spriteBatch, deltaTime);
 
 ### Testing & Demo
 - `DTXMania.Test/UI/UIArchitectureTests.cs` - 24 unit tests (includes UIList visibility fix)
-- `DTXMania.Shared.Game/Lib/Stage/UITestStage.cs` - Live demo
 
 ## Important Implementation Notes
 
