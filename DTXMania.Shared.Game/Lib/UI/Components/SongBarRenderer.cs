@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
+using DTX.Utilities;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -30,12 +31,10 @@ namespace DTX.UI.Components
         private readonly GraphicsDevice _graphicsDevice;
         private readonly IResourceManager _resourceManager;
         private SpriteFont _font;
-        private Texture2D _whitePixel;
-
-        // Texture caches
-        private readonly Dictionary<string, ITexture> _titleTextureCache;
-        private readonly Dictionary<string, ITexture> _previewImageCache;
-        private readonly Dictionary<string, ITexture> _clearLampCache;
+        private Texture2D _whitePixel;        // Texture caches using consolidated cache manager
+        private readonly CacheManager<string, ITexture> _titleTextureCache;
+        private readonly CacheManager<string, ITexture> _previewImageCache;
+        private readonly CacheManager<string, ITexture> _clearLampCache;
 
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
@@ -63,9 +62,9 @@ namespace DTX.UI.Components
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
 
-            _titleTextureCache = new Dictionary<string, ITexture>();
-            _previewImageCache = new Dictionary<string, ITexture>();
-            _clearLampCache = new Dictionary<string, ITexture>();
+            _titleTextureCache = new CacheManager<string, ITexture>();
+            _previewImageCache = new CacheManager<string, ITexture>();
+            _clearLampCache = new CacheManager<string, ITexture>();
 
             Initialize();
         }
@@ -84,13 +83,12 @@ namespace DTX.UI.Components
 
             var cacheKey = GetTitleCacheKey(songNode);
             
-            if (_titleTextureCache.TryGetValue(cacheKey, out var cachedTexture))
+            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            var texture = CreateTitleTexture(songNode);
-            if (texture != null)
+            var texture = CreateTitleTexture(songNode);            if (texture != null)
             {
-                _titleTextureCache[cacheKey] = texture;
+                _titleTextureCache.Add(cacheKey, texture);
             }
 
             return texture;
@@ -106,13 +104,12 @@ namespace DTX.UI.Components
 
             var cacheKey = songNode.Metadata.PreviewImage;
 
-            if (_previewImageCache.TryGetValue(cacheKey, out var cachedTexture))
+            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            var texture = LoadPreviewImage(songNode);
-            if (texture != null)
+            var texture = LoadPreviewImage(songNode);            if (texture != null)
             {
-                _previewImageCache[cacheKey] = texture;
+                _previewImageCache.Add(cacheKey, texture);
             }
 
             return texture;
@@ -178,41 +175,27 @@ namespace DTX.UI.Components
 
             var cacheKey = GetClearLampCacheKey(songNode, difficulty);
 
-            if (_clearLampCache.TryGetValue(cacheKey, out var cachedTexture))
+            if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
             var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice);
-            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
-
-            if (texture != null)
+            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);            if (texture != null)
             {
-                _clearLampCache[cacheKey] = texture;
+                _clearLampCache.Add(cacheKey, texture);
             }
 
             return texture;
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Clear all texture caches
         /// </summary>
         public void ClearCache()
         {
-            foreach (var texture in _titleTextureCache.Values)
-                texture?.Dispose();
             _titleTextureCache.Clear();
-
-            foreach (var texture in _previewImageCache.Values)
-                texture?.Dispose();
             _previewImageCache.Clear();
-
-            foreach (var texture in _clearLampCache.Values)
-                texture?.Dispose();
             _clearLampCache.Clear();
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Set the font for title texture generation
         /// </summary>
         public void SetFont(SpriteFont font)
@@ -220,8 +203,6 @@ namespace DTX.UI.Components
             _font = font;
             
             // Clear title cache since font changed
-            foreach (var texture in _titleTextureCache.Values)
-                texture?.Dispose();
             _titleTextureCache.Clear();
         }
 

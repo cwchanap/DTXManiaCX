@@ -17,6 +17,23 @@ namespace DTX.Stage
     /// </summary>
     public class StartupStage : BaseStage
     {
+        #region Constants
+
+        // UI Layout Constants
+        private const int MARGIN_EDGE = 10;
+        private const int MARGIN_TOP = 2;
+        private const int LINE_HEIGHT = 18;
+        private const int FALLBACK_CHAR_WIDTH = 8;
+        private const int FALLBACK_FONT_HEIGHT = 16;
+        private const int FALLBACK_SMALL_FONT_HEIGHT = 12;
+
+        // Progress Bar Constants
+        private const int PROGRESS_BAR_WIDTH = 400;
+        private const int PROGRESS_BAR_HEIGHT = 20;
+        private const int PROGRESS_BAR_BOTTOM_MARGIN = 120;
+
+        #endregion
+
         #region Fields
 
         private double _elapsedTime;
@@ -29,7 +46,9 @@ namespace DTX.Stage
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
         private string _currentProgressMessage = "";
-        private StartupPhase _startupPhase = StartupPhase.SystemSounds;        // Services for actual functionality
+        private StartupPhase _startupPhase = StartupPhase.SystemSounds;
+
+        // Services for actual functionality
         private SongManager _songManager;
         private ConfigManager _configManager;
 
@@ -49,8 +68,9 @@ namespace DTX.Stage
 
         public StartupStage(BaseGame game) : base(game)
         {
+            _progressMessages = new List<string>();
 
-            _progressMessages = new List<string>();            // Initialize services
+            // Initialize services
             _songManager = new SongManager();
             _configManager = new ConfigManager();
 
@@ -145,7 +165,9 @@ namespace DTX.Stage
             DrawCurrentProgress();
 
             _spriteBatch.End();
-        }        protected override void OnDeactivate()
+        }
+
+        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
             // Startup stages typically don't get reactivated, so state reset is unnecessary
@@ -193,8 +215,6 @@ namespace DTX.Stage
             }
         }
 
-
-
         #endregion
 
         #region Private Methods - Update Logic
@@ -211,7 +231,9 @@ namespace DTX.Stage
             _currentProgressMessage = currentPhaseInfo.message;
 
             // Perform phase-specific operations
-            PerformPhaseOperation(_startupPhase, phaseElapsed);            // Check if current phase is complete
+            PerformPhaseOperation(_startupPhase, phaseElapsed);
+
+            // Check if current phase is complete
             if (phaseElapsed >= currentPhaseInfo.duration)
             {
                 // Add completion message
@@ -238,25 +260,29 @@ namespace DTX.Stage
                 case StartupPhase.SystemSounds:
                     // Load system sounds (placeholder)
                     System.Diagnostics.Debug.WriteLine("Loading system sounds...");
-                    break;                case StartupPhase.ConfigValidation:
+                    break;
+
+                case StartupPhase.ConfigValidation:
                     // Load and validate configuration
                     try
                     {
                         _configManager.LoadConfig("Config.ini");
                         var config = _configManager.Config;
-                        
+
                         // Basic validation - check if config loaded successfully
-                        bool isValid = config != null && 
-                                     config.ScreenWidth > 0 && 
+                        bool isValid = config != null &&
+                                     config.ScreenWidth > 0 &&
                                      config.ScreenHeight > 0;
-                        
+
                         System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
                     }
-                    break;                case StartupPhase.EnumerateSongs:
+                    break;
+
+                case StartupPhase.EnumerateSongs:
                     // Start song enumeration with SongManager
                     try
                     {
@@ -306,6 +332,24 @@ namespace DTX.Stage
 
         #region Private Methods - Drawing
 
+        /// <summary>
+        /// Draws text using bitmap font if available, otherwise falls back to colored rectangle
+        /// </summary>
+        private void DrawTextWithFallback(string text, int x, int y, BitmapFont.FontType fontType = BitmapFont.FontType.Normal, Color? fallbackColor = null)
+        {
+            if (_bitmapFont?.IsLoaded == true)
+            {
+                _bitmapFont.DrawText(_spriteBatch, text, x, y, fontType);
+            }
+            else
+            {
+                // Calculate fallback dimensions based on font type
+                int fallbackHeight = fontType == BitmapFont.FontType.Thin ? FALLBACK_SMALL_FONT_HEIGHT : FALLBACK_FONT_HEIGHT;
+                Color color = fallbackColor ?? Color.White;
+                DrawTextRect(x, y, text.Length * FALLBACK_CHAR_WIDTH, fallbackHeight, color);
+            }
+        }
+
         private void DrawBackground()
         {
             if (_backgroundTexture != null)
@@ -335,57 +379,38 @@ namespace DTX.Stage
             {
                 // Calculate position for top-right alignment
                 var textSize = _bitmapFont.MeasureText(versionText);
-                int x = viewport.Width - (int)textSize.X - 10; // 10 pixels from right edge
-                int y = 2; // 2 pixels from top
+                int x = viewport.Width - (int)textSize.X - MARGIN_EDGE;
+                int y = MARGIN_TOP;
 
                 _bitmapFont.DrawText(_spriteBatch, versionText, x, y, BitmapFont.FontType.Normal);
             }
             else
             {
                 // Fallback to rectangle in top-right corner
-                int x = viewport.Width - (versionText.Length * 8) - 10;
-                int y = 2;
-                DrawTextRect(x, y, versionText.Length * 8, 16, Color.White);
+                int x = viewport.Width - (versionText.Length * FALLBACK_CHAR_WIDTH) - MARGIN_EDGE;
+                int y = MARGIN_TOP;
+                DrawTextRect(x, y, versionText.Length * FALLBACK_CHAR_WIDTH, FALLBACK_FONT_HEIGHT, Color.White);
             }
         }
 
         private void DrawProgressMessages()
         {
             // Draw progress messages using bitmap font (DTXMania pattern)
-            int x = 10;
-            int y = 10;
-            const int lineHeight = 18; // Slightly larger for better readability
+            int x = MARGIN_EDGE;
+            int y = MARGIN_EDGE;
 
             lock (_progressMessages)
             {
                 foreach (string message in _progressMessages)
                 {
-                    if (_bitmapFont?.IsLoaded == true)
-                    {
-                        // Use bitmap font for authentic DTXMania text rendering
-                        _bitmapFont.DrawText(_spriteBatch, message, x, y, BitmapFont.FontType.Normal);
-                    }
-                    else
-                    {
-                        // Fallback to rectangles if font not available
-                        DrawTextRect(x, y, message.Length * 8, 12, Color.White);
-                    }
-                    y += lineHeight;
+                    DrawTextWithFallback(message, x, y);
+                    y += LINE_HEIGHT;
                 }
 
                 // Draw current progress message in different color/style
                 if (!string.IsNullOrEmpty(_currentProgressMessage))
                 {
-                    if (_bitmapFont?.IsLoaded == true)
-                    {
-                        // Use thin font for current progress (DTXMania style)
-                        _bitmapFont.DrawText(_spriteBatch, _currentProgressMessage, x, y, BitmapFont.FontType.Thin);
-                    }
-                    else
-                    {
-                        // Fallback to yellow rectangle
-                        DrawTextRect(x, y, _currentProgressMessage.Length * 8, 12, Color.Yellow);
-                    }
+                    DrawTextWithFallback(_currentProgressMessage, x, y, BitmapFont.FontType.Thin, Color.Yellow);
                 }
             }
         }
@@ -406,28 +431,19 @@ namespace DTX.Stage
 
             // Draw progress bar in lower middle of screen
             var viewport = _game.GraphicsDevice.Viewport;
-            const int progressBarWidth = 400;
-            const int progressBarHeight = 20;
-            int progressBarX = (viewport.Width - progressBarWidth) / 2; // Center horizontally
-            int progressBarY = viewport.Height - 120; // 120 pixels from bottom
+            int progressBarX = (viewport.Width - PROGRESS_BAR_WIDTH) / 2; // Center horizontally
+            int progressBarY = viewport.Height - PROGRESS_BAR_BOTTOM_MARGIN;
 
             // Background
-            DrawTextRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight, Color.DarkGray);
+            DrawTextRect(progressBarX, progressBarY, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, Color.DarkGray);
 
             // Progress
-            int progressWidth = (int)(progressBarWidth * overallProgress);
-            DrawTextRect(progressBarX, progressBarY, progressWidth, progressBarHeight, Color.LightGreen);
+            int progressWidth = (int)(PROGRESS_BAR_WIDTH * overallProgress);
+            DrawTextRect(progressBarX, progressBarY, progressWidth, PROGRESS_BAR_HEIGHT, Color.LightGreen);
 
             // Progress percentage
             string progressText = $"{overallProgress * 100:F1}%";
-            if (_bitmapFont?.IsLoaded == true)
-            {
-                _bitmapFont.DrawText(_spriteBatch, progressText, progressBarX + progressBarWidth + 10, progressBarY + 2, BitmapFont.FontType.Normal);
-            }
-            else
-            {
-                DrawTextRect(progressBarX + progressBarWidth + 10, progressBarY + 2, progressText.Length * 8, 16, Color.White);
-            }
+            DrawTextWithFallback(progressText, progressBarX + PROGRESS_BAR_WIDTH + MARGIN_EDGE, progressBarY + MARGIN_TOP);
         }
 
         private void DrawTextRect(int x, int y, int width, int height, Color color)

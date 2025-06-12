@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using DTX.Utilities;
 
 namespace DTX.Resources
 {
@@ -15,9 +16,8 @@ namespace DTX.Resources
         #region Private Fields
 
         private readonly IResourceManager _resourceManager;
-        private readonly string _systemSkinRoot;
-        private string[] _availableSystemSkins = Array.Empty<string>();
-        private string[] _availableBoxDefSkins = Array.Empty<string>();
+        private readonly string _systemSkinRoot; private string[] _availableSystemSkins = new string[0];
+        private string[] _availableBoxDefSkins = new string[0];
         private bool _disposed = false;
 
         #endregion
@@ -73,7 +73,7 @@ namespace DTX.Resources
             catch (Exception ex)
             {
                 Debug.WriteLine($"SkinManager: Error refreshing skins: {ex.Message}");
-                _availableSystemSkins = Array.Empty<string>();
+                _availableSystemSkins = new string[0];
             }
         }
 
@@ -142,18 +142,16 @@ namespace DTX.Resources
                 Debug.WriteLine($"SkinManager: Error setting box.def skin: {ex.Message}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Get skin name from full path
-        /// Based on DTXMania's GetSkinName() method
-        /// </summary>
-        /// <param name="skinPathFullName">Full path to skin directory</param>
-        /// <returns>Skin name or null if invalid</returns>
-        public static string? GetSkinName(string skinPathFullName)
+        }        /// <summary>
+                 /// Get skin name from full path
+                 /// Based on DTXMania's GetSkinName() method
+                 /// </summary>
+                 /// <param name="skinPathFullName">Full path to skin directory</param>
+                 /// <returns>Skin name or empty string if invalid</returns>
+        public static string GetSkinName(string skinPathFullName)
         {
             if (string.IsNullOrEmpty(skinPathFullName))
-                return null;
+                return "";
 
             try
             {
@@ -167,34 +165,21 @@ namespace DTX.Resources
 
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
                 var parts = normalizedPath.Split(Path.DirectorySeparatorChar, '/');
-                return parts.LastOrDefault();
+                return parts.LastOrDefault() ?? "";
             }
             catch
             {
-                return null;
+                return "";
             }
-        }
-
-        /// <summary>
-        /// Validate if a path contains a valid skin
-        /// Based on DTXMania's bIsValid() method
-        /// </summary>
-        /// <param name="skinPath">Path to validate</param>
-        /// <returns>True if valid skin</returns>
+        }/// <summary>
+         /// Validate if a path contains a valid skin
+         /// Based on DTXMania's bIsValid() method
+         /// </summary>
+         /// <param name="skinPath">Path to validate</param>
+         /// <returns>True if valid skin</returns>
         public static bool ValidateSkinPath(string skinPath)
         {
-            if (string.IsNullOrEmpty(skinPath))
-                return false;
-
-            // Check for key validation files (DTXMania pattern)
-            // Use full paths relative to current working directory
-            var validationFiles = new[]
-            {
-                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "1_background.jpg")),
-                Path.GetFullPath(Path.Combine(skinPath, "Graphics", "2_background.jpg"))
-            };
-
-            return validationFiles.Any(File.Exists);
+            return DTX.Utilities.PathValidator.IsValidSkinPath(skinPath);
         }
 
         #endregion
@@ -208,7 +193,7 @@ namespace DTX.Resources
             if (!Directory.Exists(fullSystemSkinRoot))
             {
                 Debug.WriteLine($"SkinManager: System skin root not found: {fullSystemSkinRoot}");
-                return Array.Empty<string>();
+                return new string[0];
             }
 
             var skinPaths = new List<string>();
@@ -257,8 +242,7 @@ namespace DTX.Resources
 
             return skinPaths.ToArray();
         }
-
-        private string? GetSkinPathFromName(string skinName)
+        private string GetSkinPathFromName(string skinName)
         {
             return _availableSystemSkins.FirstOrDefault(path =>
                 string.Equals(GetSkinName(path), skinName, StringComparison.OrdinalIgnoreCase));

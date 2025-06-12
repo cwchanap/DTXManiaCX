@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using DTX.Utilities;
 using XnaColor = Microsoft.Xna.Framework.Color;
 using XnaRectangle = Microsoft.Xna.Framework.Rectangle;
 
@@ -37,20 +38,24 @@ namespace DTX.Resources
         protected Texture2D _customFontTexture;
         protected Dictionary<char, XnaRectangle> _customFontGlyphs;
         protected HashSet<char> _customFontCharacters;
-        protected int _customLineSpacing;
-
-        // Text rendering cache for performance (similar to CPrivateFastFont)
-        protected readonly Dictionary<string, CachedTextRender> _textRenderCache = new Dictionary<string, CachedTextRender>();
+        protected int _customLineSpacing;        // Text rendering cache for performance (similar to CPrivateFastFont)
+        protected readonly CacheManager<string, CachedTextRender> _textRenderCache = new CacheManager<string, CachedTextRender>();
         protected const int MaxCacheSize = 128;
 
         // Platform-specific font resources (implemented by derived classes)
 
-        protected struct CachedTextRender
+        protected class CachedTextRender : IDisposable
         {
-            public ITexture Texture;
-            public TextRenderOptions Options;
-            public DateTime LastUsed;
-            public string Text;
+            public ITexture Texture { get; set; }
+            public TextRenderOptions Options { get; set; }
+            public DateTime LastUsed { get; set; }
+            public string Text { get; set; }
+
+            public void Dispose()
+            {
+                Texture?.Dispose();
+                Texture = null;
+            }
         }
 
         #endregion
@@ -373,7 +378,6 @@ namespace DTX.Resources
             var options = new TextRenderOptions { TextColor = color };
             return CreateTextTexture(graphicsDevice, text, options);
         }
-
         public ITexture CreateTextTexture(GraphicsDevice graphicsDevice, string text, TextRenderOptions options)
         {
             if (_disposed || _spriteFont == null || string.IsNullOrEmpty(text))
@@ -381,10 +385,9 @@ namespace DTX.Resources
 
             // Check cache first
             var cacheKey = GenerateCacheKey(text, options);
-            if (_textRenderCache.TryGetValue(cacheKey, out var cachedRender))
+            if (_textRenderCache.TryGet(cacheKey, out var cachedRender))
             {
                 cachedRender.LastUsed = DateTime.Now;
-                _textRenderCache[cacheKey] = cachedRender;
                 return cachedRender.Texture;
             }
 
@@ -476,15 +479,8 @@ namespace DTX.Resources
 
             return keyBuilder.ToString();
         }
-
         private void CacheTextTexture(string cacheKey, string text, ITexture texture, TextRenderOptions options)
         {
-            // Clean up old cache entries if we're at the limit
-            if (_textRenderCache.Count >= MaxCacheSize)
-            {
-                CleanupOldCacheEntries();
-            }
-
             var cachedRender = new CachedTextRender
             {
                 Texture = texture,
@@ -493,20 +489,7 @@ namespace DTX.Resources
                 Text = text
             };
 
-            _textRenderCache[cacheKey] = cachedRender;
-        }
-
-        private void CleanupOldCacheEntries()
-        {
-            // Remove the oldest entries (LRU eviction)
-            var entriesToRemove = _textRenderCache.Count - MaxCacheSize + 10; // Remove extra to avoid frequent cleanup
-            var sortedEntries = _textRenderCache.OrderBy(kvp => kvp.Value.LastUsed).Take(entriesToRemove);
-
-            foreach (var entry in sortedEntries.ToList())
-            {
-                entry.Value.Texture?.Dispose();
-                _textRenderCache.Remove(entry.Key);
-            }
+            _textRenderCache.Add(cacheKey, cachedRender);
         }
 
         public Vector2 GetKerning(char first, char second)
@@ -745,7 +728,6 @@ namespace DTX.Resources
             Dispose(true);
             GC.SuppressFinalize(this);
         }
-
         protected virtual void Dispose(bool disposing)
         {
             if (!_disposed && disposing)
@@ -754,11 +736,7 @@ namespace DTX.Resources
                 {
                     if (!_disposed)
                     {
-                        // Clean up text render cache
-                        foreach (var cachedRender in _textRenderCache.Values)
-                        {
-                            cachedRender.Texture?.Dispose();
-                        }
+                        // Clean up text render cache - CacheManager handles disposal automatically
                         _textRenderCache.Clear();
 
                         // Note: SpriteFont disposal is handled by content manager
@@ -872,31 +850,31 @@ namespace DTX.Resources
         // Platform-specific font creation methods moved to derived classes
     }
 
-#region Helper Classes
+    #region Helper Classes
 
-/// <summary>
-/// Font atlas data structure for platform-specific font implementations
-/// </summary>
-public class FontAtlas
-{
-    public Texture2D Texture { get; set; }
-    public Dictionary<char, CharacterData> Characters { get; set; }
-    public int LineSpacing { get; set; }
-}
+    /// <summary>
+    /// Font atlas data structure for platform-specific font implementations
+    /// </summary>
+    public class FontAtlas
+    {
+        public Texture2D Texture { get; set; }
+        public Dictionary<char, CharacterData> Characters { get; set; }
+        public int LineSpacing { get; set; }
+    }
 
-/// <summary>
-/// Character data for font atlas
-/// </summary>
-public class CharacterData
-{
-    public char Character { get; set; }
-    public int Width { get; set; }
-    public int Height { get; set; }
-    public int AtlasX { get; set; }
-    public int AtlasY { get; set; }
-    public int AtlasWidth { get; set; }
-    public int AtlasHeight { get; set; }
-}
+    /// <summary>
+    /// Character data for font atlas
+    /// </summary>
+    public class CharacterData
+    {
+        public char Character { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public int AtlasX { get; set; }
+        public int AtlasY { get; set; }
+        public int AtlasWidth { get; set; }
+        public int AtlasHeight { get; set; }
+    }
 
-#endregion
+    #endregion
 }

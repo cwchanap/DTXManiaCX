@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using DTX.Utilities;
 
 namespace DTX.Resources
 {
@@ -20,7 +21,7 @@ namespace DTX.Resources
         public bool IsDefault { get; set; }
         public DateTime LastModified { get; set; }
         public long SizeBytes { get; set; }
-        public List<string> MissingFiles { get; set; } = new();
+        public List<string> MissingFiles { get; set; } = new List<string>();
     }
 
     /// <summary>
@@ -100,14 +101,12 @@ namespace DTX.Resources
             }
 
             return skins;
-        }
-
-        /// <summary>
-        /// Analyze a specific skin directory
-        /// </summary>
-        /// <param name="skinPath">Path to skin directory</param>
-        /// <returns>Skin information or null if invalid</returns>
-        public SkinInfo? AnalyzeSkin(string skinPath)
+        }        /// <summary>
+                 /// Analyze a specific skin directory
+                 /// </summary>
+                 /// <param name="skinPath">Path to skin directory</param>
+                 /// <returns>Skin information or null if invalid</returns>
+        public SkinInfo AnalyzeSkin(string skinPath)
         {
             if (string.IsNullOrEmpty(skinPath))
                 return null;
@@ -156,23 +155,14 @@ namespace DTX.Resources
                 Debug.WriteLine($"SkinDiscoveryService: Error analyzing skin {skinPath}: {ex.Message}");
                 return null;
             }
-        }
-
-        /// <summary>
-        /// Validate if a skin path contains required files
-        /// </summary>
-        /// <param name="skinPath">Path to validate</param>
-        /// <returns>True if valid</returns>
+        }        /// <summary>
+                 /// Validate if a skin path contains required files
+                 /// </summary>
+                 /// <param name="skinPath">Path to validate</param>
+                 /// <returns>True if valid</returns>
         public bool ValidateSkin(string skinPath)
         {
-            if (string.IsNullOrEmpty(skinPath))
-                return false;
-
-            var fullSkinPath = Path.GetFullPath(skinPath);
-            if (!Directory.Exists(fullSkinPath))
-                return false;
-
-            return _requiredFiles.All(file => File.Exists(Path.GetFullPath(Path.Combine(skinPath, file))));
+            return PathValidator.IsValidSkinPath(skinPath, _requiredFiles);
         }
 
         /// <summary>
