@@ -2,7 +2,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Stage;
 using DTX.Resources;
-using DTX.Services;
 using DTX.Song;
 using DTX.Config;
 using DTXMania.Shared.Game;
@@ -30,12 +29,8 @@ namespace DTX.Stage
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
         private string _currentProgressMessage = "";
-        private StartupPhase _startupPhase = StartupPhase.SystemSounds;
-
-        // Services for actual functionality
-        private SongEnumerationService _songEnumerationService;
+        private StartupPhase _startupPhase = StartupPhase.SystemSounds;        // Services for actual functionality
         private SongManager _songManager;
-        private ConfigurationValidator _configValidator;
         private ConfigManager _configManager;
 
         // Loading simulation (since we don't have actual song loading yet)
@@ -55,12 +50,8 @@ namespace DTX.Stage
         public StartupStage(BaseGame game) : base(game)
         {
 
-            _progressMessages = new List<string>();
-
-            // Initialize services
-            _songEnumerationService = new SongEnumerationService();
+            _progressMessages = new List<string>();            // Initialize services
             _songManager = new SongManager();
-            _configValidator = new ConfigurationValidator();
             _configManager = new ConfigManager();
 
             // Initialize phase information (based on DTXManiaNX phases)
@@ -154,18 +145,10 @@ namespace DTX.Stage
             DrawCurrentProgress();
 
             _spriteBatch.End();
-        }
-
-        protected override void OnDeactivate()
+        }        protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
-
-            // Reset stage state for potential reactivation
-            _elapsedTime = 0;
-            _startupPhase = StartupPhase.SystemSounds;
-            _phaseStartTime = 0;
-            _progressMessages.Clear();
-            _currentProgressMessage = "";
+            // Startup stages typically don't get reactivated, so state reset is unnecessary
         }
 
         #endregion
@@ -228,13 +211,11 @@ namespace DTX.Stage
             _currentProgressMessage = currentPhaseInfo.message;
 
             // Perform phase-specific operations
-            PerformPhaseOperation(_startupPhase, phaseElapsed);
-
-            // Check if current phase is complete
+            PerformPhaseOperation(_startupPhase, phaseElapsed);            // Check if current phase is complete
             if (phaseElapsed >= currentPhaseInfo.duration)
             {
                 // Add completion message
-                _progressMessages.Add($"{currentPhaseInfo.message} OK");
+                _progressMessages.Add($"✓ {currentPhaseInfo.message.Replace("...", "")}");
 
                 // Move to next phase
                 var nextPhase = GetNextPhase(_startupPhase);
@@ -257,40 +238,34 @@ namespace DTX.Stage
                 case StartupPhase.SystemSounds:
                     // Load system sounds (placeholder)
                     System.Diagnostics.Debug.WriteLine("Loading system sounds...");
-                    break;
-
-                case StartupPhase.ConfigValidation:
-                    // Validate configuration
+                    break;                case StartupPhase.ConfigValidation:
+                    // Load and validate configuration
                     try
                     {
                         _configManager.LoadConfig("Config.ini");
                         var config = _configManager.Config;
-                        var isValid = _configValidator.ValidateConfiguration(config);
+                        
+                        // Basic validation - check if config loaded successfully
+                        bool isValid = config != null && 
+                                     config.ScreenWidth > 0 && 
+                                     config.ScreenHeight > 0;
+                        
                         System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
                     }
-                    break;
-
-                case StartupPhase.EnumerateSongs:
-                    // Start song enumeration with new SongManager
+                    break;                case StartupPhase.EnumerateSongs:
+                    // Start song enumeration with SongManager
                     try
                     {
                         // Point to the user's DTXFiles folder
                         var songPaths = new[] { "DTXFiles" };
 
-                        // Test Phase 1 implementation
-                        _ = SongSystemTest.RunBasicTestAsync();
-
-                        // Use new SongManager for enumeration
+                        // Use SongManager for enumeration
                         _ = _songManager.EnumerateSongsAsync(songPaths);
-                        System.Diagnostics.Debug.WriteLine("Started song enumeration with new SongManager (DTXFiles folder)...");
-
-                        // Keep old service for compatibility
-                        _ = _songEnumerationService.EnumerateSongsAsync(songPaths);
-                        System.Diagnostics.Debug.WriteLine("Started song enumeration with legacy service (DTXFiles folder)...");
+                        System.Diagnostics.Debug.WriteLine("Started song enumeration with SongManager (DTXFiles folder)...");
                     }
                     catch (Exception ex)
                     {

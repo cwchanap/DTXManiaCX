@@ -1,6 +1,5 @@
 using Xunit;
 using DTX.Stage;
-using DTX.Services;
 using DTXMania.Shared.Game;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -110,9 +109,7 @@ namespace DTXMania.Test.Stage
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new ConfigStage(null));
-        }
-
-        [Fact]
+        }        [Fact]
         public void ConfigStage_Type_ReturnsCorrectValue()
         {
             // Test the stage type enum value
@@ -122,56 +119,9 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region New Services Tests
-
-        [Fact]
-        public void SongEnumerationService_Constructor_ShouldNotThrow()
-        {
-            // Act & Assert - Basic construction test
-            var service = new SongEnumerationService();
-            Assert.NotNull(service);
-        }
-
-        [Fact]
-        public void SongEnumerationService_SupportedExtensions_ShouldIncludeDTXManiaFormats()
-        {
-            // Arrange
-            var service = new SongEnumerationService();
-
-            // Act - Test that the service supports expected DTXMania file formats
-            // We can't easily test the private extensions list, but we can test the basic functionality
-
-            // Assert - Basic validation that service is properly constructed
-            Assert.NotNull(service);
-        }
-
-        [Fact]
-        public void ConfigurationValidator_Constructor_ShouldNotThrow()
-        {
-            // Act & Assert - Basic construction test
-            var validator = new ConfigurationValidator();
-            Assert.NotNull(validator);
-        }
-
-        [Fact]
-        public void ConfigurationValidator_ValidateConfiguration_WithNullConfig_ShouldReturnFalse()
-        {
-            // Arrange
-            var validator = new ConfigurationValidator();
-
-            // Act
-            var result = validator.ValidateConfiguration(null);
-
-            // Assert
-            Assert.False(result);
-        }
-
-        #endregion
-
         #region StageManager Tests
 
-        [Fact]
-        public void StageManager_Constructor_RequiresGame()
+        [Fact]        public void StageManager_Constructor_RequiresGame()
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new StageManager(null));
@@ -179,7 +129,9 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region StageType Enum Tests        [Fact]
+        #region StageType Enum Tests
+
+        [Fact]
         public void StageType_AllValuesAreDefined()
         {
             // Act & Assert - Verify all expected stage types exist
@@ -189,14 +141,18 @@ namespace DTXMania.Test.Stage
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.SongSelect));
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.Performance));
             Assert.True(Enum.IsDefined(typeof(StageType), StageType.Result));
-        }        [Fact]
+        }
+
+        [Fact]
         public void StageType_HasExpectedValues()
         {
             // Act & Assert - Verify stage type values
             Assert.Equal(0, (int)StageType.Startup);
             Assert.Equal(1, (int)StageType.Title);
             Assert.Equal(2, (int)StageType.Config);
-        }        [Fact]
+        }
+
+        [Fact]
         public void StageType_EnumCount_IsCorrect()
         {
             // Verify we have the expected number of stage types
