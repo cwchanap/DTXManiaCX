@@ -227,11 +227,10 @@ namespace DTX.Stage
             double phaseElapsed = _elapsedTime - _phaseStartTime;
             var currentPhaseInfo = _phaseInfo[_startupPhase];
 
-            // Update current progress message
-            _currentProgressMessage = currentPhaseInfo.message;
+            // Update current progress message            _currentProgressMessage = currentPhaseInfo.message;
 
             // Perform phase-specific operations
-            PerformPhaseOperation(_startupPhase, phaseElapsed);
+            _ = PerformPhaseOperation(_startupPhase, phaseElapsed);
 
             // Check if current phase is complete
             if (phaseElapsed >= currentPhaseInfo.duration)
@@ -248,7 +247,9 @@ namespace DTX.Stage
                     System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_startupPhase}");
                 }
             }
-        }        private async Task PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
+        }
+
+        private async Task PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
         {
             // Only perform operation once per phase (at the beginning)
             if (phaseElapsed > 0.1) return;
