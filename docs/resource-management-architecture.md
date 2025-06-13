@@ -228,10 +228,10 @@ The DTXManiaCX font system uses a cross-platform architecture that separates pla
 - **Reference Counting**: Shared memory management logic
 
 #### 2. Platform-Specific Implementations
-- **WindowsManagedFont**: Windows implementation in `DTXMania.Windows`
-- **Uses GDI+**: System.Drawing.Common for font loading and rendering
-- **TTF/OTF Support**: PrivateFontCollection for custom fonts
-- **Future Platforms**: Easy to add Mac, Linux implementations
+- **SpriteFontManagedFont**: Simple SpriteFont-only implementation in `DTXMania.Shared.Game`
+- **MonoGame Only**: Uses MonoGame SpriteFont exclusively
+- **Content Pipeline**: Requires fonts to be built through Content Pipeline
+- **Cross-Platform**: Works on all MonoGame-supported platforms
 
 #### 3. Factory Pattern for Dependency Injection
 ```csharp
@@ -242,12 +242,18 @@ public interface IFontFactory
     IFont CreateFont(SpriteFont spriteFont, string sourcePath);
 }
 
-// Windows implementation
+// Windows implementation (now SpriteFont-only)
 public class WindowsFontFactory : IFontFactory
 {
     public IFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
     {
-        return new WindowsManagedFont(graphicsDevice, fontPath, size, style);
+        // Only supports SpriteFont from Content Pipeline
+        throw new NotSupportedException("Please use SpriteFont from Content Pipeline");
+    }
+    
+    public IFont CreateFont(SpriteFont spriteFont, string sourcePath)
+    {
+        return new SpriteFontManagedFont(spriteFont, sourcePath, size, FontStyle.Regular);
     }
 }
 

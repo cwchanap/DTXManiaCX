@@ -105,10 +105,11 @@ public void tMoveToPrevious() { this.nTargetScrollCounter -= 100; }
 ### Bar Generation System
 
 **Primary Bar Creation** (`tGenerateSongNameBar` - lines 1593-1645):
+- **Bar Dimensions**: **Width ≤ 510 pixels** (maximum), **Height = 37 pixels** (0x25)
 - Creates 2x resolution textures for anti-aliasing (displayed at 0.5x scale)
 - Handles automatic text compression for long titles
 - Applies shadow effects and custom colors
-- Maximum width constraint: 510 pixels
+- **Small Preview Images**: **44×44 pixels** embedded in song bars with aspect ratio preservation
 
 **Real-time Updates** (lines 262-271):
 ```csharp
@@ -159,7 +160,10 @@ public void t現在選択中の曲を元に曲バーを再構成する()
 - **Position**: Panel position determined by status panel presence:
   - **Without status panel**: X:18, Y:88 (left side)
   - **With status panel**: X:250, Y:34 (right side, positioned to the right of status panel)
-- **Size**: 368px (without status panel) or 292px (with status panel) depending on configuration
+- **Size**: **368×368 pixels** (without status panel) or **292×292 pixels** (with status panel) - square aspect ratio maintained
+- **Content Offsets**: 
+  - Without status panel: X+37, Y+24 from base position
+  - With status panel: X+8, Y+8 from base position
 - **Features**: Delayed loading with configurable wait time, video playback support
 - **Update Trigger**: `t選択曲が変更された()` method
 - **Content**: Album art, preview videos, or default placeholder images
@@ -174,11 +178,16 @@ public void t現在選択中の曲を元に曲バーを再構成する()
 **Purpose**: Displays artist name and song comments for selected song as background layer
 - **Location**: `CActSelectArtistComment.cs`
 - **Position**: Upper-right area of screen, **behind song list bars**
-- **Layer Relationship**: Comment bar (Y:257) sits behind selected song bar (Y:270), creating overlay effect
+- **Comment Bar Background**: **Size not fixed** - loaded from Graphics/5_comment bar.png at (560, 257)
 - **Artist Name**: X:1260-25-width, Y:320 (right-aligned, visible around selected song bar)
+  - **Max Width**: **510 pixels** (same constraint as song bars)
+  - **Font Scaling**: Uses 0.5x scale with horizontal compression for long names
 - **Comment Text**: X:683, Y:339 (below artist, visible below song bars)
-- **Background**: Comment bar from Graphics/5_comment bar.png at (560, 257)
-- **Formatting**: MS PGothic 40px font, 0.5x scale, 510px max width
+  - **Max Width**: **510 pixels**
+  - **Font**: MS PGothic 40px font, 0.5x scale
+  - **Multi-line Support**: Automatically wraps long comments across lines
+- **Dynamic Sizing**: Text textures created at runtime based on content length
+- **Layer Relationship**: Comment bar (Y:257) sits behind selected song bar (Y:270), creating overlay effect
 - **Data Source**: Retrieved from song's DTX file (#ARTIST tag)
 - **Update Trigger**: `t選択曲が変更された()` when selection changes
 - **Z-Order**: Drawn before song bars, so artist info appears as background layer
@@ -187,13 +196,16 @@ public void t現在選択中の曲を元に曲バーを再構成する()
 **Purpose**: Displays performance history overlay at bottom of song selection area
 - **Location**: `CActSelectPerfHistoryPanel.cs`
 - **Position**: Bottom overlay on top of song list
-- **Coordinates**: X:700 (with status panel) or X:210 (without status panel), Y:570
-- **Background**: Graphics/5_play history panel.png
-- **Dimensions**: 800×195 pixels (dynamically generated bitmap)
+- **Coordinates**: X:700 (with status panel) or X:210 (without status panel), Y:570 (0x23a)
+- **Background Panel**: **Size not fixed** - loaded from Graphics/5_play history panel.png
+- **Text Area Dimensions**: **800×195 pixels** (0xc3 = 195) - dynamically generated bitmap
 - **Content Offset**: Text at (X+18, Y+32) relative to panel background
 - **Animation**: Slide-up entrance animation (100 frames, cosine easing)
-- **Content**: Up to 5 performance history entries, 36px vertical spacing
-- **Formatting**: Meiryo 26px Bold font, yellow color, 0.5x scale
+- **Content Layout**: 
+  - Up to **5 performance history entries**
+  - **36 pixels vertical spacing** between entries
+  - **Meiryo 26px Bold font**, yellow color, **0.5x scale**
+- **Text Scaling**: Content rendered at 2x resolution, displayed at 0.5x for anti-aliasing
 - **Data Source**: `cスコア.SongInformation.PerformanceHistory[]` array
 - **Update Trigger**: `t選択曲が変更された()` when selection changes
 - **Z-Order**: Overlays on top of song bars but below popups
@@ -201,8 +213,16 @@ public void t現在選択中の曲を元に曲バーを再構成する()
 ### CActSelectQuickConfig
 **Purpose**: In-game configuration popup
 - **Location**: Lines 19-60 in `CActSelectQuickConfig.cs`
+- **Position**: **Center screen** at X:460, Y:150 (popup base position)
+- **Background**: **Size not fixed** - loaded from popup menu background texture
+- **Content Layout**:
+  - **Title Area**: X+96, Y+4 relative to popup base
+  - **Menu Items**: X+18, Y+40 + (item_index × 32) - **32 pixels vertical spacing**
+  - **Values**: X+200, Y+40 + (item_index × 32) relative to popup base
+- **Cursor**: **16×32 pixels** with expandable middle section (19 segments of 16px each)
 - **Access**: Double-tap commands (BD×2, P×2)
-- **Settings**: Scroll speed, auto mode, play speed, risky mode
+- **Settings**: Scroll speed, auto mode, play speed, risky mode, dark mode
+- **Dynamic Sizing**: Menu expands based on number of configuration items
 
 ## Skill Point Section
 
@@ -391,6 +411,15 @@ Opacity range: 0.4 → 1.0 → 0.2   (brightest at center)
 - **Exit Command**: Special "---" input to restore full list
 - **Visual Feedback**: Search results count and status display
 
+**Search Notification Display** (`CStageSongSelection.cs:1234-1253`):
+- **Position**: **X:10, Y:130** (top-left area, below header)
+- **Font**: **14px** font (`prvFontSearchInputNotification`)
+- **Colors**: White text with black outline for visibility
+- **Dynamic Sizing**: Text texture generated at runtime based on notification content
+- **Display Duration**: Controlled by `ctSearchInputDisplayCounter` (10 second timeout)
+- **Content**: Shows current search terms, result counts, and mode changes
+- **Z-Order**: High priority overlay (drawn after most other components)
+
 ## Component Positioning System
 
 ### Fixed Coordinate Layout
@@ -488,10 +517,12 @@ int[] nPart = { 0, CDTXMania.ConfigIni.bIsSwappedGuitarBass ? 2 : 1, CDTXMania.C
 
 Each cell in the 3×5 grid displays:
 
-1. **Difficulty Level**: Format `XX.XX` or `--` if no chart exists
-2. **Rank Icon**: Best achieved rank (E, D, C, B, A, S, SS)
-3. **Achievement Badge**: Full Combo (FC) or Excellent (100%) icons
-4. **Achievement Rate**: Percentage like `95.67%` or "MAX" for perfect scores
+- **Cell Dimensions**: **187×60 pixels** (default) or dynamically calculated as texture_width÷3 × texture_height×2÷11
+- **Content**:
+  1. **Difficulty Level**: Format `XX.XX` or `--` if no chart exists
+  2. **Rank Icon**: Best achieved rank (E, D, C, B, A, S, SS)
+  3. **Achievement Badge**: Full Combo (FC) or Excellent (100%) icons
+  4. **Achievement Rate**: Percentage like `95.67%` or "MAX" for perfect scores
 
 ### Cell Positioning Calculation
 
@@ -556,15 +587,15 @@ int nGraphBaseY = 368; // 350 + 18
 
 3. **Lane Distribution Bar Graph**:
    - **Purpose**: Visual representation of note count per lane/instrument
-   - **Bar Specifications**: Width 4px, Max height 252px
+   - **Bar Specifications**: **Width = 4 pixels** (fixed), **Max Height = 252 pixels**
    - **Drums Configuration** (9 lanes):
      - Start position: X:46 (15 + 31), Y:389 (368 + 21)
-     - Spacing: 8px between bars
+     - **Spacing**: **8 pixels between bars**
      - Lanes: LC, HH, LP, SD, HT, BD, LT, FT, CY
      - Colors: Each lane has distinct color from `clDrumChipsBarColors[]`
    - **Guitar/Bass Configuration** (6 lanes):
      - Start position: X:53 (15 + 38), Y:389 (368 + 21)  
-     - Spacing: 10px between bars
+     - **Spacing**: **10 pixels between bars**
      - Lanes: R, G, B, Y, P, Pick
      - Colors: Each lane has distinct color from `clGBChipsBarColors[]`
 
@@ -612,6 +643,7 @@ this.txBottomPanel = CDTXMania.tGenerateTexture(CSkin.Path(@"Graphics\5_footer p
 
 **Position and Animation** (Lines 387-395):
 - **Base Position**: `X: 0, Y: 0` (top of screen)
+- **Size**: **Full screen width (1280px) × texture height** (determined by `this.txTopPanel.szImageSize.Height`)
 - **Entry Animation**: Slides down from off-screen during stage entry
 - **Animation Formula**: 
   ```csharp
@@ -630,6 +662,7 @@ this.txBottomPanel = CDTXMania.tGenerateTexture(CSkin.Path(@"Graphics\5_footer p
 
 **Position** (Lines 398-399):
 - **Fixed Position**: `X: 0, Y: 720 - panel_height`
+- **Size**: **Full screen width (1280px) × texture height** (determined by `this.txBottomPanel.szImageSize.Height`)
 - **Drawing**: `this.txBottomPanel.tDraw2D(CDTXMania.app.Device, 0, 720 - this.txBottomPanel.szImageSize.Height);`
 - **Height Calculation**: Dynamically calculated from texture size
 
