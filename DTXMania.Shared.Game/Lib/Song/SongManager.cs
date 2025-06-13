@@ -13,11 +13,44 @@ using System.Text.Json;
 namespace DTX.Song
 {
     /// <summary>
-    /// Song database management and enumeration
+    /// Song database management and enumeration (Singleton)
     /// Based on DTXManiaNX CSongManager patterns
+    /// Responsible for centralized song data management and enumeration
     /// </summary>
-    public class SongManager
+    public sealed class SongManager
     {
+        #region Singleton Implementation
+
+        private static SongManager? _instance;
+        private static readonly object _instanceLock = new();
+
+        /// <summary>
+        /// Gets the singleton instance of SongManager
+        /// </summary>
+        public static SongManager Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    lock (_instanceLock)
+                    {
+                        _instance ??= new SongManager();
+                    }
+                }
+                return _instance;
+            }
+        }
+
+        /// <summary>
+        /// Private constructor for singleton pattern
+        /// </summary>
+        private SongManager()
+        {
+        }
+
+        #endregion
+
         #region Private Fields
 
         private readonly List<SongScore> _songsDatabase = new();
@@ -26,9 +59,26 @@ namespace DTX.Song
         private readonly object _lockObject = new();
         private CancellationTokenSource? _enumCancellation;
 
+        // Initialization state tracking
+        private bool _isInitialized = false;
+
         #endregion
 
         #region Public Properties
+
+        /// <summary>
+        /// Gets whether the SongManager has been initialized with song data
+        /// </summary>
+        public bool IsInitialized
+        {
+            get
+            {
+                lock (_lockObject)
+                {
+                    return _isInitialized;
+                }
+            }
+        }
 
         /// <summary>
         /// Gets the cached song database
@@ -108,7 +158,54 @@ namespace DTX.Song
 
         #endregion
 
-        #region Database Management
+        #region Initialization and Database Management
+
+        /// <summary>
+        /// Initializes the SongManager with song data and marks it as initialized
+        /// Should only be called once during application startup
+        /// </summary>
+        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null)
+        {
+            lock (_lockObject)
+            {
+                if (_isInitialized)
+                {
+                    Debug.WriteLine("SongManager: Already initialized");
+                    return true;
+                }
+            }
+
+            try
+            {
+                // First try to load from cached database
+                var loaded = await LoadSongsDatabaseAsync(databasePath);
+                
+                // Check if enumeration is needed
+                bool needsEnumeration = !loaded || DatabaseScoreCount == 0 || await NeedsEnumerationAsync(searchPaths);
+                
+                if (needsEnumeration)
+                {
+                    Debug.WriteLine("SongManager: Starting song enumeration during initialization");
+                    await EnumerateSongsAsync(searchPaths, progress);
+                    
+                    // Save the database after enumeration
+                    await SaveSongsDatabaseAsync(databasePath);
+                }
+
+                lock (_lockObject)
+                {
+                    _isInitialized = true;
+                }
+
+                Debug.WriteLine($"SongManager: Initialization complete. {DatabaseScoreCount} songs loaded.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during initialization: {ex.Message}");
+                return false;
+            }
+        }
 
         /// <summary>
         /// Loads the songs database from file
@@ -119,7 +216,7 @@ namespace DTX.Song
             {
                 if (!File.Exists(databasePath))
                 {
-                // Database file check - no logging for normal operation
+                    Debug.WriteLine($"SongManager: Database file {databasePath} does not exist");
                     return false;
                 }
 
@@ -137,7 +234,7 @@ namespace DTX.Song
                         _rootSongs.AddRange(data.RootNodes);
                     }
 
-                    // Debug.WriteLine($"SongManager: Loaded {_songsDatabase.Count} scores from database");
+                    Debug.WriteLine($"SongManager: Loaded {_songsDatabase.Count} scores from database");
                     return true;
                 }
             }
@@ -173,7 +270,7 @@ namespace DTX.Song
                 var json = JsonSerializer.Serialize(data, options);
                 await File.WriteAllTextAsync(databasePath, json);
 
-                // Debug.WriteLine($"SongManager: Saved {data.Scores.Count} scores to database");
+                Debug.WriteLine($"SongManager: Saved {data.Scores.Count} scores to database");
                 return true;
             }
             catch (Exception ex)
@@ -185,14 +282,17 @@ namespace DTX.Song
 
         #endregion
 
-        #region Song Enumeration        /// <summary>
+        #region Song Enumeration
+
+        /// <summary>
         /// Enumerates songs from specified search paths
+        /// Should primarily be called during initialization
         /// </summary>
         public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
         {
             if (IsEnumerating)
             {
-                // Debug.WriteLine("SongManager: Enumeration already in progress");
+                Debug.WriteLine("SongManager: Enumeration already in progress");
                 return 0;
             }
 
@@ -202,7 +302,7 @@ namespace DTX.Song
 
             try
             {
-                // Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
+                Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
 
                 var newRootNodes = new List<SongListNode>();
 
@@ -210,7 +310,7 @@ namespace DTX.Song
                 {
                     if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
                     {
-                        // Debug.WriteLine($"SongManager: Skipping invalid path: {searchPath}");
+                        Debug.WriteLine($"SongManager: Skipping invalid path: {searchPath}");
                         continue;
                     }
 
@@ -225,7 +325,7 @@ namespace DTX.Song
                     _rootSongs.AddRange(newRootNodes);
                 }
 
-                // Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
+                Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
 
                 EnumerationCompleted?.Invoke(this, EventArgs.Empty);
 
@@ -233,7 +333,7 @@ namespace DTX.Song
             }
             catch (OperationCanceledException)
             {
-                // Debug.WriteLine("SongManager: Enumeration was cancelled");
+                Debug.WriteLine("SongManager: Enumeration was cancelled");
                 return DiscoveredScoreCount;
             }
             catch (Exception ex)
@@ -400,151 +500,7 @@ namespace DTX.Song
             }
         }
 
-        #endregion
-
-        #region Helper Methods
-
-        /// <summary>
-        /// Finds a song by file path
-        /// </summary>
-        public SongScore? FindSongByPath(string filePath)
-        {
-            lock (_lockObject)
-            {
-                return _songsDatabase.FirstOrDefault(s => 
-                    s.Metadata.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        /// <summary>
-        /// Gets songs by genre
-        /// </summary>
-        public IEnumerable<SongScore> GetSongsByGenre(string genre)
-        {
-            lock (_lockObject)
-            {
-                return _songsDatabase.Where(s =>
-                    s.Metadata.Genre.Equals(genre, StringComparison.OrdinalIgnoreCase)).ToList();
-            }
-        }
-
-        /// <summary>
-        /// Checks if enumeration is needed based on directory modification times
-        /// </summary>
-        public async Task<bool> NeedsEnumerationAsync(string[] searchPaths)
-        {
-            try
-            {
-                // Check if database exists
-                var databasePath = "songs.db";
-                if (!File.Exists(databasePath))
-                    return true;
-
-                // Get database last modified time
-                var dbLastModified = File.GetLastWriteTime(databasePath);
-
-                // Check if any search path has been modified since database was created
-                foreach (var searchPath in searchPaths)
-                {
-                    if (Directory.Exists(searchPath))
-                    {
-                        var dirLastModified = Directory.GetLastWriteTime(searchPath);                        if (dirLastModified > dbLastModified)
-                        {
-                            // Directory modification detected - removed verbose logging
-                            return true;
-                        }
-
-                        // Check subdirectories recursively (but limit depth for performance)
-                        if (await HasRecentChangesAsync(searchPath, dbLastModified, 3))
-                        {
-                            return true;
-                        }
-                    }                }
-
-                // No enumeration needed - removed verbose logging
-                return false;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
-                return true; // Default to enumeration if we can't determine
-            }
-        }
-
-        /// <summary>
-        /// Performs incremental enumeration - only processes changed directories
-        /// </summary>
-        public async Task<int> IncrementalEnumerationAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
-        {            if (IsEnumerating)
-            {
-                // Enumeration already in progress - no logging needed for normal operation
-                return 0;
-            }
-
-            _enumCancellation = new CancellationTokenSource();
-            var initialCount = DiscoveredScoreCount;            try
-            {
-                // Incremental enumeration in progress - removed verbose logging
-
-                var databasePath = "songs.db";
-                var dbLastModified = File.Exists(databasePath) ? File.GetLastWriteTime(databasePath) : DateTime.MinValue;
-
-                foreach (var searchPath in searchPaths)
-                {
-                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
-                        continue;
-
-                    await IncrementalEnumerateDirectoryAsync(searchPath, null, dbLastModified, progress, _enumCancellation.Token);
-                }                var newSongsFound = DiscoveredScoreCount - initialCount;
-                // Incremental enumeration complete - removed verbose logging
-
-                if (newSongsFound > 0)
-                {
-                    EnumerationCompleted?.Invoke(this, EventArgs.Empty);
-                }
-
-                return newSongsFound;
-            }            catch (OperationCanceledException)
-            {
-                // Incremental enumeration cancelled - no logging needed for normal operation
-                return DiscoveredScoreCount - initialCount;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error during incremental enumeration: {ex.Message}");
-                return DiscoveredScoreCount - initialCount;
-            }
-            finally
-            {
-                _enumCancellation?.Dispose();
-                _enumCancellation = null;
-            }
-        }
-
-        /// <summary>
-        /// Clears all data
-        /// </summary>
-        public void Clear()
-        {
-            lock (_lockObject)
-            {
-                _songsDatabase.Clear();
-                _rootSongs.Clear();
-            }
-            DiscoveredScoreCount = 0;
-            EnumeratedFileCount = 0;
-        }
-
-        /// <summary>
-        /// Parses a set.def file for multi-difficulty song definitions
-        /// DTXMania SET.def format:
-        /// #TITLE   Song Title
-        /// #L1LABEL Basic
-        /// #L1FILE  bas.dtx
-        /// #L2LABEL Advanced
-        /// #L2FILE  adv.dtx
-        /// etc.
-        /// </summary>
+        // Include all the other parsing methods from the original file
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
         {
             var results = new List<SongListNode>();
@@ -684,10 +640,7 @@ namespace DTX.Song
                                     _songsDatabase.Add(score);
                                 }
 
-                                DiscoveredScoreCount++;                            }
-                            else
-                            {
-                                // Difficulty file not found or unsupported - continue silently
+                                DiscoveredScoreCount++;
                             }
                         }
                     }
@@ -697,8 +650,6 @@ namespace DTX.Song
                         results.Add(currentSong);
                     }
                 }
-
-
             }
             catch (Exception ex)
             {
@@ -708,9 +659,6 @@ namespace DTX.Song
             return results;
         }
 
-        /// <summary>
-        /// Parses a box.def file for folder metadata
-        /// </summary>
         private async Task<BoxDefinition?> ParseBoxDefinitionAsync(string boxDefPath, CancellationToken cancellationToken)
         {
             try
@@ -762,9 +710,6 @@ namespace DTX.Song
             }
         }
 
-        /// <summary>
-        /// Creates a box node from directory info and optional box definition
-        /// </summary>
         private SongListNode CreateBoxNodeFromDirectory(DirectoryInfo directory, SongListNode? parent, BoxDefinition? boxDef)
         {
             var title = boxDef?.Title ?? directory.Name;
@@ -774,15 +719,11 @@ namespace DTX.Song
             {
                 boxNode.Genre = boxDef.Genre ?? "";
                 boxNode.SkinPath = boxDef.SkinPath ?? "";
-                // Note: Color properties would need to be added to SongListNode if needed
             }
 
             return boxNode;
         }
 
-        /// <summary>
-        /// Tries to parse a color value from string
-        /// </summary>
         private bool TryParseColor(string colorValue, out System.Drawing.Color color)
         {
             color = System.Drawing.Color.White;
@@ -817,9 +758,92 @@ namespace DTX.Song
             return false;
         }
 
+        #endregion
+
+        #region Helper Methods
+
         /// <summary>
-        /// Checks if a directory has recent changes recursively
+        /// Finds a song by file path
         /// </summary>
+        public SongScore? FindSongByPath(string filePath)
+        {
+            lock (_lockObject)
+            {
+                return _songsDatabase.FirstOrDefault(s => 
+                    s.Metadata.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        /// <summary>
+        /// Gets songs by genre
+        /// </summary>
+        public IEnumerable<SongScore> GetSongsByGenre(string genre)
+        {
+            lock (_lockObject)
+            {
+                return _songsDatabase.Where(s =>
+                    s.Metadata.Genre.Equals(genre, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+        }
+
+        /// <summary>
+        /// Checks if enumeration is needed based on directory modification times
+        /// </summary>
+        public async Task<bool> NeedsEnumerationAsync(string[] searchPaths)
+        {
+            try
+            {
+                // Check if database exists
+                var databasePath = "songs.db";
+                if (!File.Exists(databasePath))
+                    return true;
+
+                // Get database last modified time
+                var dbLastModified = File.GetLastWriteTime(databasePath);
+
+                // Check if any search path has been modified since database was created
+                foreach (var searchPath in searchPaths)
+                {
+                    if (Directory.Exists(searchPath))
+                    {
+                        var dirLastModified = Directory.GetLastWriteTime(searchPath);
+                        if (dirLastModified > dbLastModified)
+                        {
+                            return true;
+                        }
+
+                        // Check subdirectories recursively (but limit depth for performance)
+                        if (await HasRecentChangesAsync(searchPath, dbLastModified, 3))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
+                return true; // Default to enumeration if we can't determine
+            }
+        }
+
+        /// <summary>
+        /// Clears all data
+        /// </summary>
+        public void Clear()
+        {
+            lock (_lockObject)
+            {
+                _songsDatabase.Clear();
+                _rootSongs.Clear();
+                _isInitialized = false;
+            }
+            DiscoveredScoreCount = 0;
+            EnumeratedFileCount = 0;
+        }
+
         private async Task<bool> HasRecentChangesAsync(string directoryPath, DateTime lastCheck, int maxDepth)
         {
             if (maxDepth <= 0)
@@ -838,7 +862,6 @@ namespace DTX.Song
                 {
                     if (file.LastWriteTime > lastCheck)
                     {
-                        Debug.WriteLine($"SongManager: Found modified file: {file.FullName}");
                         return true;
                     }
                 }
@@ -856,112 +879,6 @@ namespace DTX.Song
             {
                 Debug.WriteLine($"SongManager: Error checking directory changes {directoryPath}: {ex.Message}");
                 return true; // Assume changes if we can't check
-            }
-        }
-
-        /// <summary>
-        /// Incremental directory enumeration - only processes changed directories
-        /// </summary>
-        private async Task IncrementalEnumerateDirectoryAsync(
-            string directoryPath,
-            SongListNode? parent,
-            DateTime lastCheck,
-            IProgress<EnumerationProgress>? progress,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var directory = new DirectoryInfo(directoryPath);
-
-                // Skip if directory hasn't been modified
-                if (directory.LastWriteTime <= lastCheck)
-                {
-                    Debug.WriteLine($"SongManager: Skipping unchanged directory: {directoryPath}");
-                    return;
-                }
-
-                Debug.WriteLine($"SongManager: Processing modified directory: {directoryPath}");
-
-                // Check for set.def (multi-difficulty songs)
-                var setDefPath = Path.Combine(directoryPath, "set.def");
-                if (File.Exists(setDefPath))
-                {
-                    var setDefInfo = new FileInfo(setDefPath);
-                    if (setDefInfo.LastWriteTime > lastCheck)
-                    {
-                        Debug.WriteLine($"SongManager: Found modified set.def in {directoryPath}");
-                        var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent, cancellationToken);
-
-                        // Add to root songs if this is a top-level directory
-                        if (parent == null)
-                        {
-                            lock (_lockObject)
-                            {
-                                _rootSongs.AddRange(setDefSongs);
-                            }
-                        }
-                    }
-                    return; // Don't process individual files if set.def exists
-                }
-
-                // Check for box.def (folder metadata)
-                BoxDefinition? boxDef = null;
-                var boxDefPath = Path.Combine(directoryPath, "box.def");
-                if (File.Exists(boxDefPath))
-                {
-                    var boxDefInfo = new FileInfo(boxDefPath);
-                    if (boxDefInfo.LastWriteTime > lastCheck)
-                    {
-                        Debug.WriteLine($"SongManager: Found modified box.def in {directoryPath}");
-                        boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
-                    }
-                }
-
-                // Process modified subdirectories
-                foreach (var subDir in directory.GetDirectories())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await IncrementalEnumerateDirectoryAsync(subDir.FullName, parent, lastCheck, progress, cancellationToken);
-                }
-
-                // Process modified individual song files
-                foreach (var file in directory.GetFiles())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (file.LastWriteTime > lastCheck && DTXMetadataParser.IsSupportedFile(file.FullName))
-                    {
-                        Debug.WriteLine($"SongManager: Processing modified song file: {file.Name}");
-
-                        var songNode = await CreateSongNodeAsync(file.FullName, parent);
-                        if (songNode != null)
-                        {
-                            // Add to root songs if this is a top-level file
-                            if (parent == null)
-                            {
-                                lock (_lockObject)
-                                {
-                                    _rootSongs.Add(songNode);
-                                }
-                            }
-
-                            DiscoveredScoreCount++;
-                            SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(songNode));
-
-                            progress?.Report(new EnumerationProgress
-                            {
-                                CurrentFile = file.Name,
-                                ProcessedCount = ++EnumeratedFileCount,
-                                DiscoveredSongs = DiscoveredScoreCount,
-                                CurrentDirectory = directoryPath
-                            });
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error in incremental enumeration of {directoryPath}: {ex.Message}");
             }
         }
 

@@ -8,6 +8,7 @@ using DTXMania.Shared.Game;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace DTX.Stage
 {
@@ -67,11 +68,10 @@ namespace DTX.Stage
         #region Constructor
 
         public StartupStage(BaseGame game) : base(game)
-        {
-            _progressMessages = new List<string>();
+        {            _progressMessages = new List<string>();
 
-            // Initialize services
-            _songManager = new SongManager();
+            // Initialize services - use singleton for SongManager
+            _songManager = SongManager.Instance;
             _configManager = new ConfigManager();
 
             // Initialize phase information (based on DTXManiaNX phases)
@@ -248,9 +248,7 @@ namespace DTX.Stage
                     System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_startupPhase}");
                 }
             }
-        }
-
-        private void PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
+        }        private async Task PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
         {
             // Only perform operation once per phase (at the beginning)
             if (phaseElapsed > 0.1) return;
@@ -280,18 +278,23 @@ namespace DTX.Stage
                     {
                         System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
                     }
-                    break;
-
-                case StartupPhase.EnumerateSongs:
-                    // Start song enumeration with SongManager
+                    break;                case StartupPhase.EnumerateSongs:
+                    // Initialize SongManager with song enumeration
                     try
                     {
                         // Point to the user's DTXFiles folder
                         var songPaths = new[] { "DTXFiles" };
 
-                        // Use SongManager for enumeration
-                        _ = _songManager.EnumerateSongsAsync(songPaths);
-                        System.Diagnostics.Debug.WriteLine("Started song enumeration with SongManager (DTXFiles folder)...");
+                        // Use SongManager singleton for initialization (only enumerate if not already initialized)
+                        if (!_songManager.IsInitialized)
+                        {
+                            await _songManager.InitializeAsync(songPaths);
+                            System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("SongManager already initialized, skipping enumeration");
+                        }
                     }
                     catch (Exception ex)
                     {

@@ -30,10 +30,7 @@ namespace DTX.Stage
         // DTXManiaNX Background Graphics (Phase 3)
         private ITexture _backgroundTexture;
         private ITexture _headerPanelTexture;
-        private ITexture _footerPanelTexture;
-
-        // Song management
-        private SongManager _songManager;
+        private ITexture _footerPanelTexture;        // Song management
         private List<SongListNode> _currentSongList;
         private SongListNode _selectedSong;
         private int _selectedIndex = 0;
@@ -144,19 +141,12 @@ namespace DTX.Stage
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
                 }
-            }
-
-            // Load DTXManiaNX background graphics (Phase 3)
-            LoadBackgroundGraphics();
-
-            // Initialize song manager
-            _songManager = new SongManager();
-
-            // Initialize UI
+            }            // Load DTXManiaNX background graphics (Phase 3)
+            LoadBackgroundGraphics();            // Initialize UI
             InitializeUI(uiFont);
 
             // Start song loading
-            _ = InitializeSongListAsync();
+            InitializeSongList();
 
             _currentPhase = StagePhase.FadeIn;
             _selectionPhase = SongSelectionPhase.FadeIn;
@@ -362,33 +352,32 @@ namespace DTX.Stage
             _mainPanel.Activate();
 
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI initialization complete. Status panel in main panel: {_mainPanel.Children.Contains(_statusPanel)}");
-        }
-
-        private async Task InitializeSongListAsync()
+        }        private void InitializeSongList()
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loading song database...");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Accessing SongManager singleton...");
 
-                // Load cached song database
-                await _songManager.LoadSongsDatabaseAsync("songs.db");
+                var songManager = SongManager.Instance;
 
-                // Check if enumeration is needed
-                if (_songManager.DatabaseScoreCount == 0)
+                // Check if already initialized
+                if (songManager.IsInitialized)
                 {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: No songs in database, starting enumeration...");
-                    
-                    var progress = new Progress<EnumerationProgress>(OnEnumerationProgress);
-                    await _songManager.EnumerateSongsAsync(new[] { "DTXFiles", "Songs" }, progress);
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager already initialized, using existing data");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager not initialized - this should have been done in StartupStage");
+                    // Note: In the singleton pattern, initialization should be done in StartupStage
+                    // If we reach here, it means StartupStage didn't properly initialize
                 }
 
                 // Initialize display with song list
-                _currentSongList = _songManager.RootSongs.ToList();
+                _currentSongList = songManager.RootSongs.ToList();
                 PopulateSongList();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
             }
         }
@@ -418,26 +407,6 @@ namespace DTX.Stage
 
             // Update the song list display
             _songListDisplay.CurrentList = displayList;
-        }
-
-        private string GetDisplayText(SongListNode node)
-        {
-            switch (node.Type)
-            {
-                case NodeType.Box:
-                    return $"[BOX] {node.DisplayTitle}";
-                case NodeType.Score:
-                    var metadata = node.Metadata;
-                    if (metadata != null)
-                    {
-                        return $"{metadata.DisplayTitle} - {metadata.DisplayArtist}";
-                    }
-                    return node.DisplayTitle;
-                case NodeType.Random:
-                    return "[RANDOM]";
-                default:
-                    return node.DisplayTitle;
-            }
         }
 
         #endregion
@@ -473,12 +442,6 @@ namespace DTX.Stage
         private void OnEnumerationProgress(EnumerationProgress progress)
         {
             // Progress tracking for song enumeration
-        }
-
-        private void UpdateSelectedSong()
-        {
-            _selectedSong = _songListDisplay.SelectedSong;
-            UpdateBreadcrumb();
         }
 
         private void HandleSongActivation(SongListNode node)
