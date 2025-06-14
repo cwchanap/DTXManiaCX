@@ -531,7 +531,7 @@ namespace DTX.UI.Components
             var nPanelH = DIFFICULTY_CELL_HEIGHT; // 60 pixels
 
             // Assume panel body width (this.txパネル本体.szImageSize.Width) - typical value from DTXManiaNX
-            var panelBodyWidth = 187; // Estimated panel body width
+            var panelBodyWidth = 561; // Estimated panel body width
 
             // Draw 3×5 difficulty grid using DTXManiaNX formula
             for (int i = 0; i < 5; i++) // 5 difficulty levels (0=Novice to 4=Ultimate)
@@ -543,7 +543,7 @@ namespace DTX.UI.Components
                     // int nBoxY = (391 + ((4 - i) * 60)) - 2;  // Higher difficulties at top
 
                     var nBoxX = nBaseX + panelBodyWidth + (nPanelW * (nPart[j] - 3));
-                    var nBoxY = (391 + ((4 - i) * 60)) - 2; // Higher difficulties at top
+                    var nBoxY = nBaseY + ((4 - i) * nPanelH) - 2; // Higher difficulties at top
 
                     DrawDifficultyCell(spriteBatch, nBoxX, nBoxY, i, j);
                 }
