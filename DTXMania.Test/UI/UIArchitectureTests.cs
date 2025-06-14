@@ -1,6 +1,7 @@
 using Xunit;
 using DTX.UI;
 using DTX.UI.Components;
+using DTX.Song;
 using Microsoft.Xna.Framework;
 using System;
 
@@ -507,6 +508,77 @@ namespace DTXMania.Test.UI
             // Assert
             Assert.Empty(uiManager.RootContainers);
             Assert.Null(uiManager.FocusedContainer);
+        }
+
+        #endregion
+
+        #region SongStatusPanel Tests
+
+        [Fact]
+        public void SongStatusPanel_UpdateSongInfo_UpdatesCorrectly()
+        {
+            var statusPanel = new SongStatusPanel();
+            var mockSong = CreateMockSongNode();
+
+            // Test updating song info
+            statusPanel.UpdateSongInfo(mockSong, 0);
+
+            // Verify the panel accepts the update without throwing
+            var exception = Record.Exception(() => statusPanel.UpdateSongInfo(mockSong, 1));
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void SongStatusPanel_WithNullSong_HandlesGracefully()
+        {
+            var statusPanel = new SongStatusPanel();
+
+            // Test with null song
+            var exception = Record.Exception(() => statusPanel.UpdateSongInfo(null, 0));
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void SongStatusPanel_DTXManiaNXLayout_UsesCorrectPositioning()
+        {
+            var statusPanel = new SongStatusPanel();
+
+            // Verify the panel uses DTXManiaNX sizing
+            Assert.Equal(new Vector2(580, 320), statusPanel.Size);
+        }
+
+        private SongListNode CreateMockSongNode()
+        {
+            var metadata = new SongMetadata
+            {
+                Title = "Test Song",
+                Artist = "Test Artist",
+                Genre = "Test Genre",
+                BPM = 120,
+                DrumLevel = 5,
+                GuitarLevel = 4,
+                BassLevel = 3
+            };
+
+            var mockSong = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Test Song",
+                Metadata = metadata,
+                Scores = new SongScore[]
+                {
+                    new SongScore
+                    {
+                        Metadata = metadata,
+                        BestScore = 950000,
+                        BestRank = 85,
+                        HighSkill = 87.42,
+                        PlayCount = 5,
+                        FullCombo = false
+                    }
+                }
+            };
+            return mockSong;
         }
 
         #endregion
