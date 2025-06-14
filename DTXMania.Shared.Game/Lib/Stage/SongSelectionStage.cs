@@ -582,13 +582,8 @@ namespace DTX.Stage
             _spriteBatch.Begin();
 
             // Draw background
-            DrawBackground();
-
-            // Draw UI
+            DrawBackground();            // Draw UI
             _uiManager?.Draw(_spriteBatch, deltaTime);
-
-            // Draw additional info
-            DrawSongInfo();
 
             _spriteBatch.End();
         }
@@ -760,35 +755,7 @@ namespace DTX.Stage
                 var color = Color.Lerp(topColor, bottomColor, ratio);
                 var lineRect = new Rectangle(0, y, viewport.Width, 4);
                 _spriteBatch.Draw(_whitePixel, lineRect, color);
-            }
-        }
-
-        private void DrawSongInfo()
-        {
-            if (_selectedSong?.Type == NodeType.Score && _selectedSong.Metadata != null)
-            {
-                var metadata = _selectedSong.Metadata;
-                int x = 800;
-                int y = 150;
-
-                // Draw song info panel background
-                _spriteBatch.Draw(_whitePixel, new Rectangle(x - 10, y - 10, 300, 200), Color.Black * 0.7f);
-
-                // Draw song information (simplified - would use proper font rendering in full implementation)
-                if (_bitmapFont != null)
-                {
-                    _bitmapFont.DrawText(_spriteBatch, $"BPM: {metadata.BPM:F0}", x, y);
-                    _bitmapFont.DrawText(_spriteBatch, $"Genre: {metadata.Genre}", x, y + 30);
-
-                    if (_selectedSong.Scores?[_currentDifficulty] != null)
-                    {
-                        var score = _selectedSong.Scores[_currentDifficulty];
-                        _bitmapFont.DrawText(_spriteBatch, $"Difficulty: {_currentDifficulty}", x, y + 60);
-                        _bitmapFont.DrawText(_spriteBatch, $"Best Score: {score.BestScore}", x, y + 90);
-                    }
-                }
-            }
-        }
+            }        }
 
         #endregion
     }
