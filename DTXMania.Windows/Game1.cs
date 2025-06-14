@@ -14,9 +14,14 @@ public class Game1 : BaseGame
 
     protected override void Initialize()
     {
-        // Configure platform-specific font factory before base initialization
-        ResourceManagerFactory.SetFontFactory(new WindowsFontFactory());
-
         base.Initialize();
+    }
+
+    protected override void LoadContent()
+    {
+        base.LoadContent();
+        
+        // Configure platform-specific font factory after content is loaded
+        ResourceManagerFactory.SetFontFactory(new WindowsFontFactory(Content));
     }
 }
