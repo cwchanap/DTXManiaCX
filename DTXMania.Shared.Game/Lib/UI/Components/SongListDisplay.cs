@@ -25,58 +25,68 @@ namespace DTX.UI.Components
         private const float SCROLL_ACCELERATION_THRESHOLD_2 = 300f;
         private const float SCROLL_ACCELERATION_THRESHOLD_3 = 500f;
 
-        // DTXManiaNX Curved Layout Coordinates (ptバーの基本座標)
-        // These are the exact coordinates from DTXManiaNX for authentic curved layout
-        private static readonly Point[] CurvedBarCoordinates = new Point[]
+        // DTXManiaNX Current Implementation Coordinates (ptバーの基本座標)
+        // NOTE: Original curved X coordinates are present but DISABLED in current DTXManiaNX
+        // Current implementation uses vertical list layout with fixed X positions
+        private static readonly Point[] OriginalCurvedCoordinates = new Point[]
         {
-            new Point(708, 5),      // Bar 0 (top)
-            new Point(626, 56),     // Bar 1
-            new Point(578, 107),    // Bar 2
-            new Point(546, 158),    // Bar 3
-            new Point(528, 209),    // Bar 4
-            new Point(464, 270),    // Bar 5 (CENTER/SELECTED) ← KEY POSITION
-            new Point(548, 362),    // Bar 6
-            new Point(578, 413),    // Bar 7
-            new Point(624, 464),    // Bar 8
-            new Point(686, 515),    // Bar 9
-            new Point(788, 566),    // Bar 10
-            new Point(996, 617),    // Bar 11
-            new Point(1280, 668)    // Bar 12 (bottom)
+            new Point(708, 5),      // Bar 0 (original curved, X ignored)
+            new Point(626, 56),     // Bar 1 (original curved, X ignored)
+            new Point(578, 107),    // Bar 2 (original curved, X ignored)
+            new Point(546, 158),    // Bar 3 (original curved, X ignored)
+            new Point(528, 209),    // Bar 4 (original curved, X ignored)
+            new Point(464, 270),    // Bar 5 (original curved, special position)
+            new Point(548, 362),    // Bar 6 (original curved, X ignored)
+            new Point(578, 413),    // Bar 7 (original curved, X ignored)
+            new Point(624, 464),    // Bar 8 (original curved, X ignored)
+            new Point(686, 515),    // Bar 9 (original curved, X ignored)
+            new Point(788, 566),    // Bar 10 (original curved, X ignored)
+            new Point(996, 617),    // Bar 11 (original curved, X ignored)
+            new Point(1280, 668)    // Bar 12 (original curved, X ignored)
         };
 
-        // DTXManiaNX Visual Effects - Perspective scaling and opacity for curved layout
+        // DTXManiaNX Current Implementation: Vertical List Layout
+        // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
+        // Unselected bars: Fixed X:673 (vertical list formation)
+        private const int SELECTED_BAR_X = 665;
+        private const int SELECTED_BAR_Y = 269;
+        private const int UNSELECTED_BAR_X = 673;
+        private const int BAR_WIDTH = 510; // Maximum bar width
+
+        // DTXManiaNX Current Implementation: Simplified Visual Effects
+        // Current implementation uses minimal perspective effects for vertical list
         private static readonly float[] BarScaleFactors = new float[]
         {
-            0.8f,   // Bar 0 (top) - smaller
-            0.85f,  // Bar 1
-            0.9f,   // Bar 2
-            0.95f,  // Bar 3
+            1.0f,   // Bar 0 (top) - normal size
+            1.0f,   // Bar 1
+            1.0f,   // Bar 2
+            1.0f,   // Bar 3
             1.0f,   // Bar 4
-            1.1f,   // Bar 5 (CENTER) - largest
+            1.0f,   // Bar 5 (CENTER/SELECTED) - normal size (no scaling in current impl)
             1.0f,   // Bar 6
-            0.95f,  // Bar 7
-            0.9f,   // Bar 8
-            0.85f,  // Bar 9
-            0.8f,   // Bar 10
-            0.75f,  // Bar 11
-            0.7f    // Bar 12 (bottom) - smallest
+            1.0f,   // Bar 7
+            1.0f,   // Bar 8
+            1.0f,   // Bar 9
+            1.0f,   // Bar 10
+            1.0f,   // Bar 11
+            1.0f    // Bar 12 (bottom) - normal size
         };
 
         private static readonly float[] BarOpacityFactors = new float[]
         {
-            0.4f,   // Bar 0 (top) - faded
-            0.5f,   // Bar 1
-            0.6f,   // Bar 2
-            0.7f,   // Bar 3
-            0.8f,   // Bar 4
-            1.0f,   // Bar 5 (CENTER) - full opacity
-            0.8f,   // Bar 6
-            0.7f,   // Bar 7
-            0.6f,   // Bar 8
-            0.5f,   // Bar 9
-            0.4f,   // Bar 10
-            0.3f,   // Bar 11
-            0.2f    // Bar 12 (bottom) - most faded
+            1.0f,   // Bar 0 (top) - full opacity
+            1.0f,   // Bar 1
+            1.0f,   // Bar 2
+            1.0f,   // Bar 3
+            1.0f,   // Bar 4
+            1.0f,   // Bar 5 (CENTER/SELECTED) - full opacity
+            1.0f,   // Bar 6
+            1.0f,   // Bar 7
+            1.0f,   // Bar 8
+            1.0f,   // Bar 9
+            1.0f,   // Bar 10
+            1.0f,   // Bar 11
+            1.0f    // Bar 12 (bottom) - full opacity
         };
 
         #endregion
@@ -499,7 +509,7 @@ namespace DTX.UI.Components
             // Calculate center song index based on scroll position
             int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
 
-            // Draw 13 visible bars using DTXManiaNX curved coordinates with perspective effects
+            // Draw 13 visible bars using DTXManiaNX current implementation (vertical list layout)
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
                 // Calculate which song should be displayed at this bar position
@@ -510,23 +520,34 @@ namespace DTX.UI.Components
                     continue;
 
                 var node = _currentList[songIndex];
-                var barCoords = CurvedBarCoordinates[barIndex];
 
-                // Apply DTXManiaNX perspective scaling
+                // DTXManiaNX Current Implementation: Vertical List Layout
+                // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
+                // Unselected bars: Fixed X:673 (vertical list formation)
+                int barX, barY;
+                if (barIndex == CENTER_INDEX)
+                {
+                    // Selected bar uses special position
+                    barX = SELECTED_BAR_X;
+                    barY = SELECTED_BAR_Y;
+                }
+                else
+                {
+                    // Unselected bars use fixed X position with Y from original coordinates
+                    barX = UNSELECTED_BAR_X;
+                    barY = OriginalCurvedCoordinates[barIndex].Y;
+                }
+
+                // Apply minimal visual effects (current implementation uses simplified effects)
                 var scaleFactor = BarScaleFactors[barIndex];
                 var opacityFactor = BarOpacityFactors[barIndex];
 
-                // Calculate scaled dimensions
-                var scaledWidth = (int)(500 * scaleFactor); // Base width scaled by perspective
-                var scaledHeight = (int)(_itemHeight * scaleFactor);
+                // Calculate dimensions (current implementation uses fixed width)
+                var barWidth = BAR_WIDTH;
+                var barHeight = (int)_itemHeight;
 
-                // Create item bounds using curved coordinates with perspective scaling
-                var itemBounds = new Rectangle(
-                    barCoords.X,
-                    barCoords.Y,
-                    scaledWidth,
-                    scaledHeight
-                );
+                // Create item bounds using vertical list coordinates
+                var itemBounds = new Rectangle(barX, barY, barWidth, barHeight);
 
                 // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
                 bool isSelected = (barIndex == CENTER_INDEX);

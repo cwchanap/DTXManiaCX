@@ -40,6 +40,7 @@ namespace DTX.Stage
         private UIManager _uiManager;
         private SongListDisplay _songListDisplay;
         private SongStatusPanel _statusPanel;
+        private PreviewImagePanel _previewImagePanel;
         private UILabel _titleLabel;
         private UILabel _breadcrumbLabel;
         private UIPanel _mainPanel;
@@ -322,6 +323,14 @@ namespace DTX.Stage
                 WhitePixel = _whitePixel
             };
 
+            // Create DTXManiaNX-style preview image panel
+            // Position at authentic DTXManiaNX coordinates (X:250, Y:34 with status panel)
+            _previewImagePanel = new PreviewImagePanel
+            {
+                HasStatusPanel = true, // We have a status panel, so use right-side positioning
+                WhitePixel = _whitePixel
+            };
+
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured with Font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
 
             // Initialize graphics generator for status panel
@@ -334,6 +343,18 @@ namespace DTX.Stage
             _statusPanel.Visible = true;
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured - Visible: {_statusPanel.Visible}, Position: {_statusPanel.Position}, Size: {_statusPanel.Size}");
 
+            // Initialize preview image panel
+            try
+            {
+                _previewImagePanel.Initialize(_resourceManager);
+                _previewImagePanel.Visible = true;
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview image panel configured - Position: {_previewImagePanel.Position}, Size: {_previewImagePanel.Size}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize preview image panel: {ex.Message}");
+            }
+
             // Wire up events
             _songListDisplay.SelectionChanged += OnSongSelectionChanged;
             _songListDisplay.SongActivated += OnSongActivated;
@@ -344,6 +365,7 @@ namespace DTX.Stage
             _mainPanel.AddChild(_breadcrumbLabel);
             _mainPanel.AddChild(_songListDisplay);
             _mainPanel.AddChild(_statusPanel);
+            _mainPanel.AddChild(_previewImagePanel);
 
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
@@ -421,6 +443,9 @@ namespace DTX.Stage
 
             // Update status panel
             _statusPanel.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+
+            // Update preview image panel (DTXManiaNX t選択曲が変更された equivalent)
+            _previewImagePanel.UpdateSelectedSong(e.SelectedSong);
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
