@@ -14,8 +14,7 @@ namespace DTX.UI.Components
     /// Song bar texture generation and caching system
     /// Equivalent to DTXManiaNX song bar generation methods
     /// </summary>
-    public class SongBarRenderer : IDisposable
-    {
+    public class SongBarRenderer : IDisposable    {
         #region Constants
 
         private const int TITLE_TEXTURE_WIDTH = 400;
@@ -23,6 +22,7 @@ namespace DTX.UI.Components
         private const int PREVIEW_IMAGE_SIZE = 24;
         private const int CLEAR_LAMP_WIDTH = 8;
         private const int CLEAR_LAMP_HEIGHT = 24;
+        private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 500 * 1024; // 500KB
 
         #endregion
 
@@ -39,9 +39,7 @@ namespace DTX.UI.Components
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
-        private SpriteBatch _spriteBatch;
-
-        // Clear lamp colors for different difficulties
+        private SpriteBatch _spriteBatch;        // Clear lamp colors for different difficulties
         private static readonly Color[] DifficultyColors = new[]
         {
             Color.Green,    // Difficulty 0 - Easy
@@ -51,6 +49,8 @@ namespace DTX.UI.Components
             Color.Purple    // Difficulty 4 - Master
         };
 
+        // Fast scroll mode flag to skip preview image loading during active scrolling
+        private bool _isFastScrollMode = false;
         private bool _disposed = false;
 
         #endregion
@@ -92,9 +92,7 @@ namespace DTX.UI.Components
             }
 
             return texture;
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Generate or retrieve cached preview image texture
         /// </summary>
         public ITexture GeneratePreviewImageTexture(SongListNode songNode)
@@ -102,10 +100,30 @@ namespace DTX.UI.Components
             if (songNode?.Metadata?.PreviewImage == null)
                 return null;
 
+            // Skip preview image loading during fast scroll to prevent UI freezes
+            if (_isFastScrollMode)
+                return null;
+
             var cacheKey = songNode.Metadata.PreviewImage;
 
             if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
+
+            // Check file size before attempting to load - skip large files (>500KB)
+            if (songNode.Metadata?.FilePath != null)
+            {
+                var songDirectory = Path.GetDirectoryName(songNode.Metadata.FilePath);
+                var previewImagePath = Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
+
+                // Quick file existence and size check
+                if (!File.Exists(previewImagePath))
+                    return null;                var fileInfo = new FileInfo(previewImagePath);
+                if (fileInfo.Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {previewImagePath} ({fileInfo.Length} bytes)");
+                    return null;
+                }
+            }
 
             var texture = LoadPreviewImage(songNode);            if (texture != null)
             {
@@ -206,6 +224,19 @@ namespace DTX.UI.Components
             _titleTextureCache.Clear();
         }
 
+        /// <summary>
+        /// Enable or disable fast scroll mode to skip preview image loading during active scrolling
+        /// </summary>
+        public void SetFastScrollMode(bool enabled)
+        {
+            _isFastScrollMode = enabled;
+        }
+
+        /// <summary>
+        /// Check if fast scroll mode is currently enabled
+        /// </summary>
+        public bool IsFastScrollMode => _isFastScrollMode;
+
         #endregion
 
         #region Private Methods
@@ -268,10 +299,12 @@ namespace DTX.UI.Components
                 System.Diagnostics.Debug.WriteLine($"Failed to create title texture: {ex.Message}");
                 return null;
             }
-        }
-
-        private ITexture LoadPreviewImage(SongListNode songNode)
+        }        private ITexture LoadPreviewImage(SongListNode songNode)
         {
+            // Skip preview image loading during fast scroll to prevent UI freezes
+            if (_isFastScrollMode)
+                return null;
+
             try
             {
                 if (songNode.Metadata?.FilePath != null)
@@ -279,10 +312,11 @@ namespace DTX.UI.Components
                     var songDirectory = Path.GetDirectoryName(songNode.Metadata.FilePath);
                     var previewImagePath = Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
 
-                    if (File.Exists(previewImagePath))
-                    {
-                        return _resourceManager.LoadTexture(previewImagePath);
-                    }
+                    // Quick file existence check - return immediately if file doesn't exist
+                    if (!File.Exists(previewImagePath))
+                        return null;
+
+                    return _resourceManager.LoadTexture(previewImagePath);
                 }
             }
             catch (Exception ex)

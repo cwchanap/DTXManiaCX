@@ -136,12 +136,15 @@ namespace DTX.UI.Components
         {
             get => _currentDifficulty;
             set => _currentDifficulty = Math.Max(0, Math.Min(4, value));
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Whether the list is currently scrolling
         /// </summary>
         public bool IsScrolling => _targetScrollCounter != 0 || _currentScrollCounter != 0;
+
+        /// <summary>
+        /// Whether scrolling has completed (target matches current position)
+        /// </summary>
+        public bool IsScrollComplete => _targetScrollCounter == _currentScrollCounter;
 
         /// <summary>
         /// Current song list
@@ -918,11 +921,9 @@ namespace DTX.UI.Components
             var previousSong = SelectedSong;
             SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
                 ? _currentList[_selectedIndex]
-                : null;
-
-            if (SelectedSong != previousSong)
+                : null;            if (SelectedSong != previousSong)
             {
-                SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty));
+                SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
             }
         }
 
@@ -965,8 +966,7 @@ namespace DTX.UI.Components
                 _barInfoCache.Clear();
             }
 
-            base.Dispose(disposing);
-        }
+            base.Dispose(disposing);        }
 
         #endregion
     }
@@ -977,11 +977,13 @@ namespace DTX.UI.Components
     {
         public SongListNode SelectedSong { get; }
         public int CurrentDifficulty { get; }
+        public bool IsScrollComplete { get; }
 
-        public SongSelectionChangedEventArgs(SongListNode selectedSong, int currentDifficulty)
+        public SongSelectionChangedEventArgs(SongListNode selectedSong, int currentDifficulty, bool isScrollComplete)
         {
             SelectedSong = selectedSong;
             CurrentDifficulty = currentDifficulty;
+            IsScrollComplete = isScrollComplete;
         }
     }
 

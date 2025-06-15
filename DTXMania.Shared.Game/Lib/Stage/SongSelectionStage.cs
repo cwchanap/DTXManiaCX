@@ -392,8 +392,7 @@ namespace DTX.Stage
 
             // Update the song list display
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Populating display with {displayList.Count} items");
-            _songListDisplay.CurrentList = displayList;
-        }
+            _songListDisplay.CurrentList = displayList;        }
 
         #endregion
 
@@ -404,6 +403,15 @@ namespace DTX.Stage
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
+            // DTXManiaNX-style navigation debouncing
+            if (!e.IsScrollComplete)
+            {
+                // During scrolling - only update lightweight UI
+                UpdateBreadcrumb();
+                return; // Skip heavy updates
+            }
+
+            // After scrolling completes - update everything
             // Performance optimization: Debounce rapid selection changes
             var currentTime = _elapsedTime;
             if (currentTime - _lastSelectionUpdateTime < SELECTION_UPDATE_DEBOUNCE_SECONDS)
