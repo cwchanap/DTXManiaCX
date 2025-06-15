@@ -31,6 +31,10 @@ namespace DTX.UI.Components
         private ITexture _statusPanelTexture;
         private IResourceManager _resourceManager;
 
+        // Performance optimization: Cache generated background texture
+        private ITexture _cachedBackgroundTexture;
+        private Rectangle _cachedBackgroundSize;
+
         // DTXManiaNX layout constants (authentic positioning from documentation)
         private const int DIFFICULTY_GRID_X = 140; // Grid base X position (relative to main panel at X:130)
         private const int DIFFICULTY_GRID_Y = 52; // Grid base Y position (relative to main panel)
@@ -158,6 +162,23 @@ namespace DTX.UI.Components
             _currentDifficulty = difficulty;
         }
 
+        /// <summary>
+        /// Dispose of resources
+        /// </summary>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _cachedBackgroundTexture?.Dispose();
+                _cachedBackgroundTexture = null;
+                _graphicsGenerator?.Dispose();
+                _graphicsGenerator = null;
+                _statusPanelTexture?.Dispose();
+                _statusPanelTexture = null;
+            }
+            base.Dispose(disposing);
+        }
+
         #endregion
 
         #region Protected Methods
@@ -208,13 +229,19 @@ namespace DTX.UI.Components
                 return;
             }
 
-            // Try to use generated panel background as fallback
+            // Performance optimization: Use cached generated background
             if (_graphicsGenerator != null)
             {
-                var panelTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
-                if (panelTexture != null)
+                // Check if we need to regenerate the cached texture
+                if (_cachedBackgroundTexture == null || _cachedBackgroundSize != bounds)
                 {
-                    panelTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
+                    _cachedBackgroundTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
+                    _cachedBackgroundSize = bounds;
+                }
+
+                if (_cachedBackgroundTexture != null)
+                {
+                    _cachedBackgroundTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
                     return;
                 }
             }
@@ -940,18 +967,7 @@ namespace DTX.UI.Components
             };
         }
 
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _graphicsGenerator?.Dispose();
-                _graphicsGenerator = null;
 
-                _statusPanelTexture?.Dispose();
-                _statusPanelTexture = null;
-            }
-            base.Dispose(disposing);
-        }
 
         #endregion
     }

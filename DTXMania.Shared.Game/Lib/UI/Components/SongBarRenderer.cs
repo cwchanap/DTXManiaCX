@@ -228,7 +228,6 @@ namespace DTX.UI.Components
         {
             if (_font == null || _titleRenderTarget == null)
             {
-                System.Diagnostics.Debug.WriteLine("SongBarRenderer: Cannot create title texture - font or render target is null");
                 return null;
             }
 

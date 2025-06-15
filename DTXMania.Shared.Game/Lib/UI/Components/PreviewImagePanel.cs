@@ -4,6 +4,7 @@ using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
 using System;
+using System.Threading.Tasks;
 
 namespace DTX.UI.Components
 {
@@ -110,7 +111,9 @@ namespace DTX.UI.Components
                 return;
 
             _currentSong = song;
-            LoadPreviewImageAsync();
+
+            // Load preview image asynchronously to avoid blocking navigation
+            _ = Task.Run(() => LoadPreviewImageAsync());
         }
 
         #endregion
@@ -162,16 +165,22 @@ namespace DTX.UI.Components
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load default preview: {ex.Message}");
+                // Only log critical errors to reduce debug noise
+                if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load default preview: {ex.Message}");
+                }
             }
         }
 
         private void LoadPreviewImageAsync()
         {
-            // Clear current preview
+            var currentSong = _currentSong; // Capture current song to avoid race conditions
+
+            // Clear current preview immediately for responsive UI
             _currentPreviewTexture = null;
 
-            if (_currentSong?.Metadata?.PreviewImage == null)
+            if (currentSong?.Metadata?.PreviewImage == null)
                 return;
 
             try
@@ -180,13 +189,13 @@ namespace DTX.UI.Components
                 // Get file path from metadata (either from the song node or from the first score)
                 string songFilePath = null;
 
-                if (_currentSong.Metadata?.FilePath != null)
+                if (currentSong.Metadata?.FilePath != null)
                 {
-                    songFilePath = _currentSong.Metadata.FilePath;
+                    songFilePath = currentSong.Metadata.FilePath;
                 }
-                else if (_currentSong.Scores?[0]?.Metadata?.FilePath != null)
+                else if (currentSong.Scores?[0]?.Metadata?.FilePath != null)
                 {
-                    songFilePath = _currentSong.Scores[0].Metadata.FilePath;
+                    songFilePath = currentSong.Scores[0].Metadata.FilePath;
                 }
 
                 if (songFilePath != null)
@@ -194,17 +203,25 @@ namespace DTX.UI.Components
                     var songDirectory = System.IO.Path.GetDirectoryName(songFilePath);
                     if (songDirectory != null)
                     {
-                        var previewPath = System.IO.Path.Combine(songDirectory, _currentSong.Metadata.PreviewImage);
+                        var previewPath = System.IO.Path.Combine(songDirectory, currentSong.Metadata.PreviewImage);
                         if (System.IO.File.Exists(previewPath))
                         {
-                            _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
+                            // Only update if this is still the current song (avoid race conditions)
+                            if (_currentSong == currentSong)
+                            {
+                                _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
+                            }
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image: {ex.Message}");
+                // Only log critical errors to reduce debug noise
+                if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image: {ex.Message}");
+                }
             }
         }
 

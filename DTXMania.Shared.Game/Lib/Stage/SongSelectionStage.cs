@@ -58,6 +58,14 @@ namespace DTX.Stage
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
         private double _phaseStartTime;
 
+        // Performance optimization: Input debouncing
+        private double _lastNavigationTime = 0;
+        private const double NAVIGATION_DEBOUNCE_SECONDS = 0.01; // 10ms debounce for smooth navigation
+
+        // Performance optimization: Selection change debouncing
+        private double _lastSelectionUpdateTime = 0;
+        private const double SELECTION_UPDATE_DEBOUNCE_SECONDS = 0.016; // ~60fps update rate
+
         // Constants for DTXMania-style display
         private const int VISIBLE_SONGS = 13;
         private const int CENTER_INDEX = 6;
@@ -85,13 +93,9 @@ namespace DTX.Stage
         {
             base.Activate(sharedData);
 
-            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Activating...");
-
             // Initialize graphics resources
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Creating ResourceManager, HasFontFactory: {ResourceManagerFactory.HasFontFactory}");
             _resourceManager = ResourceManagerFactory.CreateResourceManager(_game.GraphicsDevice);
-            System.Diagnostics.Debug.WriteLine("SongSelectionStage: ResourceManager created successfully");
 
             // Create white pixel for drawing
             _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
@@ -101,10 +105,10 @@ namespace DTX.Stage
             try
             {
                 _bitmapFont = new BitmapFont(_game.GraphicsDevice, _resourceManager);
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: BitmapFont loaded successfully");
             }
             catch (Exception ex)
             {
+                // Only log critical errors
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load BitmapFont: {ex.Message}");
             }
 
@@ -112,30 +116,24 @@ namespace DTX.Stage
             IFont uiFont = null;
             try
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: ResourceManagerFactory has font factory: {ResourceManagerFactory.HasFontFactory}");
-
                 if (ResourceManagerFactory.HasFontFactory)
                 {
                     uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: UI font loaded successfully");
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: No font factory available - creating fallback font");
                     // Create a minimal fallback font using MonoGame's built-in capabilities
                     uiFont = CreateFallbackFont();
                 }
             }
             catch (Exception ex)
             {
+                // Only log critical errors
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load UI font: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Exception details: {ex}");
 
                 // Create a simple fallback font for testing
                 try
                 {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Attempting to create fallback font...");
                     uiFont = CreateFallbackFont();
                 }
                 catch (Exception fallbackEx)
@@ -153,14 +151,10 @@ namespace DTX.Stage
             _selectionPhase = SongSelectionPhase.FadeIn;
             _phaseStartTime = 0;
             _elapsedTime = 0;
-
-            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Activated");
         }
 
         public override void Deactivate()
         {
-            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Deactivating...");
-
             // Clean up UI
             _uiManager?.Dispose();
 
@@ -177,8 +171,6 @@ namespace DTX.Stage
             _selectionPhase = SongSelectionPhase.Inactive;
 
             base.Deactivate();
-
-            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Deactivated");
         }
 
         #endregion
@@ -198,7 +190,6 @@ namespace DTX.Stage
             catch
             {
                 // If that fails, return null - the UI components will handle this gracefully
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: All fallback font creation attempts failed");
                 return null;
             }
         }
@@ -213,7 +204,6 @@ namespace DTX.Stage
             {
                 // Load DTXManiaNX song selection background graphics
                 _backgroundTexture = _resourceManager.LoadTexture("Graphics/5_background.jpg");
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_background.jpg");
             }
             catch (Exception ex)
             {
@@ -223,7 +213,6 @@ namespace DTX.Stage
             try
             {
                 _headerPanelTexture = _resourceManager.LoadTexture("Graphics/5_header panel.png");
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_header panel.png");
             }
             catch (Exception ex)
             {
@@ -233,7 +222,6 @@ namespace DTX.Stage
             try
             {
                 _footerPanelTexture = _resourceManager.LoadTexture("Graphics/5_footer panel.png");
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded 5_footer panel.png");
             }
             catch (Exception ex)
             {
@@ -289,20 +277,11 @@ namespace DTX.Stage
                 WhitePixel = _whitePixel
             };
 
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SongListDisplay created with SpriteFont: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
-
             // Initialize Phase 2 enhanced rendering
             try
             {
                 _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager);
                 _songListDisplay.SetEnhancedRendering(true); // Explicitly enable enhanced rendering
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Enhanced rendering initialized and enabled successfully");
-
-                // Ensure font is set on the renderer after initialization
-                if (uiFont?.SpriteFont != null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Setting font on enhanced renderer");
-                }
             }
             catch (Exception ex)
             {
@@ -331,8 +310,6 @@ namespace DTX.Stage
                 WhitePixel = _whitePixel
             };
 
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured with Font: {(uiFont?.SpriteFont != null ? "Available" : "Null")}, ManagedFont: {(uiFont != null ? "Available" : "Null")}");
-
             // Initialize graphics generator for status panel
             _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice);
 
@@ -341,14 +318,12 @@ namespace DTX.Stage
 
             // Ensure status panel is visible and properly configured
             _statusPanel.Visible = true;
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Status panel configured - Visible: {_statusPanel.Visible}, Position: {_statusPanel.Position}, Size: {_statusPanel.Size}");
 
             // Initialize preview image panel
             try
             {
                 _previewImagePanel.Initialize(_resourceManager);
                 _previewImagePanel.Visible = true;
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview image panel configured - Position: {_previewImagePanel.Position}, Size: {_previewImagePanel.Size}");
             }
             catch (Exception ex)
             {
@@ -372,30 +347,17 @@ namespace DTX.Stage
 
             // Activate the main panel and all its children
             _mainPanel.Activate();
+        }
 
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI initialization complete. Status panel in main panel: {_mainPanel.Children.Contains(_statusPanel)}");
-        }        private void InitializeSongList()
+        private void InitializeSongList()
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Accessing SongManager singleton...");
-
                 var songManager = SongManager.Instance;
 
-                // Check if already initialized
-                if (songManager.IsInitialized)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager already initialized, using existing data");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager not initialized - this should have been done in StartupStage");
-                    // Note: In the singleton pattern, initialization should be done in StartupStage
-                    // If we reach here, it means StartupStage didn't properly initialize
-                }
-
                 // Initialize display with song list
-                _currentSongList = songManager.RootSongs.ToList();
+                _currentSongList = [.. songManager.RootSongs];
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs");
                 PopulateSongList();
             }
             catch (Exception ex)
@@ -414,6 +376,7 @@ namespace DTX.Stage
 
             if (_currentSongList == null || _currentSongList.Count == 0)
             {
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: No songs to display");
                 _songListDisplay.CurrentList = displayList;
                 return;
             }
@@ -428,6 +391,7 @@ namespace DTX.Stage
             displayList.AddRange(_currentSongList);
 
             // Update the song list display
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Populating display with {displayList.Count} items");
             _songListDisplay.CurrentList = displayList;
         }
 
@@ -439,13 +403,23 @@ namespace DTX.Stage
         {
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
+
+            // Performance optimization: Debounce rapid selection changes
+            var currentTime = _elapsedTime;
+            if (currentTime - _lastSelectionUpdateTime < SELECTION_UPDATE_DEBOUNCE_SECONDS)
+            {
+                return; // Skip update if too soon after last update
+            }
+            _lastSelectionUpdateTime = currentTime;
+
+            // Update status panel (now cached for performance)
+            _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+
+            // Update preview image panel asynchronously (already optimized)
+            _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
+
+            // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
-
-            // Update status panel
-            _statusPanel.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
-
-            // Update preview image panel (DTXManiaNX t選択曲が変更された equivalent)
-            _previewImagePanel.UpdateSelectedSong(e.SelectedSong);
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -647,14 +621,16 @@ namespace DTX.Stage
                 CycleDifficulty(1);
             }
 
-            // Handle song list navigation (up/down arrows)
+            // Handle song list navigation (up/down arrows) - temporarily disable debouncing for debugging
             if (IsKeyPressed(Keys.Up))
             {
                 _songListDisplay.MovePrevious();
+                _lastNavigationTime = _elapsedTime;
             }
             else if (IsKeyPressed(Keys.Down))
             {
                 _songListDisplay.MoveNext();
+                _lastNavigationTime = _elapsedTime;
             }
         }
 

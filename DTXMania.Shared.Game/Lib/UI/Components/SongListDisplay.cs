@@ -352,11 +352,12 @@ namespace DTX.UI.Components
             if (node == null || _barRenderer == null)
                 return null;
 
-            var cacheKey = $"{node.GetHashCode()}_{difficulty}_{isSelected}";
+            // Optimize cache key: exclude selection state to improve cache hit rate
+            var cacheKey = $"{node.GetHashCode()}_{difficulty}";
 
             if (_barInfoCache.TryGetValue(cacheKey, out var cachedInfo))
             {
-                // Update state if needed
+                // Update state if needed (this is fast since textures are cached)
                 _barRenderer.UpdateBarInfo(cachedInfo, difficulty, isSelected);
                 return cachedInfo;
             }
@@ -629,7 +630,7 @@ namespace DTX.UI.Components
             songBar.IsCenter = isCenter;
             songBar.CurrentDifficulty = _currentDifficulty;
 
-            // Generate textures if needed
+            // Generate textures if needed (these are cached by the renderer)
             var titleTexture = _barRenderer.GenerateTitleTexture(node);
             var previewTexture = _barRenderer.GeneratePreviewImageTexture(node);
             var clearLampTexture = _barRenderer.GenerateClearLampTexture(node, _currentDifficulty);
