@@ -13,6 +13,11 @@ namespace DTX.UI.Components
     /// <summary>
     /// Song bar texture generation and caching system
     /// Equivalent to DTXManiaNX song bar generation methods
+    ///
+    /// CRITICAL FIX: Added draw phase safety checks to prevent screen blackouts
+    /// - IsInDrawPhase property prevents texture generation during draw operations
+    /// - RenderTarget switching during draw phase causes screen blackouts
+    /// - All texture generation methods now return cached/null during draw phase
     /// </summary>
     public class SongBarRenderer : IDisposable    {
         #region Constants
@@ -53,6 +58,9 @@ namespace DTX.UI.Components
         private bool _isFastScrollMode = false;
         private bool _disposed = false;
 
+        // Draw phase safety check to prevent texture generation during draw
+        public bool IsInDrawPhase { get; set; }
+
         #endregion
 
         #region Constructor
@@ -82,9 +90,16 @@ namespace DTX.UI.Components
                 return null;
 
             var cacheKey = GetTitleCacheKey(songNode);
-            
+
             if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
+
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _titleTextureCache.TryGet(cacheKey, out var cached) ? cached : null;
+            }
 
             var texture = CreateTitleTexture(songNode);            if (texture != null)
             {
@@ -108,6 +123,13 @@ namespace DTX.UI.Components
 
             if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
+
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _previewImageCache.TryGet(cacheKey, out var cached) ? cached : null;
+            }
 
             // Check file size before attempting to load - skip large files (>500KB)
             if (songNode.Metadata?.FilePath != null)
@@ -195,6 +217,13 @@ namespace DTX.UI.Components
 
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
+
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _clearLampCache.TryGet(cacheKey, out var cached) ? cached : null;
+            }
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
