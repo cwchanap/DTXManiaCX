@@ -187,8 +187,7 @@ namespace DTX.Stage
                 MasterVolume = originalConfig.MasterVolume,
                 BGMVolume = originalConfig.BGMVolume,
                 SEVolume = originalConfig.SEVolume,
-                BufferSizeMs = originalConfig.BufferSizeMs,
-                ScrollSpeed = originalConfig.ScrollSpeed,
+                BufferSizeMs = originalConfig.BufferSizeMs,                ScrollSpeed = originalConfig.ScrollSpeed,
                 AutoPlay = originalConfig.AutoPlay
             };
 
@@ -238,8 +237,7 @@ namespace DTX.Stage
                     _workingConfig.VSyncWait = value;
                     _hasUnsavedChanges = true;
                     System.Diagnostics.Debug.WriteLine($"VSync changed to {value}");
-                }
-            );
+                }            );
 
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
@@ -348,8 +346,7 @@ namespace DTX.Stage
         #region Configuration Management
 
         private void ApplyConfiguration()
-        {
-            // Copy working config back to the main config
+        {            // Copy working config back to the main config
             var config = _configManager.Config;
             config.ScreenWidth = _workingConfig.ScreenWidth;
             config.ScreenHeight = _workingConfig.ScreenHeight;
