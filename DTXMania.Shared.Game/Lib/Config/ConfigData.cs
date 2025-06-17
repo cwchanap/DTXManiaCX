@@ -24,9 +24,7 @@ namespace DTX.Config
         public int MasterVolume { get; set; } = 100;
         public int BGMVolume { get; set; } = 100;
         public int SEVolume { get; set; } = 100;
-        public int BufferSizeMs { get; set; } = 100;
-
-        // Input settings
+        public int BufferSizeMs { get; set; } = 100;        // Input settings
         public Dictionary<string, int> KeyBindings { get; set; } = new();
 
         // Game settings

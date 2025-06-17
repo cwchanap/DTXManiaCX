@@ -72,8 +72,7 @@ namespace DTX.Config
                     break;
                 case "FullScreen":
                     Config.FullScreen = value.ToLower() == "true";
-                    break;
-                case "VSyncWait":
+                    break;                case "VSyncWait":
                     Config.VSyncWait = value.ToLower() == "true";
                     break;
                     // Add more cases as needed
@@ -97,9 +96,7 @@ namespace DTX.Config
             sb.AppendLine($"UseBoxDefSkin={Config.UseBoxDefSkin}");
             sb.AppendLine($"SystemSkinRoot={Config.SystemSkinRoot}");
             sb.AppendLine($"LastUsedSkin={Config.LastUsedSkin}");
-            sb.AppendLine();
-
-            sb.AppendLine("[Display]");
+            sb.AppendLine();            sb.AppendLine("[Display]");
             sb.AppendLine($"ScreenWidth={Config.ScreenWidth}");
             sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
             sb.AppendLine($"FullScreen={Config.FullScreen}");
