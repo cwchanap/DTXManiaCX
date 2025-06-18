@@ -187,6 +187,18 @@ namespace DTX.UI.Components
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
         }
 
+        /// <summary>
+        /// Set draw phase state to prevent texture generation during draw
+        /// CRITICAL: Must be called before Draw() to prevent render target issues
+        /// </summary>
+        public void SetDrawPhase(bool isInDrawPhase)
+        {
+            if (_graphicsGenerator != null)
+            {
+                _graphicsGenerator.IsInDrawPhase = isInDrawPhase;
+            }
+        }
+
         #endregion
 
         #region Protected Methods

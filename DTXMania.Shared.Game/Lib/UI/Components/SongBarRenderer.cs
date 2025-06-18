@@ -7,6 +7,7 @@ using DTX.Utilities;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace DTX.UI.Components
 {
@@ -41,6 +42,10 @@ namespace DTX.UI.Components
         private readonly CacheManager<string, ITexture> _previewImageCache;
         private readonly CacheManager<string, ITexture> _clearLampCache;
 
+        // Async texture loading components
+        private readonly TextureLoader _textureLoader;
+        private readonly PlaceholderTextureManager _placeholderManager;
+
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
@@ -73,6 +78,10 @@ namespace DTX.UI.Components
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
             _clearLampCache = new CacheManager<string, ITexture>();
+
+            // Initialize async texture loading components
+            _textureLoader = new TextureLoader(resourceManager, graphicsDevice);
+            _placeholderManager = new PlaceholderTextureManager(graphicsDevice);
 
             Initialize();
         }
@@ -199,7 +208,7 @@ namespace DTX.UI.Components
             // Regenerate clear lamp if difficulty changed
             if (stateChanged && barInfo.SongNode?.Type == NodeType.Score)
             {
-                barInfo.ClearLamp?.Dispose();
+                barInfo.ClearLamp?.RemoveReference();
                 barInfo.ClearLamp = GenerateClearLampTexture(barInfo.SongNode, newDifficulty);
             }
         }
@@ -228,6 +237,10 @@ namespace DTX.UI.Components
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
             var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice);
+
+            // CRITICAL: Sync draw phase state to prevent render target issues
+            graphicsGenerator.IsInDrawPhase = this.IsInDrawPhase;
+
             var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);            if (texture != null)
             {
                 _clearLampCache.Add(cacheKey, texture);
@@ -247,8 +260,18 @@ namespace DTX.UI.Components
         /// </summary>
         public void SetFont(SpriteFont font)
         {
-            _font = font;
-            
+            _font = font ?? CreateFallbackFont();
+
+            // Debug logging for font issues
+            if (_font == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongBarRenderer: Warning - No font available for text rendering");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Font set successfully - LineSpacing: {_font.LineSpacing}");
+            }
+
             // Clear title cache since font changed
             _titleTextureCache.Clear();
         }
@@ -266,6 +289,105 @@ namespace DTX.UI.Components
         /// </summary>
         public bool IsFastScrollMode => _isFastScrollMode;
 
+        /// <summary>
+        /// Generate or retrieve title texture asynchronously with placeholder
+        /// Returns placeholder immediately, loads actual texture in background
+        /// </summary>
+        public async Task<ITexture> GenerateTitleTextureAsync(SongListNode songNode)
+        {
+            if (songNode == null)
+                return _placeholderManager.GetTitlePlaceholder();
+
+            var cacheKey = GetTitleCacheKey(songNode);
+
+            // Check cache first
+            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
+                return cachedTexture;
+
+            // Return placeholder immediately, start async loading
+            var placeholder = _placeholderManager.GetTitlePlaceholder();
+
+            // Start background loading (don't await to return placeholder immediately)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var texture = CreateTitleTexture(songNode);
+                    if (texture != null)
+                    {
+                        _titleTextureCache.Add(cacheKey, texture);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Failed to load title texture async: {ex.Message}");
+                }
+            });
+
+            return placeholder;
+        }
+
+        /// <summary>
+        /// Generate or retrieve preview image texture asynchronously with placeholder
+        /// Returns placeholder immediately, loads actual texture in background
+        /// </summary>
+        public async Task<ITexture> GeneratePreviewImageTextureAsync(SongListNode songNode)
+        {
+            if (songNode?.Metadata?.PreviewImage == null)
+                return _placeholderManager.GetPreviewImagePlaceholder();
+
+            // Skip preview image loading during fast scroll to prevent UI freezes
+            if (_isFastScrollMode)
+                return _placeholderManager.GetPreviewImagePlaceholder();
+
+            var cacheKey = songNode.Metadata.PreviewImage;
+
+            // Check cache first
+            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
+                return cachedTexture;
+
+            // Get preview image path
+            var previewPath = GetPreviewImagePath(songNode);
+            if (string.IsNullOrEmpty(previewPath))
+                return _placeholderManager.GetPreviewImagePlaceholder();
+
+            // Use TextureLoader for async loading with placeholder
+            return await _textureLoader.LoadTextureAsync(previewPath, false);
+        }
+
+        /// <summary>
+        /// Pre-load textures for song range to improve scrolling performance
+        /// </summary>
+        public void PreloadTexturesForRange(System.Collections.Generic.IList<SongListNode> songNodes,
+                                           int centerIndex, int preloadRange = 3)
+        {
+            _textureLoader.PreloadTextures(songNodes, centerIndex, preloadRange);
+        }
+
+        /// <summary>
+        /// Get title placeholder texture for immediate display
+        /// </summary>
+        public ITexture GetTitlePlaceholder()
+        {
+            return _placeholderManager?.GetTitlePlaceholder();
+        }
+
+        /// <summary>
+        /// Get preview image placeholder texture for immediate display
+        /// </summary>
+        public ITexture GetPreviewImagePlaceholder()
+        {
+            return _placeholderManager?.GetPreviewImagePlaceholder();
+        }
+
+        /// <summary>
+        /// Get clear lamp placeholder texture for immediate display
+        /// </summary>
+        public ITexture GetClearLampPlaceholder()
+        {
+            return _placeholderManager?.GetClearLampPlaceholder();
+        }
+
         #endregion
 
         #region Private Methods
@@ -282,20 +404,121 @@ namespace DTX.UI.Components
 
             // Create sprite batch for rendering
             _spriteBatch = new SpriteBatch(_graphicsDevice);
+
+            // Ensure we have a font for rendering
+            if (_font == null)
+            {
+                _font = CreateFallbackFont();
+            }
+        }
+
+        /// <summary>
+        /// Create a simple fallback font when no font is available
+        /// </summary>
+        private SpriteFont CreateFallbackFont()
+        {
+            try
+            {
+                // Try to load a system font through the resource manager
+                var fallbackFont = _resourceManager?.LoadFont("Arial", 16, FontStyle.Regular);
+                return fallbackFont?.SpriteFont;
+            }
+            catch
+            {
+                // If that fails, create a minimal texture-based font
+                return CreateMinimalFont();
+            }
+        }
+
+        /// <summary>
+        /// Create a minimal texture-based font as last resort
+        /// </summary>
+        private SpriteFont CreateMinimalFont()
+        {
+            try
+            {
+                // Create a simple 8x8 character texture for basic text rendering
+                var fontTexture = new Texture2D(_graphicsDevice, 128, 128);
+                var fontData = new Color[128 * 128];
+
+                // Fill with a simple pattern to represent characters
+                for (int i = 0; i < fontData.Length; i++)
+                {
+                    int x = i % 128;
+                    int y = i / 128;
+
+                    // Create a simple grid pattern for character representation
+                    bool isCharacterPixel = (x % 8 < 6) && (y % 8 < 6) &&
+                                          ((x % 8 == 0) || (y % 8 == 0) ||
+                                           (x % 8 == 5) || (y % 8 == 5));
+
+                    fontData[i] = isCharacterPixel ? Color.White : Color.Transparent;
+                }
+
+                fontTexture.SetData(fontData);
+
+                // Create character rectangles for ASCII characters
+                var glyphBounds = new List<Rectangle>();
+                var cropping = new List<Rectangle>();
+                var chars = new List<char>();
+                var kerning = new List<Vector3>();
+
+                // Create basic ASCII character set (32-126)
+                for (int c = 32; c <= 126; c++)
+                {
+                    chars.Add((char)c);
+
+                    // Each character is 8x8 pixels
+                    int charIndex = c - 32;
+                    int charsPerRow = 16;
+                    int charX = (charIndex % charsPerRow) * 8;
+                    int charY = (charIndex / charsPerRow) * 8;
+
+                    glyphBounds.Add(new Rectangle(charX, charY, 8, 8));
+                    cropping.Add(new Rectangle(0, 0, 8, 8));
+                    kerning.Add(new Vector3(0, 8, 1)); // left, width, right
+                }
+
+                return new SpriteFont(fontTexture, glyphBounds, cropping, chars, 8, 0, kerning, ' ');
+            }
+            catch
+            {
+                // If even this fails, return null and let the calling code handle it
+                return null;
+            }
         }
 
         private ITexture CreateTitleTexture(SongListNode songNode)
         {
-            if (_font == null || _titleRenderTarget == null)
+            if (_titleRenderTarget == null)
             {
                 return null;
+            }
+
+            // Ensure we have a font
+            if (_font == null)
+            {
+                _font = CreateFallbackFont();
+                if (_font == null)
+                {
+                    // If we still can't get a font, create a simple colored rectangle as fallback
+                    return CreateTextFallbackTexture(songNode);
+                }
             }
 
             try
             {
                 var displayText = GetDisplayText(songNode);
                 if (string.IsNullOrEmpty(displayText))
+                {
+                    System.Diagnostics.Debug.WriteLine("CreateTitleTexture: Display text is null or empty");
                     return null;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: Creating texture for '{displayText}'");
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: _spriteBatch null? {_spriteBatch == null}");
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: _font null? {_font == null}");
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: _titleRenderTarget null? {_titleRenderTarget == null}");
 
                 // Set render target
                 _graphicsDevice.SetRenderTarget(_titleRenderTarget);
@@ -303,12 +526,13 @@ namespace DTX.UI.Components
 
                 // Render text
                 _spriteBatch.Begin();
-                
+
                 var textColor = GetNodeTypeColor(songNode);
                 var position = new Vector2(5, (TITLE_TEXTURE_HEIGHT - _font.LineSpacing) / 2);
-                
+
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: About to draw string - position: {position}, color: {textColor}");
                 _spriteBatch.DrawString(_font, displayText, position, textColor);
-                
+
                 _spriteBatch.End();
 
                 // Reset render target
@@ -321,11 +545,13 @@ namespace DTX.UI.Components
                 texture2D.SetData(data);
 
                 var cacheKey = GetTitleCacheKey(songNode);
+                System.Diagnostics.Debug.WriteLine($"CreateTitleTexture: Successfully created texture for '{displayText}'");
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to create title texture: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 return null;
             }
         }        private ITexture LoadPreviewImage(SongListNode songNode)
@@ -409,6 +635,52 @@ namespace DTX.UI.Components
             return $"{songNode.GetHashCode()}_{difficulty}_{clearStatus}";
         }
 
+        private string GetPreviewImagePath(SongListNode songNode)
+        {
+            if (songNode?.Metadata?.PreviewImage == null || songNode.Metadata?.FilePath == null)
+                return null;
+
+            var songDirectory = System.IO.Path.GetDirectoryName(songNode.Metadata.FilePath);
+            if (songDirectory == null)
+                return null;
+
+            return System.IO.Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
+        }
+
+        /// <summary>
+        /// Create a simple colored rectangle as text fallback when no font is available
+        /// </summary>
+        private ITexture CreateTextFallbackTexture(SongListNode songNode)
+        {
+            try
+            {
+                // Create a simple colored rectangle based on node type
+                var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
+                var colorData = new Color[TITLE_TEXTURE_WIDTH * TITLE_TEXTURE_HEIGHT];
+
+                // Get color based on node type
+                var nodeColor = GetNodeTypeColor(songNode);
+
+                // Create a simple pattern to represent text
+                for (int i = 0; i < colorData.Length; i++)
+                {
+                    int x = i % TITLE_TEXTURE_WIDTH;
+                    int y = i / TITLE_TEXTURE_WIDTH;
+
+                    // Create a simple bar pattern
+                    bool isBar = y >= 8 && y <= 16 && x >= 10 && x <= TITLE_TEXTURE_WIDTH - 10;
+                    colorData[i] = isBar ? nodeColor : Color.Transparent;
+                }
+
+                texture2D.SetData(colorData);
+                return new ManagedTexture(_graphicsDevice, texture2D, $"fallback_{songNode?.GetHashCode()}");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private string GetDisplayText(SongListNode songNode)
         {
             return songNode.Type switch
@@ -423,6 +695,9 @@ namespace DTX.UI.Components
 
         private Color GetNodeTypeColor(SongListNode songNode)
         {
+            if (songNode == null)
+                return Color.White;
+
             return songNode.Type switch
             {
                 NodeType.Box => Color.Cyan,
@@ -486,11 +761,15 @@ namespace DTX.UI.Components
             if (!_disposed)
             {
                 ClearCache();
-                
+
                 _titleRenderTarget?.Dispose();
                 _clearLampRenderTarget?.Dispose();
                 _spriteBatch?.Dispose();
                 _whitePixel?.Dispose();
+
+                // Dispose async texture loading components
+                _textureLoader?.Dispose();
+                _placeholderManager?.Dispose();
 
                 _disposed = true;
             }
