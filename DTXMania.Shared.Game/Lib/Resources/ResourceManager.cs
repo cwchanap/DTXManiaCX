@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace DTX.Resources
 {
@@ -144,6 +145,20 @@ namespace DTX.Resources
             {
                 _totalLoadTime.Stop();
             }
+        }
+
+        public async Task<ITexture> LoadTextureAsync(string path)
+        {
+            return await LoadTextureAsync(path, false);
+        }
+
+        public async Task<ITexture> LoadTextureAsync(string path, bool enableTransparency)
+        {
+            if (string.IsNullOrEmpty(path))
+                throw new ArgumentException("Path cannot be null or empty", nameof(path));
+
+            // Run the synchronous loading on a background thread
+            return await Task.Run(() => LoadTexture(path, enableTransparency));
         }
 
         public IFont LoadFont(string path, int size)

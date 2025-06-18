@@ -132,10 +132,12 @@ namespace DTX.Stage
             {
                 if (ResourceManagerFactory.HasFontFactory)
                 {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Font factory available, loading Arial font...");
                     uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
                 }
                 else
                 {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: No font factory available, creating fallback font...");
                     // Create a minimal fallback font using MonoGame's built-in capabilities
                     uiFont = CreateFallbackFont();
                 }
@@ -154,6 +156,16 @@ namespace DTX.Stage
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
                 }
+            }
+
+            // Debug logging for final font loading result
+            if (uiFont?.SpriteFont == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Warning - No UI font available, SongBarRenderer will use internal fallback");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font loaded successfully - LineSpacing: {uiFont.SpriteFont.LineSpacing}");
             }            // Load DTXManiaNX background graphics (Phase 3)
             LoadBackgroundGraphics();            // Initialize UI
             InitializeUI(uiFont);

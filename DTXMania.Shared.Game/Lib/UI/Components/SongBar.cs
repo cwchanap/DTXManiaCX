@@ -187,6 +187,18 @@ namespace DTX.UI.Components
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
         }
 
+        /// <summary>
+        /// Set draw phase state to prevent texture generation during draw
+        /// CRITICAL: Must be called before Draw() to prevent render target issues
+        /// </summary>
+        public void SetDrawPhase(bool isInDrawPhase)
+        {
+            if (_graphicsGenerator != null)
+            {
+                _graphicsGenerator.IsInDrawPhase = isInDrawPhase;
+            }
+        }
+
         #endregion
 
         #region Protected Methods
@@ -234,9 +246,10 @@ namespace DTX.UI.Components
             }
 
             // Fallback to simple rectangle rendering
-            if (_whitePixel != null)
+            var whitePixel = EnsureWhitePixel(spriteBatch.GraphicsDevice);
+            if (whitePixel != null)
             {
-                spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
+                spriteBatch.Draw(whitePixel, bounds, _backgroundColor);
 
                 // Draw selection border with DTXManiaNX styling
                 if (_isSelected)
@@ -245,9 +258,9 @@ namespace DTX.UI.Components
                     var borderThickness = _isCenter ? 2 : 1;
 
                     // Top border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
+                    spriteBatch.Draw(whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
                     // Bottom border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
+                    spriteBatch.Draw(whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
                 }
             }
         }
@@ -319,7 +332,8 @@ namespace DTX.UI.Components
 
         private void DrawNodeTypeIndicator(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            if (_whitePixel == null)
+            var whitePixel = EnsureWhitePixel(spriteBatch.GraphicsDevice);
+            if (whitePixel == null)
                 return;
 
             // Draw a small indicator on the right side for node type using DTXManiaNX colors
@@ -327,7 +341,7 @@ namespace DTX.UI.Components
             var indicatorBounds = new Rectangle(bounds.Right - indicatorWidth, bounds.Y, indicatorWidth, bounds.Height);
             var indicatorColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
 
-            spriteBatch.Draw(_whitePixel, indicatorBounds, indicatorColor);
+            spriteBatch.Draw(whitePixel, indicatorBounds, indicatorColor);
         }
 
         private string GetDisplayText()
@@ -355,6 +369,33 @@ namespace DTX.UI.Components
         private void InvalidateClearLamp()
         {
             _clearLampTexture = null;
+        }
+
+        /// <summary>
+        /// Ensure we have a white pixel texture for fallback rendering
+        /// Creates one if the provided WhitePixel is null
+        /// </summary>
+        private Texture2D EnsureWhitePixel(GraphicsDevice graphicsDevice)
+        {
+            if (_whitePixel != null)
+                return _whitePixel;
+
+            // Create a local white pixel texture if none was provided
+            if (graphicsDevice != null)
+            {
+                try
+                {
+                    var whitePixel = new Texture2D(graphicsDevice, 1, 1);
+                    whitePixel.SetData(new[] { Color.White });
+                    return whitePixel;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongBar: Failed to create fallback white pixel texture: {ex.Message}");
+                }
+            }
+
+            return null;
         }
 
         protected override void Dispose(bool disposing)

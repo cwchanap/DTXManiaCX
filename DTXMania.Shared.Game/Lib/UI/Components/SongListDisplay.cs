@@ -7,6 +7,7 @@ using DTX.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace DTX.UI.Components
 {
@@ -108,6 +109,7 @@ namespace DTX.UI.Components
         private SpriteFont _font;
         private IFont _managedFont;
         private Texture2D _whitePixel;
+        private bool _whitePixelCreatedByUs = false;
 
         // Visual properties
         private Color _backgroundColor = Color.Black * 0.7f;
@@ -362,6 +364,7 @@ namespace DTX.UI.Components
         /// <summary>
         /// Get or create bar information for a song node (Phase 2 enhancement)
         /// Equivalent to DTXManiaNX bar reconstruction system
+        /// Now uses async texture loading with placeholders for immediate display
         /// </summary>
         private SongBarInfo GetOrCreateBarInfo(SongListNode node, int difficulty, bool isSelected)
         {
@@ -378,14 +381,77 @@ namespace DTX.UI.Components
                 return cachedInfo;
             }
 
-            // Generate new bar information
-            var barInfo = _barRenderer.GenerateBarInfo(node, difficulty, isSelected);
+            // Create bar info with placeholder textures for immediate display
+            // Real textures will be loaded asynchronously and cached when ready
+            var barInfo = CreateBarInfoWithPlaceholders(node, difficulty, isSelected);
             if (barInfo != null)
             {
                 _barInfoCache[cacheKey] = barInfo;
+
+                // Start async texture loading in background
+                _ = LoadBarInfoTexturesAsync(node, difficulty, isSelected, cacheKey);
             }
 
             return barInfo;
+        }
+
+        /// <summary>
+        /// Create bar info with placeholder textures for immediate display
+        /// </summary>
+        private SongBarInfo CreateBarInfoWithPlaceholders(SongListNode node, int difficulty, bool isSelected)
+        {
+            if (_barRenderer == null)
+                return null;
+
+            // Get placeholder textures for immediate display
+            var titlePlaceholder = _barRenderer.GetTitlePlaceholder();
+            var previewPlaceholder = _barRenderer.GetPreviewImagePlaceholder();
+            var clearLampTexture = _barRenderer.GenerateClearLampTexture(node, difficulty); // Clear lamps are fast to generate
+
+            return new SongBarInfo
+            {
+                SongNode = node,  // This was missing!
+                TitleTexture = titlePlaceholder,
+                PreviewImage = previewPlaceholder,
+                ClearLamp = clearLampTexture,
+                DifficultyLevel = difficulty,
+                IsSelected = isSelected,
+                TitleString = node?.DisplayTitle ?? "Unknown Song",
+                TextColor = isSelected ? Color.Yellow : Color.White,
+                BarType = GetBarType(node)
+            };
+        }
+
+        /// <summary>
+        /// Load real textures asynchronously and update cached bar info
+        /// </summary>
+        private async Task LoadBarInfoTexturesAsync(SongListNode node, int difficulty, bool isSelected, string cacheKey)
+        {
+            try
+            {
+                if (_barRenderer == null)
+                    return;
+
+                // Load textures asynchronously
+                var titleTexture = await _barRenderer.GenerateTitleTextureAsync(node);
+                var previewTexture = await _barRenderer.GeneratePreviewImageTextureAsync(node);
+
+                // Update cached bar info with real textures
+                if (_barInfoCache.TryGetValue(cacheKey, out var cachedInfo))
+                {
+                    // Dispose old placeholder textures
+                    cachedInfo.TitleTexture?.RemoveReference();
+                    cachedInfo.PreviewImage?.RemoveReference();
+
+                    // Update with real textures
+                    cachedInfo.TitleTexture = titleTexture;
+                    cachedInfo.PreviewImage = previewTexture;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load bar info textures async: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -405,10 +471,14 @@ namespace DTX.UI.Components
             _graphicsGenerator?.Dispose();
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
 
+            // Ensure we have a white pixel texture for fallback rendering
+            EnsureWhitePixel(graphicsDevice);
+
             // Initialize graphics generators for cached song bars
             foreach (var songBar in _songBarCache.Values)
             {
                 songBar.InitializeGraphicsGenerator(graphicsDevice);
+                songBar.WhitePixel = _whitePixel; // Update existing bars with white pixel
             }
         }
 
@@ -446,6 +516,18 @@ namespace DTX.UI.Components
                 _barRenderer.IsInDrawPhase = true;
             }
 
+            // CRITICAL: Set draw phase flag for all cached song bars
+            foreach (var songBar in _songBarCache.Values)
+            {
+                songBar.SetDrawPhase(true);
+            }
+
+            // CRITICAL: Set draw phase flag for graphics generator
+            if (_graphicsGenerator != null)
+            {
+                _graphicsGenerator.IsInDrawPhase = true;
+            }
+
             try
             {
                 var bounds = Bounds;
@@ -467,6 +549,18 @@ namespace DTX.UI.Components
                 if (_barRenderer != null)
                 {
                     _barRenderer.IsInDrawPhase = false;
+                }
+
+                // CRITICAL: Clear draw phase flag for all cached song bars
+                foreach (var songBar in _songBarCache.Values)
+                {
+                    songBar.SetDrawPhase(false);
+                }
+
+                // CRITICAL: Clear draw phase flag for graphics generator
+                if (_graphicsGenerator != null)
+                {
+                    _graphicsGenerator.IsInDrawPhase = false;
                 }
             }
         }
@@ -758,6 +852,14 @@ namespace DTX.UI.Components
                 {
                     backgroundTexture.Draw(spriteBatch, new Vector2(itemBounds.X, itemBounds.Y), null);
                 }
+                else if (_whitePixel != null)
+                {
+                    // Fallback to simple rectangle when texture generation fails
+                    var backgroundColor = isSelected ? 
+                        (isCenter ? Color.Yellow * 0.3f : Color.Blue * 0.3f) : 
+                        Color.Gray * 0.2f;
+                    spriteBatch.Draw(_whitePixel, itemBounds, backgroundColor * opacityFactor);
+                }
             }
 
             // Draw clear lamp with perspective
@@ -959,6 +1061,21 @@ namespace DTX.UI.Components
             }
         }
 
+        private BarType GetBarType(SongListNode node)
+        {
+            if (node == null)
+                return BarType.Score;
+
+            return node.Type switch
+            {
+                NodeType.BackBox => BarType.Other,
+                NodeType.Box => BarType.Box,
+                NodeType.Random => BarType.Other,
+                NodeType.Score => BarType.Score,
+                _ => BarType.Score
+            };
+        }
+
         private void UpdateSelection()
         {
             var previousSong = SelectedSong;
@@ -976,12 +1093,28 @@ namespace DTX.UI.Components
 
             if (!_songBarCache.TryGetValue(cacheKey, out var songBar))
             {
+                // Ensure we have a white pixel before creating the song bar
+                if (_whitePixel == null && _graphicsGenerator?.GraphicsDevice != null)
+                {
+                    EnsureWhitePixel(_graphicsGenerator.GraphicsDevice);
+                }
+
                 songBar = new SongBar
                 {
                     SongNode = node,
                     Font = _font,
                     WhitePixel = _whitePixel
                 };
+
+                // Initialize graphics generator if we have a graphics device
+                if (_graphicsGenerator?.GraphicsDevice != null)
+                {
+                    songBar.InitializeGraphicsGenerator(_graphicsGenerator.GraphicsDevice);
+
+                    // CRITICAL: Set draw phase state for newly created song bars
+                    songBar.SetDrawPhase(_graphicsGenerator.IsInDrawPhase);
+                }
+
                 _songBarCache[cacheKey] = songBar;
             }
 
@@ -1055,17 +1188,73 @@ namespace DTX.UI.Components
             {
                 var request = _textureGenerationQueue.Dequeue();
 
-                // Generate textures for this bar (safe during Update phase)
-                var barInfo = _barRenderer.GenerateBarInfo(request.SongNode, request.Difficulty, request.IsSelected);
-
-                // Cache the bar info if generation succeeded
-                if (barInfo != null)
-                {
-                    var cacheKey = $"{request.SongNode.GetHashCode()}_{request.Difficulty}";
-                    _barInfoCache[cacheKey] = barInfo;
-                }
+                // Generate textures for this bar asynchronously (safe during Update phase)
+                _ = ProcessTextureRequestAsync(request);
 
                 processedCount++;
+            }
+
+            // Pre-load textures for smooth scrolling
+            if (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
+            {
+                _barRenderer.PreloadTexturesForRange(_currentList, _selectedIndex, 3);
+            }
+        }
+
+        /// <summary>
+        /// Process texture request asynchronously without blocking UI
+        /// </summary>
+        private async Task ProcessTextureRequestAsync(TextureGenerationRequest request)
+        {
+            try
+            {
+                // Generate textures asynchronously
+                var titleTexture = await _barRenderer.GenerateTitleTextureAsync(request.SongNode);
+                var previewTexture = await _barRenderer.GeneratePreviewImageTextureAsync(request.SongNode);
+                var clearLampTexture = _barRenderer.GenerateClearLampTexture(request.SongNode, request.Difficulty);
+
+                // Create bar info with loaded textures
+                var barInfo = new SongBarInfo
+                {
+                    TitleTexture = titleTexture,
+                    PreviewImage = previewTexture,
+                    ClearLamp = clearLampTexture,
+                    DifficultyLevel = request.Difficulty,
+                    IsSelected = request.IsSelected
+                };
+
+                // Cache the bar info
+                var cacheKey = $"{request.SongNode.GetHashCode()}_{request.Difficulty}";
+                _barInfoCache[cacheKey] = barInfo;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to process texture request async: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Ensure we have a white pixel texture for fallback rendering
+        /// Creates one if it's null
+        /// </summary>
+        private void EnsureWhitePixel(GraphicsDevice graphicsDevice)
+        {
+            if (_whitePixel != null)
+                return;
+
+            // Create a white pixel texture if none was provided
+            if (graphicsDevice != null)
+            {
+                try
+                {
+                    _whitePixel = new Texture2D(graphicsDevice, 1, 1);
+                    _whitePixel.SetData(new[] { Color.White });
+                    _whitePixelCreatedByUs = true; // Mark that we created this texture
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to create white pixel texture: {ex.Message}");
+                }
             }
         }
 
@@ -1075,6 +1264,13 @@ namespace DTX.UI.Components
             {
                 _barRenderer?.Dispose();
                 _graphicsGenerator?.Dispose();
+                
+                // Dispose white pixel texture only if we created it
+                if (_whitePixelCreatedByUs && _whitePixel != null)
+                {
+                    _whitePixel.Dispose();
+                    _whitePixel = null;
+                }
 
                 foreach (var songBar in _songBarCache.Values)
                 {

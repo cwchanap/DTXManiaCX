@@ -3,6 +3,7 @@ using DTX.Resources;
 using DTX.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace DTXMania.Test.Helpers
 {
@@ -103,6 +104,18 @@ namespace DTXMania.Test.Helpers
         public IFont LoadFont(string path, int size)
         {
             return LoadFont(path, size, FontStyle.Regular);
+        }
+
+        // Async methods implementation
+        public async Task<ITexture> LoadTextureAsync(string path)
+        {
+            return await LoadTextureAsync(path, true);
+        }
+
+        public async Task<ITexture> LoadTextureAsync(string path, bool enableTransparency)
+        {
+            // Simulate async loading by running on background thread
+            return await Task.Run(() => LoadTexture(path, enableTransparency));
         }
 
         public void SetSkinPath(string skinPath)

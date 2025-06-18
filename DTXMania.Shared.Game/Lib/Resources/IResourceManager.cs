@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace DTX.Resources
 {
@@ -19,6 +20,23 @@ namespace DTX.Resources
         /// <param name="path">Relative path to texture file</param>
         /// <returns>Texture interface with reference counting</returns>
         ITexture LoadTexture(string path);
+
+        /// <summary>
+        /// Load a texture asynchronously from the specified path
+        /// Uses skin path resolution and caching
+        /// </summary>
+        /// <param name="path">Relative path to texture file</param>
+        /// <returns>Task that resolves to texture interface with reference counting</returns>
+        Task<ITexture> LoadTextureAsync(string path);
+
+        /// <summary>
+        /// Load a texture asynchronously from the specified path with transparency options
+        /// Uses skin path resolution and caching
+        /// </summary>
+        /// <param name="path">Relative path to texture file</param>
+        /// <param name="enableTransparency">Whether to enable transparency</param>
+        /// <returns>Task that resolves to texture interface with reference counting</returns>
+        Task<ITexture> LoadTextureAsync(string path, bool enableTransparency);
 
         /// <summary>
         /// Load a texture with specific parameters
