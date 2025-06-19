@@ -239,11 +239,17 @@ namespace DTX.Resources
         public void DrawString(SpriteBatch spriteBatch, string text, Vector2 position, XnaColor color)
         {
             if (_disposed || string.IsNullOrEmpty(text))
+            {
+                System.Diagnostics.Debug.WriteLine($"ManagedFont.DrawString: Skipping - disposed={_disposed}, empty={string.IsNullOrEmpty(text)}");
                 return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"ManagedFont.DrawString: Drawing '{text}' at {position} with color {color}");
 
             // Use custom font rendering if SpriteFont is not available
             if (_spriteFont == null && _customFontTexture != null)
             {
+                System.Diagnostics.Debug.WriteLine("ManagedFont.DrawString: Using custom font rendering");
                 DrawStringCustom(spriteBatch, text, position, color);
                 return;
             }
@@ -252,14 +258,20 @@ namespace DTX.Resources
             {
                 try
                 {
+                    System.Diagnostics.Debug.WriteLine("ManagedFont.DrawString: Using SpriteFont");
                     spriteBatch.DrawString(_spriteFont, text, position, color);
                 }
-                catch (ArgumentException)
+                catch (ArgumentException ex)
                 {
                     // Handle unsupported characters
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont.DrawString: ArgumentException, sanitizing text: {ex.Message}");
                     var sanitizedText = SanitizeText(text);
                     spriteBatch.DrawString(_spriteFont, sanitizedText, position, color);
                 }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("ManagedFont.DrawString: No SpriteFont or custom font available");
             }
         }
 

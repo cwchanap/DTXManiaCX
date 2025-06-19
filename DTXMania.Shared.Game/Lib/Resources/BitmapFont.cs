@@ -78,7 +78,11 @@ namespace DTX.Resources
         public void DrawText(SpriteBatch spriteBatch, string text, int x, int y, FontType fontType = FontType.Normal)
         {
             if (_disposed || string.IsNullOrEmpty(text) || !IsLoaded)
+            {
                 return;
+            }
+
+            // Debug logging removed to reduce log clutter
 
             int currentX = x;
             int currentY = y;
@@ -156,7 +160,6 @@ namespace DTX.Resources
                 _fontTexture = resourceManager.LoadTexture("Graphics/Console font 8x16.png");
                 _fontTexture2 = resourceManager.LoadTexture("Graphics/Console font 2 8x16.png");
                 
-                System.Diagnostics.Debug.WriteLine("Loaded bitmap font textures successfully");
             }
             catch (Exception ex)
             {
@@ -189,16 +192,22 @@ namespace DTX.Resources
         private void DrawCharacter(SpriteBatch spriteBatch, int charIndex, int x, int y, FontType fontType)
         {
             if (_characterRectangles == null)
+            {
                 return;
+            }
 
             int fontIndex = (int)fontType;
             ITexture texture = (fontIndex / 2 == 0) ? _fontTexture : _fontTexture2;
             
             if (texture?.Texture == null)
+            {
                 return;
+            }
 
             var sourceRect = _characterRectangles[fontIndex % 3, charIndex];
             var destRect = new Rectangle(x, y, FontWidth, FontHeight);
+            
+            // Debug logging removed to reduce log clutter
             
             spriteBatch.Draw(texture.Texture, destRect, sourceRect, Color.White);
         }

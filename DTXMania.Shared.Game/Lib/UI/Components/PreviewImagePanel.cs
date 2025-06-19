@@ -168,7 +168,6 @@ namespace DTX.UI.Components
                 // Only log critical errors to reduce debug noise
                 if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load default preview: {ex.Message}");
                 }
             }
         }
@@ -220,7 +219,6 @@ namespace DTX.UI.Components
                 // Only log critical errors to reduce debug noise
                 if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image: {ex.Message}");
                 }
             }
         }
