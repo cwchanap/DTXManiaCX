@@ -10,6 +10,10 @@ namespace DTX.UI
     /// <summary>
     /// Generates default graphics when skin textures are missing
     /// Creates DTXManiaNX-style fallback graphics programmatically
+    ///
+    /// CRITICAL FIX: Added draw phase safety checks to prevent render target issues
+    /// - IsInDrawPhase property prevents texture generation during draw operations
+    /// - All texture generation methods now return cached/null during draw phase
     /// </summary>
     public class DefaultGraphicsGenerator : IDisposable
     {
@@ -20,6 +24,9 @@ namespace DTX.UI
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private bool _disposed;
+
+        // Draw phase safety check to prevent texture generation during draw
+        public bool IsInDrawPhase { get; set; }
 
         #endregion
 
@@ -55,12 +62,22 @@ namespace DTX.UI
         public ITexture GenerateSongBarBackground(int width, int height, bool isSelected = false, bool isCenter = false)
         {
             var cacheKey = $"SongBar_{width}x{height}_{isSelected}_{isCenter}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreateSongBarTexture(width, height, isSelected, isCenter);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 
@@ -74,8 +91,18 @@ namespace DTX.UI
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreateClearLampTexture(difficulty, hasCleared);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 
@@ -89,8 +116,18 @@ namespace DTX.UI
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreateEnhancedClearLampTexture(difficulty, clearStatus);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 
@@ -104,8 +141,18 @@ namespace DTX.UI
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreateBarTypeTexture(width, height, barType, isSelected, isCenter);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 
@@ -115,12 +162,22 @@ namespace DTX.UI
         public ITexture GeneratePanelBackground(int width, int height, bool withBorder = true)
         {
             var cacheKey = $"Panel_{width}x{height}_{withBorder}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreatePanelTexture(width, height, withBorder);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 
@@ -130,12 +187,22 @@ namespace DTX.UI
         public ITexture GenerateButton(int width, int height, bool isPressed = false)
         {
             var cacheKey = $"Button_{width}x{height}_{isPressed}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
+            // Safety check: NEVER generate during draw phase to prevent screen blackouts
+            if (IsInDrawPhase)
+            {
+                // Return cached or null - NEVER generate during draw
+                return _generatedTextures.TryGetValue(cacheKey, out var cachedFallback) ? cachedFallback : null;
+            }
+
             var texture = CreateButtonTexture(width, height, isPressed);
-            _generatedTextures[cacheKey] = texture;
+            if (texture != null)
+            {
+                _generatedTextures[cacheKey] = texture;
+            }
             return texture;
         }
 

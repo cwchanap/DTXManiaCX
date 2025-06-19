@@ -134,7 +134,6 @@ namespace DTX.UI.Components
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
             }
         }
 

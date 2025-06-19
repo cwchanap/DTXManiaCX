@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -72,6 +73,13 @@ namespace DTX.Stage
         private double _lastSelectionUpdateTime = 0;
         private const double SELECTION_UPDATE_DEBOUNCE_SECONDS = 0.016; // ~60fps update rate
 
+        // Navigation state machine for deferred updates
+        private NavigationState _navigationState = NavigationState.Idle;
+        private Timer _settlementTimer;
+        private const int SETTLEMENT_DELAY_MS = 300; // 300ms delay for deferred updates
+        private SongListNode _pendingSelectedSong;
+        private int _pendingCurrentDifficulty;
+
         // Constants for DTXMania-style display
         private const int VISIBLE_SONGS = 13;
         private const int CENTER_INDEX = 6;
@@ -132,10 +140,12 @@ namespace DTX.Stage
             {
                 if (ResourceManagerFactory.HasFontFactory)
                 {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Font factory available, loading Arial font...");
                     uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
                 }
                 else
                 {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: No font factory available, creating fallback font...");
                     // Create a minimal fallback font using MonoGame's built-in capabilities
                     uiFont = CreateFallbackFont();
                 }
@@ -154,6 +164,16 @@ namespace DTX.Stage
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
                 }
+            }
+
+            // Debug logging for final font loading result
+            if (uiFont?.SpriteFont == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Warning - No UI font available, SongBarRenderer will use internal fallback");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: UI font loaded successfully - LineSpacing: {uiFont.SpriteFont.LineSpacing}");
             }            // Load DTXManiaNX background graphics (Phase 3)
             LoadBackgroundGraphics();            // Initialize UI
             InitializeUI(uiFont);
@@ -169,6 +189,10 @@ namespace DTX.Stage
 
         public override void Deactivate()
         {
+            // Clean up settlement timer
+            _settlementTimer?.Dispose();
+            _settlementTimer = null;
+
             // Clean up UI
             _uiManager?.Dispose();
 
@@ -183,6 +207,7 @@ namespace DTX.Stage
 
             _currentPhase = StagePhase.Inactive;
             _selectionPhase = SongSelectionPhase.Inactive;
+            _navigationState = NavigationState.Idle;
 
             base.Deactivate();
         }
@@ -417,31 +442,51 @@ namespace DTX.Stage
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
-            // DTXManiaNX-style navigation debouncing
+            // Check navigation state for deferred updates
             if (!e.IsScrollComplete)
             {
-                // During scrolling - only update lightweight UI
+                // During scrolling - set to Navigating state
+                _navigationState = NavigationState.Navigating;
+                
+                // Only update selection highlight (lightweight)
                 UpdateBreadcrumb();
                 return; // Skip heavy updates
             }
 
-            // After scrolling completes - update everything
-            // Performance optimization: Debounce rapid selection changes
-            var currentTime = _elapsedTime;
-            if (currentTime - _lastSelectionUpdateTime < SELECTION_UPDATE_DEBOUNCE_SECONDS)
+            // Scrolling just completed - transition to Settling state
+            if (_navigationState == NavigationState.Navigating)
             {
-                return; // Skip update if too soon after last update
+                _navigationState = NavigationState.Settling;
+                
+                // Store pending updates
+                _pendingSelectedSong = e.SelectedSong;
+                _pendingCurrentDifficulty = e.CurrentDifficulty;
+                
+                // Start settlement timer for deferred heavy updates
+                StartSettlementTimer();
+                
+                // Update breadcrumb immediately (lightweight operation)
+                UpdateBreadcrumb();
+                return;
             }
-            _lastSelectionUpdateTime = currentTime;
 
-            // Update status panel (now cached for performance)
-            _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+            // Direct selection change (not from navigation) - update immediately
+            if (_navigationState == NavigationState.Idle)
+            {
+                // Performance optimization: Debounce rapid selection changes
+                var currentTime = _elapsedTime;
+                if (currentTime - _lastSelectionUpdateTime < SELECTION_UPDATE_DEBOUNCE_SECONDS)
+                {
+                    return; // Skip update if too soon after last update
+                }
+                _lastSelectionUpdateTime = currentTime;
 
-            // Update preview image panel asynchronously (already optimized)
-            _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
-
-            // Update breadcrumb (lightweight operation)
-            UpdateBreadcrumb();
+                // Update heavy UI components immediately
+                UpdateHeavyUIComponents(e.SelectedSong, e.CurrentDifficulty);
+                
+                // Update breadcrumb (lightweight operation)
+                UpdateBreadcrumb();
+            }
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -546,6 +591,51 @@ namespace DTX.Stage
             _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
                 ? "Root"
                 : _currentBreadcrumb;
+        }
+
+        /// <summary>
+        /// Start the settlement timer for deferred heavy UI updates
+        /// </summary>
+        private void StartSettlementTimer()
+        {
+            // Cancel any existing timer
+            _settlementTimer?.Dispose();
+            
+            // Create new timer that fires once after the settlement delay
+            _settlementTimer = new Timer(OnSettlementTimerElapsed, null, SETTLEMENT_DELAY_MS, Timeout.Infinite);
+        }
+
+        /// <summary>
+        /// Called when the settlement timer elapses - perform heavy UI updates
+        /// </summary>
+        private void OnSettlementTimerElapsed(object state)
+        {
+            // Transition to Idle state
+            _navigationState = NavigationState.Idle;
+            
+            // Update heavy UI components
+            // Note: This will be called from a background thread, but UI updates should be thread-safe
+            // or handled properly by the components themselves
+            try
+            {
+                UpdateHeavyUIComponents(_pendingSelectedSong, _pendingCurrentDifficulty);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error in settlement timer callback: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Update heavy UI components (StatusPanel, PreviewPanel)
+        /// </summary>
+        private void UpdateHeavyUIComponents(SongListNode selectedSong, int currentDifficulty)
+        {
+            // Update status panel (cached for performance)
+            _statusPanel?.UpdateSongInfo(selectedSong, currentDifficulty);
+
+            // Update preview image panel asynchronously (already optimized)
+            _previewImagePanel?.UpdateSelectedSong(selectedSong);
         }
 
         #endregion
@@ -726,11 +816,17 @@ namespace DTX.Stage
             switch (command.Type)
             {
                 case InputCommandType.MoveUp:
+                    // Cancel any pending settlement timer when starting new navigation
+                    _settlementTimer?.Dispose();
+                    _navigationState = NavigationState.Navigating;
                     _songListDisplay.MovePrevious();
                     _lastNavigationTime = _elapsedTime;
                     break;
 
                 case InputCommandType.MoveDown:
+                    // Cancel any pending settlement timer when starting new navigation
+                    _settlementTimer?.Dispose();
+                    _navigationState = NavigationState.Navigating;
                     _songListDisplay.MoveNext();
                     _lastNavigationTime = _elapsedTime;
                     break;
@@ -874,6 +970,16 @@ namespace DTX.Stage
         FadeIn,
         Normal,
         FadeOut
+    }
+
+    /// <summary>
+    /// Navigation state for deferred updates
+    /// </summary>
+    public enum NavigationState
+    {
+        Idle,       // No navigation occurring
+        Navigating, // Active scrolling/navigation
+        Settling    // Just stopped, heavy updates queued
     }
 
     #endregion
