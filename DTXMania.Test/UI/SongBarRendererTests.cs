@@ -8,19 +8,19 @@ using DTXMania.Test.Helpers;
 using System;
 
 namespace DTXMania.Test.UI
-{
-    /// <summary>
+{    /// <summary>
     /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
     /// </summary>
     public class SongBarRendererTests : IDisposable
-    {
-        private readonly MockResourceManager _resourceManager;
-        private readonly SongBarRenderer _renderer;
+    {        private readonly MockResourceManager _resourceManager;
+        private readonly TestGraphicsDeviceService _graphicsService;
+        private readonly SongBarRenderer? _renderer;
         private readonly SongListNode _testSongNode;
 
         public SongBarRendererTests()
         {
-            _resourceManager = new MockResourceManager(null);
+            _graphicsService = new TestGraphicsDeviceService();
+            _resourceManager = new MockResourceManager(_graphicsService.GraphicsDevice);
 
             // Create test song node
             _testSongNode = new SongListNode
@@ -45,25 +45,40 @@ namespace DTXMania.Test.UI
                         FullCombo = true,
                         PlayCount = 5
                     }
-                }
-            };
-
-            // Create renderer - will be null since we can't create graphics device in tests
-            _renderer = null;
-        }
-
-        [Fact]
+                }            };            // Create renderer with test render target
+            if (_graphicsService.GraphicsDevice != null)
+            {
+                var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
+                _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, sharedRT);
+            }
+            else
+            {
+                _renderer = null;
+            }
+        }        [Fact]
         public void Constructor_WithNullGraphicsDevice_ShouldThrow()
         {
+            // Arrange
+            var titleRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 400, 24);
+            var clearLampRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 8, 24);
+            
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(null, _resourceManager));
+            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(null, _resourceManager, titleRT));
+        }        [Fact]
+        public void Constructor_WithNullResourceManager_ShouldThrow()
+        {
+            // Arrange
+            var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
+            
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(_graphicsService.GraphicsDevice, null, sharedRT));
         }
 
         [Fact]
-        public void Constructor_WithNullResourceManager_ShouldThrow()
+        public void Constructor_WithNullRenderTarget_ShouldThrow()
         {
-            // Act & Assert - This will throw since we can't create graphics device, but that's expected
-            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(null, null));
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, null));
         }
 
         [Fact]
@@ -309,14 +324,12 @@ namespace DTXMania.Test.UI
             Assert.NotNull(texture1);
             Assert.NotNull(texture2);
             // Textures should be different since font changed and cache was cleared
-        }
-
-        [Theory]
-        [InlineData(NodeType.Score, "Test Song")]
-        [InlineData(NodeType.Box, "[Test Box]")]
-        [InlineData(NodeType.BackBox, ".. (Back)")]
-        [InlineData(NodeType.Random, "*** RANDOM SELECT ***")]
-        public void GenerateTitleTexture_WithDifferentNodeTypes_ShouldGenerateAppropriateText(NodeType nodeType, string expectedPrefix)
+        }        [Theory]
+        [InlineData(NodeType.Score)]
+        [InlineData(NodeType.Box)]
+        [InlineData(NodeType.BackBox)]
+        [InlineData(NodeType.Random)]
+        public void GenerateTitleTexture_WithDifferentNodeTypes_ShouldGenerateAppropriateText(NodeType nodeType)
         {
             // Skip test if renderer is null (no graphics device available)
             if (_renderer == null)
@@ -340,6 +353,8 @@ namespace DTXMania.Test.UI
 
             // Assert
             Assert.NotNull(texture);
+            
+            // This test primarily verifies that different node types don't crash the renderer
         }
 
         [Fact]
@@ -369,9 +384,7 @@ namespace DTXMania.Test.UI
             // Act & Assert - Should not throw
             _renderer.Dispose();
             _renderer.Dispose();
-        }
-
-        private SpriteFont CreateTestFont()
+        }        private SpriteFont? CreateTestFont()
         {
             // Create a minimal test font
             // In a real test environment, you'd load an actual font file
@@ -471,12 +484,11 @@ namespace DTXMania.Test.UI
             Assert.Equal(Color.White, barInfo.TextColor);
             Assert.Equal(2, barInfo.DifficultyLevel);
             Assert.True(barInfo.IsSelected);
-        }
-
-        public void Dispose()
+        }        public void Dispose()
         {
             _renderer?.Dispose();
             _resourceManager?.Dispose();
+            _graphicsService?.Dispose();
         }
     }
 }

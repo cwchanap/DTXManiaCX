@@ -4,6 +4,7 @@ using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
 using System;
+using System.Collections.Generic;
 
 namespace DTX.UI.Components
 {
@@ -176,15 +177,22 @@ namespace DTX.UI.Components
             {
                 _textColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Initialize graphics generator for fallback rendering
         /// </summary>
-        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice)
+        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
         {
             _graphicsGenerator?.Dispose();
-            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
+            
+            if (renderTarget != null)
+            {
+                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("SongBar: Cannot initialize DefaultGraphicsGenerator without RenderTarget. Default graphics disabled.");
+                _graphicsGenerator = null;
+            }
         }
 
         #endregion

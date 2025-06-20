@@ -17,6 +17,8 @@ namespace DTX.UI
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly Dictionary<string, ITexture> _generatedTextures;
+        private readonly Dictionary<string, RenderTarget2D> _renderTargets;
+        private readonly RenderTarget2D _renderTarget;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private bool _disposed;
@@ -25,10 +27,12 @@ namespace DTX.UI
 
         #region Constructor
 
-        public DefaultGraphicsGenerator(GraphicsDevice graphicsDevice)
+        public DefaultGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _generatedTextures = new Dictionary<string, ITexture>();
+            _renderTargets = new Dictionary<string, RenderTarget2D>();
+            _renderTarget = renderTarget ?? throw new ArgumentNullException(nameof(renderTarget));
             _spriteBatch = new SpriteBatch(_graphicsDevice);
 
             // Create white pixel texture for drawing primitives
@@ -55,7 +59,7 @@ namespace DTX.UI
         public ITexture GenerateSongBarBackground(int width, int height, bool isSelected = false, bool isCenter = false)
         {
             var cacheKey = $"SongBar_{width}x{height}_{isSelected}_{isCenter}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
@@ -115,7 +119,7 @@ namespace DTX.UI
         public ITexture GeneratePanelBackground(int width, int height, bool withBorder = true)
         {
             var cacheKey = $"Panel_{width}x{height}_{withBorder}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
@@ -130,7 +134,7 @@ namespace DTX.UI
         public ITexture GenerateButton(int width, int height, bool isPressed = false)
         {
             var cacheKey = $"Button_{width}x{height}_{isPressed}";
-            
+
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
                 return cached;
 
@@ -145,8 +149,9 @@ namespace DTX.UI
 
         private ITexture CreateSongBarTexture(int width, int height, bool isSelected, bool isCenter)
         {
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
-            
+            // Always use the provided single RenderTarget
+            var renderTarget = _renderTarget;
+
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
@@ -160,7 +165,7 @@ namespace DTX.UI
                 baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
 
             // Draw background with gradient effect
-            DrawGradientRectangle(_spriteBatch, new Rectangle(0, 0, width, height), 
+            DrawGradientRectangle(_spriteBatch, new Rectangle(0, 0, width, height),
                                 baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
 
             // Draw border for selected items
@@ -168,7 +173,7 @@ namespace DTX.UI
             {
                 var borderColor = isCenter ? Color.Yellow : Color.White;
                 var borderThickness = isCenter ? 2 : 1;
-                
+
                 // Top border
                 _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, width, borderThickness), borderColor);
                 // Bottom border
@@ -185,8 +190,8 @@ namespace DTX.UI
         {
             var width = DTXManiaVisualTheme.Layout.ClearLampWidth;
             var height = DTXManiaVisualTheme.Layout.ClearLampHeight;
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
-            
+            var renderTarget = _renderTarget;
+
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
@@ -209,11 +214,10 @@ namespace DTX.UI
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_ClearLamp_{difficulty}_{hasCleared}");
         }
-
         private ITexture CreatePanelTexture(int width, int height, bool withBorder)
         {
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
-            
+            var renderTarget = _renderTarget;
+
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
@@ -235,11 +239,10 @@ namespace DTX.UI
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_Panel_{width}x{height}");
         }
-
         private ITexture CreateButtonTexture(int width, int height, bool isPressed)
         {
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
-            
+            var renderTarget = _renderTarget;
+
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
@@ -288,7 +291,7 @@ namespace DTX.UI
 
         private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
         {
-            var renderTarget = new RenderTarget2D(_graphicsDevice, 8, 24);
+            var renderTarget = _renderTarget;
 
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
@@ -324,10 +327,9 @@ namespace DTX.UI
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}");
         }
-
         private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
         {
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
+            var renderTarget = _renderTarget;
 
             _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
