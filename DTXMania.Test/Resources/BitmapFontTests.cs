@@ -19,7 +19,7 @@ namespace DTXMania.Test.Resources
         /// Creates a test BitmapFont instance without requiring a real GraphicsDevice
         /// Uses the internal testing constructor that allows null GraphicsDevice
         /// </summary>
-        private BitmapFont CreateTestBitmapFont(IResourceManager resourceManager = null)
+        private BitmapFont CreateTestBitmapFont(IResourceManager? resourceManager = null)
         {
             var mockResourceManager = resourceManager ?? new Mock<IResourceManager>().Object;
             // Use the internal testing constructor that allows null GraphicsDevice

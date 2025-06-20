@@ -173,21 +173,21 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region Helper Classes
-
-        /// <summary>
+        #region Helper Classes        /// <summary>
         /// Mock stage manager for testing without MonoGame dependencies
         /// </summary>
         private class MockStageManager : IStageManager, IDisposable
         {
             private readonly Dictionary<StageType, IStage> _stages;
-            private IStage _currentStage;
+            private IStage? _currentStage;
             private bool _isTransitioning;
             private StagePhase _currentPhase = StagePhase.Inactive;
-            private IStageTransition _currentTransition;
+            private IStageTransition? _currentTransition;
             private double _transitionElapsed;
-            private IStage _targetStage;
-            private Dictionary<string, object> _targetSharedData;            public MockStageManager()
+            private IStage? _targetStage;
+            private Dictionary<string, object>? _targetSharedData;
+            
+            public MockStageManager()
             {
                 _stages = new Dictionary<StageType, IStage>
                 {
@@ -304,7 +304,7 @@ namespace DTXMania.Test.Stage
 
             public StageType Type { get; }
             public StagePhase CurrentPhase { get; private set; } = StagePhase.Inactive;
-            public IStageManager StageManager { get; set; }
+            public IStageManager? StageManager { get; set; }
 
             public void Activate()
             {
