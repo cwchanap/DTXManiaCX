@@ -47,7 +47,7 @@ namespace DTXMania.Test.Song
             // SongManager doesn't implement IDisposable
         }
 
-        private string CreateTempFile(string content, Encoding encoding = null)
+        private string CreateTempFile(string content, Encoding? encoding = null)
         {
             var tempFile = Path.GetTempFileName();
             _tempFiles.Add(tempFile);
