@@ -291,14 +291,12 @@ namespace DTX.UI.Components
                 return null;
             }
 
-            try
-            {
+            try            {
                 var displayText = GetDisplayText(songNode);
                 if (string.IsNullOrEmpty(displayText))
                     return null;
 
-                // Set render target
-                _graphicsDevice.SetRenderTarget(_titleRenderTarget);
+                // Clear render target
                 _graphicsDevice.Clear(Color.Transparent);
 
                 // Render text
@@ -310,9 +308,6 @@ namespace DTX.UI.Components
                 _spriteBatch.DrawString(_font, displayText, position, textColor);
                 
                 _spriteBatch.End();
-
-                // Reset render target
-                _graphicsDevice.SetRenderTarget(null);
 
                 // Create texture wrapper
                 var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
@@ -365,10 +360,7 @@ namespace DTX.UI.Components
             {
                 // Get clear status for this difficulty
                 var clearStatus = GetClearStatus(songNode, difficulty);
-                var lampColor = GetClearLampColor(clearStatus, difficulty);
-
-                // Set render target
-                _graphicsDevice.SetRenderTarget(_clearLampRenderTarget);
+                var lampColor = GetClearLampColor(clearStatus, difficulty);                // Clear render target
                 _graphicsDevice.Clear(Color.Transparent);
 
                 // Render clear lamp
@@ -378,9 +370,6 @@ namespace DTX.UI.Components
                 _spriteBatch.Draw(_whitePixel, lampBounds, lampColor);
                 
                 _spriteBatch.End();
-
-                // Reset render target
-                _graphicsDevice.SetRenderTarget(null);
 
                 // Create texture wrapper
                 var texture2D = new Texture2D(_graphicsDevice, CLEAR_LAMP_WIDTH, CLEAR_LAMP_HEIGHT);

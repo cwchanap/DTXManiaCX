@@ -413,12 +413,9 @@ namespace DTX.Resources
             var height = (int)Math.Ceiling(textSize.Y);
 
             if (width <= 0 || height <= 0)
-                return null;
-
-            var spriteBatch = new SpriteBatch(graphicsDevice);
+                return null;            var spriteBatch = new SpriteBatch(graphicsDevice);
 
             // Use the shared RenderTarget for rendering
-            graphicsDevice.SetRenderTarget(sharedRenderTarget);
             graphicsDevice.Clear(XnaColor.Transparent);
 
             spriteBatch.Begin();
@@ -442,10 +439,8 @@ namespace DTX.Resources
             else
             {
                 DrawString(spriteBatch, text, Vector2.Zero, options.TextColor);
-            }
-
-            spriteBatch.End();
-            graphicsDevice.SetRenderTarget(null);            spriteBatch.Dispose();
+            }            spriteBatch.End();
+            spriteBatch.Dispose();
 
             // Create a texture from the rendered content
             return new ManagedTexture(graphicsDevice, sharedRenderTarget, $"TextTexture_{text.GetHashCode()}");

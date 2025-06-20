@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System.Collections.Generic;
+using DTXMania.Test.Helpers;
 
 namespace DTXMania.Test.UI
 {
@@ -281,21 +282,29 @@ namespace DTXMania.Test.UI
         public void InitializeEnhancedRendering_WithValidParameters_ShouldSetupRendering()
         {
             // Arrange
-            var display = new SongListDisplay();
-            var mockGraphicsDevice = new Mock<GraphicsDevice>();
+            var display = new SongListDisplay();            var mockGraphicsDevice = new Mock<GraphicsDevice>();
             var mockResourceManager = new Mock<IResourceManager>();
+            
+            // Create a mock RenderTarget2D for the test
+            var graphicsService = new TestGraphicsDeviceService();
+            var sharedRT = new RenderTarget2D(graphicsService.GraphicsDevice, 512, 512);
 
             // Act & Assert - Should not throw
             // Note: In headless test environment, this tests the method signature and basic validation
             try
             {
-                display.InitializeEnhancedRendering(mockGraphicsDevice.Object, mockResourceManager.Object);
+                display.InitializeEnhancedRendering(graphicsService.GraphicsDevice, mockResourceManager.Object, sharedRT);
                 Assert.True(true); // Method completed without throwing
             }
             catch (ArgumentNullException)
             {
                 // Expected in test environment without proper graphics context
                 Assert.True(true);
+            }
+            finally
+            {
+                sharedRT?.Dispose();
+                graphicsService?.Dispose();
             }
         }
 
