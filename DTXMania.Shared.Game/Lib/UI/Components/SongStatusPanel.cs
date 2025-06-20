@@ -4,6 +4,7 @@ using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace DTX.UI.Components
@@ -107,15 +108,22 @@ namespace DTX.UI.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Initialize graphics generator for enhanced rendering
         /// </summary>
-        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice)
+        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
         {
             _graphicsGenerator?.Dispose();
-            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
+            
+            if (renderTarget != null)
+            {
+                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot initialize DefaultGraphicsGenerator without RenderTarget. Default graphics disabled.");
+                _graphicsGenerator = null;
+            }
         }
 
         /// <summary>

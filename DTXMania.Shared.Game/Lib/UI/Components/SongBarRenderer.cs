@@ -65,10 +65,13 @@ namespace DTX.UI.Components
 
         #region Constructor
 
-        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager, 
+                              RenderTarget2D sharedRenderTarget)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
+            _titleRenderTarget = sharedRenderTarget ?? throw new ArgumentNullException(nameof(sharedRenderTarget));
+            _clearLampRenderTarget = sharedRenderTarget; // Use the same shared RenderTarget
 
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
@@ -223,12 +226,10 @@ namespace DTX.UI.Components
             {
                 // Return cached or null - NEVER generate during draw
                 return _clearLampCache.TryGet(cacheKey, out var cached) ? cached : null;
-            }
-
-            // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
+            }            // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
-            var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice);
-            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);            if (texture != null)
+            var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
+            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);if (texture != null)
             {
                 _clearLampCache.Add(cacheKey, texture);
             }
@@ -276,9 +277,8 @@ namespace DTX.UI.Components
             _whitePixel = new Texture2D(_graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
 
-            // Create render targets
-            _titleRenderTarget = new RenderTarget2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
-            _clearLampRenderTarget = new RenderTarget2D(_graphicsDevice, CLEAR_LAMP_WIDTH, CLEAR_LAMP_HEIGHT);
+            // Note: RenderTargets are now provided via constructor
+            // _titleRenderTarget and _clearLampRenderTarget are set in constructor
 
             // Create sprite batch for rendering
             _spriteBatch = new SpriteBatch(_graphicsDevice);

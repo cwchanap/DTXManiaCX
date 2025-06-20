@@ -386,29 +386,37 @@ namespace DTX.UI.Components
             }
 
             return barInfo;
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Initialize enhanced rendering with SongBarRenderer
         /// </summary>
-        public void InitializeEnhancedRendering(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+        public void InitializeEnhancedRendering(GraphicsDevice graphicsDevice, IResourceManager resourceManager, 
+            RenderTarget2D sharedRenderTarget)
         {
             _barRenderer?.Dispose();
-            _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager);
+            
+            if (sharedRenderTarget != null)
+            {
+                _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager, sharedRenderTarget);
+            }
+            else
+            {
+                // Cannot create without RenderTarget - log error and disable enhanced rendering
+                System.Diagnostics.Debug.WriteLine("SongListDisplay: Cannot initialize SongBarRenderer without RenderTarget. Enhanced rendering disabled.");
+                _barRenderer = null;
+                return;
+            }
 
             if (_font != null)
             {
                 _barRenderer.SetFont(_font);
-            }
-
-            // Initialize graphics generator for default styling
+            }            // Initialize graphics generator for default styling
             _graphicsGenerator?.Dispose();
-            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice);
-
+            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget);
+            
             // Initialize graphics generators for cached song bars
             foreach (var songBar in _songBarCache.Values)
             {
-                songBar.InitializeGraphicsGenerator(graphicsDevice);
+                songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
             }
         }
 

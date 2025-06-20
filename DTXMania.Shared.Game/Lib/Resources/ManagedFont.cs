@@ -377,11 +377,17 @@ namespace DTX.Resources
         {
             var options = new TextRenderOptions { TextColor = color };
             return CreateTextTexture(graphicsDevice, text, options);
-        }
-        public ITexture CreateTextTexture(GraphicsDevice graphicsDevice, string text, TextRenderOptions options)
+        }        public ITexture CreateTextTexture(GraphicsDevice graphicsDevice, string text, TextRenderOptions options)
+        {
+            // This method should not be used anymore - require a shared RenderTarget
+            throw new InvalidOperationException("CreateTextTexture must be called with a shared RenderTarget. Use the overload that accepts RenderTarget2D.");
+        }        public ITexture CreateTextTexture(GraphicsDevice graphicsDevice, string text, TextRenderOptions options, RenderTarget2D sharedRenderTarget)
         {
             if (_disposed || _spriteFont == null || string.IsNullOrEmpty(text))
                 return null;
+
+            if (sharedRenderTarget == null)
+                throw new ArgumentNullException(nameof(sharedRenderTarget));
 
             // Check cache first
             var cacheKey = GenerateCacheKey(text, options);
@@ -392,7 +398,7 @@ namespace DTX.Resources
             }
 
             // Create new texture
-            var texture = CreateTextTextureInternal(graphicsDevice, text, options);
+            var texture = CreateTextTextureInternal(graphicsDevice, text, options, sharedRenderTarget);
             if (texture != null)
             {
                 // Add to cache
@@ -400,9 +406,7 @@ namespace DTX.Resources
             }
 
             return texture;
-        }
-
-        private ITexture CreateTextTextureInternal(GraphicsDevice graphicsDevice, string text, TextRenderOptions options)
+        }        private ITexture CreateTextTextureInternal(GraphicsDevice graphicsDevice, string text, TextRenderOptions options, RenderTarget2D sharedRenderTarget)
         {
             var textSize = MeasureString(text);
             var width = (int)Math.Ceiling(textSize.X);
@@ -411,11 +415,10 @@ namespace DTX.Resources
             if (width <= 0 || height <= 0)
                 return null;
 
-            // Create render target
-            var renderTarget = new RenderTarget2D(graphicsDevice, width, height);
             var spriteBatch = new SpriteBatch(graphicsDevice);
 
-            graphicsDevice.SetRenderTarget(renderTarget);
+            // Use the shared RenderTarget for rendering
+            graphicsDevice.SetRenderTarget(sharedRenderTarget);
             graphicsDevice.Clear(XnaColor.Transparent);
 
             spriteBatch.Begin();
@@ -442,11 +445,10 @@ namespace DTX.Resources
             }
 
             spriteBatch.End();
-            graphicsDevice.SetRenderTarget(null);
+            graphicsDevice.SetRenderTarget(null);            spriteBatch.Dispose();
 
-            spriteBatch.Dispose();
-
-            return new ManagedTexture(graphicsDevice, renderTarget, $"TextTexture_{text.GetHashCode()}");
+            // Create a texture from the rendered content
+            return new ManagedTexture(graphicsDevice, sharedRenderTarget, $"TextTexture_{text.GetHashCode()}");
         }
 
         private string GenerateCacheKey(string text, TextRenderOptions options)

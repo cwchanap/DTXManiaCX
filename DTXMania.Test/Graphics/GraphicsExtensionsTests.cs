@@ -112,9 +112,8 @@ public class GraphicsExtensionsTests
 
     [Fact]
     public void DefaultGraphicsGenerator_Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
-    {
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(null));
+    {        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(null, null));
     }
 
     [Theory]

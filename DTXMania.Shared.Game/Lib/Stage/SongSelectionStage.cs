@@ -70,11 +70,10 @@ namespace DTX.Stage
 
         // Performance optimization: Selection change debouncing
         private double _lastSelectionUpdateTime = 0;
-        private const double SELECTION_UPDATE_DEBOUNCE_SECONDS = 0.016; // ~60fps update rate
-
-        // Constants for DTXMania-style display
+        private const double SELECTION_UPDATE_DEBOUNCE_SECONDS = 0.016; // ~60fps update rate        // Constants for DTXMania-style display
         private const int VISIBLE_SONGS = 13;
-        private const int CENTER_INDEX = 6;
+        private const int CENTER_INDEX = 6;        // RenderTarget management for stage-level resource pooling
+        private RenderTarget2D _stageRenderTarget;
 
         #endregion
 
@@ -161,6 +160,9 @@ namespace DTX.Stage
             // Start song loading
             InitializeSongList();
 
+            // Initialize stage RenderTargets for shared use
+            InitializeStageRenderTargets();
+
             _currentPhase = StagePhase.FadeIn;
             _selectionPhase = SongSelectionPhase.FadeIn;
             _phaseStartTime = 0;
@@ -180,6 +182,9 @@ namespace DTX.Stage
             // Clean up graphics resources
             _whitePixel?.Dispose();
             _spriteBatch?.Dispose();
+
+            // Clean up stage RenderTargets
+            CleanupStageRenderTargets();
 
             _currentPhase = StagePhase.Inactive;
             _selectionPhase = SongSelectionPhase.Inactive;
@@ -289,12 +294,11 @@ namespace DTX.Stage
                 Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont,
                 WhitePixel = _whitePixel
-            };
-
-            // Initialize Phase 2 enhanced rendering
+            };            // Initialize Phase 2 enhanced rendering
             try
             {
-                _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager);
+                _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager, 
+                    _stageRenderTarget);
                 _songListDisplay.SetEnhancedRendering(true); // Explicitly enable enhanced rendering
             }
             catch (Exception ex)
@@ -322,10 +326,8 @@ namespace DTX.Stage
             {
                 HasStatusPanel = true, // We have a status panel, so use right-side positioning
                 WhitePixel = _whitePixel
-            };
-
-            // Initialize graphics generator for status panel
-            _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice);
+            };            // Initialize graphics generator for status panel
+            _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice, _stageRenderTarget);
 
             // Initialize DTXManiaNX authentic graphics for status panel (Phase 3)
             _statusPanel.InitializeAuthenticGraphics(_resourceManager);
@@ -859,6 +861,43 @@ namespace DTX.Stage
                 var lineRect = new Rectangle(0, y, viewport.Width, 4);
                 _spriteBatch.Draw(_whitePixel, lineRect, color);
             }        }
+
+        #endregion
+
+        #region RenderTarget Management        /// <summary>
+        /// Initialize stage-level RenderTarget for shared use by UI components
+        /// </summary>
+        private void InitializeStageRenderTargets()
+        {
+            // Create a single RenderTarget for all stage operations using RenderTargetManager
+            // Size should be large enough to accommodate all UI components
+            if (_game is BaseGame baseGame)
+            {
+                _stageRenderTarget = baseGame.GraphicsManager.RenderTargetManager
+                    .GetOrCreateRenderTarget("SongSelectionStage_Main", 1024, 1024);
+            }
+            else
+            {
+                // Fallback for non-BaseGame instances (shouldn't happen in normal operation)
+                _stageRenderTarget = new RenderTarget2D(_game.GraphicsDevice, 1024, 1024);
+            }
+        }        /// <summary>
+        /// Cleanup stage RenderTarget
+        /// </summary>
+        private void CleanupStageRenderTargets()
+        {
+            if (_game is BaseGame baseGame)
+            {
+                // Use RenderTargetManager to properly dispose the RenderTarget
+                baseGame.GraphicsManager.RenderTargetManager.RemoveRenderTarget("SongSelectionStage_Main");
+            }
+            else
+            {
+                // Fallback cleanup for non-BaseGame instances
+                _stageRenderTarget?.Dispose();
+            }
+            _stageRenderTarget = null;
+        }
 
         #endregion
     }
