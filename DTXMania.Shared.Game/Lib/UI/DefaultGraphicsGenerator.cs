@@ -17,7 +17,6 @@ namespace DTX.UI
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly Dictionary<string, ITexture> _generatedTextures;
-        private readonly Dictionary<string, RenderTarget2D> _renderTargets;
         private readonly RenderTarget2D _renderTarget;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
@@ -31,7 +30,6 @@ namespace DTX.UI
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _generatedTextures = new Dictionary<string, ITexture>();
-            _renderTargets = new Dictionary<string, RenderTarget2D>();
             _renderTarget = renderTarget ?? throw new ArgumentNullException(nameof(renderTarget));
             _spriteBatch = new SpriteBatch(_graphicsDevice);
 
@@ -152,7 +150,6 @@ namespace DTX.UI
             // Always use the provided single RenderTarget
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -181,18 +178,14 @@ namespace DTX.UI
             }
 
             _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_SongBar_{width}x{height}");
-        }
-
-        private ITexture CreateClearLampTexture(int difficulty, bool hasCleared)
+        }        private ITexture CreateClearLampTexture(int difficulty, bool hasCleared)
         {
             var width = DTXManiaVisualTheme.Layout.ClearLampWidth;
             var height = DTXManiaVisualTheme.Layout.ClearLampHeight;
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -210,15 +203,12 @@ namespace DTX.UI
             DrawRectangleBorder(_spriteBatch, new Rectangle(0, 0, width, height), borderColor, 1);
 
             _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_ClearLamp_{difficulty}_{hasCleared}");
-        }
-        private ITexture CreatePanelTexture(int width, int height, bool withBorder)
+        }        private ITexture CreatePanelTexture(int width, int height, bool withBorder)
         {
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -235,15 +225,12 @@ namespace DTX.UI
             }
 
             _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_Panel_{width}x{height}");
-        }
-        private ITexture CreateButtonTexture(int width, int height, bool isPressed)
+        }        private ITexture CreateButtonTexture(int width, int height, bool isPressed)
         {
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -260,7 +247,6 @@ namespace DTX.UI
             DrawRectangleBorder(_spriteBatch, new Rectangle(0, 0, width, height), Color.White, 1);
 
             _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_Button_{width}x{height}");
         }
@@ -287,13 +273,10 @@ namespace DTX.UI
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, thickness, bounds.Height), color);
             // Right
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - thickness, bounds.Y, thickness, bounds.Height), color);
-        }
-
-        private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
+        }        private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
         {
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -323,15 +306,12 @@ namespace DTX.UI
             }
 
             _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}");
-        }
-        private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
+        }        private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
         {
             var renderTarget = _renderTarget;
 
-            _graphicsDevice.SetRenderTarget(renderTarget);
             _graphicsDevice.Clear(Color.Transparent);
 
             _spriteBatch.Begin();
@@ -376,10 +356,7 @@ namespace DTX.UI
                 var centerY = height / 2;
                 var indicatorRect = new Rectangle(width - 8, centerY - 2, 4, 4);
                 _spriteBatch.Draw(_whitePixel, indicatorRect, Color.Magenta * 0.8f);
-            }
-
-            _spriteBatch.End();
-            _graphicsDevice.SetRenderTarget(null);
+            }            _spriteBatch.End();
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_BarType_{barType}_{width}x{height}");
         }
