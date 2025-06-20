@@ -35,7 +35,7 @@ namespace DTXMania.Test.Song
             return SongListNode.CreateSongNode(metadata);
         }
 
-        private SongListNode CreateTestBoxNode(string title, List<SongListNode> children = null)
+        private SongListNode CreateTestBoxNode(string title, List<SongListNode>? children = null)
         {
             var boxNode = SongListNode.CreateBoxNode(title, "/test/path", null);
             if (children != null)
