@@ -14,11 +14,9 @@ namespace DTXMania.Test.Song
     {
         #region Test Setup
 
-        private readonly SongManager _songManager;
-
-        public SongNavigationTests()
+        private readonly SongManager _songManager;        public SongNavigationTests()
         {
-            _songManager = new SongManager();
+            _songManager = SongManager.Instance;
         }
 
         public void Dispose()

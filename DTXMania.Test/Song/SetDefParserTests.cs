@@ -11,6 +11,7 @@ using DTX.Song;
 namespace DTXMania.Test.Song
 {
     /// <summary>
+    /// Unit tests for SET.def file parsing functionality    /// <summary>
     /// Unit tests for SET.def file parsing functionality
     /// Tests the fixed SET.def parser that handles DTXMania format correctly
     /// </summary>
@@ -23,7 +24,7 @@ namespace DTXMania.Test.Song
 
         public SetDefParserTests()
         {
-            _songManager = new SongManager();
+            _songManager = SongManager.Instance;
             _tempFiles = new List<string>();
         }
 
