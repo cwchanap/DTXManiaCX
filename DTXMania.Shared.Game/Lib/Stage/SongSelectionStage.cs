@@ -303,6 +303,9 @@ namespace DTX.Stage
                 _songListDisplay.SetEnhancedRendering(false);
             }
 
+            // Enable immediate visual feedback for responsive input
+            _songListDisplay.UseImmediateFeedback = true;
+
             // Create DTXManiaNX-style status panel
             // Position at authentic DTXManiaNX coordinates (X:130, Y:350)
             _statusPanel = new SongStatusPanel
