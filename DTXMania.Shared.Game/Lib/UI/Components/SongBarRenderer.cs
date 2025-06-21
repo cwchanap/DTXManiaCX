@@ -19,7 +19,8 @@ namespace DTX.UI.Components
     /// - RenderTarget switching during draw phase causes screen blackouts
     /// - All texture generation methods now return cached/null during draw phase
     /// </summary>
-    public class SongBarRenderer : IDisposable    {
+    public class SongBarRenderer : IDisposable
+    {
         #region Constants
 
         private const int TITLE_TEXTURE_WIDTH = 400;
@@ -55,11 +56,7 @@ namespace DTX.UI.Components
         };
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
-        private bool _isFastScrollMode = false;
-        private bool _disposed = false;
-
-        // Draw phase safety check to prevent texture generation during draw
-        public bool IsInDrawPhase { get; set; }
+        private bool _isFastScrollMode = false;        private bool _disposed = false;
 
         #endregion
 
@@ -92,25 +89,19 @@ namespace DTX.UI.Components
             if (songNode == null)
                 return null;
 
-            var cacheKey = GetTitleCacheKey(songNode);
-
-            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
+            var cacheKey = GetTitleCacheKey(songNode);            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            // Safety check: NEVER generate during draw phase to prevent screen blackouts
-            if (IsInDrawPhase)
-            {
-                // Return cached or null - NEVER generate during draw
-                return _titleTextureCache.TryGet(cacheKey, out var cached) ? cached : null;
-            }
+            var texture = CreateTitleTexture(songNode);
 
-            var texture = CreateTitleTexture(songNode);            if (texture != null)
+            if (texture != null)
             {
-                _titleTextureCache.Add(cacheKey, texture);
-            }
+                _titleTextureCache.Add(cacheKey, texture);            }
 
             return texture;
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Generate or retrieve cached preview image texture
         /// </summary>
         public ITexture GeneratePreviewImageTexture(SongListNode songNode)
@@ -122,27 +113,19 @@ namespace DTX.UI.Components
             if (_isFastScrollMode)
                 return null;
 
-            var cacheKey = songNode.Metadata.PreviewImage;
-
-            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
+            var cacheKey = songNode.Metadata.PreviewImage;            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            // Safety check: NEVER generate during draw phase to prevent screen blackouts
-            if (IsInDrawPhase)
-            {
-                // Return cached or null - NEVER generate during draw
-                return _previewImageCache.TryGet(cacheKey, out var cached) ? cached : null;
-            }
-
-            // Check file size before attempting to load - skip large files (>500KB)
-            if (songNode.Metadata?.FilePath != null)
+            // Check file size before attempting to load - skip large files (>500KB)if (songNode.Metadata?.FilePath != null)
             {
                 var songDirectory = Path.GetDirectoryName(songNode.Metadata.FilePath);
                 var previewImagePath = Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
-
+                
                 // Quick file existence and size check
                 if (!File.Exists(previewImagePath))
-                    return null;                var fileInfo = new FileInfo(previewImagePath);
+                    return null;
+                
+                var fileInfo = new FileInfo(previewImagePath);
                 if (fileInfo.Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
                 {
                     System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {previewImagePath} ({fileInfo.Length} bytes)");
@@ -150,7 +133,9 @@ namespace DTX.UI.Components
                 }
             }
 
-            var texture = LoadPreviewImage(songNode);            if (texture != null)
+            var texture = LoadPreviewImage(songNode);
+
+            if (texture != null)
             {
                 _previewImageCache.Add(cacheKey, texture);
             }
@@ -214,28 +199,24 @@ namespace DTX.UI.Components
         public ITexture GenerateClearLampTexture(SongListNode songNode, int difficulty)
         {
             if (songNode?.Type != NodeType.Score)
-                return null;
-
-            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
-
+                return null;            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            // Safety check: NEVER generate during draw phase to prevent screen blackouts
-            if (IsInDrawPhase)
-            {
-                // Return cached or null - NEVER generate during draw
-                return _clearLampCache.TryGet(cacheKey, out var cached) ? cached : null;
-            }            // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
+            // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
             var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
-            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);if (texture != null)
+            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
+            
+            if (texture != null)
             {
                 _clearLampCache.Add(cacheKey, texture);
             }
 
             return texture;
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Clear all texture caches
         /// </summary>
         public void ClearCache()
@@ -244,6 +225,49 @@ namespace DTX.UI.Components
             _previewImageCache.Clear();
             _clearLampCache.Clear();
         }        /// <summary>
+        /// Priority texture generation method for immediate processing of selected items
+        /// Generates texture immediately with performance metrics (IsInDrawPhase check removed per senior engineer feedback)
+        /// </summary>
+        public SongBarInfo GenerateBarInfoWithPriority(SongListNode songNode, int difficulty, bool isSelected = false)
+        {
+            if (songNode == null)
+                return null;
+
+            // Performance metrics: Measure priority generation timing
+            var startTime = DateTime.UtcNow;
+
+            var barInfo = new SongBarInfo
+            {
+                SongNode = songNode,
+                BarType = GetBarType(songNode),
+                TitleString = GetDisplayText(songNode),
+                TextColor = GetNodeTypeColor(songNode),
+                DifficultyLevel = difficulty,
+                IsSelected = isSelected
+            };
+
+            // Generate textures immediately (safety checks removed)
+            barInfo.TitleTexture = GenerateTitleTexture(songNode);
+            
+            // Only generate preview image for selected items or if not in fast scroll mode
+            if (isSelected || !_isFastScrollMode)
+            {
+                barInfo.PreviewImage = GeneratePreviewImageTexture(songNode);
+            }
+            
+            barInfo.ClearLamp = GenerateClearLampTexture(songNode, difficulty);
+
+            // Performance metrics logging
+            var processingDuration = DateTime.UtcNow - startTime;
+            if (processingDuration.TotalMilliseconds > 2.0) // Log if priority generation takes more than 2ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Priority generation for '{songNode.DisplayTitle}' took {processingDuration.TotalMilliseconds:F2}ms");
+            }
+
+            return barInfo;
+        }
+
+        /// <summary>
         /// Set the font for title texture generation
         /// </summary>
         public void SetFont(SpriteFont font)
@@ -291,7 +315,8 @@ namespace DTX.UI.Components
                 return null;
             }
 
-            try            {
+            try
+            {
                 var displayText = GetDisplayText(songNode);
                 if (string.IsNullOrEmpty(displayText))
                     return null;
@@ -313,9 +338,7 @@ namespace DTX.UI.Components
                 var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
                 var data = new Color[TITLE_TEXTURE_WIDTH * TITLE_TEXTURE_HEIGHT];
                 _titleRenderTarget.GetData(data);
-                texture2D.SetData(data);
-
-                var cacheKey = GetTitleCacheKey(songNode);
+                texture2D.SetData(data);                var cacheKey = GetTitleCacheKey(songNode);
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
             }
             catch (Exception ex)
@@ -323,7 +346,9 @@ namespace DTX.UI.Components
                 System.Diagnostics.Debug.WriteLine($"Failed to create title texture: {ex.Message}");
                 return null;
             }
-        }        private ITexture LoadPreviewImage(SongListNode songNode)
+        }
+
+        private ITexture LoadPreviewImage(SongListNode songNode)
         {
             // Skip preview image loading during fast scroll to prevent UI freezes
             if (_isFastScrollMode)
@@ -354,13 +379,13 @@ namespace DTX.UI.Components
         private ITexture CreateClearLampTexture(SongListNode songNode, int difficulty)
         {
             if (_clearLampRenderTarget == null)
-                return null;
-
-            try
+                return null;            try
             {
                 // Get clear status for this difficulty
                 var clearStatus = GetClearStatus(songNode, difficulty);
-                var lampColor = GetClearLampColor(clearStatus, difficulty);                // Clear render target
+                var lampColor = GetClearLampColor(clearStatus, difficulty);
+                
+                // Clear render target
                 _graphicsDevice.Clear(Color.Transparent);
 
                 // Render clear lamp
@@ -460,8 +485,7 @@ namespace DTX.UI.Components
             {
                 NodeType.Score => BarType.Score,
                 NodeType.Box => BarType.Box,
-                NodeType.BackBox => BarType.Other,
-                NodeType.Random => BarType.Other,
+                NodeType.BackBox => BarType.Other,                NodeType.Random => BarType.Other,
                 _ => BarType.Other
             };
         }
@@ -479,9 +503,7 @@ namespace DTX.UI.Components
                 _titleRenderTarget?.Dispose();
                 _clearLampRenderTarget?.Dispose();
                 _spriteBatch?.Dispose();
-                _whitePixel?.Dispose();
-
-                _disposed = true;
+                _whitePixel?.Dispose();                _disposed = true;
             }
         }
 
@@ -491,46 +513,44 @@ namespace DTX.UI.Components
     /// <summary>
     /// Clear status for songs
     /// </summary>
-    public enum ClearStatus
-    {
-        NotPlayed,
-        Failed,
-        Clear,
-        FullCombo
-    }
-
-    /// <summary>
-    /// Bar type for different content types
-    /// Equivalent to DTXManiaNX EBarType
-    /// </summary>
-    public enum BarType
-    {
-        Score,      // Regular songs
-        Box,        // Folders/directories
-        Other       // Random, back navigation, etc.
-    }
-
-    /// <summary>
-    /// Complete bar information structure
-    /// Equivalent to DTXManiaNX STBarInformation
-    /// </summary>
-    public class SongBarInfo : IDisposable
-    {
-        public SongListNode SongNode { get; set; }
-        public BarType BarType { get; set; }
-        public string TitleString { get; set; }
-        public ITexture TitleTexture { get; set; }
-        public Color TextColor { get; set; }
-        public ITexture PreviewImage { get; set; }
-        public ITexture ClearLamp { get; set; }
-        public int DifficultyLevel { get; set; }
-        public bool IsSelected { get; set; }
-
-        public void Dispose()
+        public enum ClearStatus
         {
-            TitleTexture?.Dispose();
-            PreviewImage?.Dispose();
-            ClearLamp?.Dispose();
+            NotPlayed,
+            Failed,
+            Clear,
+            FullCombo
         }
+
+        /// <summary>
+        /// Bar type for different content types
+        /// Equivalent to DTXManiaNX EBarType
+        /// </summary>
+        public enum BarType
+        {
+            Score,      // Regular songs
+            Box,        // Folders/directories
+            Other       // Random, back navigation, etc.
+        }
+
+        /// <summary>
+        /// Complete bar information structure
+        /// Equivalent to DTXManiaNX STBarInformation
+        /// </summary>
+        public class SongBarInfo : IDisposable
+        {
+            public SongListNode SongNode { get; set; }
+            public BarType BarType { get; set; }
+            public string TitleString { get; set; }
+            public ITexture TitleTexture { get; set; }
+            public Color TextColor { get; set; }
+            public ITexture PreviewImage { get; set; }
+            public ITexture ClearLamp { get; set; }
+            public int DifficultyLevel { get; set; }
+            public bool IsSelected { get; set; }
+            
+            public void Dispose()
+            {
+                TitleTexture?.Dispose();
+                PreviewImage?.Dispose();                ClearLamp?.Dispose();
+            }        }
     }
-}

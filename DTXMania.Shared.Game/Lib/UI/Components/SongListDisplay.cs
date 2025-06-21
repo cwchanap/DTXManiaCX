@@ -123,10 +123,8 @@ namespace DTX.UI.Components
         private DefaultGraphicsGenerator _graphicsGenerator;
 
         // Phase 2 enhancements: Bar information caching
-        private readonly Dictionary<string, SongBarInfo> _barInfoCache;
-
-        // Texture generation queue to prevent draw phase generation
-        private readonly Queue<TextureGenerationRequest> _textureGenerationQueue;
+        private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
+        private readonly List<TextureGenerationRequest> _textureGenerationQueue;
         private readonly HashSet<int> _visibleBarIndices;
 
         #endregion
@@ -266,7 +264,7 @@ namespace DTX.UI.Components
             _barInfoCache = new Dictionary<string, SongBarInfo>();
 
             // Initialize texture generation queue and tracking
-            _textureGenerationQueue = new Queue<TextureGenerationRequest>();
+            _textureGenerationQueue = new List<TextureGenerationRequest>();
             _visibleBarIndices = new HashSet<int>();
 
             Size = new Vector2(700, VISIBLE_ITEMS * _itemHeight);
@@ -428,6 +426,19 @@ namespace DTX.UI.Components
             _useEnhancedRendering = enabled;
         }
 
+        /// <summary>
+        /// Force immediate visual invalidation and redraw
+        /// Used when selection changes to ensure immediate UI response
+        /// </summary>
+        public void InvalidateVisuals()
+        {
+            // Clear visible bar indices to force regeneration
+            _visibleBarIndices.Clear();
+            
+            // Queue immediate texture generation for all currently visible items
+            QueueTextureGenerationForNewBars();
+        }
+
         #endregion
 
         #region Protected Methods
@@ -441,42 +452,23 @@ namespace DTX.UI.Components
 
             // Process pending texture generation requests (CRITICAL: Only in Update phase)
             UpdatePendingTextures();
-        }
-
-        protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
+        }        protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!Visible || _currentList == null)
                 return;
 
-            // CRITICAL: Set draw phase flag to prevent texture generation during draw
-            if (_barRenderer != null)
+            var bounds = Bounds;
+
+            // Draw background
+            if (_whitePixel != null)
             {
-                _barRenderer.IsInDrawPhase = true;
+                spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
             }
 
-            try
-            {
-                var bounds = Bounds;
+            // Draw song items
+            DrawSongItems(spriteBatch, bounds);
 
-                // Draw background
-                if (_whitePixel != null)
-                {
-                    spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
-                }
-
-                // Draw song items
-                DrawSongItems(spriteBatch, bounds);
-
-                base.OnDraw(spriteBatch, deltaTime);
-            }
-            finally
-            {
-                // CRITICAL: Clear draw phase flag after drawing
-                if (_barRenderer != null)
-                {
-                    _barRenderer.IsInDrawPhase = false;
-                }
-            }
+            base.OnDraw(spriteBatch, deltaTime);
         }
 
         #endregion
@@ -965,16 +957,92 @@ namespace DTX.UI.Components
                 default:
                     return node.DisplayTitle ?? "Unknown Song";
             }
-        }
-
-        private void UpdateSelection()
+        }        private void UpdateSelection()
         {
             var previousSong = SelectedSong;
             SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
                 ? _currentList[_selectedIndex]
                 : null;            if (SelectedSong != previousSong)
             {
+                // Force immediate redraw by invalidating visuals
+                InvalidateVisuals();
+                
+                // Immediate texture generation for selected song
+                GenerateSelectedSongTextureImmediately();
+                
+                // Pre-generate textures for adjacent songs (±5 from current selection - increased per senior engineer feedback)
+                PreGenerateAdjacentSongTextures();
+                
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
+            }
+        }
+
+        /// <summary>
+        /// Immediately generate texture for the currently selected song without queuing
+        /// </summary>
+        private void GenerateSelectedSongTextureImmediately()
+        {
+            if (_barRenderer == null || SelectedSong == null)
+                return;
+
+            // Performance metrics: Measure immediate texture generation timing
+            var startTime = DateTime.UtcNow;
+
+            // Generate bar info immediately for the selected song
+            var barInfo = _barRenderer.GenerateBarInfoWithPriority(SelectedSong, _currentDifficulty, true);
+
+            // Cache the bar info if generation succeeded
+            if (barInfo != null)
+            {
+                var cacheKey = $"{SelectedSong.GetHashCode()}_{_currentDifficulty}";
+                _barInfoCache[cacheKey] = barInfo;
+            }
+
+            // Performance metrics logging
+            var processingDuration = DateTime.UtcNow - startTime;
+            if (processingDuration.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {processingDuration.TotalMilliseconds:F2}ms");
+            }
+        }        /// <summary>
+        /// Pre-generate textures for adjacent songs (±5 from current selection)
+        /// </summary>
+        private void PreGenerateAdjacentSongTextures()
+        {
+            if (_currentList == null || _currentList.Count == 0 || _selectedIndex < 0)
+                return;
+
+            // Pre-generate for ±5 songs around the current selection (increased per senior engineer feedback)
+            for (int offset = -5; offset <= 5; offset++)
+            {
+                if (offset == 0) // Skip the selected song itself (already generated immediately)
+                    continue;
+
+                int adjacentIndex = _selectedIndex + offset;
+                
+                // Skip if index is out of bounds
+                if (adjacentIndex < 0 || adjacentIndex >= _currentList.Count)
+                    continue;
+
+                var adjacentSong = _currentList[adjacentIndex];
+                
+                // Check if we already have this texture cached
+                var cacheKey = $"{adjacentSong.GetHashCode()}_{_currentDifficulty}";
+                if (_barInfoCache.ContainsKey(cacheKey))
+                    continue; // Already cached, skip
+
+                // Add to texture generation queue with appropriate priority
+                var request = new TextureGenerationRequest
+                {
+                    SongNode = adjacentSong,
+                    SongIndex = adjacentIndex,
+                    BarIndex = -1, // Not tied to a specific bar position
+                    Difficulty = _currentDifficulty,
+                    IsSelected = false,
+                    Priority = 75 - Math.Abs(offset) * 5 // Closer songs get higher priority
+                };
+
+                _textureGenerationQueue.Add(request);
             }
         }
 
@@ -1024,17 +1092,17 @@ namespace DTX.UI.Components
                 // If this bar wasn't visible before, queue texture generation
                 if (!_visibleBarIndices.Contains(songIndex))
                 {
-                    var node = _currentList[songIndex];
-                    var request = new TextureGenerationRequest
+                    var node = _currentList[songIndex];                    var request = new TextureGenerationRequest
                     {
                         SongNode = node,
                         SongIndex = songIndex,
                         BarIndex = barIndex,
                         Difficulty = _currentDifficulty,
-                        IsSelected = (barIndex == CENTER_INDEX)
+                        IsSelected = (barIndex == CENTER_INDEX),
+                        Priority = (barIndex == CENTER_INDEX) ? 100 : 50 // Selected song gets highest priority
                     };
 
-                    _textureGenerationQueue.Enqueue(request);
+                    _textureGenerationQueue.Add(request);
                 }
             }
 
@@ -1044,26 +1112,31 @@ namespace DTX.UI.Components
             {
                 _visibleBarIndices.Add(index);
             }
-        }
-
-        /// <summary>
-        /// Process pending texture generation requests during Update phase
-        /// CRITICAL: Only called from OnUpdate(), NEVER from OnDraw()
+        }        /// <summary>
+        /// Process pending texture generation requests during Update phase with priority queue
+        /// All texture generation moved to Update phase with no exceptions (per senior engineer feedback)
         /// </summary>
         private void UpdatePendingTextures()
         {
             if (_barRenderer == null)
                 return;
 
+            // Performance metrics: Measure texture generation timing
+            var startTime = DateTime.UtcNow;
+
             // Process a limited number of requests per frame to prevent frame drops
-            const int maxRequestsPerFrame = 3;
+            const int maxRequestsPerFrame = 6; // Increased from 3 to 6 for better performance
             int processedCount = 0;
+
+            // Sort by priority (highest first) and process in order
+            _textureGenerationQueue.Sort((a, b) => b.Priority.CompareTo(a.Priority));
 
             while (_textureGenerationQueue.Count > 0 && processedCount < maxRequestsPerFrame)
             {
-                var request = _textureGenerationQueue.Dequeue();
+                var request = _textureGenerationQueue[0];
+                _textureGenerationQueue.RemoveAt(0);
 
-                // Generate textures for this bar (safe during Update phase)
+                // Generate textures for this bar (always safe now - IsInDrawPhase checks removed)
                 var barInfo = _barRenderer.GenerateBarInfo(request.SongNode, request.Difficulty, request.IsSelected);
 
                 // Cache the bar info if generation succeeded
@@ -1074,6 +1147,13 @@ namespace DTX.UI.Components
                 }
 
                 processedCount++;
+            }
+
+            // Performance metrics logging
+            var processingDuration = DateTime.UtcNow - startTime;
+            if (processedCount > 0 && processingDuration.TotalMilliseconds > 5.0) // Log if processing takes more than 5ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Processed {processedCount} textures in {processingDuration.TotalMilliseconds:F2}ms");
             }
         }
 
@@ -1141,9 +1221,7 @@ namespace DTX.UI.Components
             Song = song;
             Difficulty = difficulty;
         }
-    }
-
-    /// <summary>
+    }    /// <summary>
     /// Request for texture generation during Update phase
     /// </summary>
     internal class TextureGenerationRequest
@@ -1153,6 +1231,7 @@ namespace DTX.UI.Components
         public int BarIndex { get; set; }
         public int Difficulty { get; set; }
         public bool IsSelected { get; set; }
+        public int Priority { get; set; } // Higher values = higher priority
     }
 
     #endregion
