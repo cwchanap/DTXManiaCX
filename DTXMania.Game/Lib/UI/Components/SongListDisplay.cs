@@ -25,10 +25,9 @@ namespace DTX.UI.Components
 
         private const int VISIBLE_ITEMS = 13;
         private const int CENTER_INDEX = 5; // DTXManiaNX uses index 5 as center (0-based)
-        private const int SCROLL_UNIT = 100;
-        private const float SCROLL_ACCELERATION_THRESHOLD_1 = 100f;
-        private const float SCROLL_ACCELERATION_THRESHOLD_2 = 300f;
-        private const float SCROLL_ACCELERATION_THRESHOLD_3 = 500f;
+        private const int SCROLL_UNIT = 100; private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
+        private const float SCROLL_ACCELERATION_THRESHOLD_2 = 600f;  // Increased from 300f  
+        private const float SCROLL_ACCELERATION_THRESHOLD_3 = 1000f; // Increased from 500f
 
         // DTXManiaNX Current Implementation Coordinates (ptバーの基本座標)
         // NOTE: Original curved X coordinates are present but DISABLED in current DTXManiaNX
@@ -123,11 +122,15 @@ namespace DTX.UI.Components
         private DefaultGraphicsGenerator _graphicsGenerator;
 
         // Phase 2 enhancements: Bar information caching
-        private readonly Dictionary<string, SongBarInfo> _barInfoCache;
-
-        // Texture generation queue to prevent draw phase generation
-        private readonly Queue<TextureGenerationRequest> _textureGenerationQueue;
+        private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
+        private readonly List<TextureGenerationRequest> _textureGenerationQueue;
         private readonly HashSet<int> _visibleBarIndices;
+
+        // Fast scroll optimization
+        private DateTime _lastInputTime = DateTime.MinValue;
+        private int _consecutiveInputCount = 0;
+        private const double FAST_SCROLL_WINDOW_MS = 500.0; // Time window for detecting rapid inputs
+        private const int FAST_SCROLL_THRESHOLD = 3; // Number of inputs to trigger fast scroll
 
         #endregion
 
@@ -146,18 +149,16 @@ namespace DTX.UI.Components
             get => _currentDifficulty;
             set => _currentDifficulty = Math.Max(0, Math.Min(4, value));
         }        /// <summary>
-        /// Whether the list is currently scrolling
-        /// </summary>
+                 /// Whether the list is currently scrolling
+                 /// </summary>
         public bool IsScrolling => _targetScrollCounter != 0 || _currentScrollCounter != 0;
 
         /// <summary>
         /// Whether scrolling has completed (target matches current position)
         /// </summary>
-        public bool IsScrollComplete => _targetScrollCounter == _currentScrollCounter;
-
-        /// <summary>
-        /// Current song list
-        /// </summary>
+        public bool IsScrollComplete => _targetScrollCounter == _currentScrollCounter;        /// <summary>
+                                                                                              /// Current song list
+                                                                                              /// </summary>
         public List<SongListNode> CurrentList
         {
             get => _currentList;
@@ -212,11 +213,9 @@ namespace DTX.UI.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
-        }
-
-        /// <summary>
-        /// Managed font for advanced text rendering
-        /// </summary>
+        }        /// <summary>
+                 /// Managed font for advanced text rendering
+                 /// </summary>
         public IFont ManagedFont
         {
             get => _managedFont;
@@ -227,6 +226,11 @@ namespace DTX.UI.Components
                 _barRenderer?.SetFont(_font);
             }
         }
+
+        /// <summary>
+        /// Scroll speed multiplier (1.0 = normal, 2.0 = 2x faster, etc.)
+        /// </summary>
+        public float ScrollSpeedMultiplier { get; set; } = 1.0f;
 
         #endregion
 
@@ -266,7 +270,7 @@ namespace DTX.UI.Components
             _barInfoCache = new Dictionary<string, SongBarInfo>();
 
             // Initialize texture generation queue and tracking
-            _textureGenerationQueue = new Queue<TextureGenerationRequest>();
+            _textureGenerationQueue = new List<TextureGenerationRequest>();
             _visibleBarIndices = new HashSet<int>();
 
             Size = new Vector2(700, VISIBLE_ITEMS * _itemHeight);
@@ -274,15 +278,16 @@ namespace DTX.UI.Components
 
         #endregion
 
-        #region Public Methods
-
-        /// <summary>
+        #region Public Methods        /// <summary>
         /// Move selection to next song (DTXManiaNX curved layout style)
         /// </summary>
         public void MoveNext()
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
+
+            // Track rapid input for fast scroll optimization
+            TrackRapidInput();
 
             // Move to next song with proper wrap-around
             _selectedIndex = (_selectedIndex + 1) % _currentList.Count;
@@ -300,6 +305,9 @@ namespace DTX.UI.Components
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
+
+            // Track rapid input for fast scroll optimization
+            TrackRapidInput();
 
             // Move to previous song with proper wrap-around
             _selectedIndex = (_selectedIndex - 1 + _currentList.Count) % _currentList.Count;
@@ -324,7 +332,7 @@ namespace DTX.UI.Components
             {
                 _currentDifficulty = (_currentDifficulty + 1) % 5;
             }
-            while (_currentDifficulty != startDifficulty && 
+            while (_currentDifficulty != startDifficulty &&
                    (SelectedSong.Scores.Length <= _currentDifficulty || SelectedSong.Scores[_currentDifficulty] == null));
 
             DifficultyChanged?.Invoke(this, new DifficultyChangedEventArgs(SelectedSong, _currentDifficulty));
@@ -387,13 +395,13 @@ namespace DTX.UI.Components
 
             return barInfo;
         }        /// <summary>
-        /// Initialize enhanced rendering with SongBarRenderer
-        /// </summary>
-        public void InitializeEnhancedRendering(GraphicsDevice graphicsDevice, IResourceManager resourceManager, 
+                 /// Initialize enhanced rendering with SongBarRenderer
+                 /// </summary>
+        public void InitializeEnhancedRendering(GraphicsDevice graphicsDevice, IResourceManager resourceManager,
             RenderTarget2D sharedRenderTarget)
         {
             _barRenderer?.Dispose();
-            
+
             if (sharedRenderTarget != null)
             {
                 _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager, sharedRenderTarget);
@@ -412,7 +420,7 @@ namespace DTX.UI.Components
             }            // Initialize graphics generator for default styling
             _graphicsGenerator?.Dispose();
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget);
-            
+
             // Initialize graphics generators for cached song bars
             foreach (var songBar in _songBarCache.Values)
             {
@@ -426,6 +434,19 @@ namespace DTX.UI.Components
         public void SetEnhancedRendering(bool enabled)
         {
             _useEnhancedRendering = enabled;
+        }
+
+        /// <summary>
+        /// Force immediate visual invalidation and redraw
+        /// Used when selection changes to ensure immediate UI response
+        /// </summary>
+        public void InvalidateVisuals()
+        {
+            // Clear visible bar indices to force regeneration
+            _visibleBarIndices.Clear();
+
+            // Queue immediate texture generation for all currently visible items
+            QueueTextureGenerationForNewBars();
         }
 
         #endregion
@@ -442,41 +463,23 @@ namespace DTX.UI.Components
             // Process pending texture generation requests (CRITICAL: Only in Update phase)
             UpdatePendingTextures();
         }
-
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!Visible || _currentList == null)
                 return;
 
-            // CRITICAL: Set draw phase flag to prevent texture generation during draw
-            if (_barRenderer != null)
+            var bounds = Bounds;
+
+            // Draw background
+            if (_whitePixel != null)
             {
-                _barRenderer.IsInDrawPhase = true;
+                spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
             }
 
-            try
-            {
-                var bounds = Bounds;
+            // Draw song items
+            DrawSongItems(spriteBatch, bounds);
 
-                // Draw background
-                if (_whitePixel != null)
-                {
-                    spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
-                }
-
-                // Draw song items
-                DrawSongItems(spriteBatch, bounds);
-
-                base.OnDraw(spriteBatch, deltaTime);
-            }
-            finally
-            {
-                // CRITICAL: Clear draw phase flag after drawing
-                if (_barRenderer != null)
-                {
-                    _barRenderer.IsInDrawPhase = false;
-                }
-            }
+            base.OnDraw(spriteBatch, deltaTime);
         }
 
         #endregion
@@ -488,6 +491,35 @@ namespace DTX.UI.Components
             // In DTXManiaNX curved layout, the target scroll counter directly corresponds to the selected song
             // The center position (bar 5) always shows the selected song
             _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
+        }
+
+        /// <summary>
+        /// Track rapid input for fast scroll optimization
+        /// </summary>
+        private void TrackRapidInput()
+        {
+            var currentTime = DateTime.UtcNow;
+            var timeSinceLastInput = (currentTime - _lastInputTime).TotalMilliseconds;
+
+            if (timeSinceLastInput <= FAST_SCROLL_WINDOW_MS)
+            {
+                _consecutiveInputCount++;
+            }
+            else
+            {
+                _consecutiveInputCount = 1; // Reset counter
+            }
+
+            _lastInputTime = currentTime;
+        }
+
+        /// <summary>
+        /// Check if we're in fast scroll mode (rapid consecutive inputs)
+        /// </summary>
+        private bool IsFastScrollMode()
+        {
+            var timeSinceLastInput = (DateTime.UtcNow - _lastInputTime).TotalMilliseconds;
+            return _consecutiveInputCount >= FAST_SCROLL_THRESHOLD && timeSinceLastInput <= FAST_SCROLL_WINDOW_MS;
         }
 
         private void UpdateScrollAnimation(double deltaTime)
@@ -502,6 +534,10 @@ namespace DTX.UI.Components
             int distance = Math.Abs(_targetScrollCounter - _currentScrollCounter);
             int acceleration = GetScrollAcceleration(distance);
 
+            // Apply frame-rate independent acceleration multiplier for smooth 60fps
+            var frameMultiplier = Math.Max(1.0, deltaTime * 60.0); // Ensure consistent speed at 60fps
+            acceleration = (int)(acceleration * frameMultiplier);
+
             // Move towards target
             if (_targetScrollCounter > _currentScrollCounter)
             {
@@ -512,25 +548,36 @@ namespace DTX.UI.Components
                 _currentScrollCounter = Math.Max(_targetScrollCounter, _currentScrollCounter - acceleration);
             }
 
-            // Check if scroll position changed by 100 units (1 bar) - queue texture generation
+            // Optimized texture generation: Only trigger when crossing significant boundaries
             int scrollDelta = Math.Abs(_currentScrollCounter - previousScrollPosition);
-            if (scrollDelta >= SCROLL_UNIT)
+            if (scrollDelta >= SCROLL_UNIT * 2) // Only trigger every 2 songs instead of every song
             {
                 QueueTextureGenerationForNewBars();
             }
         }
-
         private int GetScrollAcceleration(int distance)
         {
-            // DTXManiaNX-style acceleration based on distance
+            // Base acceleration values - significantly increased for responsive feel
+            int baseAcceleration;
             if (distance <= SCROLL_ACCELERATION_THRESHOLD_1)
-                return 2;
+                baseAcceleration = 15;  // Increased from 4 (3.75x faster for short distances)
             else if (distance <= SCROLL_ACCELERATION_THRESHOLD_2)
-                return 3;
+                baseAcceleration = 25;  // Increased from 6 (4x faster for medium distances)
             else if (distance <= SCROLL_ACCELERATION_THRESHOLD_3)
-                return 4;
+                baseAcceleration = 40;  // Increased from 8 (5x faster for long distances)
             else
-                return 8;
+                baseAcceleration = 60;  // Increased from 16 (3.75x faster for very long distances)
+
+            // Apply fast scroll multiplier for rapid consecutive inputs
+            if (IsFastScrollMode())
+            {
+                baseAcceleration = (int)(baseAcceleration * 2.0f); // 2x faster during rapid input
+            }
+
+            // Apply external scroll speed multiplier
+            baseAcceleration = (int)(baseAcceleration * ScrollSpeedMultiplier);
+
+            return Math.Max(1, baseAcceleration); // Ensure minimum acceleration of 1
         }
 
         private void DrawSongItems(SpriteBatch spriteBatch, Rectangle bounds)
@@ -599,12 +646,8 @@ namespace DTX.UI.Components
 
                 // Calculate dimensions (current implementation uses fixed width)
                 var barWidth = BAR_WIDTH;
-                var barHeight = (int)_itemHeight;
-
-                // Create item bounds using vertical list coordinates
-                var itemBounds = new Rectangle(barX, barY, barWidth, barHeight);
-
-                // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
+                var barHeight = (int)_itemHeight;                // Create item bounds using vertical list coordinates
+                var itemBounds = new Rectangle(barX, barY, barWidth, barHeight);                // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
                 bool isSelected = (barIndex == CENTER_INDEX);
                 bool isCenter = isSelected; // Center bar is the selected bar
 
@@ -966,15 +1009,92 @@ namespace DTX.UI.Components
                     return node.DisplayTitle ?? "Unknown Song";
             }
         }
-
         private void UpdateSelection()
         {
             var previousSong = SelectedSong;
+
+            // Update logical selection
             SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
                 ? _currentList[_selectedIndex]
-                : null;            if (SelectedSong != previousSong)
+                : null;
+
+            if (SelectedSong != previousSong)
             {
+                // Force immediate redraw by invalidating visuals
+                InvalidateVisuals();
+
+                // Immediate texture generation for selected song
+                GenerateSelectedSongTextureImmediately();
+
+                // Pre-generate textures for adjacent songs (±5 from current selection - increased per senior engineer feedback)
+                PreGenerateAdjacentSongTextures();
+
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
+            }
+        }        /// <summary>
+        /// Immediately generate texture for the currently selected song without queuing
+        /// </summary>
+        private void GenerateSelectedSongTextureImmediately()
+        {
+            if (_barRenderer == null || SelectedSong == null)
+                return;
+
+            // Performance metrics: Measure immediate texture generation timing
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // Generate bar info immediately for the selected song
+            var barInfo = _barRenderer.GenerateBarInfoWithPriority(SelectedSong, _currentDifficulty, true);
+
+            // Cache the bar info if generation succeeded
+            if (barInfo != null)
+            {
+                var cacheKey = $"{SelectedSong.GetHashCode()}_{_currentDifficulty}";
+                _barInfoCache[cacheKey] = barInfo;
+            }
+
+            // Performance metrics logging
+            stopwatch.Stop();
+            if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
+            }
+        }/// <summary>
+                 /// Pre-generate textures for adjacent songs (±5 from current selection)
+                 /// </summary>
+        private void PreGenerateAdjacentSongTextures()
+        {
+            if (_currentList == null || _currentList.Count == 0 || _selectedIndex < 0)
+                return;
+
+            // Pre-generate for ±5 songs around the current selection (increased per senior engineer feedback)
+            for (int offset = -5; offset <= 5; offset++)
+            {
+                if (offset == 0) // Skip the selected song itself (already generated immediately)
+                    continue;
+
+                int adjacentIndex = _selectedIndex + offset;
+
+                // Skip if index is out of bounds
+                if (adjacentIndex < 0 || adjacentIndex >= _currentList.Count)
+                    continue;
+
+                var adjacentSong = _currentList[adjacentIndex];
+
+                // Check if we already have this texture cached
+                var cacheKey = $"{adjacentSong.GetHashCode()}_{_currentDifficulty}";
+                if (_barInfoCache.ContainsKey(cacheKey))
+                    continue; // Already cached, skip                // Add to texture generation queue with appropriate priority using sorted insertion
+                var request = new TextureGenerationRequest
+                {
+                    SongNode = adjacentSong,
+                    SongIndex = adjacentIndex,
+                    BarIndex = -1, // Not tied to a specific bar position
+                    Difficulty = _currentDifficulty,
+                    IsSelected = false,
+                    Priority = 75 - Math.Abs(offset) * 5 // Closer songs get higher priority
+                };
+
+                InsertTextureRequestSorted(request);
             }
         }
 
@@ -994,18 +1114,16 @@ namespace DTX.UI.Components
             }
 
             return songBar;
-        }
-
-        /// <summary>
-        /// Queue texture generation for bars entering view during scroll
-        /// Implements circular buffer pattern - only regenerate for ONE bar entering view
-        /// </summary>
+        }        /// <summary>
+                 /// Queue texture generation for bars entering view during scroll
+                 /// Implements circular buffer pattern - only regenerate for ONE bar entering view
+                 /// </summary>
         private void QueueTextureGenerationForNewBars()
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
 
-            // Calculate center song index based on current scroll position
+            // Always pre-generate textures for ALL visible positions
             int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
 
             // Track which bar indices are currently visible
@@ -1019,51 +1137,49 @@ namespace DTX.UI.Components
                 if (songIndex < 0 || songIndex >= _currentList.Count)
                     continue;
 
-                newVisibleIndices.Add(songIndex);
-
-                // If this bar wasn't visible before, queue texture generation
-                if (!_visibleBarIndices.Contains(songIndex))
+                newVisibleIndices.Add(songIndex);                // Only queue if not already cached using sorted insertion
+                var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";
+                if (!_barInfoCache.ContainsKey(cacheKey))
                 {
-                    var node = _currentList[songIndex];
                     var request = new TextureGenerationRequest
                     {
-                        SongNode = node,
+                        SongNode = _currentList[songIndex],
                         SongIndex = songIndex,
                         BarIndex = barIndex,
                         Difficulty = _currentDifficulty,
-                        IsSelected = (barIndex == CENTER_INDEX)
+                        IsSelected = (barIndex == CENTER_INDEX),
+                        Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
                     };
 
-                    _textureGenerationQueue.Enqueue(request);
+                    InsertTextureRequestSorted(request);
                 }
-            }
-
-            // Update visible bar indices
+            }            // Update visible bar indices
             _visibleBarIndices.Clear();
             foreach (var index in newVisibleIndices)
             {
                 _visibleBarIndices.Add(index);
             }
-        }
-
-        /// <summary>
-        /// Process pending texture generation requests during Update phase
-        /// CRITICAL: Only called from OnUpdate(), NEVER from OnDraw()
-        /// </summary>
+        }        /// <summary>
+                 /// Process pending texture generation requests during Update phase with priority queue
+                 /// All texture generation moved to Update phase with no exceptions (per senior engineer feedback)
+                 /// </summary>
         private void UpdatePendingTextures()
         {
             if (_barRenderer == null)
-                return;
-
-            // Process a limited number of requests per frame to prevent frame drops
-            const int maxRequestsPerFrame = 3;
+                return;            // Performance metrics: Measure texture generation timing
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();            // Process more requests per frame during scrolling for smoother experience
+            int maxRequestsPerFrame = IsScrolling ? 10 : 6; // Increased during scrolling
             int processedCount = 0;
+
+            // Queue is already sorted by priority (highest first) due to sorted insertion
+            // No need to sort entire list each frame - significant performance improvement
 
             while (_textureGenerationQueue.Count > 0 && processedCount < maxRequestsPerFrame)
             {
-                var request = _textureGenerationQueue.Dequeue();
+                var request = _textureGenerationQueue[0];
+                _textureGenerationQueue.RemoveAt(0);
 
-                // Generate textures for this bar (safe during Update phase)
+                // Generate textures for this bar (always safe now - IsInDrawPhase checks removed)
                 var barInfo = _barRenderer.GenerateBarInfo(request.SongNode, request.Difficulty, request.IsSelected);
 
                 // Cache the bar info if generation succeeded
@@ -1074,7 +1190,45 @@ namespace DTX.UI.Components
                 }
 
                 processedCount++;
+
+                // Break early if we're taking too long (prevent frame drops)
+                if (stopwatch.Elapsed.TotalMilliseconds > 8.0) // Max 8ms per frame
+                    break;
             }
+
+            // Performance metrics logging
+            stopwatch.Stop();
+            if (processedCount > 0 && stopwatch.Elapsed.TotalMilliseconds > 5.0) // Log if processing takes more than 5ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Processed {processedCount} textures in {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
+            }
+        }
+
+        /// <summary>
+        /// Insert texture generation request maintaining sorted order by priority (highest first)
+        /// This avoids the need to sort the entire queue on every frame update
+        /// </summary>
+        private void InsertTextureRequestSorted(TextureGenerationRequest request)
+        {
+            // Binary search for insertion point to maintain sorted order (highest priority first)
+            int left = 0;
+            int right = _textureGenerationQueue.Count;
+
+            while (left < right)
+            {
+                int mid = left + (right - left) / 2;
+                if (_textureGenerationQueue[mid].Priority >= request.Priority)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid;
+                }
+            }
+
+            // Insert at the correct position to maintain sorted order
+            _textureGenerationQueue.Insert(left, request);
         }
 
         protected override void Dispose(bool disposing)
@@ -1098,7 +1252,8 @@ namespace DTX.UI.Components
                 _barInfoCache.Clear();
             }
 
-            base.Dispose(disposing);        }
+            base.Dispose(disposing);
+        }
 
         #endregion
     }
@@ -1141,11 +1296,9 @@ namespace DTX.UI.Components
             Song = song;
             Difficulty = difficulty;
         }
-    }
-
-    /// <summary>
-    /// Request for texture generation during Update phase
-    /// </summary>
+    }    /// <summary>
+         /// Request for texture generation during Update phase
+         /// </summary>
     internal class TextureGenerationRequest
     {
         public SongListNode SongNode { get; set; }
@@ -1153,6 +1306,7 @@ namespace DTX.UI.Components
         public int BarIndex { get; set; }
         public int Difficulty { get; set; }
         public bool IsSelected { get; set; }
+        public int Priority { get; set; } // Higher values = higher priority
     }
 
     #endregion

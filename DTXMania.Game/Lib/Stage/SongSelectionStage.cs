@@ -62,15 +62,11 @@ namespace DTX.Stage
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
-        private double _phaseStartTime;
-
-        // Performance optimization: Input debouncing
+        private double _phaseStartTime;        // Performance optimization: Input debouncing
         private double _lastNavigationTime = 0;
         private const double NAVIGATION_DEBOUNCE_SECONDS = 0.01; // 10ms debounce for smooth navigation
 
-        // Performance optimization: Selection change debouncing
-        private double _lastSelectionUpdateTime = 0;
-        private const double SELECTION_UPDATE_DEBOUNCE_SECONDS = 0.016; // ~60fps update rate        // Constants for DTXMania-style display
+        // Constants for DTXMania-style display
         private const int VISIBLE_SONGS = 13;
         private const int CENTER_INDEX = 6;        // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
@@ -404,11 +400,10 @@ namespace DTX.Stage
             }
 
             // Add all songs and folders
-            displayList.AddRange(_currentSongList);
-
-            // Update the song list display
+            displayList.AddRange(_currentSongList);            // Update the song list display
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Populating display with {displayList.Count} items");
-            _songListDisplay.CurrentList = displayList;        }
+            _songListDisplay.CurrentList = displayList;
+        }
 
         #endregion
 
@@ -416,6 +411,9 @@ namespace DTX.Stage
 
         private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
+            // Performance metrics: Measure selection change timing
+            var startTime = DateTime.UtcNow;
+            
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
@@ -425,16 +423,11 @@ namespace DTX.Stage
                 // During scrolling - only update lightweight UI
                 UpdateBreadcrumb();
                 return; // Skip heavy updates
-            }
+            }            // After scrolling completes - update everything
+            // Process all selection changes immediately (debounce removed per senior engineer feedback)
 
-            // After scrolling completes - update everything
-            // Performance optimization: Debounce rapid selection changes
-            var currentTime = _elapsedTime;
-            if (currentTime - _lastSelectionUpdateTime < SELECTION_UPDATE_DEBOUNCE_SECONDS)
-            {
-                return; // Skip update if too soon after last update
-            }
-            _lastSelectionUpdateTime = currentTime;
+            // Force immediate visual update
+            _songListDisplay?.InvalidateVisuals();
 
             // Update status panel (now cached for performance)
             _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
@@ -444,6 +437,13 @@ namespace DTX.Stage
 
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
+            
+            // Performance metrics logging
+            var updateDuration = DateTime.UtcNow - startTime;
+            if (updateDuration.TotalMilliseconds > 1.0) // Log only if update takes more than 1ms
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Selection update took {updateDuration.TotalMilliseconds:F2}ms");
+            }
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
