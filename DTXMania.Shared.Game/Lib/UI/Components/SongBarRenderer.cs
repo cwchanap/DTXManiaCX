@@ -234,7 +234,7 @@ namespace DTX.UI.Components
                 return null;
 
             // Performance metrics: Measure priority generation timing
-            var startTime = DateTime.UtcNow;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             var barInfo = new SongBarInfo
             {
@@ -258,10 +258,10 @@ namespace DTX.UI.Components
             barInfo.ClearLamp = GenerateClearLampTexture(songNode, difficulty);
 
             // Performance metrics logging
-            var processingDuration = DateTime.UtcNow - startTime;
-            if (processingDuration.TotalMilliseconds > 2.0) // Log if priority generation takes more than 2ms
+            stopwatch.Stop();
+            if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if priority generation takes more than 2ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Priority generation for '{songNode.DisplayTitle}' took {processingDuration.TotalMilliseconds:F2}ms");
+                System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Priority generation for '{songNode.DisplayTitle}' took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
 
             return barInfo;

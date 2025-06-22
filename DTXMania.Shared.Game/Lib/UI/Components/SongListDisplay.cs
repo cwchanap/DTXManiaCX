@@ -1031,9 +1031,7 @@ namespace DTX.UI.Components
 
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
             }
-        }
-
-        /// <summary>
+        }        /// <summary>
         /// Immediately generate texture for the currently selected song without queuing
         /// </summary>
         private void GenerateSelectedSongTextureImmediately()
@@ -1042,7 +1040,7 @@ namespace DTX.UI.Components
                 return;
 
             // Performance metrics: Measure immediate texture generation timing
-            var startTime = DateTime.UtcNow;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             // Generate bar info immediately for the selected song
             var barInfo = _barRenderer.GenerateBarInfoWithPriority(SelectedSong, _currentDifficulty, true);
@@ -1055,12 +1053,12 @@ namespace DTX.UI.Components
             }
 
             // Performance metrics logging
-            var processingDuration = DateTime.UtcNow - startTime;
-            if (processingDuration.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
+            stopwatch.Stop();
+            if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {processingDuration.TotalMilliseconds:F2}ms");
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
-        }        /// <summary>
+        }/// <summary>
                  /// Pre-generate textures for adjacent songs (±5 from current selection)
                  /// </summary>
         private void PreGenerateAdjacentSongTextures()
@@ -1085,9 +1083,7 @@ namespace DTX.UI.Components
                 // Check if we already have this texture cached
                 var cacheKey = $"{adjacentSong.GetHashCode()}_{_currentDifficulty}";
                 if (_barInfoCache.ContainsKey(cacheKey))
-                    continue; // Already cached, skip
-
-                // Add to texture generation queue with appropriate priority
+                    continue; // Already cached, skip                // Add to texture generation queue with appropriate priority using sorted insertion
                 var request = new TextureGenerationRequest
                 {
                     SongNode = adjacentSong,
@@ -1098,7 +1094,7 @@ namespace DTX.UI.Components
                     Priority = 75 - Math.Abs(offset) * 5 // Closer songs get higher priority
                 };
 
-                _textureGenerationQueue.Add(request);
+                InsertTextureRequestSorted(request);
             }
         }
 
@@ -1141,9 +1137,7 @@ namespace DTX.UI.Components
                 if (songIndex < 0 || songIndex >= _currentList.Count)
                     continue;
 
-                newVisibleIndices.Add(songIndex);
-
-                // Only queue if not already cached
+                newVisibleIndices.Add(songIndex);                // Only queue if not already cached using sorted insertion
                 var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";
                 if (!_barInfoCache.ContainsKey(cacheKey))
                 {
@@ -1157,7 +1151,7 @@ namespace DTX.UI.Components
                         Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
                     };
 
-                    _textureGenerationQueue.Add(request);
+                    InsertTextureRequestSorted(request);
                 }
             }            // Update visible bar indices
             _visibleBarIndices.Clear();
@@ -1172,17 +1166,13 @@ namespace DTX.UI.Components
         private void UpdatePendingTextures()
         {
             if (_barRenderer == null)
-                return;
-
-            // Performance metrics: Measure texture generation timing
-            var startTime = DateTime.UtcNow;
-
-            // Process more requests per frame during scrolling for smoother experience
+                return;            // Performance metrics: Measure texture generation timing
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();            // Process more requests per frame during scrolling for smoother experience
             int maxRequestsPerFrame = IsScrolling ? 10 : 6; // Increased during scrolling
             int processedCount = 0;
 
-            // Sort by priority (highest first) and process in order
-            _textureGenerationQueue.Sort((a, b) => b.Priority.CompareTo(a.Priority));
+            // Queue is already sorted by priority (highest first) due to sorted insertion
+            // No need to sort entire list each frame - significant performance improvement
 
             while (_textureGenerationQueue.Count > 0 && processedCount < maxRequestsPerFrame)
             {
@@ -1202,17 +1192,43 @@ namespace DTX.UI.Components
                 processedCount++;
 
                 // Break early if we're taking too long (prevent frame drops)
-                var currentDuration = DateTime.UtcNow - startTime;
-                if (currentDuration.TotalMilliseconds > 8.0) // Max 8ms per frame
+                if (stopwatch.Elapsed.TotalMilliseconds > 8.0) // Max 8ms per frame
                     break;
             }
 
             // Performance metrics logging
-            var processingDuration = DateTime.UtcNow - startTime;
-            if (processedCount > 0 && processingDuration.TotalMilliseconds > 5.0) // Log if processing takes more than 5ms
+            stopwatch.Stop();
+            if (processedCount > 0 && stopwatch.Elapsed.TotalMilliseconds > 5.0) // Log if processing takes more than 5ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Processed {processedCount} textures in {processingDuration.TotalMilliseconds:F2}ms");
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Processed {processedCount} textures in {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
+        }
+
+        /// <summary>
+        /// Insert texture generation request maintaining sorted order by priority (highest first)
+        /// This avoids the need to sort the entire queue on every frame update
+        /// </summary>
+        private void InsertTextureRequestSorted(TextureGenerationRequest request)
+        {
+            // Binary search for insertion point to maintain sorted order (highest priority first)
+            int left = 0;
+            int right = _textureGenerationQueue.Count;
+
+            while (left < right)
+            {
+                int mid = left + (right - left) / 2;
+                if (_textureGenerationQueue[mid].Priority >= request.Priority)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid;
+                }
+            }
+
+            // Insert at the correct position to maintain sorted order
+            _textureGenerationQueue.Insert(left, request);
         }
 
         protected override void Dispose(bool disposing)
