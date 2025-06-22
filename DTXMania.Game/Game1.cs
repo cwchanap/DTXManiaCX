@@ -1,13 +1,15 @@
 ﻿using DTX.Config;
 using DTX.Graphics;
 using DTX.Input;
+using DTX.Resources;
 using DTX.Stage;
+using DTXMania.Game.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
 
-namespace DTXMania.Shared.Game;
+namespace DTXMania.Game;
 
 
 public class BaseGame : Microsoft.Xna.Framework.Game
@@ -73,7 +75,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
 
-        // TODO: use this.Content to load your game content here
+        // Configure shared font factory after content is loaded
+        ResourceManagerFactory.SetFontFactory(new SharedFontFactory(Content));
+
         StageManager?.ChangeStage(StageType.Startup);
     }
 
@@ -226,5 +230,19 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             _renderTarget?.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+public class Game1 : BaseGame
+{
+    public Game1()
+    {
+        Content.RootDirectory = "Content";
+        IsMouseVisible = true;
+    }
+
+    protected override void Initialize()
+    {
+        base.Initialize();
     }
 }

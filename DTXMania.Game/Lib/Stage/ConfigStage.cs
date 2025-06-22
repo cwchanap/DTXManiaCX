@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework.Input;
 using DTX.Stage;
 using DTX.Config;
 using DTX.Resources;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 using System;
 using System.Collections.Generic;
 

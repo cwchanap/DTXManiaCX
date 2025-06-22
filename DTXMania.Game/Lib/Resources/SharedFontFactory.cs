@@ -2,18 +2,18 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Content;
 using DTX.Resources;
 
-namespace DTXMania.Windows.Resources
+namespace DTXMania.Game.Resources
 {
     /// <summary>
-    /// Simplified font factory implementation that only uses MonoGame SpriteFont
-    /// No longer uses Windows-specific font loading - always defaults to SpriteFont
+    /// Shared font factory implementation that uses MonoGame SpriteFont
+    /// Works across all platforms (Windows, Mac, etc.)
     /// </summary>
-    public class WindowsFontFactory : IFontFactory
+    public class SharedFontFactory : IFontFactory
     {
         private readonly ContentManager _contentManager;
         private SpriteFont _defaultFont;
 
-        public WindowsFontFactory(ContentManager contentManager)
+        public SharedFontFactory(ContentManager contentManager)
         {
             _contentManager = contentManager ?? throw new System.ArgumentNullException(nameof(contentManager));
         }
@@ -26,7 +26,8 @@ namespace DTXMania.Windows.Resources
                 try
                 {
                     _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
-                }                catch (System.Exception ex)
+                }
+                catch (System.Exception ex)
                 {
                     throw new System.NotSupportedException(
                         $"Cannot create font '{fontPath}' - failed to load default SpriteFont 'NotoSerifJP'. " +
@@ -41,6 +42,7 @@ namespace DTXMania.Windows.Resources
         {
             // Extract size from SpriteFont if possible, otherwise use default
             int size = (int)spriteFont.LineSpacing; // Approximate size from line spacing
-            return new SpriteFontManagedFont(spriteFont, sourcePath, size, FontStyle.Regular);        }
+            return new SpriteFontManagedFont(spriteFont, sourcePath, size, FontStyle.Regular);
+        }
     }
 }

@@ -4,7 +4,7 @@ using DTX.Stage;
 using DTX.Resources;
 using DTX.Song;
 using DTX.Config;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 using System;
 using System.Collections.Generic;
 using System.IO;
