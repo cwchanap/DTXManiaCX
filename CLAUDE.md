@@ -34,21 +34,34 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj --collect:"XPlat Code Coverage" -
 ### Platform-Specific Builds
 ```bash
 # Windows executable
-dotnet build DTXMania.Windows/DTXMania.Windows.csproj --configuration Release
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Release
 
 # Mac executable  
-dotnet build DTXMania.Mac/DTXMania.Mac.csproj --configuration Release
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release
+
+# Run Mac application
+dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
+
+# Run Windows application (on Windows)
+dotnet run --project DTXMania.Game/DTXMania.Game.Windows.csproj
 
 # Publish Windows (self-contained)
-dotnet publish DTXMania.Windows/DTXMania.Windows.csproj --configuration Release --output ./publish/windows --self-contained false
+dotnet publish DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Release --output ./publish/windows --self-contained false
+
+# Publish Mac (self-contained)
+dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --output ./publish/mac --self-contained false
 ```
 
 ## Architecture Overview
 
 ### Core Structure
-- **DTXMania.Shared.Game**: Main game logic, shared across platforms
-- **DTXMania.Windows**: Windows-specific implementation and entry point
-- **DTXMania.Mac**: Mac-specific implementation and entry point  
+- **DTXMania.Game/**: Unified project directory containing all shared game logic
+  - **DTXMania.Game.Windows.csproj**: Windows-specific build configuration (MonoGame.Framework.WindowsDX)
+  - **DTXMania.Game.Mac.csproj**: Mac-specific build configuration (MonoGame.Framework.DesktopGL)
+  - **Game1.cs**: Contains BaseGame (shared logic) and Game1 (platform entry point)
+  - **Program.cs**: Application entry point
+  - **Lib/**: All shared game libraries (Resources, Stage, UI, Config, etc.)
+  - **Content/**: Shared content files with symbolic links from platform builds
 - **DTXMania.Test**: Comprehensive unit test suite using xUnit
 
 ### Key Architectural Components
@@ -137,10 +150,11 @@ configManager.SaveConfig("Config.ini");
 - Follow eフェーズID (phase ID) patterns from DTXManiaNX
 
 ### Platform Considerations
-- Shared game logic goes in DTXMania.Shared.Game
-- Platform-specific code goes in respective platform projects
-- Use IFontFactory for platform-specific font implementations
+- All shared game logic is in the DTXMania.Game/ directory
+- Platform-specific builds use different MonoGame frameworks (WindowsDX vs DesktopGL)
+- SharedFontFactory provides cross-platform font support
 - Test on both Windows and Mac when possible
+- Use platform-specific .csproj files for building/running
 
 ### Resource Guidelines
 - Place assets in appropriate directories (Graphics/, Fonts/, Sounds/)
@@ -163,10 +177,11 @@ configManager.SaveConfig("Config.ini");
 - Gamepad support for back button
 
 ### Font System
-- Platform-specific font factories (WindowsFontFactory for Windows)
+- SharedFontFactory provides cross-platform font support using MonoGame SpriteFont
 - BitmapFont support for DTXMania-style text rendering
 - Fallback fonts when specific fonts are unavailable
 - Japanese font support for authentic DTXMania experience
+- Font files centralized in DTXMania.Game/Content/ with symbolic links
 
 ### Error Handling
 - Comprehensive error handling with fallback resources
@@ -177,18 +192,23 @@ configManager.SaveConfig("Config.ini");
 ## Common File Locations
 
 ### Core Game Logic
-- `DTXMania.Shared.Game/Game1.cs` - Main game class
-- `DTXMania.Shared.Game/Lib/Stage/` - Stage management system
-- `DTXMania.Shared.Game/Lib/Resources/` - Resource management
-- `DTXMania.Shared.Game/Lib/Config/` - Configuration system
+- `DTXMania.Game/Game1.cs` - Contains BaseGame and Game1 classes
+- `DTXMania.Game/Program.cs` - Application entry point
+- `DTXMania.Game/Lib/Stage/` - Stage management system
+- `DTXMania.Game/Lib/Resources/` - Resource management including SharedFontFactory
+- `DTXMania.Game/Lib/Config/` - Configuration system
 
 ### UI Components
-- `DTXMania.Shared.Game/Lib/UI/Components/` - UI components
-- `DTXMania.Shared.Game/Lib/UI/Core/` - UI core system
+- `DTXMania.Game/Lib/UI/Components/` - UI components
+- `DTXMania.Game/Lib/UI/` - UI core system
 
-### Platform-Specific
-- `DTXMania.Windows/Lib/Resources/` - Windows font implementation
-- `DTXMania.Mac/` - Mac-specific implementations
+### Platform-Specific Project Files
+- `DTXMania.Game/DTXMania.Game.Windows.csproj` - Windows build configuration
+- `DTXMania.Game/DTXMania.Game.Mac.csproj` - Mac build configuration
+
+### Content and Assets
+- `DTXMania.Game/Content/` - Shared content files (fonts, textures, etc.)
+- `DTXMania.Game/Content/NotoSerifJP.*` - Font files (linked from platform builds)
 
 ### Testing
 - `DTXMania.Test/` - All unit tests organized by component

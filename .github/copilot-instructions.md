@@ -1,26 +1,49 @@
 # DTXManiaCX Development Guidelines
 
 ## Project Overview
-DTXManiaCX is a cross-platform port of DTXMania to .NET 8 using MonoGame. Follow these guidelines when working with the codebase.
+DTXManiaCX is a cross-platform port of DTXMania to .NET 8 using MonoGame. The original DTXMania used DirectX, while this port uses MonoGame for cross-platform compatibility (Windows and Mac).
 
 **Important**: Refer to CLAUDE.md for comprehensive project documentation and architecture details.
+
+**Note**: DTXManiaNX is the legacy codebase - avoid modifying it directly.
 
 ## Build and Verification
 Always rebuild and test after making changes:
 ```bash
-# Restore and build
+# Restore dependencies
 dotnet restore DTXMania.sln
+
+# Build solution (Debug)
 dotnet build DTXMania.sln --configuration Debug --no-restore
 
-# Run tests to verify changes
+# Build solution (Release)
+dotnet build DTXMania.sln --configuration Release --no-restore
+
+# Run tests
 dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal
+
+# Run specific test class
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "ClassName=ConfigManagerTests"
+
+# Platform-specific builds
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Release
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release
+
+# Run applications
+dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
+dotnet run --project DTXMania.Game/DTXMania.Game.Windows.csproj
 ```
 
 ## Core Architecture Guidelines
 
 ### Project Structure
-- **DTXMania.Shared.Game**: Main game logic, shared across platforms
-- **DTXMania.Windows/Mac**: Platform-specific implementations
+- **DTXMania.Game/**: Unified project directory containing all shared game logic
+  - **DTXMania.Game.Windows.csproj**: Windows-specific build configuration (MonoGame.Framework.WindowsDX)
+  - **DTXMania.Game.Mac.csproj**: Mac-specific build configuration (MonoGame.Framework.DesktopGL)
+  - **Game1.cs**: Contains BaseGame (shared logic) and Game1 (platform entry point)
+  - **Program.cs**: Application entry point
+  - **Lib/**: All shared game libraries (Resources, Stage, UI, Config, etc.)
+  - **Content/**: Shared content files with symbolic links from platform builds
 - **DTXMania.Test**: Unit tests using xUnit framework
 - **Avoid modifying DTXManiaNX** (legacy codebase)
 
@@ -48,6 +71,18 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build 
 - Follow DTXMania On活性化/On進行描画 lifecycle patterns
 - Implement proper input handling with state tracking
 
+#### Graphics Management
+- Use render targets for consistent resolution across different screen sizes
+- Support fullscreen toggle with Alt+Enter
+- Handle device lost/reset scenarios gracefully
+- Implement DTXMania-compatible graphics settings
+
+#### Font System
+- Use SharedFontFactory for cross-platform font support
+- Support both MonoGame SpriteFont and BitmapFont for DTXMania compatibility
+- Provide fallback fonts when specific fonts are unavailable
+- Japanese font support for authentic DTXMania experience
+
 ## Development Best Practices
 
 ### Code Conventions
@@ -69,9 +104,9 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build 
 - Follow eフェーズID patterns from DTXManiaNX
 
 ### Platform Considerations
-- Shared logic goes in DTXMania.Shared.Game
-- Platform-specific code in respective platform projects
-- Use IFontFactory for platform-specific font implementations
+- Shared logic goes in DTXMania.Game/ directory
+- Platform-specific builds use different MonoGame frameworks (WindowsDX vs DesktopGL)
+- Use SharedFontFactory for platform-specific font implementations
 - Test on both Windows and Mac when possible
 
 ## Common Implementation Patterns
@@ -101,18 +136,6 @@ public class MyStage : BaseStage
     public override void OnDraw() { /* Render logic */ }
 }
 ```
-
-## Error Handling
-- Implement comprehensive error handling with fallback resources
-- Handle resource load failures gracefully
-- Provide detailed logging for troubleshooting
-- Support graceful degradation when assets are missing
-
-## Graphics and Input
-- Use render targets for consistent resolution
-- Support fullscreen toggle with Alt+Enter
-- Implement proper input state tracking
-- Handle device lost/reset scenarios
 
 ## Verification Steps
 1. Build the solution without errors

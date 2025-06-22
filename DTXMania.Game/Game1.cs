@@ -235,14 +235,4 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
 public class Game1 : BaseGame
 {
-    public Game1()
-    {
-        Content.RootDirectory = "Content";
-        IsMouseVisible = true;
-    }
-
-    protected override void Initialize()
-    {
-        base.Initialize();
-    }
 }
