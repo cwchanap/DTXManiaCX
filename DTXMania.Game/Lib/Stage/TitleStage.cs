@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTX.Stage;
 using DTX.Resources;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 using System;
 
 namespace DTX.Stage

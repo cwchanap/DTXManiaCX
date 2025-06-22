@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 
 namespace DTX.Stage
 {

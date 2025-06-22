@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
 using DTX.UI.Components;

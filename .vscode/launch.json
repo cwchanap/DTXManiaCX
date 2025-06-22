@@ -5,11 +5,16 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "C#: <project-name> Debug",
+            "name": "C#: DTXMania Windows Debug",
             "type": "dotnet",
             "request": "launch",
-            "projectPath": "${workspaceFolder}/DTXmania.Windows/DTXmania.Windows.csproj"
+            "projectPath": "${workspaceFolder}/DTXMania.Game/DTXMania.Game.Windows.csproj"
+        },
+        {
+            "name": "C#: DTXMania MacOS Debug",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/DTXMania.Game/DTXMania.Game.Mac.csproj"
         }
-
     ]
 }
