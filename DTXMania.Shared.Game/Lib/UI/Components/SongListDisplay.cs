@@ -25,10 +25,9 @@ namespace DTX.UI.Components
 
         private const int VISIBLE_ITEMS = 13;
         private const int CENTER_INDEX = 5; // DTXManiaNX uses index 5 as center (0-based)
-        private const int SCROLL_UNIT = 100;
-        private const float SCROLL_ACCELERATION_THRESHOLD_1 = 100f;
-        private const float SCROLL_ACCELERATION_THRESHOLD_2 = 300f;
-        private const float SCROLL_ACCELERATION_THRESHOLD_3 = 500f;
+        private const int SCROLL_UNIT = 100; private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
+        private const float SCROLL_ACCELERATION_THRESHOLD_2 = 600f;  // Increased from 300f  
+        private const float SCROLL_ACCELERATION_THRESHOLD_3 = 1000f; // Increased from 500f
 
         // DTXManiaNX Current Implementation Coordinates (ptバーの基本座標)
         // NOTE: Original curved X coordinates are present but DISABLED in current DTXManiaNX
@@ -127,10 +126,11 @@ namespace DTX.UI.Components
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
         private readonly HashSet<int> _visibleBarIndices;
 
-        // Add these fields for immediate visual feedback
-        private int _visualSelectedIndex = -1;  // Immediate visual selection
-        private float _selectionHighlightOpacity = 1.0f;  // For highlight effect
-        private bool _useImmediateFeedback = true;  // Feature toggle
+        // Fast scroll optimization
+        private DateTime _lastInputTime = DateTime.MinValue;
+        private int _consecutiveInputCount = 0;
+        private const double FAST_SCROLL_WINDOW_MS = 500.0; // Time window for detecting rapid inputs
+        private const int FAST_SCROLL_THRESHOLD = 3; // Number of inputs to trigger fast scroll
 
         #endregion
 
@@ -157,8 +157,8 @@ namespace DTX.UI.Components
         /// Whether scrolling has completed (target matches current position)
         /// </summary>
         public bool IsScrollComplete => _targetScrollCounter == _currentScrollCounter;        /// <summary>
-        /// Current song list
-        /// </summary>
+                                                                                              /// Current song list
+                                                                                              /// </summary>
         public List<SongListNode> CurrentList
         {
             get => _currentList;
@@ -168,7 +168,6 @@ namespace DTX.UI.Components
                 _selectedIndex = 0;
                 _targetScrollCounter = 0;
                 _currentScrollCounter = 0;
-                _visualSelectedIndex = 0; // Initialize visual selection
                 UpdateSelection();
             }
         }
@@ -214,11 +213,9 @@ namespace DTX.UI.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
-        }
-
-        /// <summary>
-        /// Managed font for advanced text rendering
-        /// </summary>
+        }        /// <summary>
+                 /// Managed font for advanced text rendering
+                 /// </summary>
         public IFont ManagedFont
         {
             get => _managedFont;
@@ -231,13 +228,9 @@ namespace DTX.UI.Components
         }
 
         /// <summary>
-        /// Enable/disable immediate visual feedback for selection
+        /// Scroll speed multiplier (1.0 = normal, 2.0 = 2x faster, etc.)
         /// </summary>
-        public bool UseImmediateFeedback
-        {
-            get => _useImmediateFeedback;
-            set => _useImmediateFeedback = value;
-        }
+        public float ScrollSpeedMultiplier { get; set; } = 1.0f;
 
         #endregion
 
@@ -285,15 +278,16 @@ namespace DTX.UI.Components
 
         #endregion
 
-        #region Public Methods
-
-        /// <summary>
+        #region Public Methods        /// <summary>
         /// Move selection to next song (DTXManiaNX curved layout style)
         /// </summary>
         public void MoveNext()
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
+
+            // Track rapid input for fast scroll optimization
+            TrackRapidInput();
 
             // Move to next song with proper wrap-around
             _selectedIndex = (_selectedIndex + 1) % _currentList.Count;
@@ -311,6 +305,9 @@ namespace DTX.UI.Components
         {
             if (_currentList == null || _currentList.Count == 0)
                 return;
+
+            // Track rapid input for fast scroll optimization
+            TrackRapidInput();
 
             // Move to previous song with proper wrap-around
             _selectedIndex = (_selectedIndex - 1 + _currentList.Count) % _currentList.Count;
@@ -496,6 +493,35 @@ namespace DTX.UI.Components
             _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
         }
 
+        /// <summary>
+        /// Track rapid input for fast scroll optimization
+        /// </summary>
+        private void TrackRapidInput()
+        {
+            var currentTime = DateTime.UtcNow;
+            var timeSinceLastInput = (currentTime - _lastInputTime).TotalMilliseconds;
+
+            if (timeSinceLastInput <= FAST_SCROLL_WINDOW_MS)
+            {
+                _consecutiveInputCount++;
+            }
+            else
+            {
+                _consecutiveInputCount = 1; // Reset counter
+            }
+
+            _lastInputTime = currentTime;
+        }
+
+        /// <summary>
+        /// Check if we're in fast scroll mode (rapid consecutive inputs)
+        /// </summary>
+        private bool IsFastScrollMode()
+        {
+            var timeSinceLastInput = (DateTime.UtcNow - _lastInputTime).TotalMilliseconds;
+            return _consecutiveInputCount >= FAST_SCROLL_THRESHOLD && timeSinceLastInput <= FAST_SCROLL_WINDOW_MS;
+        }
+
         private void UpdateScrollAnimation(double deltaTime)
         {
             if (_targetScrollCounter == _currentScrollCounter)
@@ -508,6 +534,10 @@ namespace DTX.UI.Components
             int distance = Math.Abs(_targetScrollCounter - _currentScrollCounter);
             int acceleration = GetScrollAcceleration(distance);
 
+            // Apply frame-rate independent acceleration multiplier for smooth 60fps
+            var frameMultiplier = Math.Max(1.0, deltaTime * 60.0); // Ensure consistent speed at 60fps
+            acceleration = (int)(acceleration * frameMultiplier);
+
             // Move towards target
             if (_targetScrollCounter > _currentScrollCounter)
             {
@@ -518,24 +548,36 @@ namespace DTX.UI.Components
                 _currentScrollCounter = Math.Max(_targetScrollCounter, _currentScrollCounter - acceleration);
             }
 
-            // Check if scroll position changed by 100 units (1 bar) - queue texture generation
+            // Optimized texture generation: Only trigger when crossing significant boundaries
             int scrollDelta = Math.Abs(_currentScrollCounter - previousScrollPosition);
-            if (scrollDelta >= SCROLL_UNIT)
+            if (scrollDelta >= SCROLL_UNIT * 2) // Only trigger every 2 songs instead of every song
             {
                 QueueTextureGenerationForNewBars();
             }
         }
         private int GetScrollAcceleration(int distance)
         {
-            // Increased acceleration for more responsive feel
+            // Base acceleration values - significantly increased for responsive feel
+            int baseAcceleration;
             if (distance <= SCROLL_ACCELERATION_THRESHOLD_1)
-                return 4;  // Increased from 2
+                baseAcceleration = 15;  // Increased from 4 (3.75x faster for short distances)
             else if (distance <= SCROLL_ACCELERATION_THRESHOLD_2)
-                return 6;  // Increased from 3
+                baseAcceleration = 25;  // Increased from 6 (4x faster for medium distances)
             else if (distance <= SCROLL_ACCELERATION_THRESHOLD_3)
-                return 8;  // Increased from 4
+                baseAcceleration = 40;  // Increased from 8 (5x faster for long distances)
             else
-                return 16; // Increased from 8
+                baseAcceleration = 60;  // Increased from 16 (3.75x faster for very long distances)
+
+            // Apply fast scroll multiplier for rapid consecutive inputs
+            if (IsFastScrollMode())
+            {
+                baseAcceleration = (int)(baseAcceleration * 2.0f); // 2x faster during rapid input
+            }
+
+            // Apply external scroll speed multiplier
+            baseAcceleration = (int)(baseAcceleration * ScrollSpeedMultiplier);
+
+            return Math.Max(1, baseAcceleration); // Ensure minimum acceleration of 1
         }
 
         private void DrawSongItems(SpriteBatch spriteBatch, Rectangle bounds)
@@ -607,51 +649,9 @@ namespace DTX.UI.Components
                 var barHeight = (int)_itemHeight;                // Create item bounds using vertical list coordinates
                 var itemBounds = new Rectangle(barX, barY, barWidth, barHeight);                // Bar 5 (CENTER_INDEX) is always the selected position in DTXManiaNX
                 bool isSelected = (barIndex == CENTER_INDEX);
-
-                // Check for immediate visual selection
-                int visualCenterIndex = _visualSelectedIndex - (centerSongIndex - CENTER_INDEX);
-                bool isVisuallySelected = (barIndex == visualCenterIndex);
-                bool isAnimatedSelected = (barIndex == CENTER_INDEX);
-
-                // Use visual selection for immediate feedback when enabled
-                bool effectiveSelection = _useImmediateFeedback ? isVisuallySelected : isSelected;
                 bool isCenter = isSelected; // Center bar is the selected bar
 
-                DrawSongItemWithPerspective(spriteBatch, node, itemBounds, effectiveSelection, isCenter, barIndex, scaleFactor, opacityFactor);
-            }
-
-            // Add selection highlight overlay for immediate visual feedback
-            if (_useImmediateFeedback && _visualSelectedIndex >= 0)
-            {
-                // Calculate position of visual selection
-                int highlightBarIndex = _visualSelectedIndex - (centerSongIndex - CENTER_INDEX);
-
-                if (highlightBarIndex >= 0 && highlightBarIndex < VISIBLE_ITEMS)
-                {
-                    // Get bounds for the highlight bar
-                    int highlightBarX, highlightBarY;
-                    if (highlightBarIndex == CENTER_INDEX)
-                    {
-                        // Selected bar uses special position
-                        highlightBarX = SELECTED_BAR_X;
-                        highlightBarY = SELECTED_BAR_Y;
-                    }
-                    else
-                    {
-                        // Unselected bars use fixed X position with Y from original coordinates
-                        highlightBarX = UNSELECTED_BAR_X;
-                        highlightBarY = OriginalCurvedCoordinates[highlightBarIndex].Y;
-                    }
-
-                    var highlightBounds = new Rectangle(highlightBarX, highlightBarY, BAR_WIDTH, (int)_itemHeight);
-
-                    // Draw selection highlight overlay
-                    if (_whitePixel != null)
-                    {
-                        var highlightColor = Color.Yellow * 0.3f * _selectionHighlightOpacity;
-                        spriteBatch.Draw(_whitePixel, highlightBounds, highlightColor);
-                    }
-                }
+                DrawSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
             }
         }
 
@@ -1018,9 +1018,6 @@ namespace DTX.UI.Components
                 ? _currentList[_selectedIndex]
                 : null;
 
-            // Set immediate visual selection
-            _visualSelectedIndex = _selectedIndex;
-
             if (SelectedSong != previousSong)
             {
                 // Force immediate redraw by invalidating visuals
@@ -1156,7 +1153,7 @@ namespace DTX.UI.Components
                         SongIndex = songIndex,
                         BarIndex = barIndex,
                         Difficulty = _currentDifficulty,
-                        IsSelected = (songIndex == _visualSelectedIndex),
+                        IsSelected = (barIndex == CENTER_INDEX),
                         Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
                     };
 
@@ -1168,12 +1165,10 @@ namespace DTX.UI.Components
             {
                 _visibleBarIndices.Add(index);
             }
-        }
-
-        /// <summary>
-        /// Process pending texture generation requests during Update phase with priority queue
-        /// All texture generation moved to Update phase with no exceptions (per senior engineer feedback)
-        /// </summary>
+        }        /// <summary>
+                 /// Process pending texture generation requests during Update phase with priority queue
+                 /// All texture generation moved to Update phase with no exceptions (per senior engineer feedback)
+                 /// </summary>
         private void UpdatePendingTextures()
         {
             if (_barRenderer == null)
@@ -1182,8 +1177,8 @@ namespace DTX.UI.Components
             // Performance metrics: Measure texture generation timing
             var startTime = DateTime.UtcNow;
 
-            // Process a limited number of requests per frame to prevent frame drops
-            const int maxRequestsPerFrame = 6; // Increased from 3 to 6 for better performance
+            // Process more requests per frame during scrolling for smoother experience
+            int maxRequestsPerFrame = IsScrolling ? 10 : 6; // Increased during scrolling
             int processedCount = 0;
 
             // Sort by priority (highest first) and process in order
@@ -1205,6 +1200,11 @@ namespace DTX.UI.Components
                 }
 
                 processedCount++;
+
+                // Break early if we're taking too long (prevent frame drops)
+                var currentDuration = DateTime.UtcNow - startTime;
+                if (currentDuration.TotalMilliseconds > 8.0) // Max 8ms per frame
+                    break;
             }
 
             // Performance metrics logging
