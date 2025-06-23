@@ -183,10 +183,10 @@ namespace DTX.UI.Components
                 if (_currentList == null || _currentList.Count == 0)
                     return;
 
-                var newIndex = Math.Max(0, Math.Min(_currentList.Count - 1, value));
-                if (newIndex != _selectedIndex)
+                // Allow infinite navigation - don't clamp the index
+                if (value != _selectedIndex)
                 {
-                    _selectedIndex = newIndex;
+                    _selectedIndex = value;
                     UpdateScrollTarget();
                     UpdateSelection();
                 }
@@ -289,8 +289,8 @@ namespace DTX.UI.Components
             // Track rapid input for fast scroll optimization
             TrackRapidInput();
 
-            // Move to next song with proper wrap-around
-            _selectedIndex = (_selectedIndex + 1) % _currentList.Count;
+            // Move to next song without wrapping (infinite visual looping handled in display)
+            _selectedIndex = _selectedIndex + 1;
 
             // Update scroll target immediately for responsive feel
             _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
@@ -309,8 +309,8 @@ namespace DTX.UI.Components
             // Track rapid input for fast scroll optimization
             TrackRapidInput();
 
-            // Move to previous song with proper wrap-around
-            _selectedIndex = (_selectedIndex - 1 + _currentList.Count) % _currentList.Count;
+            // Move to previous song without wrapping (infinite visual looping handled in display)
+            _selectedIndex = _selectedIndex - 1;
 
             // Update scroll target immediately for responsive feel
             _targetScrollCounter = _selectedIndex * SCROLL_UNIT;
@@ -617,9 +617,8 @@ namespace DTX.UI.Components
                 // Calculate which song should be displayed at this bar position
                 int songIndex = centerSongIndex + (barIndex - CENTER_INDEX);
 
-                // Skip if song index is out of bounds
-                if (songIndex < 0 || songIndex >= _currentList.Count)
-                    continue;
+                // Implement infinite looping: wrap song index using modulo arithmetic
+                songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
                 var node = _currentList[songIndex];
 
@@ -1013,10 +1012,17 @@ namespace DTX.UI.Components
         {
             var previousSong = SelectedSong;
 
-            // Update logical selection
-            SelectedSong = (_currentList != null && _selectedIndex >= 0 && _selectedIndex < _currentList.Count)
-                ? _currentList[_selectedIndex]
-                : null;
+            // Update logical selection with infinite looping support
+            if (_currentList != null && _currentList.Count > 0)
+            {
+                // Use modulo arithmetic to find the actual song for infinite looping
+                int actualIndex = ((_selectedIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+                SelectedSong = _currentList[actualIndex];
+            }
+            else
+            {
+                SelectedSong = null;
+            }
 
             if (SelectedSong != previousSong)
             {
@@ -1074,9 +1080,8 @@ namespace DTX.UI.Components
 
                 int adjacentIndex = _selectedIndex + offset;
 
-                // Skip if index is out of bounds
-                if (adjacentIndex < 0 || adjacentIndex >= _currentList.Count)
-                    continue;
+                // Implement infinite looping: wrap adjacent index using modulo arithmetic
+                adjacentIndex = ((adjacentIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
                 var adjacentSong = _currentList[adjacentIndex];
 
@@ -1133,9 +1138,8 @@ namespace DTX.UI.Components
             {
                 int songIndex = centerSongIndex + (barIndex - CENTER_INDEX);
 
-                // Skip if song index is out of bounds
-                if (songIndex < 0 || songIndex >= _currentList.Count)
-                    continue;
+                // Implement infinite looping: wrap song index using modulo arithmetic
+                songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
                 newVisibleIndices.Add(songIndex);                // Only queue if not already cached using sorted insertion
                 var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";

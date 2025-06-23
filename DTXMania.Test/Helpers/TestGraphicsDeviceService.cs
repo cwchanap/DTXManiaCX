@@ -9,7 +9,7 @@ namespace DTXMania.Test.Helpers
     /// </summary>
     public class TestGraphicsDeviceService : IDisposable
     {
-        private Game _game;
+        private Microsoft.Xna.Framework.Game _game;
         private GraphicsDeviceManager _graphicsDeviceManager;
 
         public GraphicsDevice GraphicsDevice { get; private set; }
@@ -38,7 +38,7 @@ namespace DTXMania.Test.Helpers
             _game?.Dispose();
         }
 
-        private class TestGame : Game
+        private class TestGame : Microsoft.Xna.Framework.Game
         {
             private GraphicsDeviceManager _graphics;
 
