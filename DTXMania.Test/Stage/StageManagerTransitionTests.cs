@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Xunit;
 using DTX.Stage;
-using DTXMania.Shared.Game;
+using DTXMania.Game;
 using Microsoft.Xna.Framework;
 using DTX.Input;
 
