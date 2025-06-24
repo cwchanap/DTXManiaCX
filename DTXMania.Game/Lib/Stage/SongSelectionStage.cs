@@ -59,6 +59,9 @@ namespace DTX.Stage
         private Stack<SongListNode> _navigationStack;
         private string _currentBreadcrumb = "";
 
+        // Status panel navigation state
+        private bool _isInStatusPanel = false;
+
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
@@ -728,32 +731,63 @@ namespace DTX.Stage
             switch (command.Type)
             {
                 case InputCommandType.MoveUp:
-                    _songListDisplay.MovePrevious();
-                    _lastNavigationTime = _elapsedTime;
-                    break;
-
-                case InputCommandType.MoveDown:
-                    _songListDisplay.MoveNext();
-                    _lastNavigationTime = _elapsedTime;
-                    break;
-
-                case InputCommandType.MoveLeft:
-                    CycleDifficulty(-1);
-                    break;
-
-                case InputCommandType.MoveRight:
-                    CycleDifficulty(1);
-                    break;
-
-                case InputCommandType.Activate:
-                    if (_selectedSong != null)
+                    if (_isInStatusPanel)
                     {
-                        HandleSongActivation(_selectedSong);
+                        // Navigate within status panel (could be between difficulty rows)
+                        // For now, keep it as song navigation to allow changing songs while in panel
+                        _songListDisplay.MovePrevious();
+                        _lastNavigationTime = _elapsedTime;
+                    }
+                    else
+                    {
+                        // Normal song list navigation
+                        _songListDisplay.MovePrevious();
+                        _lastNavigationTime = _elapsedTime;
                     }
                     break;
 
+                case InputCommandType.MoveDown:
+                    if (_isInStatusPanel)
+                    {
+                        // Navigate within status panel (could be between difficulty rows)
+                        // For now, keep it as song navigation to allow changing songs while in panel
+                        _songListDisplay.MoveNext();
+                        _lastNavigationTime = _elapsedTime;
+                    }
+                    else
+                    {
+                        // Normal song list navigation
+                        _songListDisplay.MoveNext();
+                        _lastNavigationTime = _elapsedTime;
+                    }
+                    break;                case InputCommandType.MoveLeft:
+                    if (_isInStatusPanel)
+                    {
+                        // Navigate in status panel (e.g., between difficulties)
+                        CycleDifficulty(-1);
+                    }
+                    // Note: Normal left navigation removed - use Activate (Enter) instead
+                    break;case InputCommandType.MoveRight:
+                    if (_isInStatusPanel)
+                    {
+                        // Navigate in status panel (e.g., between difficulties)
+                        CycleDifficulty(1);
+                    }
+                    // Note: Normal right navigation removed - use Activate (Enter) instead
+                    break;
+
+                case InputCommandType.Activate:
+                    HandleActivateInput();
+                    break;
+
                 case InputCommandType.Back:
-                    if (_navigationStack.Count > 0)
+                    if (_isInStatusPanel)
+                    {
+                        // Exit status panel mode
+                        _isInStatusPanel = false;
+                        System.Diagnostics.Debug.WriteLine("SongSelectionStage: Exited status panel via Back key");
+                    }
+                    else if (_navigationStack.Count > 0)
                     {
                         NavigateBack();
                     }
@@ -897,6 +931,41 @@ namespace DTX.Stage
                 _stageRenderTarget?.Dispose();
             }
             _stageRenderTarget = null;
+        }
+
+        #endregion
+
+        #region Handle Activate Input        /// <summary>
+        /// Handle the Activate input (Enter key) with dual functionality:
+        /// - Navigate into folders/back boxes when in song list mode
+        /// - Enter status panel when on a song and not in status panel mode
+        /// - Exit status panel when in status panel mode
+        /// </summary>
+        private void HandleActivateInput()
+        {            if (_isInStatusPanel)
+            {
+                // Exit status panel mode
+                _isInStatusPanel = false;
+                
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Exited status panel navigation mode");
+            }
+            else if (_selectedSong != null)
+            {                // Check if this is a song (Score type) - if so, enter status panel
+                if (_selectedSong.Type == NodeType.Score)
+                {
+                    // Enter status panel mode AND cycle difficulty (replicate right arrow behavior)
+                    _isInStatusPanel = true;
+                    
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Entered status panel navigation mode");
+                    
+                    // Perform the same action as right arrow key (cycle difficulty)
+                    CycleDifficulty(1);
+                }
+                else
+                {
+                    // For non-songs (folders, back boxes, etc.), handle normal activation
+                    HandleSongActivation(_selectedSong);                }
+            }
         }
 
         #endregion

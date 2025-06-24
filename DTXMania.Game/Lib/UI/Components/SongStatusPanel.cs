@@ -215,9 +215,7 @@ namespace DTX.UI.Components
             {
                 // Fallback rendering when no fonts are available
                 DrawNoSongMessage(spriteBatch, bounds);
-            }
-
-            base.OnDraw(spriteBatch, deltaTime);
+            }            base.OnDraw(spriteBatch, deltaTime);
         }
 
         #endregion
@@ -972,10 +970,7 @@ namespace DTX.UI.Components
                 4 => Color.Purple,    // P
                 5 => Color.Orange,    // Pick
                 _ => Color.White
-            };
-        }
-
-
+            };        }
 
         #endregion
     }
