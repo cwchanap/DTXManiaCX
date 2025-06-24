@@ -2,6 +2,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Resources;
 using System;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("DTXMania.Test")]
 
 namespace DTX.Resources
 {

@@ -200,7 +200,7 @@ namespace DTXMania.Test.Song
             var metadata = new SongMetadata
             {
                 Title = title,
-                FilePath = @"C:\Songs\test.dtx"
+                FilePath = System.IO.Path.Combine("Songs", "test.dtx")
             };
 
             // Act

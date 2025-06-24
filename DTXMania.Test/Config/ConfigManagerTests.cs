@@ -39,7 +39,8 @@ public class ConfigManagerTests
     {
         // Arrange
         var manager = new ConfigManager();
-        var nonExistentFile = "NonExistent_Config.ini";
+        var tempDir = Path.GetTempPath();
+        var nonExistentFile = Path.Combine(tempDir, "NonExistent_Config.ini");
 
         // Act & Assert (should not throw)
         manager.LoadConfig(nonExistentFile);
