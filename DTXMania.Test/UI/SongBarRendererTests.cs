@@ -9,10 +9,11 @@ using System;
 
 namespace DTXMania.Test.UI
 {    /// <summary>
-    /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
-    /// </summary>
+     /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
+     /// </summary>
     public class SongBarRendererTests : IDisposable
-    {        private readonly MockResourceManager _resourceManager;
+    {
+        private readonly MockResourceManager _resourceManager;
         private readonly TestGraphicsDeviceService _graphicsService;
         private readonly SongBarRenderer? _renderer;
         private readonly SongListNode _testSongNode;
@@ -35,8 +36,8 @@ namespace DTXMania.Test.UI
                     DrumLevel = 85,
                     PreviewImage = "preview.png"
                 },
-                Scores = new SongScore[]
-                {
+                Scores =
+                [
                     new SongScore
                     {
                         Metadata = new SongMetadata { FilePath = "test.dtx" },
@@ -45,7 +46,8 @@ namespace DTXMania.Test.UI
                         FullCombo = true,
                         PlayCount = 5
                     }
-                }            };            // Create renderer with test render target
+                ]
+            };            // Create renderer with test render target
             if (_graphicsService.GraphicsDevice != null)
             {
                 var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
@@ -55,21 +57,23 @@ namespace DTXMania.Test.UI
             {
                 _renderer = null;
             }
-        }        [Fact]
+        }
+        [Fact]
         public void Constructor_WithNullGraphicsDevice_ShouldThrow()
         {
             // Arrange
             var titleRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 400, 24);
             var clearLampRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 8, 24);
-            
+
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(null, _resourceManager, titleRT));
-        }        [Fact]
+        }
+        [Fact]
         public void Constructor_WithNullResourceManager_ShouldThrow()
         {
             // Arrange
             var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
-            
+
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(_graphicsService.GraphicsDevice, null, sharedRT));
         }
@@ -324,7 +328,8 @@ namespace DTXMania.Test.UI
             Assert.NotNull(texture1);
             Assert.NotNull(texture2);
             // Textures should be different since font changed and cache was cleared
-        }        [Theory]
+        }
+        [Theory]
         [InlineData(NodeType.Score)]
         [InlineData(NodeType.Box)]
         [InlineData(NodeType.BackBox)]
@@ -353,7 +358,7 @@ namespace DTXMania.Test.UI
 
             // Assert
             Assert.NotNull(texture);
-            
+
             // This test primarily verifies that different node types don't crash the renderer
         }
 
@@ -384,7 +389,8 @@ namespace DTXMania.Test.UI
             // Act & Assert - Should not throw
             _renderer.Dispose();
             _renderer.Dispose();
-        }        private SpriteFont? CreateTestFont()
+        }
+        private SpriteFont? CreateTestFont()
         {
             // Create a minimal test font
             // In a real test environment, you'd load an actual font file
@@ -484,7 +490,8 @@ namespace DTXMania.Test.UI
             Assert.Equal(Color.White, barInfo.TextColor);
             Assert.Equal(2, barInfo.DifficultyLevel);
             Assert.True(barInfo.IsSelected);
-        }        public void Dispose()
+        }
+        public void Dispose()
         {
             _renderer?.Dispose();
             _resourceManager?.Dispose();
