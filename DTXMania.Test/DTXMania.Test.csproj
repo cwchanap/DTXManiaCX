@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" />
+    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Windows.csproj" />
   </ItemGroup>
 
 </Project>
