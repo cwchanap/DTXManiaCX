@@ -151,11 +151,11 @@ namespace DTX.Resources
         public static string GetSkinName(string skinPathFullName)
         {
             if (string.IsNullOrEmpty(skinPathFullName))
-                return "";
+                return null;
 
             try
             {
-                var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/');
+                var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
 
                 // Handle default skin case (System/ -> "Default")
                 if (normalizedPath.Equals("System", StringComparison.OrdinalIgnoreCase))
@@ -164,8 +164,9 @@ namespace DTX.Resources
                 }
 
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
-                var parts = normalizedPath.Split(Path.DirectorySeparatorChar, '/');
-                return parts.LastOrDefault() ?? "";
+                // Split by both forward and backward slashes and get the last non-empty part
+                var parts = normalizedPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                return parts.Length > 0 ? parts[parts.Length - 1] : "";
             }
             catch
             {

@@ -100,8 +100,11 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void AnalyzeSkin_WithNonExistentPath_ReturnsNull()
         {
+            // Arrange - Use a clearly non-existent absolute path
+            var nonExistentPath = Path.Combine(Path.GetTempPath(), "NonExistentSkinPath_" + Guid.NewGuid().ToString());
+
             // Act
-            var result = _discoveryService.AnalyzeSkin("NonExistentPath");
+            var result = _discoveryService.AnalyzeSkin(nonExistentPath);
 
             // Assert
             Assert.Null(result);
@@ -162,8 +165,11 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetSkinCompleteness_WithNonExistentSkin_ReturnsZero()
         {
+            // Arrange - Use a clearly non-existent absolute path
+            var nonExistentPath = Path.Combine(Path.GetTempPath(), "NonExistentSkinPath_" + Guid.NewGuid().ToString());
+
             // Act
-            var result = _discoveryService.GetSkinCompleteness("NonExistentPath");
+            var result = _discoveryService.GetSkinCompleteness(nonExistentPath);
 
             // Assert
             Assert.Equal(0, result);

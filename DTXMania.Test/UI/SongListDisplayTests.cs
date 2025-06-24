@@ -71,7 +71,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SelectedIndex_WhenOutOfBounds_ShouldClamp()
+        public void SelectedIndex_WhenOutOfBounds_ShouldAllowInfiniteScrolling()
         {
             // Arrange
             var display = new SongListDisplay();
@@ -81,13 +81,15 @@ namespace DTXMania.Test.UI
             };
             display.CurrentList = songs;
 
-            // Act & Assert - Test upper bound
+            // Act & Assert - Test infinite scrolling allows any index
             display.SelectedIndex = 10;
-            Assert.Equal(0, display.SelectedIndex); // Should clamp to last valid index
+            Assert.Equal(10, display.SelectedIndex); // Index can be any value
+            Assert.Equal(songs[0], display.SelectedSong); // But SelectedSong uses modulo
 
-            // Act & Assert - Test lower bound
+            // Act & Assert - Test negative indices
             display.SelectedIndex = -5;
-            Assert.Equal(0, display.SelectedIndex); // Should clamp to 0
+            Assert.Equal(-5, display.SelectedIndex); // Index can be negative
+            Assert.Equal(songs[0], display.SelectedSong); // But SelectedSong uses modulo
         }
 
         [Fact]
@@ -112,7 +114,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void MoveNext_AtEnd_ShouldWrapToBeginning()
+        public void MoveNext_AtEnd_ShouldContinueInfinitely()
         {
             // Arrange
             var display = new SongListDisplay();
@@ -127,9 +129,9 @@ namespace DTXMania.Test.UI
             // Act
             display.MoveNext();
 
-            // Assert
-            Assert.Equal(0, display.SelectedIndex); // Should wrap to first
-            Assert.Equal(songs[0], display.SelectedSong);
+            // Assert - Index continues infinitely, but SelectedSong wraps correctly
+            Assert.Equal(2, display.SelectedIndex); // Index continues
+            Assert.Equal(songs[0], display.SelectedSong); // Song wraps via modulo
         }
 
         [Fact]
@@ -154,7 +156,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void MovePrevious_AtBeginning_ShouldWrapToEnd()
+        public void MovePrevious_AtBeginning_ShouldContinueInfinitely()
         {
             // Arrange
             var display = new SongListDisplay();
@@ -169,9 +171,9 @@ namespace DTXMania.Test.UI
             // Act
             display.MovePrevious();
 
-            // Assert
-            Assert.Equal(1, display.SelectedIndex); // Should wrap to last
-            Assert.Equal(songs[1], display.SelectedSong);
+            // Assert - Index continues infinitely, but SelectedSong wraps correctly
+            Assert.Equal(-1, display.SelectedIndex); // Index continues
+            Assert.Equal(songs[1], display.SelectedSong); // Song wraps via modulo
         }
 
         [Fact]

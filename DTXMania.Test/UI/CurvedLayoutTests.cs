@@ -130,31 +130,35 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SongListDisplay_MoveNext_ShouldWrapAroundAtEnd()
+        public void SongListDisplay_MoveNext_ShouldContinueInfinitely()
         {
             // Arrange
             _songListDisplay.CurrentList = _testSongs;
             _songListDisplay.SelectedIndex = _testSongs.Count - 1; // Last item
+            var expectedSong = _testSongs[0]; // First song (wrapped by modulo)
 
             // Act
             _songListDisplay.MoveNext();
 
-            // Assert
-            Assert.Equal(0, _songListDisplay.SelectedIndex); // Should wrap to first
+            // Assert - Index continues infinitely, but SelectedSong wraps correctly
+            Assert.Equal(_testSongs.Count, _songListDisplay.SelectedIndex); // Index continues
+            Assert.Equal(expectedSong.Title, _songListDisplay.SelectedSong?.Title); // Song wraps
         }
 
         [Fact]
-        public void SongListDisplay_MovePrevious_ShouldWrapAroundAtBeginning()
+        public void SongListDisplay_MovePrevious_ShouldContinueInfinitely()
         {
             // Arrange
             _songListDisplay.CurrentList = _testSongs;
             _songListDisplay.SelectedIndex = 0; // First item
+            var expectedSong = _testSongs[_testSongs.Count - 1]; // Last song (wrapped by modulo)
 
             // Act
             _songListDisplay.MovePrevious();
 
-            // Assert
-            Assert.Equal(_testSongs.Count - 1, _songListDisplay.SelectedIndex); // Should wrap to last
+            // Assert - Index continues infinitely, but SelectedSong wraps correctly
+            Assert.Equal(-1, _songListDisplay.SelectedIndex); // Index continues
+            Assert.Equal(expectedSong.Title, _songListDisplay.SelectedSong?.Title); // Song wraps
         }
 
         [Fact]

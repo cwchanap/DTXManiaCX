@@ -67,7 +67,7 @@ namespace DTXMania.Test.Song
         public async Task LoadSongsDatabaseAsync_WithNonExistentFile_ShouldReturnFalse()
         {
             // Arrange
-            var nonExistentPath = @"C:\NonExistent\songs.db";
+            var nonExistentPath = Path.Combine(Path.GetTempPath(), "NonExistent_" + Guid.NewGuid().ToString(), "songs.db");
 
             // Act
             var result = await _manager.LoadSongsDatabaseAsync(nonExistentPath);

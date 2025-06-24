@@ -35,17 +35,17 @@ namespace DTX.Resources
         private readonly string _systemSkinRoot;
         private readonly string[] _requiredFiles = new[]
         {
-            @"Graphics\1_background.jpg",
-            @"Graphics\2_background.jpg"
+            Path.Combine("Graphics", "1_background.jpg"),
+            Path.Combine("Graphics", "2_background.jpg")
         };
 
         private readonly string[] _commonFiles = new[]
         {
-            @"Graphics\7_background.jpg",
-            @"Graphics\5_background.jpg",
-            @"Sounds\Decide.ogg",
-            @"Sounds\Cancel.ogg",
-            @"Sounds\Move.ogg"
+            Path.Combine("Graphics", "7_background.jpg"),
+            Path.Combine("Graphics", "5_background.jpg"),
+            Path.Combine("Sounds", "Decide.ogg"),
+            Path.Combine("Sounds", "Cancel.ogg"),
+            Path.Combine("Sounds", "Move.ogg")
         };
 
         #endregion
