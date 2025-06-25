@@ -131,71 +131,49 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         // Song Management Operations        
-        /// Add a new song with charts and scores
-        public async Task<int> AddSongAsync(SongMetadata metadata)
+        // Legacy AddSongAsync(SongMetadata) method removed - use AddSongAsync(Song, SongChart) instead
+
+        /// <summary>
+        /// Add a new song with charts and scores using EF Core entities
+        /// </summary>
+        public async Task<int> AddSongAsync(SongEntity song, SongChart chart)
         {
             using var context = CreateContext();
 
-            // Create the song entity (metadata only)
-            var song = new SongEntity
-            {
-                Title = metadata.Title,
-                Artist = metadata.Artist,
-                Genre = metadata.Genre,
-                Comment = metadata.Comment,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
+            // Add the song entity
             context.Songs.Add(song);
             await context.SaveChangesAsync();
 
-            // Create the chart entity (DTX file specific)
-            var chart = new SongChart
+            // Link chart to song and add to context
+            chart.SongId = song.Id;
+            chart.Song = song;
+            
+            // Calculate file hash if not already set
+            if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
             {
-                SongId = song.Id,
-                FilePath = metadata.FilePath,
-                FileHash = CalculateFileHash(metadata.FilePath),
-                FileSize = metadata.FileSize,
-                LastModified = metadata.LastModified,
-                DifficultyLevel = 0, // Default difficulty level
-                DifficultyLabel = "Standard",
-                Bpm = metadata.BPM ?? 120.0,
-                Duration = metadata.Duration ?? 0.0,
-                BGMAdjust = 0,
-                DrumLevel = metadata.DrumLevel ?? 0,
-                GuitarLevel = metadata.GuitarLevel ?? 0,
-                BassLevel = metadata.BassLevel ?? 0,
-                HasDrumChart = metadata.DrumLevel.HasValue,
-                HasGuitarChart = metadata.GuitarLevel.HasValue,
-                HasBassChart = metadata.BassLevel.HasValue,
-                DrumNoteCount = metadata.DrumNoteCount ?? 0,
-                GuitarNoteCount = metadata.GuitarNoteCount ?? 0,
-                BassNoteCount = metadata.BassNoteCount ?? 0,
-                PreviewFile = metadata.PreviewFile ?? "",
-                PreviewImage = metadata.PreviewImage ?? "",
-                BackgroundFile = metadata.BackgroundImage ?? ""
-            };
+                chart.FileHash = CalculateFileHash(chart.FilePath);
+            }
 
             context.SongCharts.Add(chart);
             await context.SaveChangesAsync();
 
             // Create initial score records for each available instrument
-            if (metadata.DrumLevel.HasValue)
+            if (chart.HasDrumChart && chart.DrumLevel > 0)
             {
                 await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
             }
-            if (metadata.GuitarLevel.HasValue)
+            if (chart.HasGuitarChart && chart.GuitarLevel > 0)
             {
                 await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
             }
-            if (metadata.BassLevel.HasValue)
+            if (chart.HasBassChart && chart.BassLevel > 0)
             {
                 await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
             }
 
             return song.Id;
         }
+
         /// Search songs by title or artist
         public async Task<List<SongEntity>> SearchSongsAsync(string searchTerm)
         {

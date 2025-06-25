@@ -180,37 +180,26 @@ namespace DTX.UI.Components
             // Clear current preview immediately for responsive UI
             _currentPreviewTexture = null;
 
-            if (currentSong?.Metadata?.PreviewImage == null)
+            // Use EF Core entities
+            var chart = currentSong?.DatabaseChart;
+            var previewImage = chart?.PreviewImage;
+            var songFilePath = chart?.FilePath;
+
+            if (string.IsNullOrEmpty(previewImage) || string.IsNullOrEmpty(songFilePath))
                 return;
 
             try
             {
-                // Load preview image from song directory
-                // Get file path from metadata (either from the song node or from the first score)
-                string songFilePath = null;
-
-                if (currentSong.Metadata?.FilePath != null)
+                var songDirectory = System.IO.Path.GetDirectoryName(songFilePath);
+                if (songDirectory != null)
                 {
-                    songFilePath = currentSong.Metadata.FilePath;
-                }
-                else if (currentSong.Scores?[0]?.Metadata?.FilePath != null)
-                {
-                    songFilePath = currentSong.Scores[0].Metadata.FilePath;
-                }
-
-                if (songFilePath != null)
-                {
-                    var songDirectory = System.IO.Path.GetDirectoryName(songFilePath);
-                    if (songDirectory != null)
+                    var previewPath = System.IO.Path.Combine(songDirectory, previewImage);
+                    if (System.IO.File.Exists(previewPath))
                     {
-                        var previewPath = System.IO.Path.Combine(songDirectory, currentSong.Metadata.PreviewImage);
-                        if (System.IO.File.Exists(previewPath))
+                        // Only update if this is still the current song (avoid race conditions)
+                        if (_currentSong == currentSong)
                         {
-                            // Only update if this is still the current song (avoid race conditions)
-                            if (_currentSong == currentSong)
-                            {
-                                _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
-                            }
+                            _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
                         }
                     }
                 }
