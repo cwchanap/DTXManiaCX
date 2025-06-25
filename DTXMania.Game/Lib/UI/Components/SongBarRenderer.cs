@@ -106,20 +106,27 @@ namespace DTX.UI.Components
         /// </summary>
         public ITexture GeneratePreviewImageTexture(SongListNode songNode)
         {
-            if (songNode?.Metadata?.PreviewImage == null)
+            // Use EF Core entities
+            var chart = songNode?.DatabaseChart;
+            var previewImage = chart?.PreviewImage;
+            
+            if (string.IsNullOrEmpty(previewImage))
                 return null;
 
             // Skip preview image loading during fast scroll to prevent UI freezes
             if (_isFastScrollMode)
                 return null;
 
-            var cacheKey = songNode.Metadata.PreviewImage;            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
+            var cacheKey = previewImage;
+            if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
-            // Check file size before attempting to load - skip large files (>500KB)if (songNode.Metadata?.FilePath != null)
+            // Check file size before attempting to load - skip large files (>500KB)
+            var filePath = chart?.FilePath;
+            if (filePath != null)
             {
-                var songDirectory = Path.GetDirectoryName(songNode.Metadata.FilePath);
-                var previewImagePath = Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
+                var songDirectory = Path.GetDirectoryName(filePath);
+                var previewImagePath = Path.Combine(songDirectory, previewImage);
                 
                 // Quick file existence and size check
                 if (!File.Exists(previewImagePath))
@@ -356,10 +363,15 @@ namespace DTX.UI.Components
 
             try
             {
-                if (songNode.Metadata?.FilePath != null)
+                // Use EF Core entities
+                var chart = songNode?.DatabaseChart;
+                var filePath = chart?.FilePath;
+                var previewImage = chart?.PreviewImage;
+                
+                if (!string.IsNullOrEmpty(filePath) && !string.IsNullOrEmpty(previewImage))
                 {
-                    var songDirectory = Path.GetDirectoryName(songNode.Metadata.FilePath);
-                    var previewImagePath = Path.Combine(songDirectory, songNode.Metadata.PreviewImage);
+                    var songDirectory = Path.GetDirectoryName(filePath);
+                    var previewImagePath = Path.Combine(songDirectory, previewImage);
 
                     // Quick file existence check - return immediately if file doesn't exist
                     if (!File.Exists(previewImagePath))

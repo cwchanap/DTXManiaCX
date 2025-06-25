@@ -6,6 +6,10 @@ using DTX.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Song.Entities;
+
+// Type alias for SongScore to use the EF Core entity
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTX.UI.Components
 {
@@ -336,44 +340,50 @@ namespace DTX.UI.Components
 
         private void DrawSongMetadata(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
         {
-            var score = GetCurrentScore();
-            if (score?.Metadata == null)
+            // Use EF Core entities instead of legacy metadata
+            var song = _currentSong?.DatabaseSong;
+            var chart = _currentSong?.DatabaseChart;
+            
+            if (song == null && chart == null)
                 return;
 
-            var metadata = score.Metadata;
-
             // Artist
-            if (!string.IsNullOrEmpty(metadata.Artist))
+            if (!string.IsNullOrEmpty(song?.Artist))
             {
-                DrawLabelValue(spriteBatch, "Artist:", metadata.Artist, x, y);
+                DrawLabelValue(spriteBatch, "Artist:", song.Artist, x, y);
                 y += LINE_HEIGHT;
             }
 
             // Genre
-            if (!string.IsNullOrEmpty(metadata.Genre))
+            if (!string.IsNullOrEmpty(song?.Genre))
             {
-                DrawLabelValue(spriteBatch, "Genre:", metadata.Genre, x, y);
+                DrawLabelValue(spriteBatch, "Genre:", song.Genre, x, y);
                 y += LINE_HEIGHT;
             }
 
             // BPM
-            if (metadata.BPM.HasValue && metadata.BPM.Value > 0)
+            if (chart?.Bpm > 0)
             {
-                DrawLabelValue(spriteBatch, "BPM:", metadata.BPM.Value.ToString("F0"), x, y);
+                DrawLabelValue(spriteBatch, "BPM:", chart.Bpm.ToString("F0"), x, y);
                 y += LINE_HEIGHT;
             }
 
             // Duration
-            if (metadata.Duration.HasValue && metadata.Duration.Value > 0)
+            if (chart?.Duration > 0)
             {
-                DrawLabelValue(spriteBatch, "Duration:", metadata.FormattedDuration, x, y);
+                var duration = TimeSpan.FromSeconds(chart.Duration);
+                var formattedDuration = duration.TotalHours >= 1 
+                    ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
+                    : $"{duration.Minutes}:{duration.Seconds:D2}";
+                DrawLabelValue(spriteBatch, "Duration:", formattedDuration, x, y);
                 y += LINE_HEIGHT;
             }
 
             // Total notes
-            if (metadata.TotalNoteCount > 0)
+            var totalNotes = (chart?.DrumNoteCount ?? 0) + (chart?.GuitarNoteCount ?? 0) + (chart?.BassNoteCount ?? 0);
+            if (totalNotes > 0)
             {
-                DrawLabelValue(spriteBatch, "Total Notes:", metadata.TotalNoteCount.ToString("N0"), x, y);
+                DrawLabelValue(spriteBatch, "Total Notes:", totalNotes.ToString("N0"), x, y);
                 y += LINE_HEIGHT;
             }
 
@@ -385,18 +395,18 @@ namespace DTX.UI.Components
             DrawTextWithShadow(spriteBatch, _font, "Difficulties:", new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusLabelText);
             y += LINE_HEIGHT;
 
-            var score = GetCurrentScore();
-            if (score?.Metadata != null)
+            // Use EF Core entities instead of legacy metadata
+            var chart = _currentSong?.DatabaseChart;
+            if (chart != null)
             {
                 // Show available instruments with their difficulty levels and note counts
-                var instruments = new[] { "DRUMS", "GUITAR", "BASS" };
+                var instruments = new[] { ("DRUMS", chart.DrumLevel, chart.DrumNoteCount, chart.HasDrumChart), 
+                                        ("GUITAR", chart.GuitarLevel, chart.GuitarNoteCount, chart.HasGuitarChart), 
+                                        ("BASS", chart.BassLevel, chart.BassNoteCount, chart.HasBassChart) };
 
-                foreach (var instrument in instruments)
+                foreach (var (instrument, level, noteCount, hasChart) in instruments)
                 {
-                    var level = score.Metadata.GetDifficultyLevel(instrument);
-                    var noteCount = score.Metadata.GetNoteCount(instrument);
-
-                    if (level.HasValue && level.Value > 0)
+                    if (hasChart && level > 0)
                     {
                         var instrumentName = GetInstrumentDisplayName(instrument);
                         var isCurrentInstrument = GetInstrumentFromDifficulty(_currentDifficulty) == instrument;
@@ -405,7 +415,7 @@ namespace DTX.UI.Components
                         var prefix = isCurrentInstrument ? "► " : "  ";
 
                         var text = $"{prefix}{instrumentName}: Lv.{level}";
-                        if (noteCount.HasValue && noteCount.Value > 0)
+                        if (noteCount > 0)
                         {
                             text += $" ({noteCount:N0} notes)";
                         }
@@ -490,11 +500,10 @@ namespace DTX.UI.Components
 
         private void DrawBPMSection(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            var score = GetCurrentScore();
-            if (score?.Metadata == null)
+            // Use EF Core entities instead of legacy metadata
+            var chart = _currentSong?.DatabaseChart;
+            if (chart == null)
                 return;
-
-            var metadata = score.Metadata;
 
             // Use absolute positioning from DTXManiaNX documentation
             // BPM section: X:90, Y:275 (when status panel exists)
@@ -503,17 +512,21 @@ namespace DTX.UI.Components
 
             // Draw song duration first (DTXManiaNX format: "Length: 2:34")
             // Duration display at X:132, Y:268
-            if (metadata.Duration.HasValue && metadata.Duration.Value > 0)
+            if (chart.Duration > 0)
             {
-                var durationText = $"Length: {metadata.FormattedDuration}";
+                var duration = TimeSpan.FromSeconds(chart.Duration);
+                var formattedDuration = duration.TotalHours >= 1 
+                    ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
+                    : $"{duration.Minutes}:{duration.Seconds:D2}";
+                var durationText = $"Length: {formattedDuration}";
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(132, 268), DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
 
             // Draw BPM value (DTXManiaNX format: "BPM: 145")
             // BPM value at X:135, Y:298
-            if (metadata.BPM.HasValue && metadata.BPM.Value > 0)
+            if (chart.Bpm > 0)
             {
-                var bpmText = $"BPM: {metadata.BPM.Value:F0}";
+                var bpmText = $"BPM: {chart.Bpm:F0}";
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, new Vector2(135, 298), DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
         }
@@ -648,8 +661,10 @@ namespace DTX.UI.Components
 
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            // Use EF Core entities instead of legacy metadata
+            var chart = _currentSong?.DatabaseChart;
             var score = GetCurrentScore();
-            if (score?.Metadata == null)
+            if (chart == null)
                 return;
 
             // Use absolute positioning from DTXManiaNX documentation
@@ -665,7 +680,7 @@ namespace DTX.UI.Components
             }
 
             // Draw total notes counter at X:81 (15 + 66), Y:666 (368 + 298)
-            var totalNotes = score.Metadata.TotalNoteCount;
+            var totalNotes = chart.DrumNoteCount + chart.GuitarNoteCount + chart.BassNoteCount;
             if (totalNotes > 0)
             {
                 var notesText = totalNotes.ToString("N0");
@@ -681,7 +696,7 @@ namespace DTX.UI.Components
 
         private void DrawNoteDistributionBars(SpriteBatch spriteBatch, int baseX, int baseY, SongScore score)
         {
-            if (_whitePixel == null || score?.Metadata == null)
+            if (_whitePixel == null || score == null)
                 return;
 
             // Determine if this is drums or guitar/bass mode
@@ -852,18 +867,22 @@ namespace DTX.UI.Components
 
         private string GetDifficultyLevel(SongScore score, int difficulty)
         {
-            if (score?.Metadata == null)
-                return "??";
-
-            return difficulty switch
+            // Get level from EF Core chart
+            var chart = _currentSong?.DatabaseChart;
+            if (chart != null)
             {
-                0 => score.Metadata.DrumLevel?.ToString() ?? "??",
-                1 => score.Metadata.GuitarLevel?.ToString() ?? "??",
-                2 => score.Metadata.BassLevel?.ToString() ?? "??",
-                3 => "??", // Master level not in metadata
-                4 => "??", // Ultimate level not in metadata
-                _ => "??"
-            };
+                return difficulty switch
+                {
+                    0 => chart.DrumLevel.ToString(),
+                    1 => chart.GuitarLevel.ToString(),
+                    2 => chart.BassLevel.ToString(),
+                    3 => "??", // Master level not implemented yet
+                    4 => "??", // Ultimate level not implemented yet
+                    _ => "??"
+                };
+            }
+            
+            return "??";
         }
 
         private string GetRankText(int rank)
@@ -915,16 +934,20 @@ namespace DTX.UI.Components
 
         private string GetDifficultyLevelForInstrument(SongScore score, int instrument)
         {
-            if (score?.Metadata == null)
-                return "--";
-
-            return instrument switch
+            // Get level from EF Core chart
+            var chart = _currentSong?.DatabaseChart;
+            if (chart != null)
             {
-                0 => score.Metadata.DrumLevel?.ToString("F2") ?? "--", // Drums
-                1 => score.Metadata.GuitarLevel?.ToString("F2") ?? "--", // Guitar
-                2 => score.Metadata.BassLevel?.ToString("F2") ?? "--", // Bass
-                _ => "--"
-            };
+                return instrument switch
+                {
+                    0 => chart.DrumLevel.ToString("F2"), // Drums
+                    1 => chart.GuitarLevel.ToString("F2"), // Guitar
+                    2 => chart.BassLevel.ToString("F2"), // Bass
+                    _ => "--"
+                };
+            }
+            
+            return "--";
         }
 
         private Color GetRankColor(int rank)

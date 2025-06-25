@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Globalization;
 using System.Collections.Generic;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTX.Song
 {
@@ -48,45 +49,67 @@ namespace DTX.Song
 
         #region Public Methods
 
+        // Legacy ParseMetadataAsync method removed - use ParseSongEntitiesAsync instead
+
         /// <summary>
-        /// Parses metadata from a DTX file
+        /// Parses a DTX file and returns Song and SongChart entities
         /// </summary>
         /// <param name="filePath">Path to the DTX file</param>
-        /// <returns>Parsed song metadata</returns>
-        public async Task<SongMetadata> ParseMetadataAsync(string filePath)
+        /// <returns>Tuple containing Song and SongChart entities</returns>
+        public async Task<(DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)> ParseSongEntitiesAsync(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                 throw new FileNotFoundException($"DTX file not found: {filePath}");
 
             var fileInfo = new FileInfo(filePath);
-            var metadata = new SongMetadata
+            
+            // Create Song entity (shared metadata)
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "",
+                Artist = "",
+                Genre = "",
+                Comment = "",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            // Create SongChart entity (file-specific data)
+            var chart = new SongChart
             {
                 FilePath = filePath,
                 FileSize = fileInfo.Length,
                 LastModified = fileInfo.LastWriteTime,
-                FileFormat = fileInfo.Extension.ToLowerInvariant()
+                FileFormat = fileInfo.Extension.ToLowerInvariant(),
+                Bpm = 120.0, // Default BPM
+                Duration = 0.0,
+                BGMAdjust = 0
             };
 
             // Validate file extension
-            if (!IsSupported(metadata.FileFormat))
+            if (!IsSupported(chart.FileFormat))
             {
-                Debug.WriteLine($"DTXMetadataParser: Unsupported file format: {metadata.FileFormat}");
+                Debug.WriteLine($"DTXMetadataParser: Unsupported file format: {chart.FileFormat}");
                 // Set fallback title for unsupported files
-                metadata.Title = Path.GetFileNameWithoutExtension(filePath);
-                return metadata;
+                song.Title = Path.GetFileNameWithoutExtension(filePath);
+                return (song, chart);
             }
 
             try
             {
-                await ParseFileHeaderAsync(filePath, metadata);
+                await ParseFileHeaderToEntitiesAsync(filePath, song, chart);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"DTXMetadataParser: Error parsing {filePath}: {ex.Message}");
-                // Return metadata with basic file info even if parsing fails
+                // Return entities with basic file info even if parsing fails
+                if (string.IsNullOrEmpty(song.Title))
+                {
+                    song.Title = Path.GetFileNameWithoutExtension(filePath);
+                }
             }
 
-            return metadata;
+            return (song, chart);
         }
 
         /// <summary>
@@ -102,10 +125,12 @@ namespace DTX.Song
 
         #region Private Methods
 
+        // Legacy ParseFileHeaderAsync method removed - using ParseFileHeaderToEntitiesAsync instead
+
         /// <summary>
-        /// Parses the header section of a DTX file
+        /// Parses the header section of a DTX file to Song and SongChart entities
         /// </summary>
-        private async Task ParseFileHeaderAsync(string filePath, SongMetadata metadata)
+        private async Task ParseFileHeaderToEntitiesAsync(string filePath, DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)
         {
             // Try different encodings for Japanese text support
             var encodings = new List<Encoding>
@@ -121,18 +146,20 @@ namespace DTX.Song
             }
             catch (ArgumentException)
             {
-                Debug.WriteLine("DTXMetadataParser: Shift_JIS encoding not available, using fallback encodings");
+                // Shift_JIS not available, continue with available encodings
             }
 
             foreach (var encoding in encodings)
             {
                 try
                 {
-                    using var reader = new StreamReader(filePath, encoding);
-                    await ParseHeaderLines(reader, metadata);
+                    using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var reader = new StreamReader(stream, encoding);
+                    
+                    await ParseHeaderLinesToEntitiesAsync(reader, song, chart);
                     
                     // If we successfully parsed some metadata, we're done
-                    if (!string.IsNullOrEmpty(metadata.Title) || !string.IsNullOrEmpty(metadata.Artist))
+                    if (!string.IsNullOrEmpty(song.Title) || !string.IsNullOrEmpty(song.Artist))
                         break;
                 }
                 catch (Exception ex)
@@ -143,16 +170,18 @@ namespace DTX.Song
             }
 
             // Set fallback title if none was found
-            if (string.IsNullOrEmpty(metadata.Title))
+            if (string.IsNullOrEmpty(song.Title))
             {
-                metadata.Title = Path.GetFileNameWithoutExtension(filePath);
+                song.Title = Path.GetFileNameWithoutExtension(filePath);
             }
         }
 
+        // Legacy ParseHeaderLines method removed - using ParseHeaderLinesToEntitiesAsync instead
+
         /// <summary>
-        /// Parses header lines from the DTX file
+        /// Parses header lines from the DTX file to Song and SongChart entities
         /// </summary>
-        private async Task ParseHeaderLines(StreamReader reader, SongMetadata metadata)
+        private async Task ParseHeaderLinesToEntitiesAsync(StreamReader reader, DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)
         {
             string? line;
             var lineCount = 0;
@@ -173,15 +202,17 @@ namespace DTX.Song
                 // Parse header commands
                 if (line.StartsWith("#"))
                 {
-                    ParseHeaderCommand(line, metadata);
+                    ParseHeaderCommandToEntities(line, song, chart);
                 }
             }
         }
 
+        // Legacy ParseHeaderCommand method removed - using ParseHeaderCommandToEntities instead
+
         /// <summary>
-        /// Parses a single header command line
+        /// Parses a single header command line to Song and SongChart entities
         /// </summary>
-        private void ParseHeaderCommand(string line, SongMetadata metadata)
+        private void ParseHeaderCommandToEntities(string line, DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)
         {
             var colonIndex = line.IndexOf(':');
             if (colonIndex == -1) return;
@@ -197,82 +228,95 @@ namespace DTX.Song
 
             switch (command)
             {
+                // Song-level metadata (shared across charts)
                 case "#TITLE":
-                    metadata.Title = value;
+                    song.Title = value;
                     break;
 
                 case "#ARTIST":
-                    metadata.Artist = value;
+                    song.Artist = value;
                     break;
 
                 case "#GENRE":
-                    metadata.Genre = value;
+                    song.Genre = value;
                     break;
 
                 case "#COMMENT":
-                    metadata.Comment = value;
+                    song.Comment = value;
                     break;
 
+                // Chart-level metadata (file-specific)
                 case "#BPM":
                     if (TryParseDouble(value, out var bpm))
-                        metadata.BPM = bpm;
+                        chart.Bpm = bpm;
                     break;
 
                 case "#LEVEL":
-                    ParseLevelData(value, metadata);
+                    ParseLevelDataToChart(value, chart);
                     break;
 
                 case "#DLEVEL":
                     if (TryParseInt(value, out var drumLevel))
-                        metadata.DrumLevel = drumLevel;
+                    {
+                        chart.DrumLevel = drumLevel;
+                        chart.HasDrumChart = drumLevel > 0;
+                    }
                     break;
 
                 case "#GLEVEL":
                     if (TryParseInt(value, out var guitarLevel))
-                        metadata.GuitarLevel = guitarLevel;
+                    {
+                        chart.GuitarLevel = guitarLevel;
+                        chart.HasGuitarChart = guitarLevel > 0;
+                    }
                     break;
 
                 case "#BLEVEL":
                     if (TryParseInt(value, out var bassLevel))
-                        metadata.BassLevel = bassLevel;
+                    {
+                        chart.BassLevel = bassLevel;
+                        chart.HasBassChart = bassLevel > 0;
+                    }
                     break;
 
                 case "#PREVIEW":
-                    metadata.PreviewFile = value;
+                    chart.PreviewFile = value;
                     break;
 
                 case "#PREIMAGE":
-                    metadata.PreviewImage = value;
+                    chart.PreviewImage = value;
                     break;
 
                 case "#BACKGROUND":
                 case "#WALL":
-                    metadata.BackgroundImage = value;
+                    chart.BackgroundFile = value;
                     break;
 
                 case "#STAGEFILE":
-                    metadata.StageFile = value;
+                    chart.StageFile = value;
                     break;
 
-                // Difficulty labels
+                // Difficulty labels stored in chart
                 case "#DLABEL":
-                    metadata.DifficultyLabels["DRUMS"] = value;
+                    chart.DifficultyLabels["DRUMS"] = value;
                     break;
 
                 case "#GLABEL":
-                    metadata.DifficultyLabels["GUITAR"] = value;
+                    chart.DifficultyLabels["GUITAR"] = value;
                     break;
 
                 case "#BLABEL":
-                    metadata.DifficultyLabels["BASS"] = value;
+                    chart.DifficultyLabels["BASS"] = value;
                     break;
             }
         }
 
+        // Legacy ParseLevelData method removed - using ParseLevelDataToChart instead
+
         /// <summary>
-        /// Parses level data in format "DRUMS:85,GUITAR:78,BASS:65"
+        /// Parses level data in format "DRUMS:85,GUITAR:78,BASS:65" to SongChart
         /// </summary>
-        private void ParseLevelData(string levelData, SongMetadata metadata)
+        private void ParseLevelDataToChart(string levelData, SongChart chart)
         {
             if (string.IsNullOrEmpty(levelData)) return;
 
@@ -289,13 +333,16 @@ namespace DTX.Song
                         {
                             case "DRUMS":
                             case "DRUM":
-                                metadata.DrumLevel = level;
+                                chart.DrumLevel = level;
+                                chart.HasDrumChart = level > 0;
                                 break;
                             case "GUITAR":
-                                metadata.GuitarLevel = level;
+                                chart.GuitarLevel = level;
+                                chart.HasGuitarChart = level > 0;
                                 break;
                             case "BASS":
-                                metadata.BassLevel = level;
+                                chart.BassLevel = level;
+                                chart.HasBassChart = level > 0;
                                 break;
                         }
                     }
@@ -352,21 +399,7 @@ namespace DTX.Song
             return Array.Exists(supportedExtensions, ext => ext == extension);
         }
 
-        /// <summary>
-        /// Gets basic file info without parsing content
-        /// </summary>
-        public static SongMetadata GetBasicFileInfo(string filePath)
-        {
-            var fileInfo = new FileInfo(filePath);
-            return new SongMetadata
-            {
-                FilePath = filePath,
-                Title = Path.GetFileNameWithoutExtension(filePath),
-                FileSize = fileInfo.Length,
-                LastModified = fileInfo.LastWriteTime,
-                FileFormat = fileInfo.Extension.ToLowerInvariant()
-            };
-        }
+        // Legacy GetBasicFileInfo method removed - use EF Core entities instead
 
         #endregion
     }

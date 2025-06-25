@@ -2,6 +2,12 @@ using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Song.Entities;
+
+// Type aliases for EF Core entities
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
+using SongChart = DTXMania.Game.Lib.Song.Entities.SongChart;
 
 namespace DTX.Song
 {
@@ -99,10 +105,17 @@ namespace DTX.Song
 
         #region Metadata
 
+        // Legacy Metadata property removed - use DatabaseSong and DatabaseChart instead
+        
         /// <summary>
-        /// Primary song metadata (for Score nodes)
+        /// EF Core Song entity for database integration
         /// </summary>
-        public SongMetadata? Metadata { get; set; }
+        public SongEntity? DatabaseSong { get; set; }
+        
+        /// <summary>
+        /// EF Core SongChart entity for database integration
+        /// </summary>
+        public SongChart? DatabaseChart { get; set; }
 
         /// <summary>
         /// Directory path for BOX nodes
@@ -118,6 +131,55 @@ namespace DTX.Song
         /// Sort order within parent
         /// </summary>
         public int SortOrder { get; set; }
+
+        /// <summary>
+        /// Database song ID for EF Core integration
+        /// </summary>
+        public int? DatabaseSongId { get; set; }
+
+        #endregion
+
+        #region EF Core Integration Methods
+
+        /// <summary>
+        /// Populates the legacy Scores array from EF Core data for UI compatibility
+        /// </summary>
+        public void PopulateScoresFromDatabase(DTXMania.Game.Lib.Song.Entities.SongDatabaseService databaseService)
+        {
+            if (DatabaseSongId == null) return;
+
+            try
+            {
+                // Use DatabaseSong if available
+                var availableInstruments = DatabaseSong?.AvailableInstruments ?? new List<string>();
+                
+                for (int i = 0; i < Math.Min(availableInstruments.Count, 5); i++)
+                {
+                    var instrument = availableInstruments[i];
+                    var difficultyLevel = DatabaseSong?.GetDifficultyLevel(instrument);
+                    
+                    if (difficultyLevel.HasValue)
+                    {
+                        Scores[i] = new SongScore
+                        {
+                            Instrument = instrument switch
+                            {
+                                "DRUMS" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
+                                "GUITAR" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
+                                "BASS" => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
+                                _ => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS
+                            },
+                            DifficultyLevel = difficultyLevel.Value,
+                            DifficultyLabel = DifficultyLabels[i]
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListNode: Error populating scores from database: {ex.Message}");
+            }
+        }
 
         #endregion
 
@@ -164,8 +226,8 @@ namespace DTX.Song
                 if (Type == NodeType.Random)
                     return "Random Select";
 
-                if (Metadata != null)
-                    return Metadata.DisplayTitle;
+                if (DatabaseSong != null)
+                    return DatabaseSong.DisplayTitle;
 
                 return "Unknown";
             }
@@ -205,35 +267,32 @@ namespace DTX.Song
             DifficultyLabels[4] = "SPECIAL";
         }
 
+        // Legacy CreateSongNode(SongMetadata) method removed - use CreateSongNode(Song, SongChart) instead
+
         /// <summary>
-        /// Creates a song node from metadata
+        /// Creates a song node from EF Core entities
         /// </summary>
-        public static SongListNode CreateSongNode(SongMetadata metadata)
+        public static SongListNode CreateSongNode(SongEntity song, SongChart chart)
         {
             var node = new SongListNode
             {
                 Type = NodeType.Score,
-                Title = metadata.DisplayTitle,
-                Genre = metadata.DisplayGenre,
-                Metadata = metadata
+                Title = song.DisplayTitle,
+                Genre = song.DisplayGenre,
+                DatabaseSong = song,
+                DatabaseChart = chart
             };
 
-            // Create scores for available instruments
-            var instruments = metadata.AvailableInstruments;
+            // Set difficulty labels based on available instruments
+            var instruments = song.AvailableInstruments;
             for (int i = 0; i < Math.Min(instruments.Count, 5); i++)
             {
                 var instrument = instruments[i];
-                var difficultyLevel = metadata.GetDifficultyLevel(instrument);
+                var difficultyLevel = song.GetDifficultyLevel(instrument);
                 
                 if (difficultyLevel.HasValue)
                 {
-                    node.Scores[i] = new SongScore
-                    {
-                        Metadata = metadata,
-                        Instrument = instrument,
-                        DifficultyLevel = difficultyLevel.Value,
-                        DifficultyLabel = node.DifficultyLabels[i]
-                    };
+                    node.DifficultyLabels[i] = $"{instrument} Lv.{difficultyLevel.Value}";
                 }
             }
 
@@ -344,7 +403,7 @@ namespace DTX.Song
             if (difficultyIndex >= 0 && difficultyIndex < Scores.Length)
             {
                 Scores[difficultyIndex] = score;
-                score.Metadata = Metadata ?? score.Metadata;
+                // Score metadata no longer needed - using EF Core entities
             }
         }
 
@@ -397,7 +456,7 @@ namespace DTX.Song
             return criteria switch
             {
                 SongSortCriteria.Title => string.Compare(a.DisplayTitle, b.DisplayTitle, StringComparison.OrdinalIgnoreCase),
-                SongSortCriteria.Artist => string.Compare(a.Metadata?.DisplayArtist ?? "", b.Metadata?.DisplayArtist ?? "", StringComparison.OrdinalIgnoreCase),
+                SongSortCriteria.Artist => string.Compare(a.DatabaseSong?.DisplayArtist ?? "", b.DatabaseSong?.DisplayArtist ?? "", StringComparison.OrdinalIgnoreCase),
                 SongSortCriteria.Genre => string.Compare(a.Genre, b.Genre, StringComparison.OrdinalIgnoreCase),
                 SongSortCriteria.Level => b.MaxDifficultyLevel.CompareTo(a.MaxDifficultyLevel),
                 _ => string.Compare(a.DisplayTitle, b.DisplayTitle, StringComparison.OrdinalIgnoreCase)

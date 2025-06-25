@@ -6,7 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Text.Json;
+using DTXMania.Game.Lib.Song.Entities;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
+using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 #nullable enable
 
@@ -53,11 +55,11 @@ namespace DTX.Song
 
         #region Private Fields
 
-        private readonly List<SongScore> _songsDatabase = new();
         private readonly List<SongListNode> _rootSongs = new();
         private readonly DTXMetadataParser _metadataParser = new();
         private readonly object _lockObject = new();
         private CancellationTokenSource? _enumCancellation;
+        private SongDatabaseService? _databaseService;
 
         // Initialization state tracking
         private bool _isInitialized = false;
@@ -81,15 +83,15 @@ namespace DTX.Song
         }
 
         /// <summary>
-        /// Gets the cached song database
+        /// Gets the database service instance
         /// </summary>
-        public IReadOnlyList<SongScore> SongsDatabase
+        public SongDatabaseService? DatabaseService
         {
             get
             {
                 lock (_lockObject)
                 {
-                    return _songsDatabase.AsReadOnly();
+                    return _databaseService;
                 }
             }
         }
@@ -115,9 +117,15 @@ namespace DTX.Song
         {
             get
             {
-                lock (_lockObject)
+                if (_databaseService == null) return 0;
+                try
                 {
-                    return _songsDatabase.Count;
+                    var stats = _databaseService.GetDatabaseStatsAsync().Result;
+                    return stats.ScoreCount;
+                }
+                catch
+                {
+                    return 0;
                 }
             }
         }
@@ -177,19 +185,17 @@ namespace DTX.Song
 
             try
             {
-                // First try to load from cached database
-                var loaded = await LoadSongsDatabaseAsync(databasePath);
+                // Initialize the database service
+                _databaseService = new SongDatabaseService(databasePath);
+                await _databaseService.InitializeDatabaseAsync();
                 
                 // Check if enumeration is needed
-                bool needsEnumeration = !loaded || DatabaseScoreCount == 0 || await NeedsEnumerationAsync(searchPaths);
+                bool needsEnumeration = DatabaseScoreCount == 0 || await NeedsEnumerationAsync(searchPaths);
                 
                 if (needsEnumeration)
                 {
                     Debug.WriteLine("SongManager: Starting song enumeration during initialization");
                     await EnumerateSongsAsync(searchPaths, progress);
-                    
-                    // Save the database after enumeration
-                    await SaveSongsDatabaseAsync(databasePath);
                 }
 
                 lock (_lockObject)
@@ -208,75 +214,38 @@ namespace DTX.Song
         }
 
         /// <summary>
-        /// Loads the songs database from file
+        /// Checks if the database exists and is accessible
         /// </summary>
-        public async Task<bool> LoadSongsDatabaseAsync(string databasePath)
+        public async Task<bool> DatabaseExistsAsync()
         {
+            if (_databaseService == null) return false;
+            
             try
             {
-                if (!File.Exists(databasePath))
-                {
-                    Debug.WriteLine($"SongManager: Database file {databasePath} does not exist");
-                    return false;
-                }
-
-                var json = await File.ReadAllTextAsync(databasePath);
-                var data = JsonSerializer.Deserialize<SongDatabaseData>(json);
-
-                if (data != null)
-                {
-                    lock (_lockObject)
-                    {
-                        _songsDatabase.Clear();
-                        _songsDatabase.AddRange(data.Scores);
-                        
-                        _rootSongs.Clear();
-                        _rootSongs.AddRange(data.RootNodes);
-                    }
-
-                    Debug.WriteLine($"SongManager: Loaded {_songsDatabase.Count} scores from database");
-                    return true;
-                }
+                return await _databaseService.DatabaseExistsAsync();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error loading database: {ex.Message}");
+                Debug.WriteLine($"SongManager: Error checking database existence: {ex.Message}");
+                return false;
             }
-
-            return false;
         }
 
         /// <summary>
-        /// Saves the songs database to file
+        /// Gets database statistics
         /// </summary>
-        public async Task<bool> SaveSongsDatabaseAsync(string databasePath)
+        public async Task<DatabaseStats?> GetDatabaseStatsAsync()
         {
+            if (_databaseService == null) return null;
+            
             try
             {
-                var data = new SongDatabaseData();
-                
-                lock (_lockObject)
-                {
-                    data.Scores.AddRange(_songsDatabase);
-                    data.RootNodes.AddRange(_rootSongs);
-                }
-
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                };
-
-                var json = JsonSerializer.Serialize(data, options);
-                await File.WriteAllTextAsync(databasePath, json);
-
-                Debug.WriteLine($"SongManager: Saved {data.Scores.Count} scores to database");
-                return true;
+                return await _databaseService.GetDatabaseStatsAsync();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error saving database: {ex.Message}");
-                return false;
+                Debug.WriteLine($"SongManager: Error getting database stats: {ex.Message}");
+                return null;
             }
         }
 
@@ -475,21 +444,19 @@ namespace DTX.Song
         {
             try
             {
-                var metadata = await _metadataParser.ParseMetadataAsync(filePath);
-                var songNode = SongListNode.CreateSongNode(metadata);
+                if (_databaseService == null) return null;
+                
+                var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+                
+                // Add song to EF Core database
+                var songId = await _databaseService.AddSongAsync(song, chart);
+                
+                // Create song node for UI hierarchy
+                var songNode = SongListNode.CreateSongNode(song, chart);
                 songNode.Parent = parent;
-
-                // Add scores to database
-                lock (_lockObject)
-                {
-                    foreach (var score in songNode.Scores)
-                    {
-                        if (score != null)
-                        {
-                            _songsDatabase.Add(score);
-                        }
-                    }
-                }
+                
+                // Store the database song ID for future reference
+                songNode.DatabaseSongId = songId;
 
                 return songNode;
             }
@@ -598,12 +565,28 @@ namespace DTX.Song
                 // Create song node if we have a title and difficulties
                 if (!string.IsNullOrEmpty(songTitle) && difficulties.Count > 0)
                 {
-                    var metadata = new SongMetadata
+                    // Create temporary song and chart entities for the set.def node
+                    var tempSong = new DTXMania.Game.Lib.Song.Entities.Song
                     {
                         Title = songTitle,
-                        FilePath = setDefPath
+                        Artist = "",
+                        Genre = "",
+                        Comment = "",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
                     };
-                    currentSong = SongListNode.CreateSongNode(metadata);
+                    
+                    var tempChart = new DTXMania.Game.Lib.Song.Entities.SongChart
+                    {
+                        FilePath = setDefPath,
+                        FileSize = 0,
+                        LastModified = DateTime.UtcNow,
+                        FileFormat = ".def",
+                        Bpm = 120.0,
+                        Duration = 0.0
+                    };
+                    
+                    currentSong = SongListNode.CreateSongNode(tempSong, tempChart);
                     currentSong.Parent = parent;
 
                     // Process each difficulty
@@ -617,30 +600,29 @@ namespace DTX.Song
                             var filePath = Path.Combine(directory, fileName);
                             if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
                             {
-                                var difficultyMetadata = await _metadataParser.ParseMetadataAsync(filePath);
+                                var (diffSong, diffChart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
 
                                 // Use the set.def title if the file doesn't have one
-                                if (string.IsNullOrEmpty(difficultyMetadata.Title))
+                                if (string.IsNullOrEmpty(diffSong.Title))
                                 {
-                                    difficultyMetadata.Title = songTitle;
+                                    diffSong.Title = songTitle;
                                 }
 
-                                var score = new SongScore
+                                // Add each difficulty to EF Core database if we have the database service
+                                if (_databaseService != null)
                                 {
-                                    Metadata = difficultyMetadata,
-                                    Instrument = "DRUMS", // Default to drums for DTX files
-                                    DifficultyLevel = difficultyMetadata.DrumLevel ?? level,
-                                    DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
-                                };
-                                currentSong.SetScore(level - 1, score); // Convert to 0-based index
-
-                                // Add to database
-                                lock (_lockObject)
-                                {
-                                    _songsDatabase.Add(score);
+                                    try
+                                    {
+                                        var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
+                                        currentSong.DatabaseSongId = songId;
+                                        
+                                        DiscoveredScoreCount++;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"SongManager: Error adding song to database: {ex.Message}");
+                                    }
                                 }
-
-                                DiscoveredScoreCount++;
                             }
                         }
                     }
@@ -760,66 +742,103 @@ namespace DTX.Song
 
         #endregion
 
+        #region EF Core Helper Methods
+
+        /// <summary>
+        /// Gets top scores for a specific instrument
+        /// </summary>
+        public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
+        {
+            if (_databaseService == null) return new List<SongScoreEntity>();
+            
+            try
+            {
+                return await _databaseService.GetTopScoresAsync(instrument, limit);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error getting top scores: {ex.Message}");
+                return new List<SongScoreEntity>();
+            }
+        }
+
+        /// <summary>
+        /// Updates a score for a specific chart and instrument
+        /// </summary>
+        public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, int newScore, double achievementRate, bool fullCombo)
+        {
+            if (_databaseService == null) return false;
+            
+            try
+            {
+                await _databaseService.UpdateScoreAsync(chartId, instrument, newScore, achievementRate, fullCombo);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error updating score: {ex.Message}");
+                return false;
+            }
+        }
+
+        #endregion
+
         #region Helper Methods
 
         /// <summary>
-        /// Finds a song by file path
+        /// Finds songs by search term
         /// </summary>
-        public SongScore? FindSongByPath(string filePath)
+        public async Task<List<SongEntity>> FindSongsBySearchAsync(string searchTerm)
         {
-            lock (_lockObject)
+            if (_databaseService == null) return new List<SongEntity>();
+            
+            try
             {
-                return _songsDatabase.FirstOrDefault(s => 
-                    s.Metadata.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+                return await _databaseService.SearchSongsAsync(searchTerm);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error searching songs: {ex.Message}");
+                return new List<SongEntity>();
             }
         }
 
         /// <summary>
         /// Gets songs by genre
         /// </summary>
-        public IEnumerable<SongScore> GetSongsByGenre(string genre)
+        public async Task<List<SongEntity>> GetSongsByGenreAsync(string genre)
         {
-            lock (_lockObject)
+            if (_databaseService == null) return new List<SongEntity>();
+            
+            try
             {
-                return _songsDatabase.Where(s =>
-                    s.Metadata.Genre.Equals(genre, StringComparison.OrdinalIgnoreCase)).ToList();
+                return await _databaseService.GetSongsByGenreAsync(genre);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error getting songs by genre: {ex.Message}");
+                return new List<SongEntity>();
             }
         }
 
         /// <summary>
-        /// Checks if enumeration is needed based on directory modification times
+        /// Checks if enumeration is needed based on database existence and directory modification times
         /// </summary>
         public async Task<bool> NeedsEnumerationAsync(string[] searchPaths)
         {
             try
             {
-                // Check if database exists
-                var databasePath = "songs.db";
-                if (!File.Exists(databasePath))
+                // Check if database service exists and is accessible
+                if (_databaseService == null || !await _databaseService.DatabaseExistsAsync())
                     return true;
 
-                // Get database last modified time
-                var dbLastModified = File.GetLastWriteTime(databasePath);
+                // If database has no songs, we need enumeration
+                var stats = await _databaseService.GetDatabaseStatsAsync();
+                if (stats.SongCount == 0)
+                    return true;
 
-                // Check if any search path has been modified since database was created
-                foreach (var searchPath in searchPaths)
-                {
-                    if (Directory.Exists(searchPath))
-                    {
-                        var dirLastModified = Directory.GetLastWriteTime(searchPath);
-                        if (dirLastModified > dbLastModified)
-                        {
-                            return true;
-                        }
-
-                        // Check subdirectories recursively (but limit depth for performance)
-                        if (await HasRecentChangesAsync(searchPath, dbLastModified, 3))
-                        {
-                            return true;
-                        }
-                    }
-                }
-
+                // For now, always enumerate if database exists but is empty
+                // Future enhancement: check directory modification times vs database timestamps
                 return false;
             }
             catch (Exception ex)
@@ -836,67 +855,19 @@ namespace DTX.Song
         {
             lock (_lockObject)
             {
-                _songsDatabase.Clear();
                 _rootSongs.Clear();
                 _isInitialized = false;
+                _databaseService = null;
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
         }
 
-        private async Task<bool> HasRecentChangesAsync(string directoryPath, DateTime lastCheck, int maxDepth)
-        {
-            if (maxDepth <= 0)
-                return false;
-
-            try
-            {
-                var directory = new DirectoryInfo(directoryPath);
-
-                // Check if directory itself was modified
-                if (directory.LastWriteTime > lastCheck)
-                    return true;
-
-                // Check files in directory
-                foreach (var file in directory.GetFiles())
-                {
-                    if (file.LastWriteTime > lastCheck)
-                    {
-                        return true;
-                    }
-                }
-
-                // Check subdirectories
-                foreach (var subDir in directory.GetDirectories())
-                {
-                    if (await HasRecentChangesAsync(subDir.FullName, lastCheck, maxDepth - 1))
-                        return true;
-                }
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error checking directory changes {directoryPath}: {ex.Message}");
-                return true; // Assume changes if we can't check
-            }
-        }
 
         #endregion
     }
 
     #region Supporting Classes
-
-    /// <summary>
-    /// Database serialization container
-    /// </summary>
-    public class SongDatabaseData
-    {
-        public List<SongScore> Scores { get; set; } = new();
-        public List<SongListNode> RootNodes { get; set; } = new();
-        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
-        public string Version { get; set; } = "1.0";
-    }
 
     /// <summary>
     /// Event args for song discovered event
