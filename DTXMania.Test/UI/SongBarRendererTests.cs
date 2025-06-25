@@ -88,13 +88,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateTitleTexture_WithNullSongNode_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GenerateTitleTexture(null);
 
@@ -105,13 +98,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateTitleTexture_WithoutFont_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GenerateTitleTexture(_testSongNode);
 
@@ -122,13 +108,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateTitleTexture_CalledTwice_ShouldReturnCachedTexture()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var font = CreateTestFont();
             _renderer.SetFont(font);
@@ -146,13 +125,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GeneratePreviewImageTexture_WithValidNode_ShouldAttemptLoad()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GeneratePreviewImageTexture(_testSongNode);
 
@@ -163,13 +135,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GeneratePreviewImageTexture_WithNullNode_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GeneratePreviewImageTexture(null);
 
@@ -180,13 +145,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GeneratePreviewImageTexture_WithNodeWithoutPreviewImage_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var nodeWithoutPreview = new SongListNode
             {
@@ -205,13 +163,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateClearLampTexture_WithScoreNode_ShouldReturnTexture()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GenerateClearLampTexture(_testSongNode, 0);
 
@@ -222,13 +173,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateClearLampTexture_WithNonScoreNode_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var boxNode = new SongListNode { Type = NodeType.Box, Title = "Test Box" };
 
@@ -242,13 +186,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GenerateClearLampTexture_WithNullNode_ShouldReturnNull()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GenerateClearLampTexture(null, 0);
 
@@ -264,13 +201,6 @@ namespace DTXMania.Test.UI
         [InlineData(4)]
         public void GenerateClearLampTexture_WithDifferentDifficulties_ShouldReturnTexture(int difficulty)
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act
             var texture = _renderer.GenerateClearLampTexture(_testSongNode, difficulty);
 
@@ -281,13 +211,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void ClearCache_ShouldClearAllCaches()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var font = CreateTestFont();
             _renderer.SetFont(font);
@@ -306,13 +229,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void SetFont_ShouldClearTitleCache()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var font1 = CreateTestFont();
             var font2 = CreateTestFont();
@@ -336,13 +252,6 @@ namespace DTXMania.Test.UI
         [InlineData(NodeType.Random)]
         public void GenerateTitleTexture_WithDifferentNodeTypes_ShouldGenerateAppropriateText(NodeType nodeType)
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Arrange
             var font = CreateTestFont();
             _renderer.SetFont(font);
@@ -365,13 +274,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Dispose_ShouldCleanupResources()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act & Assert - Should not throw
             _renderer.Dispose();
         }
@@ -379,13 +281,6 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Dispose_CalledMultipleTimes_ShouldNotThrow()
         {
-            // Skip test if renderer is null (no graphics device available)
-            if (_renderer == null)
-            {
-                Assert.True(true, "Skipped: No graphics device available for testing");
-                return;
-            }
-
             // Act & Assert - Should not throw
             _renderer.Dispose();
             _renderer.Dispose();

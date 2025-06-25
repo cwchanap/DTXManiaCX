@@ -4,15 +4,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Game.Lib.Song.Entities
-{    /// <summary>
+{
     /// Comprehensive service for managing the song database initialization and operations
     /// Provides both low-level database management and high-level CRUD operations
-    /// </summary>
     public class SongDatabaseService
     {
         private readonly string _databasePath;
@@ -21,22 +21,18 @@ namespace DTXMania.Game.Lib.Song.Entities
         public SongDatabaseService(string databasePath = "songs.db")
         {
             _databasePath = databasePath;
-            
+
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
             optionsBuilder.UseSqlite($"Data Source={_databasePath}");
             _options = optionsBuilder.Options;
         }
 
-        /// <summary>
+
         /// Initialize the database and ensure it exists
-        /// </summary>
         public async Task InitializeDatabaseAsync()
         {
             using var context = new SongDbContext(_options);
-            
-            // Ensure the database is created
-            await context.Database.EnsureCreatedAsync();
-            
+
             // Apply any pending migrations
             var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
             if (pendingMigrations.Any())
@@ -45,26 +41,23 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-        /// <summary>
+
         /// Create a new DbContext instance
-        /// </summary>
         public SongDbContext CreateContext()
         {
             return new SongDbContext(_options);
         }
 
-        /// <summary>
+
         /// Check if the database exists and is accessible
-        /// </summary>
         public async Task<bool> DatabaseExistsAsync()
         {
             using var context = new SongDbContext(_options);
             return await context.Database.CanConnectAsync();
         }
 
-        /// <summary>
+
         /// Get database file size in bytes
-        /// </summary>
         public long GetDatabaseSize()
         {
             if (File.Exists(_databasePath))
@@ -74,23 +67,21 @@ namespace DTXMania.Game.Lib.Song.Entities
             return 0;
         }
 
-        /// <summary>
+
         /// Reset the database (delete and recreate)
-        /// </summary>
         public async Task ResetDatabaseAsync()
         {
             using var context = new SongDbContext(_options);
-            
+
             // Delete the database
             await context.Database.EnsureDeletedAsync();
-            
+
             // Recreate it
             await context.Database.EnsureCreatedAsync();
         }
 
-        /// <summary>
+
         /// Backup the database to a specified path
-        /// </summary>
         public async Task BackupDatabaseAsync(string backupPath)
         {
             if (File.Exists(_databasePath))
@@ -103,9 +94,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-        /// <summary>
+
         /// Restore database from a backup
-        /// </summary>
         public async Task RestoreDatabaseAsync(string backupPath)
         {
             if (!File.Exists(backupPath))
@@ -121,13 +111,12 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // Copy backup over current database
             await Task.Run(() => File.Copy(backupPath, _databasePath, overwrite: true));
-        }        /// <summary>
+        }
         /// Get database statistics
-        /// </summary>
         public async Task<DatabaseStats> GetDatabaseStatsAsync()
         {
             using var context = new SongDbContext(_options);
-            
+
             var stats = new DatabaseStats
             {
                 SongCount = await context.Songs.CountAsync(),
@@ -141,9 +130,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             return stats;
         }
 
-        // Song Management Operations        /// <summary>
+        // Song Management Operations        
         /// Add a new song with charts and scores
-        /// </summary>
         public async Task<int> AddSongAsync(SongMetadata metadata)
         {
             using var context = CreateContext();
@@ -207,9 +195,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
 
             return song.Id;
-        }        /// <summary>
+        }
         /// Search songs by title or artist
-        /// </summary>
         public async Task<List<SongEntity>> SearchSongsAsync(string searchTerm)
         {
             using var context = CreateContext();
@@ -221,9 +208,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
-        /// <summary>
+
         /// Get songs by genre
-        /// </summary>
         public async Task<List<SongEntity>> GetSongsByGenreAsync(string genre)
         {
             using var context = CreateContext();
@@ -233,9 +219,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Include(s => s.Charts)
                 .OrderBy(s => s.Title)
                 .ToListAsync();
-        }        /// <summary>
+        }
         /// Update a song score
-        /// </summary>
         public async Task UpdateScoreAsync(int chartId, EInstrumentPart instrument, int newScore, double achievementRate, bool fullCombo)
         {
             using var context = CreateContext();
@@ -264,9 +249,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 await context.SaveChangesAsync();
             }
-        }        /// <summary>
+        }
         /// Get top scores for a specific instrument
-        /// </summary>
         public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
         {
             using var context = CreateContext();
@@ -280,9 +264,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
-        /// <summary>
+
         /// Create a folder in the hierarchy
-        /// </summary>
         public async Task<int> CreateFolderAsync(string title, string genre = "", int? parentId = null)
         {
             using var context = CreateContext();
@@ -305,9 +288,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             return folder.Id;
         }
 
-        /// <summary>
+
         /// Add a song to the hierarchy
-        /// </summary>
         public async Task AddSongToHierarchyAsync(int songId, int? parentId = null)
         {
             using var context = CreateContext();
@@ -332,9 +314,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             await context.SaveChangesAsync();
         }
 
-        // Private helper methods        /// <summary>
+        // Private helper methods        
         /// Add a chart for a song
-        /// </summary>
         private async Task AddChartAsync(SongDbContext context, int songId, EInstrumentPart instrument, int level, int noteCount, string filePath = "")
         {
             var chart = new SongChart
@@ -361,9 +342,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             await AddScoreRecordAsync(context, chart.Id, instrument);
         }
 
-        /// <summary>
+
         /// Add a score record for a chart
-        /// </summary>
         private async Task AddScoreRecordAsync(SongDbContext context, int chartId, EInstrumentPart instrument)
         {
             var score = new SongScoreEntity
@@ -393,7 +373,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             var maxOrder = await context.SongHierarchy
                 .Where(h => h.ParentId == parentId)
                 .MaxAsync(h => (int?)h.DisplayOrder) ?? 0;
-            
+
             return maxOrder + 1;
         }
 
@@ -411,14 +391,21 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         private string CalculateFileHash(string filePath)
         {
-            // Placeholder - implement actual MD5 hash calculation
-            return $"hash_{Path.GetFileName(filePath)}_{DateTime.UtcNow.Ticks}";
+            if (!File.Exists(filePath)) return string.Empty;
+
+            using (var md5 = MD5.Create())
+            {
+                using (var stream = File.OpenRead(filePath))
+                {
+                    var hash = md5.ComputeHash(stream);
+                    return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                }
+            }
         }
     }
 
-    /// <summary>
+
     /// Database statistics information
-    /// </summary>
     public class DatabaseStats
     {
         public int SongCount { get; set; }
@@ -427,7 +414,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         public int HierarchyNodeCount { get; set; }
         public int PerformanceHistoryCount { get; set; }
         public long DatabaseSizeBytes { get; set; }
-        
+
         public string FormattedSize => DatabaseSizeBytes switch
         {
             < 1024 => $"{DatabaseSizeBytes} B",

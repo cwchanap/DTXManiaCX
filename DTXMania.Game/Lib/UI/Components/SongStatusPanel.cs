@@ -241,6 +241,7 @@ namespace DTX.UI.Components
                 // Check if we need to regenerate the cached texture
                 if (_cachedBackgroundTexture == null || _cachedBackgroundSize != bounds)
                 {
+                    _cachedBackgroundTexture?.Dispose();
                     _cachedBackgroundTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
                     _cachedBackgroundSize = bounds;
                 }
