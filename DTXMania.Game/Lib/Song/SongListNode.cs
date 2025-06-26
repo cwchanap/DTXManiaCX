@@ -226,10 +226,16 @@ namespace DTX.Song
                 if (Type == NodeType.Random)
                     return "Random Select";
 
-                if (DatabaseSong != null)
-                    return DatabaseSong.DisplayTitle;
+                if (DatabaseSong != null && !string.IsNullOrEmpty(DatabaseSong.Title))
+                    return DatabaseSong.Title;
 
-                return "Unknown";
+                // Fall back to filename from chart if available
+                if (DatabaseChart != null && !string.IsNullOrEmpty(DatabaseChart.FilePath))
+                    return System.IO.Path.GetFileNameWithoutExtension(DatabaseChart.FilePath);
+
+                // If we have database entities, return "Unknown Song" (EF Core context)
+                // Otherwise return "Unknown" (legacy direct creation)
+                return (DatabaseSong != null || DatabaseChart != null) ? "Unknown Song" : "Unknown";
             }
         }
 
@@ -274,26 +280,57 @@ namespace DTX.Song
         /// </summary>
         public static SongListNode CreateSongNode(SongEntity song, SongChart chart)
         {
+            if (song == null)
+                throw new ArgumentNullException(nameof(song));
+            if (chart == null)
+                throw new ArgumentNullException(nameof(chart));
+
             var node = new SongListNode
             {
                 Type = NodeType.Score,
-                Title = song.DisplayTitle,
+                Title = song.Title, // Use raw title, not DisplayTitle to allow fallback logic to work
                 Genre = song.DisplayGenre,
                 DatabaseSong = song,
                 DatabaseChart = chart
             };
 
-            // Set difficulty labels based on available instruments
-            var instruments = song.AvailableInstruments;
-            for (int i = 0; i < Math.Min(instruments.Count, 5); i++)
+            // Set difficulty labels and scores based on chart data
+            int scoreIndex = 0;
+            
+            if (chart.HasDrumChart && chart.DrumLevel > 0)
             {
-                var instrument = instruments[i];
-                var difficultyLevel = song.GetDifficultyLevel(instrument);
-                
-                if (difficultyLevel.HasValue)
+                node.DifficultyLabels[scoreIndex] = $"DRUMS Lv.{chart.DrumLevel}";
+                node.Scores[scoreIndex] = new SongScore
                 {
-                    node.DifficultyLabels[i] = $"{instrument} Lv.{difficultyLevel.Value}";
-                }
+                    Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
+                    DifficultyLevel = chart.DrumLevel,
+                    DifficultyLabel = "DRUMS"
+                };
+                scoreIndex++;
+            }
+            
+            if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+            {
+                node.DifficultyLabels[scoreIndex] = $"GUITAR Lv.{chart.GuitarLevel}";
+                node.Scores[scoreIndex] = new SongScore
+                {
+                    Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
+                    DifficultyLevel = chart.GuitarLevel,
+                    DifficultyLabel = "GUITAR"
+                };
+                scoreIndex++;
+            }
+            
+            if (chart.HasBassChart && chart.BassLevel > 0)
+            {
+                node.DifficultyLabels[scoreIndex] = $"BASS Lv.{chart.BassLevel}";
+                node.Scores[scoreIndex] = new SongScore
+                {
+                    Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
+                    DifficultyLevel = chart.BassLevel,
+                    DifficultyLabel = "BASS"
+                };
+                scoreIndex++;
             }
 
             return node;

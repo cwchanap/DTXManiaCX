@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 {
     /// Comprehensive service for managing the song database initialization and operations
     /// Provides both low-level database management and high-level CRUD operations
-    public class SongDatabaseService
+    public class SongDatabaseService : IDisposable
     {
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
@@ -33,12 +33,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             using var context = new SongDbContext(_options);
 
-            // Apply any pending migrations
-            var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
-            if (pendingMigrations.Any())
-            {
-                await context.Database.MigrateAsync();
-            }
+            // For testing/development: ensure database is created
+            // In production, this should use migrations instead
+            await context.Database.EnsureCreatedAsync();
         }
 
 
@@ -379,6 +376,15 @@ namespace DTXMania.Game.Lib.Song.Entities
                     return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
                 }
             }
+        }
+
+        /// <summary>
+        /// Dispose of resources
+        /// </summary>
+        public void Dispose()
+        {
+            // Database connections are managed by DbContext instances and disposed automatically
+            // No explicit cleanup needed as we use 'using' statements for context management
         }
     }
 

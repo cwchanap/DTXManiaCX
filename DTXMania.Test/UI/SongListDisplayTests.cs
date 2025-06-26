@@ -7,6 +7,8 @@ using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System.Collections.Generic;
 using DTXMania.Test.Helpers;
+using DTXMania.Game.Lib.Song.Entities;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
 {
@@ -206,10 +208,10 @@ namespace DTXMania.Test.UI
                 Title = "Test Song",
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = new SongMetadata() }, // Difficulty 0
-                    new SongScore { Metadata = new SongMetadata() }, // Difficulty 1
+                    new SongScore { Instrument = EInstrumentPart.DRUMS }, // Difficulty 0
+                    new SongScore { Instrument = EInstrumentPart.GUITAR }, // Difficulty 1
                     null, // Difficulty 2 not available
-                    new SongScore { Metadata = new SongMetadata() }, // Difficulty 3
+                    new SongScore { Instrument = EInstrumentPart.BASS }, // Difficulty 3
                     null  // Difficulty 4 not available
                 }
             };

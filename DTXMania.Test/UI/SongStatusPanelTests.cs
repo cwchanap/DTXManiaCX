@@ -4,7 +4,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI.Components;
 using DTX.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.Helpers;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
 {
@@ -17,20 +19,26 @@ namespace DTXMania.Test.UI
         private readonly TestGraphicsDeviceService _graphicsDeviceService;
         private readonly SongStatusPanel _statusPanel;
         private readonly SongListNode _testSongNode;
-        private readonly SongMetadata _testMetadata;
+        private readonly DTXMania.Game.Lib.Song.Entities.Song _testSong;
+        private readonly SongChart _testChart;
 
         public SongStatusPanelTests()
         {
             _graphicsDeviceService = new TestGraphicsDeviceService();
             _statusPanel = new SongStatusPanel();
 
-            // Create test metadata with enhanced Phase 5 properties
-            _testMetadata = new SongMetadata
+            // Create test song and chart with enhanced Phase 5 properties
+            _testSong = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Test Song",
                 Artist = "Test Artist",
                 Genre = "Test Genre",
-                BPM = 120.0,
+                Comment = "Test comment"
+            };
+            
+            _testChart = new SongChart
+            {
+                Bpm = 120.0,
                 Duration = 180.5, // 3 minutes 0.5 seconds
                 DrumLevel = 85,
                 GuitarLevel = 78,
@@ -38,7 +46,9 @@ namespace DTXMania.Test.UI
                 DrumNoteCount = 1250,
                 GuitarNoteCount = 890,
                 BassNoteCount = 650,
-                Comment = "Test comment"
+                HasDrumChart = true,
+                HasGuitarChart = true,
+                HasBassChart = true
             };
 
             // Create test song node with scores
@@ -46,11 +56,13 @@ namespace DTXMania.Test.UI
             {
                 Type = NodeType.Score,
                 Title = "Test Song",
+                DatabaseSong = _testSong,
+                DatabaseChart = _testChart,
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = _testMetadata, Instrument = "DRUMS", DifficultyLevel = 85, BestScore = 950000, BestRank = 92, FullCombo = true, PlayCount = 15, HighSkill = 85.5 },
-                    new SongScore { Metadata = _testMetadata, Instrument = "GUITAR", DifficultyLevel = 78, BestScore = 890000, BestRank = 88, FullCombo = false, PlayCount = 8, HighSkill = 72.3 },
-                    new SongScore { Metadata = _testMetadata, Instrument = "BASS", DifficultyLevel = 65, BestScore = 820000, BestRank = 85, FullCombo = false, PlayCount = 5, HighSkill = 68.1 }
+                    new SongScore { Instrument = EInstrumentPart.DRUMS, DifficultyLevel = 85, BestScore = 950000, BestRank = 92, FullCombo = true, PlayCount = 15, HighSkill = 85.5 },
+                    new SongScore { Instrument = EInstrumentPart.GUITAR, DifficultyLevel = 78, BestScore = 890000, BestRank = 88, FullCombo = false, PlayCount = 8, HighSkill = 72.3 },
+                    new SongScore { Instrument = EInstrumentPart.BASS, DifficultyLevel = 65, BestScore = 820000, BestRank = 85, FullCombo = false, PlayCount = 5, HighSkill = 68.1 }
                 }
             };
         }
@@ -197,16 +209,18 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SongStatusPanel_WithEmptyMetadata_ShouldNotCrash()
+        public void SongStatusPanel_WithEmptyData_ShouldNotCrash()
         {
             // Arrange
             var emptyNode = new SongListNode
             {
                 Type = NodeType.Score,
                 Title = "Empty Song",
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song(),
+                DatabaseChart = new SongChart(),
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = new SongMetadata() }
+                    new SongScore()
                 }
             };
 
@@ -247,12 +261,16 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SongStatusPanel_WithEnhancedMetadata_ShouldDisplayDuration()
+        public void SongStatusPanel_WithEnhancedData_ShouldDisplayDuration()
         {
             // Arrange
-            var metadataWithDuration = new SongMetadata
+            var songWithDuration = new DTXMania.Game.Lib.Song.Entities.Song
             {
-                Title = "Duration Test",
+                Title = "Duration Test"
+            };
+            
+            var chartWithDuration = new SongChart
+            {
                 Duration = 125.0 // 2:05
             };
 
@@ -260,9 +278,11 @@ namespace DTXMania.Test.UI
             {
                 Type = NodeType.Score,
                 Title = "Duration Test",
+                DatabaseSong = songWithDuration,
+                DatabaseChart = chartWithDuration,
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = metadataWithDuration }
+                    new SongScore()
                 }
             };
 
@@ -274,9 +294,13 @@ namespace DTXMania.Test.UI
         public void SongStatusPanel_WithNoteCounts_ShouldDisplayNoteInformation()
         {
             // Arrange
-            var metadataWithNotes = new SongMetadata
+            var songWithNotes = new DTXMania.Game.Lib.Song.Entities.Song
             {
-                Title = "Note Count Test",
+                Title = "Note Count Test"
+            };
+            
+            var chartWithNotes = new SongChart
+            {
                 DrumNoteCount = 1500,
                 GuitarNoteCount = 1200,
                 BassNoteCount = 800
@@ -286,9 +310,11 @@ namespace DTXMania.Test.UI
             {
                 Type = NodeType.Score,
                 Title = "Note Count Test",
+                DatabaseSong = songWithNotes,
+                DatabaseChart = chartWithNotes,
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = metadataWithNotes }
+                    new SongScore()
                 }
             };
 
@@ -300,21 +326,32 @@ namespace DTXMania.Test.UI
         public void SongStatusPanel_WithPartialInstrumentData_ShouldHandleGracefully()
         {
             // Arrange - Only drums have data
-            var partialMetadata = new SongMetadata
+            var partialSong = new DTXMania.Game.Lib.Song.Entities.Song
             {
-                Title = "Partial Data Test",
+                Title = "Partial Data Test"
+            };
+            
+            var partialChart = new SongChart
+            {
                 DrumLevel = 90,
                 DrumNoteCount = 1800,
-                // Guitar and Bass levels/notes are null
+                HasDrumChart = true,
+                // Guitar and Bass levels/notes are 0/false
+                GuitarLevel = 0,
+                BassLevel = 0,
+                HasGuitarChart = false,
+                HasBassChart = false
             };
 
             var partialNode = new SongListNode
             {
                 Type = NodeType.Score,
                 Title = "Partial Data Test",
+                DatabaseSong = partialSong,
+                DatabaseChart = partialChart,
                 Scores = new SongScore[]
                 {
-                    new SongScore { Metadata = partialMetadata }
+                    new SongScore()
                 }
             };
 

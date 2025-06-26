@@ -11,21 +11,27 @@ using DTX.Song;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Unit tests for SET.def file parsing functionality    /// <summary>
     /// Unit tests for SET.def file parsing functionality
     /// Tests the fixed SET.def parser that handles DTXMania format correctly
     /// </summary>
+    [Collection("SongManager")]
     public class SetDefParserTests : IDisposable
     {
         #region Test Setup
 
         private readonly SongManager _songManager;
         private readonly List<string> _tempFiles;
+        private readonly string _testDbPath;
 
         public SetDefParserTests()
         {
+            // Reset singleton instance completely for each test
+            SongManager.ResetInstanceForTesting();
             _songManager = SongManager.Instance;
             _tempFiles = new List<string>();
+            
+            // Use unique database path for each test instance
+            _testDbPath = Path.Combine(Path.GetTempPath(), $"test_setdef_{Guid.NewGuid()}.db");
         }
 
         public void Dispose()
@@ -44,7 +50,21 @@ namespace DTXMania.Test.Song
                 }
             }
 
-            // SongManager doesn't implement IDisposable
+            // Clean up test database file
+            if (File.Exists(_testDbPath))
+            {
+                try
+                {
+                    File.Delete(_testDbPath);
+                }
+                catch
+                {
+                    // Ignore errors during cleanup
+                }
+            }
+            
+            // Clear SongManager state
+            _songManager?.Clear();
         }
 
         private string CreateTempFile(string content, Encoding? encoding = null)
@@ -89,18 +109,27 @@ namespace DTXMania.Test.Song
             var advPath = Path.Combine(tempDir, "adv.dtx");
             var extPath = Path.Combine(tempDir, "ext.dtx");
             
-            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120", Encoding.UTF8);
-            File.WriteAllText(advPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120", Encoding.UTF8);
-            File.WriteAllText(extPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120", Encoding.UTF8);
+            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120\n#DLEVEL: 30", Encoding.UTF8);
+            File.WriteAllText(advPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120\n#DLEVEL: 60", Encoding.UTF8);
+            File.WriteAllText(extPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#BPM: 120\n#DLEVEL: 90", Encoding.UTF8);
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
                 // Assert
-                Assert.True(_songManager.DatabaseScoreCount > 0);
+                var dbScoreCount = _songManager.DatabaseScoreCount;
+                var discoveredCount = _songManager.DiscoveredScoreCount;
                 var rootSongs = _songManager.RootSongs;
+                
+                // Debug output
+                System.Console.WriteLine($"DatabaseScoreCount: {dbScoreCount}, DiscoveredScoreCount: {discoveredCount}, RootSongs: {rootSongs.Count}");
+                
+                Assert.True(dbScoreCount > 0, $"DatabaseScoreCount was {dbScoreCount}, DiscoveredScoreCount was {discoveredCount}");
                 Assert.NotEmpty(rootSongs);
 
                 var song = rootSongs.FirstOrDefault(s => s.Type == NodeType.Score);
@@ -129,10 +158,13 @@ namespace DTXMania.Test.Song
 
             // Create dummy DTX file
             var basPath = Path.Combine(tempDir, "bas.dtx");
-            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist", Encoding.UTF8);
+            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 30", Encoding.UTF8);
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -174,10 +206,13 @@ namespace DTXMania.Test.Song
 
             // Create dummy DTX file
             var basPath = Path.Combine(tempDir, "bas.dtx");
-            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist", Encoding.UTF8);
+            File.WriteAllText(basPath, "#TITLE: Test Song\n#ARTIST: Test Artist\n#DLEVEL: 30", Encoding.UTF8);
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -225,6 +260,9 @@ namespace DTXMania.Test.Song
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -299,6 +337,9 @@ namespace DTXMania.Test.Song
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -363,6 +404,9 @@ INVALID LINE WITHOUT HASH
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -404,6 +448,9 @@ INVALID LINE WITHOUT HASH
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
@@ -443,6 +490,9 @@ INVALID LINE WITHOUT HASH
 
             try
             {
+                // Initialize database service first
+                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 

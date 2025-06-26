@@ -6,11 +6,13 @@ using DTX.Song;
 using DTX.Resources;
 using DTXMania.Test.Helpers;
 using System;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Test.UI
-{    /// <summary>
-     /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
-     /// </summary>
+{
+    /// <summary>
+    /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
+    /// </summary>
     public class SongBarRendererTests : IDisposable
     {
         private readonly MockResourceManager _resourceManager;
@@ -23,40 +25,45 @@ namespace DTXMania.Test.UI
             _graphicsService = new TestGraphicsDeviceService();
             _resourceManager = new MockResourceManager(_graphicsService.GraphicsDevice);
 
+            // Create test song and chart
+            var testSong = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Test Song",
+                Artist = "Test Artist",
+                Genre = "Test Genre"
+            };
+
+            var testChart = new SongChart
+            {
+                FilePath = "test.dtx",
+                BPM = 120.0,
+                DrumLevel = 85,
+                PreviewImage = "preview.png"
+            };
+
             // Create test song node
             _testSongNode = new SongListNode
             {
                 Type = NodeType.Score,
                 Title = "Test Song",
-                Metadata = new SongMetadata
-                {
-                    Title = "Test Song",
-                    Artist = "Test Artist",
-                    BPM = 120.0,
-                    DrumLevel = 85,
-                    PreviewImage = "preview.png"
-                },
+                DatabaseSong = testSong,
+                DatabaseChart = testChart,
                 Scores =
                 [
                     new SongScore
                     {
-                        Metadata = new SongMetadata { FilePath = "test.dtx" },
+                        Instrument = EInstrumentPart.DRUMS,
                         BestScore = 950000,
                         BestRank = 85,
                         FullCombo = true,
                         PlayCount = 5
                     }
                 ]
-            };            // Create renderer with test render target
-            if (_graphicsService.GraphicsDevice != null)
-            {
-                var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
-                _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, sharedRT);
-            }
-            else
-            {
-                _renderer = null;
-            }
+            };
+
+            var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
+            _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, sharedRT);
+
         }
         [Fact]
         public void Constructor_WithNullGraphicsDevice_ShouldThrow()
@@ -150,7 +157,8 @@ namespace DTXMania.Test.UI
             {
                 Type = NodeType.Score,
                 Title = "No Preview Song",
-                Metadata = new SongMetadata { Title = "No Preview Song" }
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song { Title = "No Preview Song" },
+                DatabaseChart = new SongChart()
             };
 
             // Act

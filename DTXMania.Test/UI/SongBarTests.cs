@@ -5,6 +5,8 @@ using DTX.UI.Components;
 using DTX.Song;
 using DTX.Resources;
 using DTXMania.Test.Helpers;
+using DTXMania.Game.Lib.Song.Entities;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
 {
@@ -19,23 +21,33 @@ namespace DTXMania.Test.UI
         public SongBarTests()
         {
 
+            // Create test song and chart
+            var testSong = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Test Song",
+                Artist = "Test Artist",
+                Genre = "Test Genre"
+            };
+            
+            var testChart = new SongChart
+            {
+                FilePath = "test.dtx",
+                BPM = 120.0,
+                DrumLevel = 85
+            };
+            
             // Create test song node
             _testSongNode = new SongListNode
             {
                 Type = NodeType.Score,
                 Title = "Test Song",
-                Metadata = new SongMetadata
-                {
-                    Title = "Test Song",
-                    Artist = "Test Artist",
-                    BPM = 120.0,
-                    DrumLevel = 85
-                },
+                DatabaseSong = testSong,
+                DatabaseChart = testChart,
                 Scores = new SongScore[]
                 {
                     new SongScore
                     {
-                        Metadata = new SongMetadata { FilePath = "test.dtx" },
+                        Instrument = EInstrumentPart.DRUMS,
                         BestScore = 950000,
                         BestRank = 85,
                         FullCombo = true,

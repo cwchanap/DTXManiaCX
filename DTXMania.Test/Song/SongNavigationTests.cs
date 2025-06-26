@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 using DTX.Song;
+using DTXMania.Game.Lib.Song.Entities;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Song
 {
@@ -26,13 +28,19 @@ namespace DTXMania.Test.Song
 
         private SongListNode CreateTestSongNode(string title, string artist = "Test Artist")
         {
-            var metadata = new SongMetadata
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = title,
                 Artist = artist,
+                Genre = "Test Genre"
+            };
+            
+            var chart = new SongChart
+            {
                 FilePath = $"test_{title.ToLower().Replace(" ", "_")}.dtx"
             };
-            return SongListNode.CreateSongNode(metadata);
+            
+            return SongListNode.CreateSongNode(song, chart);
         }
 
         private SongListNode CreateTestBoxNode(string title, List<SongListNode>? children = null)
@@ -57,30 +65,35 @@ namespace DTXMania.Test.Song
         public void CreateSongNode_WithValidMetadata_CreatesCorrectNode()
         {
             // Arrange
-            var metadata = new SongMetadata
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Test Song",
                 Artist = "Test Artist",
+                Genre = "Test Genre"
+            };
+            
+            var chart = new SongChart
+            {
                 FilePath = "test.dtx"
             };
 
             // Act
-            var node = SongListNode.CreateSongNode(metadata);
+            var node = SongListNode.CreateSongNode(song, chart);
 
             // Assert
             Assert.Equal(NodeType.Score, node.Type);
             Assert.Equal("Test Song", node.DisplayTitle);
-            Assert.Equal(metadata, node.Metadata);
+            Assert.Equal(song, node.DatabaseSong);
             Assert.NotNull(node.Scores);
             Assert.Equal(0, node.AvailableDifficulties);
         }
 
         [Fact]
-        public void CreateSongNode_WithNullMetadata_ThrowsNullReferenceException()
+        public void CreateSongNode_WithNullMetadata_ThrowsArgumentNullException()
         {
             // Arrange, Act & Assert
-            // The actual implementation throws NullReferenceException, not ArgumentNullException
-            Assert.Throws<NullReferenceException>(() => SongListNode.CreateSongNode(null));
+            // The implementation should throw ArgumentNullException for null parameters
+            Assert.Throws<ArgumentNullException>(() => SongListNode.CreateSongNode(null, null));
         }
 
         [Fact]
@@ -193,10 +206,9 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var node = CreateTestSongNode("Test Song");
-            var metadata = new SongMetadata { Title = "Test", FilePath = "test.dtx" };
             var score = new SongScore
             {
-                Metadata = metadata,
+                Instrument = EInstrumentPart.DRUMS,
                 DifficultyLevel = 3,
                 DifficultyLabel = "Advanced"
             };
@@ -216,7 +228,7 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var node = CreateTestSongNode("Test Song");
-            var score = new SongScore();
+            var score = new SongScore { Instrument = EInstrumentPart.DRUMS };
 
             // Act & Assert
             // The actual implementation doesn't validate ranges, it handles them gracefully
@@ -225,14 +237,17 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetScore_WithNullScore_ThrowsNullReferenceException()
+        public void SetScore_WithNullScore_SetsNullGracefully()
         {
             // Arrange
             var node = CreateTestSongNode("Test Song");
 
-            // Act & Assert
-            // The actual implementation throws NullReferenceException, not ArgumentNullException
-            Assert.Throws<NullReferenceException>(() => node.SetScore(0, null));
+            // Act
+            node.SetScore(0, null);
+
+            // Assert
+            Assert.Null(node.Scores[0]);
+            Assert.Equal(0, node.AvailableDifficulties);
         }
 
         [Fact]
@@ -242,9 +257,9 @@ namespace DTXMania.Test.Song
             var node = CreateTestSongNode("Multi Difficulty Song");
             var scores = new[]
             {
-                new SongScore { DifficultyLabel = "Basic", DifficultyLevel = 1 },
-                new SongScore { DifficultyLabel = "Advanced", DifficultyLevel = 3 },
-                new SongScore { DifficultyLabel = "Expert", DifficultyLevel = 5 }
+                new SongScore { Instrument = EInstrumentPart.DRUMS, DifficultyLabel = "Basic", DifficultyLevel = 1 },
+                new SongScore { Instrument = EInstrumentPart.GUITAR, DifficultyLabel = "Advanced", DifficultyLevel = 3 },
+                new SongScore { Instrument = EInstrumentPart.BASS, DifficultyLabel = "Expert", DifficultyLevel = 5 }
             };
 
             // Act
@@ -309,7 +324,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void DisplayTitle_WithEmptyTitle_ReturnsUnknownSong()
+        public void DisplayTitle_WithEmptyTitle_ReturnsFilename()
         {
             // Arrange
             var node = CreateTestSongNode("");
@@ -318,7 +333,7 @@ namespace DTXMania.Test.Song
             var displayTitle = node.DisplayTitle;
 
             // Assert
-            // The actual implementation shows "Unknown Song" for empty titles, not the filename
+            // When song title is empty, DisplayTitle should fall back to filename from chart
             Assert.Contains("test_", displayTitle); // Should contain the generated filename
         }
 
@@ -398,15 +413,20 @@ namespace DTXMania.Test.Song
         public void SongNode_WithEmptyMetadata_HandlesGracefully()
         {
             // Arrange
-            var metadata = new SongMetadata
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "",
                 Artist = "",
+                Genre = ""
+            };
+            
+            var chart = new SongChart
+            {
                 FilePath = ""
             };
 
             // Act
-            var node = SongListNode.CreateSongNode(metadata);
+            var node = SongListNode.CreateSongNode(song, chart);
 
             // Assert
             Assert.Equal(NodeType.Score, node.Type);
@@ -437,6 +457,7 @@ namespace DTXMania.Test.Song
             {
                 var score = new SongScore
                 {
+                    Instrument = EInstrumentPart.DRUMS,
                     DifficultyLabel = $"Level {i + 1}",
                     DifficultyLevel = i + 1
                 };

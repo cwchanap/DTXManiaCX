@@ -1,6 +1,10 @@
 using System;
 using DTX.Song;
 using Xunit;
+using DTXMania.Game.Lib.Song.Entities;
+
+// Type alias for EF Core entity
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Song
 {
@@ -19,15 +23,14 @@ namespace DTXMania.Test.Song
             var score = new SongScore();
 
             // Assert
-            Assert.NotNull(score.Metadata);
-            Assert.Equal("", score.Instrument);
+            Assert.Equal(EInstrumentPart.DRUMS, score.Instrument); // Default to DRUMS
             Assert.Equal(0, score.DifficultyLevel);
             Assert.Equal("", score.DifficultyLabel);
             Assert.Equal(0, score.BestScore);
             Assert.Equal(0, score.BestRank);
             Assert.False(score.FullCombo);
             Assert.Equal(0, score.PlayCount);
-            Assert.Null(score.LastPlayed);
+            Assert.Null(score.LastPlayedAt);
             Assert.Equal(0, score.HighSkill);
             Assert.Equal(0, score.SongSkill);
             Assert.Equal(0, score.TotalNotes);
@@ -43,12 +46,12 @@ namespace DTXMania.Test.Song
             var score = new SongScore();
 
             // Act
-            score.Instrument = instrument;
+            score.Instrument = Enum.Parse<EInstrumentPart>(instrument);
             score.DifficultyLevel = difficultyLevel;
             score.DifficultyLabel = difficultyLabel;
 
             // Assert
-            Assert.Equal(instrument, score.Instrument);
+            Assert.Equal(Enum.Parse<EInstrumentPart>(instrument), score.Instrument);
             Assert.Equal(difficultyLevel, score.DifficultyLevel);
             Assert.Equal(difficultyLabel, score.DifficultyLabel);
         }
@@ -131,7 +134,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(900000, score.BestScore);
             Assert.Equal(2, score.BestRank);
             Assert.Equal(6, score.PlayCount);
-            Assert.NotNull(score.LastPlayed);
+            Assert.NotNull(score.LastPlayedAt);
             Assert.True(score.IsNewRecord);
         }
 
@@ -154,7 +157,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(900000, score.BestScore); // Should not change
             Assert.Equal(2, score.BestRank); // Should not change
             Assert.Equal(6, score.PlayCount); // Should increment
-            Assert.NotNull(score.LastPlayed);
+            Assert.NotNull(score.LastPlayedAt);
             Assert.False(score.IsNewRecord);
         }
 
@@ -249,18 +252,16 @@ namespace DTXMania.Test.Song
         public void Clone_ShouldCreateDeepCopy()
         {
             // Arrange
-            var metadata = new SongMetadata { Title = "Test Song" };
             var original = new SongScore
             {
-                Metadata = metadata,
-                Instrument = "DRUMS",
+                Instrument = EInstrumentPart.DRUMS,
                 DifficultyLevel = 85,
                 DifficultyLabel = "EXTREME",
                 BestScore = 950000,
                 BestRank = 1,
                 FullCombo = true,
                 PlayCount = 10,
-                LastPlayed = DateTime.Now,
+                LastPlayedAt = DateTime.Now,
                 HighSkill = 80.75,
                 SongSkill = 80.75,
                 TotalNotes = 1000,
@@ -277,7 +278,6 @@ namespace DTXMania.Test.Song
 
             // Assert
             Assert.NotSame(original, clone);
-            Assert.NotSame(original.Metadata, clone.Metadata);
             Assert.Equal(original.Instrument, clone.Instrument);
             Assert.Equal(original.DifficultyLevel, clone.DifficultyLevel);
             Assert.Equal(original.DifficultyLabel, clone.DifficultyLabel);
@@ -285,7 +285,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(original.BestRank, clone.BestRank);
             Assert.Equal(original.FullCombo, clone.FullCombo);
             Assert.Equal(original.PlayCount, clone.PlayCount);
-            Assert.Equal(original.LastPlayed, clone.LastPlayed);
+            Assert.Equal(original.LastPlayedAt, clone.LastPlayedAt);
             Assert.Equal(original.HighSkill, clone.HighSkill);
             Assert.Equal(original.SongSkill, clone.SongSkill);
             Assert.Equal(original.TotalNotes, clone.TotalNotes);
@@ -306,12 +306,10 @@ namespace DTXMania.Test.Song
 
             // Act
             clone.BestScore = 900000;
-            clone.Metadata.Title = "Modified Title";
 
             // Assert
             Assert.Equal(800000, original.BestScore);
             Assert.Equal(900000, clone.BestScore);
-            Assert.NotEqual(original.Metadata.Title, clone.Metadata.Title);
         }
 
         #endregion
