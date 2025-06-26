@@ -371,10 +371,7 @@ namespace DTX.UI.Components
             // Duration
             if (chart?.Duration > 0)
             {
-                var duration = TimeSpan.FromSeconds(chart.Duration);
-                var formattedDuration = duration.TotalHours >= 1 
-                    ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
-                    : $"{duration.Minutes}:{duration.Seconds:D2}";
+                var formattedDuration = FormatDuration(chart.Duration);
                 DrawLabelValue(spriteBatch, "Duration:", formattedDuration, x, y);
                 y += LINE_HEIGHT;
             }
@@ -514,10 +511,7 @@ namespace DTX.UI.Components
             // Duration display at X:132, Y:268
             if (chart.Duration > 0)
             {
-                var duration = TimeSpan.FromSeconds(chart.Duration);
-                var formattedDuration = duration.TotalHours >= 1 
-                    ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
-                    : $"{duration.Minutes}:{duration.Seconds:D2}";
+                var formattedDuration = FormatDuration(chart.Duration);
                 var durationText = $"Length: {formattedDuration}";
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(132, 268), DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
@@ -867,15 +861,31 @@ namespace DTX.UI.Components
 
         private string GetDifficultyLevel(SongScore score, int difficulty)
         {
-            // Get level from EF Core chart
-            var chart = _currentSong?.DatabaseChart;
-            if (chart != null)
+            // First, try to use the score's instrument type property if available
+            if (score != null)
+            {
+                var chart = score.Chart ?? _currentSong?.DatabaseChart;
+                if (chart != null)
+                {
+                    return score.Instrument switch
+                    {
+                        EInstrumentPart.DRUMS => chart.DrumLevel.ToString(),
+                        EInstrumentPart.GUITAR => chart.GuitarLevel.ToString(),
+                        EInstrumentPart.BASS => chart.BassLevel.ToString(),
+                        _ => "??"
+                    };
+                }
+            }
+            
+            // Fallback to chart-based lookup using difficulty index if score instrument is not available
+            var fallbackChart = _currentSong?.DatabaseChart;
+            if (fallbackChart != null)
             {
                 return difficulty switch
                 {
-                    0 => chart.DrumLevel.ToString(),
-                    1 => chart.GuitarLevel.ToString(),
-                    2 => chart.BassLevel.ToString(),
+                    0 => fallbackChart.DrumLevel.ToString(),
+                    1 => fallbackChart.GuitarLevel.ToString(),
+                    2 => fallbackChart.BassLevel.ToString(),
                     3 => "??", // Master level not implemented yet
                     4 => "??", // Ultimate level not implemented yet
                     _ => "??"
@@ -994,7 +1004,22 @@ namespace DTX.UI.Components
                 4 => Color.Purple,    // P
                 5 => Color.Orange,    // Pick
                 _ => Color.White
-            };        }
+            };
+        }
+
+        /// <summary>
+        /// Formats a duration in seconds to a human-readable string format.
+        /// Returns format "M:SS" for durations under 1 hour, "H:MM:SS" for durations 1 hour or longer.
+        /// </summary>
+        /// <param name="durationInSeconds">Duration in seconds to format</param>
+        /// <returns>Formatted duration string</returns>
+        private string FormatDuration(double durationInSeconds)
+        {
+            var duration = TimeSpan.FromSeconds(durationInSeconds);
+            return duration.TotalHours >= 1 
+                ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
+                : $"{duration.Minutes}:{duration.Seconds:D2}";
+        }
 
         #endregion
     }

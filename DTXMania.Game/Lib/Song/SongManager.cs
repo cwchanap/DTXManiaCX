@@ -113,20 +113,17 @@ namespace DTX.Song
         /// <summary>
         /// Number of scores in the database
         /// </summary>
-        public int DatabaseScoreCount
+        public async Task<int> GetDatabaseScoreCountAsync()
         {
-            get
+            if (_databaseService == null) return 0;
+            try
             {
-                if (_databaseService == null) return 0;
-                try
-                {
-                    var stats = _databaseService.GetDatabaseStatsAsync().Result;
-                    return stats.ScoreCount;
-                }
-                catch
-                {
-                    return 0;
-                }
+                var stats = await _databaseService.GetDatabaseStatsAsync();
+                return stats.ScoreCount;
+            }
+            catch
+            {
+                return 0;
             }
         }
 
@@ -190,7 +187,7 @@ namespace DTX.Song
                 await _databaseService.InitializeDatabaseAsync();
                 
                 // Check if enumeration is needed
-                bool needsEnumeration = DatabaseScoreCount == 0 || await NeedsEnumerationAsync(searchPaths);
+                bool needsEnumeration = await GetDatabaseScoreCountAsync() == 0 || await NeedsEnumerationAsync(searchPaths);
                 
                 if (needsEnumeration)
                 {
@@ -203,7 +200,7 @@ namespace DTX.Song
                     _isInitialized = true;
                 }
 
-                Debug.WriteLine($"SongManager: Initialization complete. {DatabaseScoreCount} songs loaded.");
+                Debug.WriteLine($"SongManager: Initialization complete. {await GetDatabaseScoreCountAsync()} songs loaded.");
                 return true;
             }
             catch (Exception ex)

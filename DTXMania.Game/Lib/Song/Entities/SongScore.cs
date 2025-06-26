@@ -313,6 +313,8 @@ namespace DTXMania.Game.Lib.Song.Entities
             return new SongScore
             {
                 // Legacy metadata no longer cloned - using EF Core relationships,
+                ChartId = ChartId,
+                Chart = Chart,
                 Instrument = Instrument,
                 DifficultyLevel = DifficultyLevel,
                 DifficultyLabel = DifficultyLabel,

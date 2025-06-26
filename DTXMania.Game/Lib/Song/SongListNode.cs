@@ -156,7 +156,8 @@ namespace DTX.Song
                 for (int i = 0; i < Math.Min(availableInstruments.Count, 5); i++)
                 {
                     var instrument = availableInstruments[i];
-                    var difficultyLevel = DatabaseSong?.GetDifficultyLevel(instrument);
+                    var firstChart = DatabaseSong?.Charts?.FirstOrDefault();
+                    var difficultyLevel = firstChart?.GetDifficultyLevel(instrument);
                     
                     if (difficultyLevel.HasValue)
                     {

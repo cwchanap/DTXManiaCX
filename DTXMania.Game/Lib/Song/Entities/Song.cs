@@ -35,7 +35,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         
         /// <summary>
         /// Gets display title (falls back to filename if title is empty)
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public string DisplayTitle
@@ -56,21 +55,18 @@ namespace DTXMania.Game.Lib.Song.Entities
         
         /// <summary>
         /// Gets display artist (falls back to "Unknown" if empty)
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public string DisplayArtist => string.IsNullOrEmpty(Artist) ? "Unknown Artist" : Artist;
         
         /// <summary>
         /// Gets display genre (falls back to "Unknown" if empty)
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public string DisplayGenre => string.IsNullOrEmpty(Genre) ? "Unknown Genre" : Genre;
         
         /// <summary>
         /// Gets the highest difficulty level across all charts
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public int MaxDifficultyLevel
@@ -96,7 +92,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         
         /// <summary>
         /// Gets available instruments based on charts
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public List<string> AvailableInstruments
@@ -123,7 +118,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         
         /// <summary>
         /// Creates a copy of this song metadata
-        /// Legacy compatibility from SongMetadata
         /// </summary>
         public Song Clone()
         {
@@ -137,95 +131,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 UpdatedAt = UpdatedAt
                 // Note: Charts are not cloned to avoid deep copy complexity
             };
-        }
-        
-        /// <summary>
-        /// Gets difficulty level for specified instrument from first available chart
-        /// Legacy compatibility from SongMetadata
-        /// </summary>
-        public int? GetDifficultyLevel(string instrument)
-        {
-            if (string.IsNullOrEmpty(instrument) || Charts == null || !Charts.Any())
-                return null;
-            
-            var firstChart = Charts.First();
-            return instrument.ToUpperInvariant() switch
-            {
-                "DRUMS" => firstChart.DrumLevel > 0 ? firstChart.DrumLevel : null,
-                "GUITAR" => firstChart.GuitarLevel > 0 ? firstChart.GuitarLevel : null,
-                "BASS" => firstChart.BassLevel > 0 ? firstChart.BassLevel : null,
-                _ => null
-            };
-        }
-        
-        /// <summary>
-        /// Sets difficulty level for specified instrument on first chart
-        /// Legacy compatibility from SongMetadata
-        /// </summary>
-        public void SetDifficultyLevel(string instrument, int level)
-        {
-            if (Charts == null || !Charts.Any())
-                return;
-            
-            var firstChart = Charts.First();
-            switch (instrument.ToUpperInvariant())
-            {
-                case "DRUMS":
-                    firstChart.DrumLevel = level;
-                    firstChart.HasDrumChart = level > 0;
-                    break;
-                case "GUITAR":
-                    firstChart.GuitarLevel = level;
-                    firstChart.HasGuitarChart = level > 0;
-                    break;
-                case "BASS":
-                    firstChart.BassLevel = level;
-                    firstChart.HasBassChart = level > 0;
-                    break;
-            }
-        }
-        
-        /// <summary>
-        /// Gets note count for specified instrument from first available chart
-        /// Legacy compatibility from SongMetadata
-        /// </summary>
-        public int? GetNoteCount(string instrument)
-        {
-            if (string.IsNullOrEmpty(instrument) || Charts == null || !Charts.Any())
-                return null;
-            
-            var firstChart = Charts.First();
-            return instrument.ToUpperInvariant() switch
-            {
-                "DRUMS" => firstChart.DrumNoteCount > 0 ? firstChart.DrumNoteCount : null,
-                "GUITAR" => firstChart.GuitarNoteCount > 0 ? firstChart.GuitarNoteCount : null,
-                "BASS" => firstChart.BassNoteCount > 0 ? firstChart.BassNoteCount : null,
-                _ => null
-            };
-        }
-        
-        /// <summary>
-        /// Sets note count for specified instrument on first chart
-        /// Legacy compatibility from SongMetadata
-        /// </summary>
-        public void SetNoteCount(string instrument, int count)
-        {
-            if (Charts == null || !Charts.Any())
-                return;
-            
-            var firstChart = Charts.First();
-            switch (instrument.ToUpperInvariant())
-            {
-                case "DRUMS":
-                    firstChart.DrumNoteCount = count;
-                    break;
-                case "GUITAR":
-                    firstChart.GuitarNoteCount = count;
-                    break;
-                case "BASS":
-                    firstChart.BassNoteCount = count;
-                    break;
-            }
         }
         
         #endregion
