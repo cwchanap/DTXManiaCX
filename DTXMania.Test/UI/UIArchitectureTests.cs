@@ -1,4 +1,4 @@
-using Xunit;
+using Moq;
 using DTX.UI;
 using DTX.UI.Components;
 using DTX.Song;
@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using System;
 using DTXMania.Game.Lib.Song.Entities;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Test.UI
 {
@@ -158,7 +159,8 @@ namespace DTXMania.Test.UI
         public void UIButton_ClickEvent_FiresCorrectly()
         {
             // Arrange
-            var button = new UIButton("Test Button")
+            var mockResourceManager = new Mock<IResourceManager>();
+            var button = new UIButton(mockResourceManager.Object, "Test Button")
             {
                 Position = new Vector2(0, 0),
                 Size = new Vector2(100, 50),
@@ -179,7 +181,8 @@ namespace DTXMania.Test.UI
         public void UIButton_Properties_SetCorrectly()
         {
             // Arrange & Act
-            var button = new UIButton("Test Text");
+            var mockResourceManager = new Mock<IResourceManager>();
+            var button = new UIButton(mockResourceManager.Object, "Test Text");
 
             // Assert
             Assert.Equal("Test Text", button.Text);
@@ -288,7 +291,8 @@ namespace DTXMania.Test.UI
         public void UIButton_StateManagement_WorksCorrectly()
         {
             // Arrange
-            var button = new UIButton("Test Button");
+            var mockResourceManager = new Mock<IResourceManager>();
+            var button = new UIButton(mockResourceManager.Object, "Test Button");
             button.Activate(); // Need to activate for state management to work
             button.Enabled = true;
 
@@ -306,7 +310,8 @@ namespace DTXMania.Test.UI
         public void UIButton_StateAppearances_ConfigureCorrectly()
         {
             // Arrange
-            var button = new UIButton("Test Button");
+            var mockResourceManager = new Mock<IResourceManager>();
+            var button = new UIButton(mockResourceManager.Object, "Test Button");
 
             // Act
             button.IdleAppearance.BackgroundColor = Color.Blue;
