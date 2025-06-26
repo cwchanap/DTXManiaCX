@@ -1,7 +1,9 @@
 using System.Linq;
 using DTX.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework;
 using Xunit;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Song
 {
@@ -47,24 +49,32 @@ namespace DTXMania.Test.Song
         public void CreateSongNode_ShouldCreateCorrectNode()
         {
             // Arrange
-            var metadata = new SongMetadata
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Test Song",
                 Artist = "Test Artist",
-                Genre = "Rock",
+                Genre = "Rock"
+            };
+            
+            var chart = new SongChart
+            {
                 DrumLevel = 85,
                 GuitarLevel = 78,
-                BassLevel = 65
+                BassLevel = 65,
+                HasDrumChart = true,
+                HasGuitarChart = true,
+                HasBassChart = true
             };
 
             // Act
-            var node = SongListNode.CreateSongNode(metadata);
+            var node = SongListNode.CreateSongNode(song, chart);
 
             // Assert
             Assert.Equal(NodeType.Score, node.Type);
             Assert.Equal("Test Song", node.Title);
             Assert.Equal("Rock", node.Genre);
-            Assert.Same(metadata, node.Metadata);
+            Assert.Same(song, node.DatabaseSong);
+            Assert.Same(chart, node.DatabaseChart);
             Assert.True(node.HasScores);
             Assert.Equal(3, node.AvailableDifficulties);
         }
@@ -199,17 +209,17 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void DisplayTitle_WithMetadata_ShouldReturnMetadataTitle()
+        public void DisplayTitle_WithDatabaseSong_ShouldReturnSongTitle()
         {
             // Arrange
-            var metadata = new SongMetadata { Title = "Metadata Title" };
-            var node = new SongListNode { Metadata = metadata };
+            var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Database Song Title" };
+            var node = new SongListNode { DatabaseSong = song };
 
             // Act
             var result = node.DisplayTitle;
 
             // Assert
-            Assert.Equal("Metadata Title", result);
+            Assert.Equal("Database Song Title", result);
         }
 
         [Theory]
@@ -271,8 +281,6 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var node = new SongListNode();
-            var metadata = new SongMetadata { Title = "Test" };
-            node.Metadata = metadata;
             var score = new SongScore { DifficultyLevel = 85 };
 
             // Act
@@ -280,7 +288,6 @@ namespace DTXMania.Test.Song
 
             // Assert
             Assert.Same(score, node.Scores[1]);
-            Assert.Same(metadata, score.Metadata);
         }
 
         [Theory]
@@ -360,8 +367,14 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var parent = SongListNode.CreateBoxNode("Parent", @"C:\Songs");
-            var child1 = SongListNode.CreateSongNode(new SongMetadata { Title = "Z Song" });
-            var child2 = SongListNode.CreateSongNode(new SongMetadata { Title = "A Song" });
+            var song1 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Z Song" };
+            var chart1 = new SongChart();
+            var child1 = SongListNode.CreateSongNode(song1, chart1);
+            
+            var song2 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "A Song" };
+            var chart2 = new SongChart();
+            var child2 = SongListNode.CreateSongNode(song2, chart2);
+            
             var child3 = SongListNode.CreateBoxNode("M Folder", @"C:\Songs\M");
             
             parent.AddChild(child1);
@@ -382,11 +395,23 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var parent = SongListNode.CreateBoxNode("Parent", @"C:\Songs");
-            var child1 = SongListNode.CreateSongNode(new SongMetadata { Title = "Easy Song", DrumLevel = 30 });
-            var child2 = SongListNode.CreateSongNode(new SongMetadata { Title = "Hard Song", DrumLevel = 90 });
+            
+            var song1 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Easy Song" };
+            var chart1 = new SongChart { DrumLevel = 30, HasDrumChart = true };
+            var child1 = SongListNode.CreateSongNode(song1, chart1);
+            
+            var song2 = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Hard Song" };
+            var chart2 = new SongChart { DrumLevel = 90, HasDrumChart = true };
+            var child2 = SongListNode.CreateSongNode(song2, chart2);
             
             parent.AddChild(child1);
             parent.AddChild(child2);
+
+            // Verify scores are populated correctly
+            Assert.True(child1.HasScores);
+            Assert.True(child2.HasScores);
+            Assert.Equal(30, child1.MaxDifficultyLevel);
+            Assert.Equal(90, child2.MaxDifficultyLevel);
 
             // Act
             parent.SortChildren(SongSortCriteria.Level);

@@ -590,6 +590,7 @@ namespace DTX.Song
                     currentSong.Parent = parent;
 
                     // Process each difficulty
+                    int scoreIndex = 0;
                     foreach (var kvp in difficulties.OrderBy(d => d.Key))
                     {
                         var level = kvp.Key;
@@ -615,6 +616,40 @@ namespace DTX.Song
                                     {
                                         var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
                                         currentSong.DatabaseSongId = songId;
+                                        
+                                        // Populate the Score entry for this difficulty in the set.def node
+                                        if (scoreIndex < currentSong.Scores.Length)
+                                        {
+                                            currentSong.DifficultyLabels[scoreIndex] = !string.IsNullOrEmpty(label) ? label : $"Level {level}";
+                                            
+                                            // Create a score entry for the primary instrument found in the chart
+                                            var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS; // Default
+                                            int difficultyLevel = 50; // Default
+                                            
+                                            if (diffChart.HasDrumChart && diffChart.DrumLevel > 0)
+                                            {
+                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                                                difficultyLevel = diffChart.DrumLevel;
+                                            }
+                                            else if (diffChart.HasGuitarChart && diffChart.GuitarLevel > 0)
+                                            {
+                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
+                                                difficultyLevel = diffChart.GuitarLevel;
+                                            }
+                                            else if (diffChart.HasBassChart && diffChart.BassLevel > 0)
+                                            {
+                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
+                                                difficultyLevel = diffChart.BassLevel;
+                                            }
+                                            
+                                            currentSong.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
+                                            {
+                                                Instrument = primaryInstrument,
+                                                DifficultyLevel = difficultyLevel,
+                                                DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
+                                            };
+                                            scoreIndex++;
+                                        }
                                         
                                         DiscoveredScoreCount++;
                                     }
@@ -853,14 +888,32 @@ namespace DTX.Song
         /// </summary>
         public void Clear()
         {
+            // Cancel any ongoing enumeration first
+            _enumCancellation?.Cancel();
+            _enumCancellation?.Dispose();
+            _enumCancellation = null;
+            
             lock (_lockObject)
             {
                 _rootSongs.Clear();
                 _isInitialized = false;
+                _databaseService?.Dispose();
                 _databaseService = null;
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
+        }
+
+        /// <summary>
+        /// Resets the singleton instance completely for testing purposes
+        /// </summary>
+        public static void ResetInstanceForTesting()
+        {
+            lock (_instanceLock)
+            {
+                _instance?.Clear();
+                _instance = null;
+            }
         }
 
 

@@ -5,6 +5,8 @@ using System.Linq;
 using Xunit;
 using DTX.Song;
 using DTX.UI.Components;
+using DTXMania.Game.Lib.Song.Entities;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Performance
 {
@@ -130,22 +132,32 @@ namespace DTXMania.Test.Performance
 
             for (int i = 0; i < count; i++)
             {
+                // Create test song and chart
+                var testSong = new DTXMania.Game.Lib.Song.Entities.Song
+                {
+                    Title = $"Test Song {i:D3}",
+                    Artist = $"Test Artist {i % 10}",
+                    Genre = "Test Genre"
+                };
+                
+                var testChart = new SongChart
+                {
+                    FilePath = $"test{i}.dtx",
+                    BPM = 120.0 + (i % 80),
+                    DrumLevel = 50 + (i % 50)
+                };
+                
                 songs.Add(new SongListNode
                 {
                     Type = NodeType.Score,
                     Title = $"Test Song {i:D3}",
-                    Metadata = new SongMetadata
-                    {
-                        Title = $"Test Song {i:D3}",
-                        Artist = $"Test Artist {i % 10}",
-                        BPM = 120.0 + (i % 80),
-                        DrumLevel = 50 + (i % 50)
-                    },
+                    DatabaseSong = testSong,
+                    DatabaseChart = testChart,
                     Scores = new SongScore[]
                     {
                         new SongScore
                         {
-                            Metadata = new SongMetadata { FilePath = $"test{i}.dtx" },
+                            Instrument = EInstrumentPart.DRUMS,
                             BestScore = 800000 + (i * 1000),
                             BestRank = 70 + (i % 30),
                             FullCombo = i % 5 == 0,

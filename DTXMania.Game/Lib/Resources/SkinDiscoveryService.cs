@@ -83,9 +83,9 @@ namespace DTX.Resources
 
                 foreach (var directory in directories)
                 {
-                    // Convert back to relative path for consistency
-                    var relativePath = Path.GetRelativePath(Environment.CurrentDirectory, directory);
-                    var skinInfo = AnalyzeSkin(relativePath);
+                    // Use the original directory path for analysis
+                    // AnalyzeSkin can handle both relative and absolute paths
+                    var skinInfo = AnalyzeSkin(directory);
                     if (skinInfo != null && skinInfo.IsValid)
                     {
                         skins.Add(skinInfo);

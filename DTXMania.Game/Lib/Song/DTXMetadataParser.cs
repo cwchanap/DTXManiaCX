@@ -81,7 +81,6 @@ namespace DTX.Song
                 FileSize = fileInfo.Length,
                 LastModified = fileInfo.LastWriteTime,
                 FileFormat = fileInfo.Extension.ToLowerInvariant(),
-                Bpm = 120.0, // Default BPM
                 Duration = 0.0,
                 BGMAdjust = 0
             };

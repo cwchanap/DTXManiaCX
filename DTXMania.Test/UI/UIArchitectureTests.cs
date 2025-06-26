@@ -4,6 +4,8 @@ using DTX.UI.Components;
 using DTX.Song;
 using Microsoft.Xna.Framework;
 using System;
+using DTXMania.Game.Lib.Song.Entities;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
 {
@@ -549,11 +551,15 @@ namespace DTXMania.Test.UI
 
         private SongListNode CreateMockSongNode()
         {
-            var metadata = new SongMetadata
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
             {
                 Title = "Test Song",
                 Artist = "Test Artist",
-                Genre = "Test Genre",
+                Genre = "Test Genre"
+            };
+            
+            var chart = new SongChart
+            {
                 BPM = 120,
                 DrumLevel = 5,
                 GuitarLevel = 4,
@@ -564,12 +570,13 @@ namespace DTXMania.Test.UI
             {
                 Type = NodeType.Score,
                 Title = "Test Song",
-                Metadata = metadata,
+                DatabaseSong = song,
+                DatabaseChart = chart,
                 Scores = new SongScore[]
                 {
                     new SongScore
                     {
-                        Metadata = metadata,
+                        Instrument = EInstrumentPart.DRUMS,
                         BestScore = 950000,
                         BestRank = 85,
                         HighSkill = 87.42,

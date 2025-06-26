@@ -13,7 +13,6 @@ namespace DTX.UI.Components
         #region Private Fields
 
         private string _text;
-        private SpriteFont? _font;
         private UIImage? _imageComponent;
 
         // State-based appearance
@@ -86,11 +85,7 @@ namespace DTX.UI.Components
         /// <summary>
         /// Font used for button text
         /// </summary>
-        public SpriteFont? Font
-        {
-            get => _font;
-            set => _font = value;
-        }
+        public SpriteFont? Font { get; set; }
 
         /// <summary>
         /// Image component for the button (optional)
@@ -345,16 +340,16 @@ namespace DTX.UI.Components
         /// <param name="appearance">Current appearance</param>
         private void DrawText(SpriteBatch spriteBatch, Rectangle bounds, ButtonStateAppearance appearance)
         {
-            if (_font == null || string.IsNullOrEmpty(_text))
+            if (Font == null || string.IsNullOrEmpty(_text))
                 return;
 
-            var textSize = _font.MeasureString(_text);
+            var textSize = Font.MeasureString(_text);
             var textPosition = new Vector2(
                 bounds.X + (bounds.Width - textSize.X) / 2,
                 bounds.Y + (bounds.Height - textSize.Y) / 2
             );
 
-            spriteBatch.DrawString(_font, _text, textPosition, appearance.TextColor);
+            spriteBatch.DrawString(Font, _text, textPosition, appearance.TextColor);
         }
 
         /// <summary>
