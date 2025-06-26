@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
+using DTX.Resources;
 
 namespace DTX.UI.Components
 {
@@ -14,6 +15,7 @@ namespace DTX.UI.Components
 
         private string _text;
         private UIImage? _imageComponent;
+        private readonly IResourceManager _resourceManager;
 
         // State-based appearance
         private ButtonStateAppearance _idleAppearance;
@@ -30,8 +32,9 @@ namespace DTX.UI.Components
 
         #region Constructor
 
-        public UIButton(string text = "Button")
+        public UIButton(IResourceManager resourceManager, string text = "Button")
         {
+            _resourceManager = resourceManager;
             _text = text;
             Size = new Vector2(120, 40); // Default size
 
@@ -183,9 +186,11 @@ namespace DTX.UI.Components
         {
             base.OnCreateResources();
 
-            // Create a simple white pixel texture for background if none provided
-            // In a real implementation, this would be loaded from the graphics manager
-            // For now, we'll create it when we have access to GraphicsDevice
+            // Load a default font if not already set
+            if (Font == null)
+            {
+                Font = _resourceManager.LoadFont("DefaultFont", 20).SpriteFont; // Assuming "DefaultFont" is a registered font
+            }
         }
 
         protected override void OnUpdate(double deltaTime)
