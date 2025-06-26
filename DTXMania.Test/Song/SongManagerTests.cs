@@ -61,7 +61,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Instance_ShouldInitializeWithDefaults()
+        public async Task Instance_ShouldInitializeWithDefaults()
         {
             // Arrange & Act
             var manager = SongManager.Instance;
@@ -69,7 +69,7 @@ namespace DTXMania.Test.Song
             // Assert
             Assert.NotNull(manager.RootSongs);
             Assert.Empty(manager.RootSongs);
-            Assert.Equal(0, manager.DatabaseScoreCount);
+            Assert.Equal(0, await manager.GetDatabaseScoreCountAsync());
             Assert.Equal(0, manager.DiscoveredScoreCount);
             Assert.Equal(0, manager.EnumeratedFileCount);
             Assert.False(manager.IsEnumerating);
@@ -91,18 +91,20 @@ namespace DTXMania.Test.Song
 
             // Assert
             Assert.True(result);
-            Assert.Equal(0, _manager.DatabaseScoreCount);
+            Assert.Equal(0, await _manager.GetDatabaseScoreCountAsync());
         }
 
         [Fact]
-        public void DatabaseService_ShouldBeAvailableAfterInitialization()
+        public async Task DatabaseService_ShouldBeAvailableAfterInitialization()
         {
-            // Arrange & Act
+            // Arrange
+            await _manager.InitializeAsync(new string[0], _testDbPath);
+
+            // Act
             var databaseService = _manager.DatabaseService;
 
             // Assert
-            // Database service may be null until initialization
-            Assert.True(databaseService == null || databaseService != null);
+            Assert.NotNull(databaseService);
         }
 
         [Fact]
@@ -203,7 +205,7 @@ namespace DTXMania.Test.Song
                 // Assert
                 Assert.Equal(1, result);
                 Assert.Equal(1, _manager.DiscoveredScoreCount);
-                Assert.True(_manager.DatabaseScoreCount > 0);
+                Assert.True(await _manager.GetDatabaseScoreCountAsync() > 0);
                 Assert.True(_manager.RootSongs.Count > 0);
             }
             finally
@@ -280,7 +282,7 @@ namespace DTXMania.Test.Song
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
 
                 // Act - Test that enumeration worked
-                Assert.True(_manager.DatabaseScoreCount >= 0);
+                Assert.True(await _manager.GetDatabaseScoreCountAsync() >= 0);
                 Assert.True(_manager.RootSongs.Count >= 0);
             }
             finally
@@ -348,7 +350,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Clear_ShouldResetAllData()
+        public async Task Clear_ShouldResetAllData()
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTestClear");
@@ -360,8 +362,8 @@ namespace DTXMania.Test.Song
                 File.WriteAllText(dtxFile, "#TITLE: Test Song\n#DLEVEL: 50\n");
                 
                 // Initialize and enumerate to populate data
-                _manager.InitializeAsync(new string[0], _testDbPath).Wait();
-                _manager.EnumerateSongsAsync(new[] { tempDir }).Wait();
+                await _manager.InitializeAsync(new string[0], _testDbPath);
+                await _manager.EnumerateSongsAsync(new[] { tempDir });
                 
                 // Verify we have data
                 var initialRootSongCount = _manager.RootSongs.Count;
@@ -371,7 +373,7 @@ namespace DTXMania.Test.Song
                 _manager.Clear();
 
                 // Assert
-                Assert.Equal(0, _manager.DatabaseScoreCount);
+                Assert.Equal(0, await _manager.GetDatabaseScoreCountAsync());
                 Assert.Empty(_manager.RootSongs);
                 Assert.Equal(0, _manager.DiscoveredScoreCount);
                 Assert.Equal(0, _manager.EnumeratedFileCount);
@@ -460,7 +462,7 @@ namespace DTXMania.Test.Song
                 // Assert
                 Assert.True(result);
                 Assert.True(_manager.IsInitialized);
-                Assert.True(_manager.DatabaseScoreCount > 0);
+                Assert.True(await _manager.GetDatabaseScoreCountAsync() > 0);
             }
             finally
             {

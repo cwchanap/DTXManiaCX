@@ -122,7 +122,7 @@ namespace DTXMania.Test.Song
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
 
                 // Assert
-                var dbScoreCount = _songManager.DatabaseScoreCount;
+                var dbScoreCount = await _songManager.GetDatabaseScoreCountAsync();
                 var discoveredCount = _songManager.DiscoveredScoreCount;
                 var rootSongs = _songManager.RootSongs;
                 
