@@ -444,6 +444,12 @@ namespace DTX.Song
                 if (_databaseService == null) return null;
                 
                 var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+
+                if (song == null || chart == null)
+                {
+                    Debug.WriteLine($"SongManager: Metadata parsing returned null for {filePath}.");
+                    return null;
+                }
                 
                 // Add song to EF Core database
                 var songId = await _databaseService.AddSongAsync(song, chart);
