@@ -169,7 +169,7 @@ namespace DTX.Song
         /// Initializes the SongManager with song data and marks it as initialized
         /// Should only be called once during application startup
         /// </summary>
-        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null)
+        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null, bool purgeDatabaseFirst = false)
         {
             lock (_lockObject)
             {
@@ -184,6 +184,14 @@ namespace DTX.Song
             {
                 // Initialize the database service
                 _databaseService = new SongDatabaseService(databasePath);
+                
+                // Purge the database if requested (for fresh rebuild)
+                if (purgeDatabaseFirst)
+                {
+                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild");
+                    await _databaseService.PurgeDatabaseAsync();
+                }
+                
                 await _databaseService.InitializeDatabaseAsync();
                 
                 // Check if enumeration is needed
@@ -193,6 +201,11 @@ namespace DTX.Song
                 {
                     Debug.WriteLine("SongManager: Starting song enumeration during initialization");
                     await EnumerateSongsAsync(searchPaths, progress);
+                }
+                else
+                {
+                    Debug.WriteLine("SongManager: Database has songs, building song list from database");
+                    await BuildSongListFromDatabaseAsync(searchPaths);
                 }
 
                 lock (_lockObject)
@@ -320,6 +333,211 @@ namespace DTX.Song
         public void CancelEnumeration()
         {
             _enumCancellation?.Cancel();
+        }
+
+        /// <summary>
+        /// Builds the song list from existing database entries
+        /// Used when the database is already populated but _rootSongs is empty
+        /// Preserves the original folder hierarchy structure
+        /// </summary>
+        private async Task BuildSongListFromDatabaseAsync(string[] searchPaths)
+        {
+            if (_databaseService == null)
+            {
+                Debug.WriteLine("SongManager: Cannot build song list - database service not initialized");
+                return;
+            }
+
+            try
+            {
+                var newRootNodes = new List<SongListNode>();
+
+                foreach (var searchPath in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
+                    {
+                        Debug.WriteLine($"SongManager: Skipping invalid path during database rebuild: {searchPath}");
+                        continue;
+                    }
+
+                    // Get all songs from the database
+                    var allSongs = await _databaseService.GetSongsAsync();
+                    
+                    // Get all charts that belong to this search path
+                    var relevantCharts = new List<(SongEntity song, SongChart chart)>();
+                    
+                    foreach (var song in allSongs)
+                    {
+                        foreach (var chart in song.Charts)
+                        {
+                            if (!string.IsNullOrEmpty(chart.FilePath) && 
+                                Path.GetFullPath(chart.FilePath).StartsWith(Path.GetFullPath(searchPath), StringComparison.OrdinalIgnoreCase))
+                            {
+                                relevantCharts.Add((song, chart));
+                            }
+                        }
+                    }
+
+                    Debug.WriteLine($"SongManager: Found {relevantCharts.Count} charts in database for path: {searchPath}");
+
+                    // Build the folder hierarchy structure from file paths
+                    var pathNodes = await BuildHierarchyFromCharts(searchPath, relevantCharts);
+                    newRootNodes.AddRange(pathNodes);
+                }
+
+                // Update root songs list
+                lock (_lockObject)
+                {
+                    _rootSongs.Clear();
+                    _rootSongs.AddRange(newRootNodes);
+                }
+
+                Debug.WriteLine($"SongManager: Built song list from database. {newRootNodes.Count} root nodes created");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error building song list from database: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Builds hierarchical folder structure from chart file paths
+        /// Recreates the original folder structure based on file paths
+        /// </summary>
+        private async Task<List<SongListNode>> BuildHierarchyFromCharts(string searchPath, List<(SongEntity song, SongChart chart)> charts)
+        {
+            var rootNodes = new List<SongListNode>();
+            var folderNodeCache = new Dictionary<string, SongListNode>(StringComparer.OrdinalIgnoreCase);
+            
+            // First group charts by song Title+Artist to deduplicate songs
+            var songGroups = charts
+                .GroupBy(item => new { item.song.Title, item.song.Artist })
+                .ToList();
+
+            foreach (var songGroup in songGroups)
+            {
+                var firstChart = songGroup.First().chart;
+                var firstSong = songGroup.First().song;
+                var allCharts = songGroup.Select(item => item.chart).ToArray();
+
+                if (string.IsNullOrEmpty(firstChart.FilePath))
+                    continue;
+
+                // Get the directory path relative to the search path
+                var fullDirectoryPath = Path.GetDirectoryName(firstChart.FilePath);
+                if (string.IsNullOrEmpty(fullDirectoryPath))
+                    continue;
+
+                // Create folder hierarchy for this song
+                var parentNode = await EnsureFolderHierarchy(searchPath, fullDirectoryPath, folderNodeCache, rootNodes);
+                
+                // Create the song node
+                var songNode = CreateSongNodeFromDatabaseEntities(firstSong, allCharts);
+                if (songNode != null)
+                {
+                    if (parentNode != null)
+                    {
+                        parentNode.AddChild(songNode);
+                        songNode.Parent = parentNode;
+                    }
+                    else
+                    {
+                        // Song is directly in the search path root
+                        rootNodes.Add(songNode);
+                    }
+                }
+            }
+
+            return rootNodes;
+        }
+
+        /// <summary>
+        /// Ensures folder hierarchy exists for a given path
+        /// Returns the deepest folder node for the path
+        /// </summary>
+        private async Task<SongListNode?> EnsureFolderHierarchy(string searchPath, string fullPath, Dictionary<string, SongListNode> folderCache, List<SongListNode> rootNodes)
+        {
+            if (string.IsNullOrEmpty(fullPath) || fullPath.Equals(searchPath, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // Check cache first
+            if (folderCache.TryGetValue(fullPath, out var cachedNode))
+                return cachedNode;
+
+            var parentPath = Path.GetDirectoryName(fullPath);
+            var folderName = Path.GetFileName(fullPath);
+            
+            if (string.IsNullOrEmpty(folderName))
+                return null;
+
+            // Recursively ensure parent folder exists (only if parentPath is not null/empty)
+            SongListNode? parentNode = null;
+            if (!string.IsNullOrEmpty(parentPath))
+            {
+                parentNode = await EnsureFolderHierarchy(searchPath, parentPath, folderCache, rootNodes);
+            }
+
+            // Check if this is a DTXFiles.* prefixed folder or has box.def
+            var isDTXFilesFolder = folderName.StartsWith("DTXFiles.", StringComparison.OrdinalIgnoreCase);
+            var boxDefPath = Path.Combine(fullPath, "box.def");
+            var hasBoxDef = File.Exists(boxDefPath);
+
+            // Create folder node if it's a BOX folder
+            if (isDTXFilesFolder || hasBoxDef)
+            {
+                BoxDefinition? boxDef = null;
+                if (hasBoxDef)
+                {
+                    try
+                    {
+                        boxDef = await ParseBoxDefinitionAsync(boxDefPath, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"SongManager: Error parsing box.def at {boxDefPath}: {ex.Message}");
+                    }
+                }
+
+                var folderNode = SongListNode.CreateBoxNode(
+                    boxDef?.Title ?? folderName,
+                    fullPath,
+                    parentNode
+                );
+
+                if (boxDef != null)
+                {
+                    folderNode.Genre = boxDef.Genre ?? "";
+                    folderNode.SkinPath = boxDef.SkinPath;
+                    
+                    // Convert System.Drawing.Color to Microsoft.Xna.Framework.Color
+                    if (boxDef.TextColor != System.Drawing.Color.Empty)
+                    {
+                        folderNode.TextColor = new Microsoft.Xna.Framework.Color(
+                            boxDef.TextColor.R,
+                            boxDef.TextColor.G,
+                            boxDef.TextColor.B,
+                            boxDef.TextColor.A
+                        );
+                    }
+                }
+
+                // Add to parent or root
+                if (parentNode != null)
+                {
+                    parentNode.AddChild(folderNode);
+                }
+                else
+                {
+                    // This is a top-level folder, add to root nodes
+                    rootNodes.Add(folderNode);
+                }
+
+                folderCache[fullPath] = folderNode;
+                return folderNode;
+            }
+
+            // If not a BOX folder, treat as part of the path but don't create a folder node
+            return parentNode;
         }
 
         #endregion
@@ -883,6 +1101,70 @@ namespace DTX.Song
             {
                 Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
                 return true; // Default to enumeration if we can't determine
+            }
+        }
+
+        /// <summary>
+        /// Creates a SongListNode from database entities (song + charts)
+        /// </summary>
+        private SongListNode? CreateSongNodeFromDatabaseEntities(SongEntity song, SongChart[] charts)
+        {
+            try
+            {
+                if (charts.Length == 0) return null;
+
+                // Use the first chart for the primary file path
+                var primaryChart = charts[0];
+                
+                // Create the song node using the first chart
+                var songNode = SongListNode.CreateSongNode(song, primaryChart);
+
+                // If there are multiple charts, populate the difficulties
+                if (charts.Length > 1)
+                {
+                    int scoreIndex = 0;
+                    foreach (var chart in charts.Take(5)) // Limit to 5 difficulties
+                    {
+                        if (scoreIndex >= songNode.Scores.Length) break;
+
+                        // Determine the primary instrument and difficulty for this chart
+                        var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                        int difficultyLevel = 50;
+
+                        if (chart.HasDrumChart && chart.DrumLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                            difficultyLevel = chart.DrumLevel;
+                        }
+                        else if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
+                            difficultyLevel = chart.GuitarLevel;
+                        }
+                        else if (chart.HasBassChart && chart.BassLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
+                            difficultyLevel = chart.BassLevel;
+                        }
+
+                        songNode.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
+                        {
+                            Instrument = primaryInstrument,
+                            DifficultyLevel = difficultyLevel,
+                            DifficultyLabel = $"Level {scoreIndex + 1}"
+                        };
+
+                        songNode.DifficultyLabels[scoreIndex] = $"Level {scoreIndex + 1}";
+                        scoreIndex++;
+                    }
+                }
+
+                return songNode;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error creating song node from database entities: {ex.Message}");
+                return null;
             }
         }
 

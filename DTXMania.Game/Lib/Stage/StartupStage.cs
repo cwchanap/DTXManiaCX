@@ -53,6 +53,9 @@ namespace DTX.Stage
         private SongManager _songManager;
         private ConfigManager _configManager;
 
+        // Task tracking for async operations
+        private Task _songEnumerationTask;
+
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
@@ -68,7 +71,8 @@ namespace DTX.Stage
         #region Constructor
 
         public StartupStage(BaseGame game) : base(game)
-        {            _progressMessages = new List<string>();
+        {
+            _progressMessages = new List<string>();
 
             // Initialize services - use singleton for SongManager
             _songManager = SongManager.Instance;
@@ -119,6 +123,7 @@ namespace DTX.Stage
             _startupPhase = StartupPhase.SystemSounds;
             _phaseStartTime = 0;
             _progressMessages.Clear();
+            _songEnumerationTask = null; // Reset task tracking
 
             // Add initial messages (DTXMania pattern)
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
@@ -227,13 +232,36 @@ namespace DTX.Stage
             double phaseElapsed = _elapsedTime - _phaseStartTime;
             var currentPhaseInfo = _phaseInfo[_startupPhase];
 
-            // Update current progress message            _currentProgressMessage = currentPhaseInfo.message;
+            // Update current progress message
+            _currentProgressMessage = currentPhaseInfo.message;
 
-            // Perform phase-specific operations
-            _ = PerformPhaseOperation(_startupPhase, phaseElapsed);
+            // Perform phase-specific operations (non-blocking)
+            PerformPhaseOperationSync(_startupPhase, phaseElapsed);
 
             // Check if current phase is complete
-            if (phaseElapsed >= currentPhaseInfo.duration)
+            bool phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
+
+            // Special handling for EnumerateSongs phase - wait for task completion
+            if (_startupPhase == StartupPhase.EnumerateSongs && _songEnumerationTask != null)
+            {
+                phaseComplete = phaseComplete && _songEnumerationTask.IsCompleted;
+
+                if (!_songEnumerationTask.IsCompleted)
+                {
+                    _currentProgressMessage = "Enumerating songs... (in progress)";
+                }
+                else if (_songEnumerationTask.IsCompletedSuccessfully)
+                {
+                    _currentProgressMessage = "Enumerating songs... ✓ Complete";
+                }
+                else if (_songEnumerationTask.IsFaulted)
+                {
+                    _currentProgressMessage = "Enumerating songs... ⚠ Error";
+                    System.Diagnostics.Debug.WriteLine($"Song enumeration task failed: {_songEnumerationTask.Exception?.InnerException?.Message}");
+                }
+            }
+
+            if (phaseComplete)
             {
                 // Add completion message
                 _progressMessages.Add($"✓ {currentPhaseInfo.message.Replace("...", "")}");
@@ -249,7 +277,7 @@ namespace DTX.Stage
             }
         }
 
-        private async Task PerformPhaseOperation(StartupPhase phase, double phaseElapsed)
+        private void PerformPhaseOperationSync(StartupPhase phase, double phaseElapsed)
         {
             // Only perform operation once per phase (at the beginning)
             if (phaseElapsed > 0.1) return;
@@ -270,8 +298,8 @@ namespace DTX.Stage
 
                         // Basic validation - check if config loaded successfully
                         bool isValid = config != null &&
-                                     config.ScreenWidth > 0 &&
-                                     config.ScreenHeight > 0;
+                                    config.ScreenWidth > 0 &&
+                                    config.ScreenHeight > 0;
 
                         System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
                     }
@@ -279,27 +307,39 @@ namespace DTX.Stage
                     {
                         System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
                     }
-                    break;                case StartupPhase.EnumerateSongs:
-                    // Initialize SongManager with song enumeration
-                    try
-                    {
-                        // Point to the user's DTXFiles folder
-                        var songPaths = new[] { "DTXFiles" };
+                    break;
 
-                        // Use SongManager singleton for initialization (only enumerate if not already initialized)
-                        if (!_songManager.IsInitialized)
+                case StartupPhase.EnumerateSongs:
+                    // Initialize SongManager with song enumeration (async operation)
+                    if (!_songManager.IsInitialized)
+                    {
+                        // Start async operation but track it for completion
+                        if (_songEnumerationTask == null)
                         {
-                            await _songManager.InitializeAsync(songPaths);
-                            System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine("SongManager already initialized, skipping enumeration");
+                            _songEnumerationTask = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    // Point to the user's DTXFiles folder
+                                    var songPaths = new[] { "DTXFiles" };
+                                    // Purge database for fresh rebuild
+                                    await _songManager.InitializeAsync(songPaths, "songs.db", null, purgeDatabaseFirst: true);
+                                    System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
+
+                                    // Log the number of songs found
+                                    int songCount = _songManager.RootSongs.Count;
+                                    System.Diagnostics.Debug.WriteLine($"SongManager: {songCount} root nodes loaded");
+                                }
+                                catch (Exception ex)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Song enumeration error: {ex.Message}");
+                                }
+                            });
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        System.Diagnostics.Debug.WriteLine($"Song enumeration error: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine("SongManager already initialized, skipping enumeration");
                     }
                     break;
 
@@ -314,7 +354,6 @@ namespace DTX.Stage
                     break;
             }
         }
-
         private StartupPhase GetNextPhase(StartupPhase currentPhase)
         {
             return currentPhase switch

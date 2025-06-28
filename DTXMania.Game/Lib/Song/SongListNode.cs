@@ -106,12 +106,12 @@ namespace DTX.Song
         #region Metadata
 
         // Legacy Metadata property removed - use DatabaseSong and DatabaseChart instead
-        
+
         /// <summary>
         /// EF Core Song entity for database integration
         /// </summary>
         public SongEntity? DatabaseSong { get; set; }
-        
+
         /// <summary>
         /// EF Core SongChart entity for database integration
         /// </summary>
@@ -152,13 +152,13 @@ namespace DTX.Song
             {
                 // Use DatabaseSong if available
                 var availableInstruments = DatabaseSong?.AvailableInstruments ?? new List<string>();
-                
+
                 for (int i = 0; i < Math.Min(availableInstruments.Count, 5); i++)
                 {
                     var instrument = availableInstruments[i];
                     var firstChart = DatabaseSong?.Charts?.FirstOrDefault();
                     var difficultyLevel = firstChart?.GetDifficultyLevel(instrument);
-                    
+
                     if (difficultyLevel.HasValue)
                     {
                         Scores[i] = new SongScore
@@ -297,7 +297,7 @@ namespace DTX.Song
 
             // Set difficulty labels and scores based on chart data
             int scoreIndex = 0;
-            
+
             if (chart.HasDrumChart && chart.DrumLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"DRUMS Lv.{chart.DrumLevel}";
@@ -309,7 +309,7 @@ namespace DTX.Song
                 };
                 scoreIndex++;
             }
-            
+
             if (chart.HasGuitarChart && chart.GuitarLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"GUITAR Lv.{chart.GuitarLevel}";
@@ -321,7 +321,7 @@ namespace DTX.Song
                 };
                 scoreIndex++;
             }
-            
+
             if (chart.HasBassChart && chart.BassLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"BASS Lv.{chart.BassLevel}";
@@ -353,8 +353,8 @@ namespace DTX.Song
             // Update breadcrumb path
             if (parent != null)
             {
-                node.BreadcrumbPath = string.IsNullOrEmpty(parent.BreadcrumbPath) 
-                    ? title 
+                node.BreadcrumbPath = string.IsNullOrEmpty(parent.BreadcrumbPath)
+                    ? title
                     : $"{parent.BreadcrumbPath} > {title}";
             }
             else
@@ -403,10 +403,10 @@ namespace DTX.Song
         {
             child.Parent = this;
             Children.Add(child);
-            
+
             // Update child's breadcrumb path
-            child.BreadcrumbPath = string.IsNullOrEmpty(BreadcrumbPath) 
-                ? child.Title 
+            child.BreadcrumbPath = string.IsNullOrEmpty(BreadcrumbPath)
+                ? child.Title
                 : $"{BreadcrumbPath} > {child.Title}";
         }
 
