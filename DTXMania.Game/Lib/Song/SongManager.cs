@@ -169,7 +169,7 @@ namespace DTX.Song
         /// Initializes the SongManager with song data and marks it as initialized
         /// Should only be called once during application startup
         /// </summary>
-        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null, bool purgeDatabaseFirst = false)
+        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null, bool purgeDatabaseFirst = false, CancellationToken cancellationToken = default)
         {
             lock (_lockObject)
             {
@@ -189,23 +189,23 @@ namespace DTX.Song
                 if (purgeDatabaseFirst)
                 {
                     Debug.WriteLine("SongManager: Purging existing database for fresh rebuild");
-                    await _databaseService.PurgeDatabaseAsync();
+                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
                 
-                await _databaseService.InitializeDatabaseAsync();
+                await _databaseService.InitializeDatabaseAsync().ConfigureAwait(false);
                 
                 // Check if enumeration is needed
-                bool needsEnumeration = await GetDatabaseScoreCountAsync() == 0 || await NeedsEnumerationAsync(searchPaths);
+                bool needsEnumeration = await GetDatabaseScoreCountAsync().ConfigureAwait(false) == 0 || await NeedsEnumerationAsync(searchPaths).ConfigureAwait(false);
                 
                 if (needsEnumeration)
                 {
                     Debug.WriteLine("SongManager: Starting song enumeration during initialization");
-                    await EnumerateSongsAsync(searchPaths, progress);
+                    await EnumerateSongsAsync(searchPaths, progress, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     Debug.WriteLine("SongManager: Database has songs, building song list from database");
-                    await BuildSongListFromDatabaseAsync(searchPaths);
+                    await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
                 }
 
                 lock (_lockObject)
@@ -213,7 +213,7 @@ namespace DTX.Song
                     _isInitialized = true;
                 }
 
-                Debug.WriteLine($"SongManager: Initialization complete. {await GetDatabaseScoreCountAsync()} songs loaded.");
+                Debug.WriteLine($"SongManager: Initialization complete. {await GetDatabaseScoreCountAsync().ConfigureAwait(false)} songs loaded.");
                 return true;
             }
             catch (Exception ex)
@@ -267,7 +267,7 @@ namespace DTX.Song
         /// Enumerates songs from specified search paths
         /// Should primarily be called during initialization
         /// </summary>
-        public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null)
+        public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             if (IsEnumerating)
             {
@@ -275,7 +275,7 @@ namespace DTX.Song
                 return 0;
             }
 
-            _enumCancellation = new CancellationTokenSource();
+            _enumCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
 
@@ -293,7 +293,7 @@ namespace DTX.Song
                         continue;
                     }
 
-                    var pathNodes = await EnumerateDirectoryAsync(searchPath, null, progress, _enumCancellation.Token);
+                    var pathNodes = await EnumerateDirectoryAsync(searchPath, null, progress, _enumCancellation.Token).ConfigureAwait(false);
                     newRootNodes.AddRange(pathNodes);
                 }
 
