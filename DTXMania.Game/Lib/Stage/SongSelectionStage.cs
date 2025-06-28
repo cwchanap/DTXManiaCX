@@ -296,7 +296,7 @@ namespace DTX.Stage
             };            // Initialize Phase 2 enhanced rendering
             try
             {
-                _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager, 
+                _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager,
                     _stageRenderTarget);
                 _songListDisplay.SetEnhancedRendering(true); // Explicitly enable enhanced rendering
             }
@@ -370,14 +370,51 @@ namespace DTX.Stage
             {
                 var songManager = SongManager.Instance;
 
-                // Initialize display with song list
-                _currentSongList = [.. songManager.RootSongs];
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs");
+                // Check if SongManager is properly initialized
+                if (!songManager.IsInitialized)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager not initialized yet - starting initialization");
+
+                    // Try to initialize SongManager if it wasn't already done
+                    // This shouldn't normally happen if StartupStage completed properly
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var songPaths = new[] { "DTXFiles" };
+                            await songManager.InitializeAsync(songPaths);
+                            System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager initialization completed");
+
+                            // Reinitialize the song list on the main thread
+                            _currentSongList = [.. songManager.RootSongs];
+                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs (delayed)");
+                            PopulateSongList();
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
+                        }
+                    });
+
+                    // For now, initialize with empty list
+                    _currentSongList = new List<SongListNode>();
+                }
+                else
+                {
+                    // Initialize display with song list
+                    _currentSongList = [.. songManager.RootSongs];
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs");
+                }
+
                 PopulateSongList();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
+
+                // Fallback to empty list
+                _currentSongList = new List<SongListNode>();
+                PopulateSongList();
             }
         }
 
@@ -416,7 +453,7 @@ namespace DTX.Stage
         {
             // Performance metrics: Measure selection change timing
             var startTime = DateTime.UtcNow;
-            
+
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
@@ -440,7 +477,7 @@ namespace DTX.Stage
 
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
-            
+
             // Performance metrics logging
             var updateDuration = DateTime.UtcNow - startTime;
             if (updateDuration.TotalMilliseconds > 1.0) // Log only if update takes more than 1ms
@@ -463,11 +500,6 @@ namespace DTX.Stage
 
             // Update status panel
             _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty);
-        }
-
-        private void OnEnumerationProgress(EnumerationProgress progress)
-        {
-            // Progress tracking for song enumeration
         }
 
         private void HandleSongActivation(SongListNode node)
@@ -620,7 +652,9 @@ namespace DTX.Stage
 
             // Process queued input commands
             ProcessInputCommands();
-        }        /// <summary>
+        }
+
+        /// <summary>
         /// Update key repeat states for continuous input detection
         /// </summary>
         private void UpdateKeyRepeatStates()
@@ -760,14 +794,16 @@ namespace DTX.Stage
                         _songListDisplay.MoveNext();
                         _lastNavigationTime = _elapsedTime;
                     }
-                    break;                case InputCommandType.MoveLeft:
+                    break;
+                case InputCommandType.MoveLeft:
                     if (_isInStatusPanel)
                     {
                         // Navigate in status panel (e.g., between difficulties)
                         CycleDifficulty(-1);
                     }
                     // Note: Normal left navigation removed - use Activate (Enter) instead
-                    break;case InputCommandType.MoveRight:
+                    break;
+                case InputCommandType.MoveRight:
                     if (_isInStatusPanel)
                     {
                         // Navigate in status panel (e.g., between difficulties)
@@ -799,8 +835,6 @@ namespace DTX.Stage
                     break;
             }
         }
-
-
 
         private void CycleDifficulty(int direction)
         {
@@ -894,7 +928,8 @@ namespace DTX.Stage
                 var color = Color.Lerp(topColor, bottomColor, ratio);
                 var lineRect = new Rectangle(0, y, viewport.Width, 4);
                 _spriteBatch.Draw(_whitePixel, lineRect, color);
-            }        }
+            }
+        }
 
         #endregion
 
@@ -916,8 +951,8 @@ namespace DTX.Stage
                 _stageRenderTarget = new RenderTarget2D(_game.GraphicsDevice, 1024, 1024);
             }
         }        /// <summary>
-        /// Cleanup stage RenderTarget
-        /// </summary>
+                 /// Cleanup stage RenderTarget
+                 /// </summary>
         private void CleanupStageRenderTargets()
         {
             if (_game is BaseGame baseGame)
@@ -942,11 +977,12 @@ namespace DTX.Stage
         /// - Exit status panel when in status panel mode
         /// </summary>
         private void HandleActivateInput()
-        {            if (_isInStatusPanel)
+        {
+            if (_isInStatusPanel)
             {
                 // Exit status panel mode
                 _isInStatusPanel = false;
-                
+
                 System.Diagnostics.Debug.WriteLine("SongSelectionStage: Exited status panel navigation mode");
             }
             else if (_selectedSong != null)
@@ -955,16 +991,17 @@ namespace DTX.Stage
                 {
                     // Enter status panel mode AND cycle difficulty (replicate right arrow behavior)
                     _isInStatusPanel = true;
-                    
+
                     System.Diagnostics.Debug.WriteLine("SongSelectionStage: Entered status panel navigation mode");
-                    
+
                     // Perform the same action as right arrow key (cycle difficulty)
                     CycleDifficulty(1);
                 }
                 else
                 {
                     // For non-songs (folders, back boxes, etc.), handle normal activation
-                    HandleSongActivation(_selectedSong);                }
+                    HandleSongActivation(_selectedSong);
+                }
             }
         }
 

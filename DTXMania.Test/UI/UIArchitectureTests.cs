@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework;
 using System;
 using DTXMania.Game.Lib.Song.Entities;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
-using DTXMania.Game.Lib.Resources;
+using DTX.Resources;
 
 namespace DTXMania.Test.UI
 {
@@ -202,15 +202,15 @@ namespace DTXMania.Test.UI
             // Arrange & Act
             var label = new UILabel("Test Label")
             {
-                HorizontalAlignment = TextAlignment.Center,
-                VerticalAlignment = TextAlignment.Bottom,
+                HorizontalAlignment = DTX.UI.Components.TextAlignment.Center,
+                VerticalAlignment = DTX.UI.Components.TextAlignment.Bottom,
                 TextColor = Color.Yellow
             };
 
             // Assert
             Assert.Equal("Test Label", label.Text);
-            Assert.Equal(TextAlignment.Center, label.HorizontalAlignment);
-            Assert.Equal(TextAlignment.Bottom, label.VerticalAlignment);
+            Assert.Equal(DTX.UI.Components.TextAlignment.Center, label.HorizontalAlignment);
+            Assert.Equal(DTX.UI.Components.TextAlignment.Bottom, label.VerticalAlignment);
             Assert.Equal(Color.Yellow, label.TextColor);
         }
 

@@ -17,13 +17,16 @@ namespace DTXMania.Game.Lib.Song.Entities
     {
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
+        private static readonly object _initializationLock = new object();
+        private static bool _isInitialized = false;
 
         public SongDatabaseService(string databasePath = "songs.db")
         {
             _databasePath = databasePath;
 
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
-            optionsBuilder.UseSqlite($"Data Source={_databasePath}");
+            // Configure SQLite with UTF-8 support for Japanese text
+            optionsBuilder.UseSqlite($"Data Source={_databasePath};Cache=Shared;");
             _options = optionsBuilder.Options;
         }
 
@@ -31,11 +34,76 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Initialize the database and ensure it exists
         public async Task InitializeDatabaseAsync()
         {
-            using var context = new SongDbContext(_options);
+            // Use lock to prevent multiple simultaneous initializations
+            lock (_initializationLock)
+            {
+                if (_isInitialized)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database already initialized, skipping.");
+                    return;
+                }
+            }
 
-            // For testing/development: ensure database is created
-            // In production, this should use migrations instead
-            await context.Database.EnsureCreatedAsync();
+            try
+            {
+                // Check if file exists but is not a valid SQLite database
+                if (File.Exists(_databasePath) && !await IsValidSqliteDatabaseAsync())
+                {
+                    await HandleInvalidDatabaseFileAsync();
+                }
+
+                using var context = new SongDbContext(_options);
+
+                // Ensure database is created (this will create a fresh one if file was deleted)
+                await context.Database.EnsureCreatedAsync();
+
+                // Configure UTF-8 encoding for Japanese text support
+                await ConfigureUtf8EncodingAsync(context);
+
+                // Mark as initialized after successful creation
+                lock (_initializationLock)
+                {
+                    _isInitialized = true;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database initialized successfully at: {_databasePath}");
+            }
+            catch (Exception ex) when (ex.Message.Contains("file is not a database") || ex.Message.Contains("not a database"))
+            {
+                // Handle SQLite-specific "file is not a database" errors
+                System.Diagnostics.Debug.WriteLine($"Database corruption error during initialization: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine("Attempting to recover from corrupted database...");
+
+                await HandleInvalidDatabaseFileAsync();
+
+                // Retry initialization after fixing the invalid file
+                using var context = new SongDbContext(_options);
+                await context.Database.EnsureCreatedAsync();
+
+                // Configure UTF-8 encoding for Japanese text support
+                await ConfigureUtf8EncodingAsync(context);
+
+                lock (_initializationLock)
+                {
+                    _isInitialized = true;
+                }
+                System.Diagnostics.Debug.WriteLine("Database recovery successful - fresh database created.");
+            }
+            catch (Exception ex) when (ex.Message.Contains("table") && ex.Message.Contains("already exists"))
+            {
+                // Handle "table already exists" errors - this means the database is already initialized
+                System.Diagnostics.Debug.WriteLine($"Database tables already exist: {ex.Message}");
+                lock (_initializationLock)
+                {
+                    _isInitialized = true;
+                }
+                System.Diagnostics.Debug.WriteLine("Database initialization skipped - tables already exist.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Unexpected error during database initialization: {ex.Message}");
+                throw;
+            }
         }
 
 
@@ -64,17 +132,40 @@ namespace DTXMania.Game.Lib.Song.Entities
             return 0;
         }
 
-
-        /// Reset the database (delete and recreate)
-        public async Task ResetDatabaseAsync()
+        /// <summary>
+        /// Purge the database file completely (for fresh rebuild)
+        /// </summary>
+        public async Task PurgeDatabaseAsync()
         {
-            using var context = new SongDbContext(_options);
+            try
+            {
+                // Close any existing connections first
+                using (var context = new SongDbContext(_options))
+                {
+                    await context.Database.CloseConnectionAsync();
+                }
 
-            // Delete the database
-            await context.Database.EnsureDeletedAsync();
+                // Delete the database file completely
+                if (File.Exists(_databasePath))
+                {
+                    File.Delete(_databasePath);
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database file purged: {_databasePath}");
+                }
 
-            // Recreate it
-            await context.Database.EnsureCreatedAsync();
+                // Reset initialization flag
+                lock (_initializationLock)
+                {
+                    _isInitialized = false;
+                }
+
+                // Small delay to ensure file system has processed the deletion
+                await Task.Delay(100);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error purging database: {ex.Message}");
+                throw;
+            }
         }
 
 
@@ -144,7 +235,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             // Link chart to song and add to context
             chart.SongId = song.Id;
             chart.Song = song;
-            
+
             // Calculate file hash if not already set
             if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
             {
@@ -183,6 +274,18 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Get all songs from the database
+        /// </summary>
+        public async Task<List<SongEntity>> GetSongsAsync()
+        {
+            using var context = CreateContext();
+
+            return await context.Songs
+                .Include(s => s.Charts)
+                .OrderBy(s => s.Title)
+                .ToListAsync();
+        }
 
         /// Get songs by genre
         public async Task<List<SongEntity>> GetSongsByGenreAsync(string genre)
@@ -239,85 +342,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
-
-        /// Create a folder in the hierarchy
-        public async Task<int> CreateFolderAsync(string title, string genre = "", int? parentId = null)
-        {
-            using var context = CreateContext();
-
-            var folder = new SongHierarchy
-            {
-                NodeType = ENodeType.Box,
-                Title = title,
-                Genre = genre,
-                ParentId = parentId,
-                DisplayOrder = await GetNextDisplayOrderAsync(context, parentId),
-                TextColorArgb = unchecked((int)0xFFFFFFFF), // White
-                BreadcrumbPath = await BuildBreadcrumbPathAsync(context, title, parentId),
-                IncludeInRandom = true
-            };
-
-            context.SongHierarchy.Add(folder);
-            await context.SaveChangesAsync();
-
-            return folder.Id;
-        }
-
-
-        /// Add a song to the hierarchy
-        public async Task AddSongToHierarchyAsync(int songId, int? parentId = null)
-        {
-            using var context = CreateContext();
-
-            var song = await context.Songs.FindAsync(songId);
-            if (song == null) return;
-
-            var hierarchyNode = new SongHierarchy
-            {
-                SongId = songId,
-                NodeType = ENodeType.Song,
-                Title = song.Title,
-                Genre = song.Genre,
-                ParentId = parentId,
-                DisplayOrder = await GetNextDisplayOrderAsync(context, parentId),
-                TextColorArgb = unchecked((int)0xFFFFFFFF), // White
-                BreadcrumbPath = await BuildBreadcrumbPathAsync(context, song.Title, parentId),
-                IncludeInRandom = true
-            };
-
-            context.SongHierarchy.Add(hierarchyNode);
-            await context.SaveChangesAsync();
-        }
-
-        // Private helper methods        
-        /// Add a chart for a song
-        private async Task AddChartAsync(SongDbContext context, int songId, EInstrumentPart instrument, int level, int noteCount, string filePath = "")
-        {
-            var chart = new SongChart
-            {
-                SongId = songId,
-                FilePath = filePath,
-                DifficultyLevel = 0, // Default difficulty level
-                DifficultyLabel = "Standard",
-                DrumLevel = instrument == EInstrumentPart.DRUMS ? level : 0,
-                GuitarLevel = instrument == EInstrumentPart.GUITAR ? level : 0,
-                BassLevel = instrument == EInstrumentPart.BASS ? level : 0,
-                HasDrumChart = instrument == EInstrumentPart.DRUMS,
-                HasGuitarChart = instrument == EInstrumentPart.GUITAR,
-                HasBassChart = instrument == EInstrumentPart.BASS,
-                DrumNoteCount = instrument == EInstrumentPart.DRUMS ? noteCount : 0,
-                GuitarNoteCount = instrument == EInstrumentPart.GUITAR ? noteCount : 0,
-                BassNoteCount = instrument == EInstrumentPart.BASS ? noteCount : 0
-            };
-
-            context.SongCharts.Add(chart);
-            await context.SaveChangesAsync();
-
-            // Initialize score record for this chart
-            await AddScoreRecordAsync(context, chart.Id, instrument);
-        }
-
-
         /// Add a score record for a chart
         private async Task AddScoreRecordAsync(SongDbContext context, int chartId, EInstrumentPart instrument)
         {
@@ -352,18 +376,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             return maxOrder + 1;
         }
 
-        private async Task<string> BuildBreadcrumbPathAsync(SongDbContext context, string currentTitle, int? parentId)
-        {
-            if (!parentId.HasValue)
-                return currentTitle;
-
-            var parent = await context.SongHierarchy.FindAsync(parentId.Value);
-            if (parent == null)
-                return currentTitle;
-
-            return $"{parent.BreadcrumbPath} > {currentTitle}";
-        }
-
         private string CalculateFileHash(string filePath)
         {
             if (!File.Exists(filePath)) return string.Empty;
@@ -386,6 +398,71 @@ namespace DTXMania.Game.Lib.Song.Entities
             // Database connections are managed by DbContext instances and disposed automatically
             // No explicit cleanup needed as we use 'using' statements for context management
         }
+
+        /// <summary>
+        /// Check if the database file is a valid SQLite database
+        /// </summary>
+        private async Task<bool> IsValidSqliteDatabaseAsync()
+        {
+            if (!File.Exists(_databasePath))
+                return false;
+
+            try
+            {
+                using var context = new SongDbContext(_options);
+                return await context.Database.CanConnectAsync();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Configure UTF-8 encoding for proper Japanese text support
+        /// </summary>
+        private async Task ConfigureUtf8EncodingAsync(SongDbContext context)
+        {
+            try
+            {
+                // Set UTF-8 encoding and collation for SQLite
+                await context.Database.ExecuteSqlRawAsync("PRAGMA encoding = 'UTF-8'");
+                await context.Database.ExecuteSqlRawAsync("PRAGMA case_sensitive_like = OFF");
+                System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not configure UTF-8 encoding: {ex.Message}");
+                // Continue anyway - most modern SQLite installations default to UTF-8
+            }
+        }
+
+        /// <summary>
+        /// Handle invalid database file by removing it and forcing fresh creation
+        /// </summary>
+        private async Task HandleInvalidDatabaseFileAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Invalid database file detected at: {_databasePath}");
+
+                // Simply delete the corrupted file - no backup needed since it's corrupted anyway
+                if (File.Exists(_databasePath))
+                {
+                    File.Delete(_databasePath);
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Corrupted database file deleted. Fresh database will be created.");
+                }
+
+                // Small delay to ensure file system has processed the deletion
+                await Task.Delay(100);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error removing invalid database file: {ex.Message}");
+                // Try to continue anyway - maybe the file was already deleted
+            }
+        }
+
     }
 
 
