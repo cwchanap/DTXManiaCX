@@ -169,6 +169,16 @@ namespace DTX.Song
         /// Initializes the SongManager with song data and marks it as initialized
         /// Should only be called once during application startup
         /// </summary>
+        /// <param name="searchPaths">Directories to search for song files</param>
+        /// <param name="databasePath">Path to the SQLite database file</param>
+        /// <param name="progress">Progress reporter for enumeration operations</param>
+        /// <param name="purgeDatabaseFirst">Force database rebuild even if healthy (use only for debugging/testing)</param>
+        /// <param name="cancellationToken">Cancellation token for the operation</param>
+        /// <returns>True if initialization succeeded, false otherwise</returns>
+        /// <remarks>
+        /// The database will be automatically purged and rebuilt if corruption is detected.
+        /// Set purgeDatabaseFirst=true only for debugging/testing purposes as it forces a complete rebuild.
+        /// </remarks>
         public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null, bool purgeDatabaseFirst = false, CancellationToken cancellationToken = default)
         {
             lock (_lockObject)
@@ -184,19 +194,31 @@ namespace DTX.Song
             {
                 // Initialize the database service
                 _databaseService = new SongDatabaseService(databasePath);
+
+                // Check for database corruption first
+                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync().ConfigureAwait(false);
                 
-                // Purge the database if requested (for fresh rebuild)
+                // Purge the database only if explicitly requested OR if corruption is detected
                 if (purgeDatabaseFirst)
                 {
-                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild");
+                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
                     await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
-                
+                else if (isDatabaseCorrupted)
+                {
+                    Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
+                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
+                }
+
                 await _databaseService.InitializeDatabaseAsync().ConfigureAwait(false);
-                
+
                 // Check if enumeration is needed
                 bool needsEnumeration = await GetDatabaseScoreCountAsync().ConfigureAwait(false) == 0 || await NeedsEnumerationAsync(searchPaths).ConfigureAwait(false);
-                
+
                 if (needsEnumeration)
                 {
                     Debug.WriteLine("SongManager: Starting song enumeration during initialization");
@@ -229,7 +251,7 @@ namespace DTX.Song
         public async Task<bool> DatabaseExistsAsync()
         {
             if (_databaseService == null) return false;
-            
+
             try
             {
                 return await _databaseService.DatabaseExistsAsync();
@@ -242,12 +264,41 @@ namespace DTX.Song
         }
 
         /// <summary>
+        /// Checks if the database is corrupted and needs to be rebuilt
+        /// Returns true if the database is corrupted or inaccessible
+        /// </summary>
+        public async Task<bool> IsDatabaseCorruptedAsync()
+        {
+            if (_databaseService == null) return false;
+
+            try
+            {
+                // Check if we can connect to the database
+                if (!await _databaseService.DatabaseExistsAsync())
+                    return false; // Database doesn't exist, not corrupted
+
+                // Try to get basic stats to verify database integrity
+                var stats = await _databaseService.GetDatabaseStatsAsync();
+                if (stats == null)
+                    return true; // Can't get stats, likely corrupted
+
+                return false; // Database is accessible and functional
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Database corruption check failed: {ex.Message}");
+                // If we can't determine corruption state, assume it's corrupted to be safe
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Gets database statistics
         /// </summary>
         public async Task<DatabaseStats?> GetDatabaseStatsAsync()
         {
             if (_databaseService == null) return null;
-            
+
             try
             {
                 return await _databaseService.GetDatabaseStatsAsync();
@@ -362,15 +413,15 @@ namespace DTX.Song
 
                     // Get all songs from the database
                     var allSongs = await _databaseService.GetSongsAsync();
-                    
+
                     // Get all charts that belong to this search path
                     var relevantCharts = new List<(SongEntity song, SongChart chart)>();
-                    
+
                     foreach (var song in allSongs)
                     {
                         foreach (var chart in song.Charts)
                         {
-                            if (!string.IsNullOrEmpty(chart.FilePath) && 
+                            if (!string.IsNullOrEmpty(chart.FilePath) &&
                                 Path.GetFullPath(chart.FilePath).StartsWith(Path.GetFullPath(searchPath), StringComparison.OrdinalIgnoreCase))
                             {
                                 relevantCharts.Add((song, chart));
@@ -408,7 +459,7 @@ namespace DTX.Song
         {
             var rootNodes = new List<SongListNode>();
             var folderNodeCache = new Dictionary<string, SongListNode>(StringComparer.OrdinalIgnoreCase);
-            
+
             // First group charts by song Title+Artist to deduplicate songs
             var songGroups = charts
                 .GroupBy(item => new { item.song.Title, item.song.Artist })
@@ -430,7 +481,7 @@ namespace DTX.Song
 
                 // Create folder hierarchy for this song
                 var parentNode = await EnsureFolderHierarchy(searchPath, fullDirectoryPath, folderNodeCache, rootNodes);
-                
+
                 // Create the song node
                 var songNode = CreateSongNodeFromDatabaseEntities(firstSong, allCharts);
                 if (songNode != null)
@@ -466,7 +517,7 @@ namespace DTX.Song
 
             var parentPath = Path.GetDirectoryName(fullPath);
             var folderName = Path.GetFileName(fullPath);
-            
+
             if (string.IsNullOrEmpty(folderName))
                 return null;
 
@@ -508,7 +559,7 @@ namespace DTX.Song
                 {
                     folderNode.Genre = boxDef.Genre ?? "";
                     folderNode.SkinPath = boxDef.SkinPath;
-                    
+
                     // Convert System.Drawing.Color to Microsoft.Xna.Framework.Color
                     if (boxDef.TextColor != System.Drawing.Color.Empty)
                     {
@@ -660,7 +711,7 @@ namespace DTX.Song
             try
             {
                 if (_databaseService == null) return null;
-                
+
                 var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
 
                 if (song == null || chart == null)
@@ -668,14 +719,14 @@ namespace DTX.Song
                     Debug.WriteLine($"SongManager: Metadata parsing returned null for {filePath}.");
                     return null;
                 }
-                
+
                 // Add song to EF Core database
                 var songId = await _databaseService.AddSongAsync(song, chart);
-                
+
                 // Create song node for UI hierarchy
                 var songNode = SongListNode.CreateSongNode(song, chart);
                 songNode.Parent = parent;
-                
+
                 // Store the database song ID for future reference
                 songNode.DatabaseSongId = songId;
 
@@ -796,7 +847,7 @@ namespace DTX.Song
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
-                    
+
                     var tempChart = new DTXMania.Game.Lib.Song.Entities.SongChart
                     {
                         FilePath = setDefPath,
@@ -806,7 +857,7 @@ namespace DTX.Song
                         Bpm = 120.0,
                         Duration = 0.0
                     };
-                    
+
                     currentSong = SongListNode.CreateSongNode(tempSong, tempChart);
                     currentSong.Parent = parent;
 
@@ -837,16 +888,16 @@ namespace DTX.Song
                                     {
                                         var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
                                         currentSong.DatabaseSongId = songId;
-                                        
+
                                         // Populate the Score entry for this difficulty in the set.def node
                                         if (scoreIndex < currentSong.Scores.Length)
                                         {
                                             currentSong.DifficultyLabels[scoreIndex] = !string.IsNullOrEmpty(label) ? label : $"Level {level}";
-                                            
+
                                             // Create a score entry for the primary instrument found in the chart
                                             var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS; // Default
                                             int difficultyLevel = 50; // Default
-                                            
+
                                             if (diffChart.HasDrumChart && diffChart.DrumLevel > 0)
                                             {
                                                 primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
@@ -862,7 +913,7 @@ namespace DTX.Song
                                                 primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
                                                 difficultyLevel = diffChart.BassLevel;
                                             }
-                                            
+
                                             currentSong.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
                                             {
                                                 Instrument = primaryInstrument,
@@ -871,7 +922,7 @@ namespace DTX.Song
                                             };
                                             scoreIndex++;
                                         }
-                                        
+
                                         DiscoveredScoreCount++;
                                     }
                                     catch (Exception ex)
@@ -1006,7 +1057,7 @@ namespace DTX.Song
         public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
         {
             if (_databaseService == null) return new List<SongScoreEntity>();
-            
+
             try
             {
                 return await _databaseService.GetTopScoresAsync(instrument, limit);
@@ -1024,7 +1075,7 @@ namespace DTX.Song
         public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, int newScore, double achievementRate, bool fullCombo)
         {
             if (_databaseService == null) return false;
-            
+
             try
             {
                 await _databaseService.UpdateScoreAsync(chartId, instrument, newScore, achievementRate, fullCombo);
@@ -1047,7 +1098,7 @@ namespace DTX.Song
         public async Task<List<SongEntity>> FindSongsBySearchAsync(string searchTerm)
         {
             if (_databaseService == null) return new List<SongEntity>();
-            
+
             try
             {
                 return await _databaseService.SearchSongsAsync(searchTerm);
@@ -1065,7 +1116,7 @@ namespace DTX.Song
         public async Task<List<SongEntity>> GetSongsByGenreAsync(string genre)
         {
             if (_databaseService == null) return new List<SongEntity>();
-            
+
             try
             {
                 return await _databaseService.GetSongsByGenreAsync(genre);
@@ -1115,7 +1166,7 @@ namespace DTX.Song
 
                 // Use the first chart for the primary file path
                 var primaryChart = charts[0];
-                
+
                 // Create the song node using the first chart
                 var songNode = SongListNode.CreateSongNode(song, primaryChart);
 
@@ -1177,7 +1228,7 @@ namespace DTX.Song
             _enumCancellation?.Cancel();
             _enumCancellation?.Dispose();
             _enumCancellation = null;
-            
+
             lock (_lockObject)
             {
                 _rootSongs.Clear();

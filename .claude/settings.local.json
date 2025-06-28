@@ -6,7 +6,8 @@
       "Bash(dotnet test:*)",
       "Bash(dotnet restore:*)",
       "Bash(rg:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": []
   }

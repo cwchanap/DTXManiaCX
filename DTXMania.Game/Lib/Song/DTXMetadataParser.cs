@@ -148,24 +148,83 @@ namespace DTX.Song
                 // Shift_JIS not available, continue with available encodings
             }
 
+            DTXMania.Game.Lib.Song.Entities.Song bestSong = null;
+            SongChart bestChart = null;
+            string bestEncodingName = null;
+
             foreach (var encoding in encodings)
             {
                 try
                 {
+                    var tempSong = new DTXMania.Game.Lib.Song.Entities.Song();
+                    var tempChart = new SongChart();
+                    
                     using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     using var reader = new StreamReader(stream, encoding);
                     
-                    await ParseHeaderLinesToEntitiesAsync(reader, song, chart);
+                    await ParseHeaderLinesToEntitiesAsync(reader, tempSong, tempChart);
                     
-                    // If we successfully parsed some metadata, we're done
-                    if (!string.IsNullOrEmpty(song.Title) || !string.IsNullOrEmpty(song.Artist))
-                        break;
+                    // Check if we successfully parsed some metadata
+                    if (!string.IsNullOrEmpty(tempSong.Title) || !string.IsNullOrEmpty(tempSong.Artist))
+                    {
+                        // Validate that the text is properly decoded (not corrupted)
+                        if (IsTextProperlyDecoded(tempSong.Title) && IsTextProperlyDecoded(tempSong.Artist))
+                        {
+                            // This encoding produced valid text
+                            bestSong = tempSong;
+                            bestChart = tempChart;
+                            bestEncodingName = encoding.EncodingName;
+                            Debug.WriteLine($"DTXMetadataParser: Successfully parsed with encoding {encoding.EncodingName}");
+                            break;
+                        }
+                        else
+                        {
+                            // Keep this as fallback if no better encoding is found
+                            if (bestSong == null)
+                            {
+                                bestSong = tempSong;
+                                bestChart = tempChart;
+                                bestEncodingName = encoding.EncodingName;
+                                Debug.WriteLine($"DTXMetadataParser: Using {encoding.EncodingName} as fallback (text may be corrupted)");
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"DTXMetadataParser: Failed with encoding {encoding.EncodingName}: {ex.Message}");
                     continue;
                 }
+            }
+
+            // Use the best result found
+            if (bestSong != null)
+            {
+                song.Title = bestSong.Title;
+                song.Artist = bestSong.Artist;
+                song.Genre = bestSong.Genre;
+                song.Comment = bestSong.Comment;
+                
+                // Copy chart properties
+                chart.Bpm = bestChart.Bpm;
+                chart.Duration = bestChart.Duration;
+                chart.BGMAdjust = bestChart.BGMAdjust;
+                chart.DrumLevel = bestChart.DrumLevel;
+                chart.DrumLevelDec = bestChart.DrumLevelDec;
+                chart.GuitarLevel = bestChart.GuitarLevel;
+                chart.GuitarLevelDec = bestChart.GuitarLevelDec;
+                chart.BassLevel = bestChart.BassLevel;
+                chart.BassLevelDec = bestChart.BassLevelDec;
+                chart.HasDrumChart = bestChart.HasDrumChart;
+                chart.HasGuitarChart = bestChart.HasGuitarChart;
+                chart.HasBassChart = bestChart.HasBassChart;
+                chart.PreviewFile = bestChart.PreviewFile;
+                chart.PreviewImage = bestChart.PreviewImage;
+                chart.BackgroundFile = bestChart.BackgroundFile;
+                chart.StageFile = bestChart.StageFile;
+                chart.FileFormat = bestChart.FileFormat;
+                
+                Debug.WriteLine($"DTXMetadataParser: Final result using {bestEncodingName} - Title: {song.Title}, Artist: {song.Artist}");
             }
 
             // Set fallback title if none was found
@@ -176,13 +235,57 @@ namespace DTX.Song
         }
 
         // Legacy ParseHeaderLines method removed - using ParseHeaderLinesToEntitiesAsync instead
+        
+        /// <summary>
+        /// Validates that text is properly decoded and not corrupted
+        /// </summary>
+        private bool IsTextProperlyDecoded(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return true; // Empty text is considered valid
+                
+            // Check for common encoding corruption indicators
+            if (text.Contains("�") || // Unicode replacement character
+                text.Contains("??") || // Multiple question marks
+                text.Contains("???")) // Multiple question marks
+            {
+                return false;
+            }
+            
+            // Check for invalid character sequences that indicate encoding issues
+            // Look for sequences of characters that don't make sense in any language
+            int consecutiveInvalidChars = 0;
+            foreach (char c in text)
+            {
+                // Check for characters that often appear in encoding corruption
+                if (c == '�' || c == '\uFFFD' || // Unicode replacement characters
+                    (c >= 0x80 && c <= 0x9F) || // Control characters in ISO-8859-1 range
+                    c == '?' && consecutiveInvalidChars > 0) // Multiple question marks
+                {
+                    consecutiveInvalidChars++;
+                    if (consecutiveInvalidChars >= 2)
+                        return false;
+                }
+                else if (char.IsControl(c) && c != '\r' && c != '\n' && c != '\t')
+                {
+                    // Invalid control characters
+                    return false;
+                }
+                else
+                {
+                    consecutiveInvalidChars = 0;
+                }
+            }
+            
+            return true;
+        }
 
         /// <summary>
         /// Parses header lines from the DTX file to Song and SongChart entities
         /// </summary>
         private async Task ParseHeaderLinesToEntitiesAsync(StreamReader reader, DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)
         {
-            string? line;
+            string line;
             var lineCount = 0;
             const int maxHeaderLines = 200; // Limit header parsing to first 200 lines
 

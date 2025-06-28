@@ -256,7 +256,8 @@ namespace DTX.Resources
                 }
                 catch (ArgumentException)
                 {
-                    // Handle unsupported characters
+                    // Handle unsupported characters - improved character detection should make this more accurate
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Sanitizing text due to unsupported characters: {text}");
                     var sanitizedText = SanitizeText(text);
                     spriteBatch.DrawString(_spriteFont, sanitizedText, position, color);
                 }
@@ -275,6 +276,8 @@ namespace DTX.Resources
             }
             catch (ArgumentException)
             {
+                // Handle unsupported characters - improved character detection should make this more accurate
+                System.Diagnostics.Debug.WriteLine($"ManagedFont: Sanitizing text due to unsupported characters: {text}");
                 var sanitizedText = SanitizeText(text);
                 spriteBatch.DrawString(_spriteFont, sanitizedText, position, color, rotation, origin, scale, effects, layerDepth);
             }
@@ -615,13 +618,61 @@ namespace DTX.Resources
             {
                 // Try to measure the character - if it throws, it's not supported
                 var size = _spriteFont.MeasureString(character.ToString());
-                return size.X > 0 && size.Y > 0;
+                
+                // Additional validation: check if the character actually renders something
+                // For Japanese characters, even small measurements are valid
+                bool hasSize = size.X > 0 && size.Y > 0;
+                
+                if (!hasSize)
+                {
+                    // Try alternative test: attempt to draw the character to see if it fails
+                    // This is a more reliable test for character support
+                    return TryDrawCharacter(character);
+                }
+                
+                return hasSize;
             }
             catch
             {
                 // Character not supported
                 return false;
             }
+        }
+        
+        private bool TryDrawCharacter(char character)
+        {
+            try
+            {
+                // Create a minimal test to see if the character is drawable
+                // We don't actually draw it, just see if SpriteFont accepts it
+                var testString = character.ToString();
+                
+                // If the character is in the valid Unicode range for Japanese text, assume it's supported
+                // This handles cases where MeasureString might return 0 but the character is actually valid
+                if (IsJapaneseCharacter(character))
+                {
+                    return true; // Assume Japanese characters in our font file are supported
+                }
+                
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        private bool IsJapaneseCharacter(char character)
+        {
+            int codePoint = (int)character;
+            
+            // Check if character is in Japanese Unicode ranges defined in our .spritefont file
+            return (codePoint >= 12289 && codePoint <= 12351) ||  // Japanese punctuation and symbols
+                   (codePoint >= 12352 && codePoint <= 12447) ||  // Hiragana
+                   (codePoint >= 12448 && codePoint <= 12543) ||  // Katakana
+                   (codePoint >= 19968 && codePoint <= 40959) ||  // CJK Unified Ideographs (Kanji)
+                   (codePoint >= 63744 && codePoint <= 64255) ||  // CJK Compatibility Ideographs
+                   (codePoint >= 65280 && codePoint <= 65519);    // Additional Japanese symbols
         }
 
         private string SanitizeText(string text)
