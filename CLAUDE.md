@@ -10,25 +10,24 @@ DTXManiaCX is a port of the original DTXMania to .NET 8 using MonoGame. The orig
 
 ## Development Commands
 
-### Build and Test
+Always rebuild and test after making changes:
+
+### Build and Test on Mac
 ```bash
 # Restore dependencies
-dotnet restore DTXMania.sln
+dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
 
-# Build solution (Debug)
-dotnet build DTXMania.sln --configuration Debug --no-restore
-
-# Build solution (Release)
-dotnet build DTXMania.sln --configuration Release --no-restore
+# Build solution
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-restore
 
 # Run tests
-dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-build --verbosity normal
 
 # Run specific test class
-dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "ClassName=ConfigManagerTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "ClassName=ConfigManagerTests"
 
 # Run with coverage
-dotnet test DTXMania.Test/DTXMania.Test.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
 ```
 
 ### Platform-Specific Builds
@@ -40,10 +39,10 @@ dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Release
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release
 
 # Run Mac application
-dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
+dotnet launch --project DTXMania.Game/DTXMania.Game.Mac.csproj
 
 # Run Windows application (on Windows)
-dotnet run --project DTXMania.Game/DTXMania.Game.Windows.csproj
+dotnet launch --project DTXMania.Game/DTXMania.Game.Windows.csproj
 
 # Publish Windows (self-contained)
 dotnet publish DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Release --output ./publish/windows --self-contained false
