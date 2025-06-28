@@ -22,7 +22,7 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-restore
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-build --verbosity normal
 
 # Run specific test class
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "ClassName=ConfigManagerTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerTests"
 
 # Run with coverage
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults

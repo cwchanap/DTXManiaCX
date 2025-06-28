@@ -54,11 +54,11 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 using var context = new SongDbContext(_options);
 
+                // Configure UTF-8 encoding BEFORE creating tables (SQLite requirement)
+                await ConfigureUtf8EncodingAsync(context);
+
                 // Ensure database is created (this will create a fresh one if file was deleted)
                 await context.Database.EnsureCreatedAsync();
-
-                // Configure UTF-8 encoding for Japanese text support
-                await ConfigureUtf8EncodingAsync(context);
 
                 // Mark as initialized after successful creation
                 lock (_initializationLock)
@@ -78,10 +78,11 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 // Retry initialization after fixing the invalid file
                 using var context = new SongDbContext(_options);
-                await context.Database.EnsureCreatedAsync();
-
-                // Configure UTF-8 encoding for Japanese text support
+                
+                // Configure UTF-8 encoding BEFORE creating tables (SQLite requirement)
                 await ConfigureUtf8EncodingAsync(context);
+                
+                await context.Database.EnsureCreatedAsync();
 
                 lock (_initializationLock)
                 {

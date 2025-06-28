@@ -8,6 +8,7 @@ using DTXMania.Game;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DTX.Stage
@@ -55,6 +56,7 @@ namespace DTX.Stage
 
         // Task tracking for async operations
         private Task _songEnumerationTask;
+        private CancellationTokenSource _cancellationTokenSource;
 
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
@@ -77,6 +79,9 @@ namespace DTX.Stage
             // Initialize services - use singleton for SongManager
             _songManager = SongManager.Instance;
             _configManager = new ConfigManager();
+
+            // Initialize cancellation token source for async operations
+            _cancellationTokenSource = new CancellationTokenSource();
 
             // Initialize phase information (based on DTXManiaNX phases)
             _phaseInfo = new Dictionary<StartupPhase, (string, double)>
@@ -185,6 +190,42 @@ namespace DTX.Stage
             if (disposing)
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
+
+                // Cancel and await completion of the enumeration task if it exists
+                if (_songEnumerationTask != null)
+                {
+                    try
+                    {
+                        // Request cancellation
+                        _cancellationTokenSource?.Cancel();
+                        
+                        // Wait for the task to complete (with a reasonable timeout)
+                        if (!_songEnumerationTask.IsCompleted)
+                        {
+                            System.Diagnostics.Debug.WriteLine("Waiting for song enumeration task to complete...");
+                            _songEnumerationTask.Wait(TimeSpan.FromSeconds(5));
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine("Song enumeration task disposed");
+                    }
+                    catch (AggregateException ex)
+                    {
+                        // Handle task cancellation or other exceptions during disposal
+                        System.Diagnostics.Debug.WriteLine($"Exception during task disposal: {ex.InnerException?.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Exception during task disposal: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _songEnumerationTask = null;
+                    }
+                }
+
+                // Dispose cancellation token source
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
 
                 // Cleanup MonoGame resources
                 _backgroundTexture?.Dispose();
@@ -320,6 +361,8 @@ namespace DTX.Stage
                             {
                                 try
                                 {
+                                    _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                                    
                                     // Point to the user's DTXFiles folder
                                     var songPaths = new[] { "DTXFiles" };
                                     // Purge database for fresh rebuild
@@ -330,11 +373,15 @@ namespace DTX.Stage
                                     int songCount = _songManager.RootSongs.Count;
                                     System.Diagnostics.Debug.WriteLine($"SongManager: {songCount} root nodes loaded");
                                 }
+                                catch (OperationCanceledException)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("Song enumeration was cancelled");
+                                }
                                 catch (Exception ex)
                                 {
                                     System.Diagnostics.Debug.WriteLine($"Song enumeration error: {ex.Message}");
                                 }
-                            });
+                            }, _cancellationTokenSource.Token);
                         }
                     }
                     else

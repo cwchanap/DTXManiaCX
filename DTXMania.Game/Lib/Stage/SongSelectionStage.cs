@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -36,6 +37,11 @@ namespace DTX.Stage
         private SongListNode _selectedSong;
         private int _selectedIndex = 0;
         private int _currentDifficulty = 0;
+
+        // Async initialization management
+        private Task<List<SongListNode>> _songInitializationTask;
+        private bool _songInitializationProcessed = false;
+        private CancellationTokenSource _cancellationTokenSource;
 
         // UI Components - Enhanced DTXManiaNX style
         private UIManager _uiManager;
@@ -89,6 +95,7 @@ namespace DTX.Stage
             _navigationStack = new Stack<SongListNode>();
             _keyRepeatStates = new Dictionary<Keys, KeyRepeatState>();
             _inputCommandQueue = new Queue<InputCommand>();
+            _cancellationTokenSource = new CancellationTokenSource();
         }
 
         #endregion
@@ -170,6 +177,28 @@ namespace DTX.Stage
 
         public override void Deactivate()
         {
+            // Cancel any running song initialization task
+            _cancellationTokenSource?.Cancel();
+
+            // Wait for task completion with timeout to avoid hanging
+            if (_songInitializationTask != null && !_songInitializationTask.IsCompleted)
+            {
+                try
+                {
+                    _songInitializationTask.Wait(TimeSpan.FromMilliseconds(500));
+                }
+                catch (AggregateException)
+                {
+                    // Task was cancelled or failed, which is expected
+                }
+            }
+
+            // Clean up task resources
+            _songInitializationTask?.Dispose();
+            _songInitializationTask = null;
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+
             // Clean up UI
             _uiManager?.Dispose();
 
@@ -375,26 +404,37 @@ namespace DTX.Stage
                 {
                     System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager not initialized yet - starting initialization");
 
-                    // Try to initialize SongManager if it wasn't already done
-                    // This shouldn't normally happen if StartupStage completed properly
-                    Task.Run(async () =>
+                    // Start background task to initialize SongManager and fetch song list
+                    // This task only fetches data and doesn't modify shared state or UI
+                    _songInitializationTask = Task.Run(async () =>
                     {
                         try
                         {
+                            // Check for cancellation before starting
+                            _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                            
                             var songPaths = new[] { "DTXFiles" };
                             await songManager.InitializeAsync(songPaths);
+                            
+                            // Check for cancellation after initialization
+                            _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                            
                             System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager initialization completed");
 
-                            // Reinitialize the song list on the main thread
-                            _currentSongList = [.. songManager.RootSongs];
-                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs (delayed)");
-                            PopulateSongList();
+                            // Return the song list without modifying shared state
+                            return new List<SongListNode>(songManager.RootSongs);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Song initialization was cancelled");
+                            return new List<SongListNode>();
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
+                            return new List<SongListNode>();
                         }
-                    });
+                    }, _cancellationTokenSource.Token);
 
                     // For now, initialize with empty list
                     _currentSongList = new List<SongListNode>();
@@ -443,6 +483,37 @@ namespace DTX.Stage
             displayList.AddRange(_currentSongList);            // Update the song list display
             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Populating display with {displayList.Count} items");
             _songListDisplay.CurrentList = displayList;
+        }
+
+        private void CheckSongInitializationCompletion()
+        {
+            // Check if we have a running task and it's completed
+            if (_songInitializationTask != null && _songInitializationTask.IsCompleted && !_songInitializationProcessed)
+            {
+                _songInitializationProcessed = true;
+
+                try
+                {
+                    // Get the result from the completed task
+                    var songList = _songInitializationTask.Result;
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Async initialization completed with {songList.Count} songs");
+
+                    // Update the song list on the main thread
+                    _currentSongList = songList;
+                    PopulateSongList();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error processing completed song initialization: {ex.Message}");
+                    _currentSongList = new List<SongListNode>();
+                }
+                finally
+                {
+                    // Clean up the task reference
+                    _songInitializationTask?.Dispose();
+                    _songInitializationTask = null;
+                }
+            }
         }
 
         #endregion
@@ -592,6 +663,9 @@ namespace DTX.Stage
         protected override void OnUpdate(double deltaTime)
         {
             _elapsedTime += deltaTime;
+
+            // Check for completed song initialization task
+            CheckSongInitializationCompletion();
 
             // Update input state
             _previousKeyboardState = _currentKeyboardState;

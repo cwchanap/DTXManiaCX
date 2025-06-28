@@ -1,4 +1,5 @@
 using Moq;
+using Xunit;
 using DTX.UI;
 using DTX.UI.Components;
 using DTX.Song;
