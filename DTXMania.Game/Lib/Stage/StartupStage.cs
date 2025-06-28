@@ -412,7 +412,7 @@ namespace DTX.Stage
                 token.ThrowIfCancellationRequested();
 
                 var songPaths = new[] { "DTXFiles" };
-                await _songManager.InitializeAsync(songPaths, "songs.db", null, true, token).ConfigureAwait(false);
+                await _songManager.InitializeAsync(songPaths, "songs.db", null, false, token).ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
 
                 int songCount = _songManager.RootSongs.Count;

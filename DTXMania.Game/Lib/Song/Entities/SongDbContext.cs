@@ -34,6 +34,24 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             base.OnModelCreating(modelBuilder);
 
+            // Configure Unicode support for text fields to ensure proper Japanese text handling
+            // Use HasColumnType instead of UseCollation to avoid SQLite constraint conflicts
+            modelBuilder.Entity<Song>()
+                .Property(s => s.Title)
+                .HasColumnType("TEXT");
+            
+            modelBuilder.Entity<Song>()
+                .Property(s => s.Artist)
+                .HasColumnType("TEXT");
+            
+            modelBuilder.Entity<Song>()
+                .Property(s => s.Genre)
+                .HasColumnType("TEXT");
+            
+            modelBuilder.Entity<Song>()
+                .Property(s => s.Comment)
+                .HasColumnType("TEXT");
+
             // Song indexes for performance (metadata only)
             modelBuilder.Entity<Song>()
                 .HasIndex(s => s.Title);
@@ -41,6 +59,15 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .HasIndex(s => s.Artist);
             modelBuilder.Entity<Song>()
                 .HasIndex(s => s.Genre);
+
+            // Configure Unicode support for SongChart text fields
+            modelBuilder.Entity<SongChart>()
+                .Property(sc => sc.FilePath)
+                .HasColumnType("TEXT");
+            
+            modelBuilder.Entity<SongChart>()
+                .Property(sc => sc.FileFormat)
+                .HasColumnType("TEXT");
 
             // SongChart indexes and relationships
             modelBuilder.Entity<SongChart>()

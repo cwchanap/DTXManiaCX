@@ -17,8 +17,8 @@ namespace DTXMania.Game.Lib.Song.Entities
     {
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
-        private static readonly object _initializationLock = new object();
-        private static bool _isInitialized = false;
+        private readonly object _initializationLock = new object();
+        private bool _isInitialized = false;
 
         public SongDatabaseService(string databasePath = "songs.db")
         {
@@ -26,7 +26,12 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
             // Configure SQLite with UTF-8 support for Japanese text
-            optionsBuilder.UseSqlite($"Data Source={_databasePath};");
+            // Include explicit UTF-8 encoding in connection string
+            var connectionString = $"Data Source={_databasePath};Cache=Shared;";
+            optionsBuilder.UseSqlite(connectionString, options =>
+            {
+                options.CommandTimeout(30);
+            });
             _options = optionsBuilder.Options;
         }
 
@@ -52,13 +57,20 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await HandleInvalidDatabaseFileAsync();
                 }
 
+                // Check if database exists but lacks proper Unicode configuration for Japanese text
+                if (File.Exists(_databasePath) && !await HasProperUnicodeConfigurationAsync())
+                {
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database lacks proper Unicode configuration, recreating for Japanese text support");
+                    await HandleInvalidDatabaseFileAsync();
+                }
+
                 using var context = new SongDbContext(_options);
 
-                // Configure UTF-8 encoding BEFORE creating tables (SQLite requirement)
-                await ConfigureUtf8EncodingAsync(context);
-
-                // Ensure database is created (this will create a fresh one if file was deleted)
+                // Ensure database is created first
                 await context.Database.EnsureCreatedAsync();
+
+                // Configure UTF-8 encoding AFTER tables are created
+                await ConfigureUtf8EncodingAsync(context);
 
                 // Mark as initialized after successful creation
                 lock (_initializationLock)
@@ -79,10 +91,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Retry initialization after fixing the invalid file
                 using var context = new SongDbContext(_options);
                 
-                // Configure UTF-8 encoding BEFORE creating tables (SQLite requirement)
-                await ConfigureUtf8EncodingAsync(context);
-                
                 await context.Database.EnsureCreatedAsync();
+                
+                // Configure UTF-8 encoding AFTER creating tables
+                await ConfigureUtf8EncodingAsync(context);
 
                 lock (_initializationLock)
                 {
@@ -111,6 +123,14 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Create a new DbContext instance
         public SongDbContext CreateContext()
         {
+            // Ensure database is initialized before creating context
+            lock (_initializationLock)
+            {
+                if (!_isInitialized)
+                {
+                    throw new InvalidOperationException("Database must be initialized before creating contexts. Call InitializeDatabaseAsync() first.");
+                }
+            }
             return new SongDbContext(_options);
         }
 
@@ -159,8 +179,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     _isInitialized = false;
                 }
 
-                // Small delay to ensure file system has processed the deletion
-                await Task.Delay(100);
             }
             catch (Exception ex)
             {
@@ -224,43 +242,72 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         /// <summary>
         /// Add a new song with charts and scores using EF Core entities
+        /// Handles duplicate detection based on file path
         /// </summary>
         public async Task<int> AddSongAsync(SongEntity song, SongChart chart)
         {
-            using var context = CreateContext();
-
-            // Add the song entity
-            context.Songs.Add(song);
-            await context.SaveChangesAsync();
-
-            // Link chart to song and add to context
-            chart.SongId = song.Id;
-            chart.Song = song;
-
-            // Calculate file hash if not already set
-            if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
+            // Ensure initialization is complete
+            lock (_initializationLock)
             {
-                chart.FileHash = CalculateFileHash(chart.FilePath);
+                if (!_isInitialized)
+                {
+                    throw new InvalidOperationException("Database must be initialized before adding songs. Call InitializeDatabaseAsync() first.");
+                }
             }
 
-            context.SongCharts.Add(chart);
-            await context.SaveChangesAsync();
+            try
+            {
+                using var context = CreateContext();
 
-            // Create initial score records for each available instrument
-            if (chart.HasDrumChart && chart.DrumLevel > 0)
-            {
-                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
-            }
-            if (chart.HasGuitarChart && chart.GuitarLevel > 0)
-            {
-                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
-            }
-            if (chart.HasBassChart && chart.BassLevel > 0)
-            {
-                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
-            }
+                // Check if a chart with this file path already exists
+                var existingChart = await context.SongCharts
+                    .FirstOrDefaultAsync(c => c.FilePath == chart.FilePath);
 
-            return song.Id;
+                if (existingChart != null)
+                {
+                    // Song already exists, return the existing song ID
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Song already exists with path: {chart.FilePath}");
+                    return existingChart.SongId;
+                }
+
+                // Calculate file hash if not already set
+                if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
+                {
+                    chart.FileHash = CalculateFileHash(chart.FilePath);
+                }
+
+                // Add the song entity
+                context.Songs.Add(song);
+                await context.SaveChangesAsync();
+
+                // Link chart to song and add to context
+                chart.SongId = song.Id;
+                chart.Song = song;
+
+                context.SongCharts.Add(chart);
+                await context.SaveChangesAsync();
+
+                // Create initial score records for each available instrument
+                if (chart.HasDrumChart && chart.DrumLevel > 0)
+                {
+                    await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
+                }
+                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                {
+                    await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
+                }
+                if (chart.HasBassChart && chart.BassLevel > 0)
+                {
+                    await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
+                }
+
+                return song.Id;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error in AddSongAsync: {ex.Message}");
+                throw;
+            }
         }
 
         /// Search songs by title or artist
@@ -420,21 +467,106 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
+        /// Check if the database has proper Unicode/UTF-8 configuration
+        /// Returns false if the database needs to be recreated for proper Japanese text support
+        /// </summary>
+        private async Task<bool> HasProperUnicodeConfigurationAsync()
+        {
+            try
+            {
+                using var context = new SongDbContext(_options);
+                
+                // Check if database can connect first
+                if (!await context.Database.CanConnectAsync())
+                    return false;
+
+                // Check if our Unicode collation changes have been applied
+                // We can do this by checking if a metadata table exists with version info
+                var versionTableCount = await context.Database.SqlQueryRaw<int>(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__DatabaseVersion'"
+                ).ToListAsync();
+                
+                var hasVersionTable = versionTableCount.FirstOrDefault() > 0;
+
+                if (!hasVersionTable)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database lacks version table, needs Unicode reconfiguration");
+                    return false;
+                }
+
+                // Check version number for Unicode support
+                var versionResult = await context.Database.SqlQueryRaw<int>(
+                    "SELECT COALESCE(Version, 0) FROM __DatabaseVersion WHERE Feature='UnicodeCollation' LIMIT 1"
+                ).ToListAsync();
+                
+                var version = versionResult.FirstOrDefault();
+
+                const int REQUIRED_UNICODE_VERSION = 2;
+                if (version < REQUIRED_UNICODE_VERSION)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database Unicode version {version} < required {REQUIRED_UNICODE_VERSION}, needs reconfiguration");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error checking Unicode configuration: {ex.Message}");
+                return false; // Assume needs reconfiguration on error
+            }
+        }
+
+        /// <summary>
         /// Configure UTF-8 encoding for proper Japanese text support
         /// </summary>
         private async Task ConfigureUtf8EncodingAsync(SongDbContext context)
         {
             try
             {
-                // Set UTF-8 encoding and collation for SQLite
-                await context.Database.ExecuteSqlRawAsync("PRAGMA encoding = 'UTF-8'");
+                // Ensure we can write to the database
+                await context.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE");
+                
+                // Set SQLite pragmas for UTF-8 and case-insensitive comparisons
                 await context.Database.ExecuteSqlRawAsync("PRAGMA case_sensitive_like = OFF");
-                System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured");
+                
+                System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured for database");
+
+                // Create/update version table to mark Unicode configuration
+                await EnsureDatabaseVersionTableAsync(context);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not configure UTF-8 encoding: {ex.Message}");
                 // Continue anyway - most modern SQLite installations default to UTF-8
+            }
+        }
+
+        /// <summary>
+        /// Ensure the database version table exists and mark Unicode collation as configured
+        /// </summary>
+        private async Task EnsureDatabaseVersionTableAsync(SongDbContext context)
+        {
+            try
+            {
+                // Create version table if it doesn't exist
+                await context.Database.ExecuteSqlRawAsync(@"
+                    CREATE TABLE IF NOT EXISTS __DatabaseVersion (
+                        Feature TEXT PRIMARY KEY,
+                        Version INTEGER NOT NULL,
+                        AppliedAt TEXT NOT NULL
+                    )");
+
+                // Insert or update Unicode support version
+                await context.Database.ExecuteSqlRawAsync(@"
+                    INSERT OR REPLACE INTO __DatabaseVersion (Feature, Version, AppliedAt)
+                    VALUES ('UnicodeCollation', 2, datetime('now'))");
+
+                System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database version table updated with Unicode support");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not create version table: {ex.Message}");
             }
         }
 
