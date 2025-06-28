@@ -26,7 +26,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
             // Configure SQLite with UTF-8 support for Japanese text
-            optionsBuilder.UseSqlite($"Data Source={_databasePath};Cache=Shared;");
+            optionsBuilder.UseSqlite($"Data Source={_databasePath};");
             _options = optionsBuilder.Options;
         }
 

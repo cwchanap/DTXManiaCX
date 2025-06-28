@@ -198,12 +198,23 @@ namespace DTX.Stage
                     {
                         // Request cancellation
                         _cancellationTokenSource?.Cancel();
-                        
-                        // Wait for the task to complete (with a reasonable timeout)
-                        if (!_songEnumerationTask.IsCompleted)
+
+                        // Wait for the task to complete, with a timeout.
+                        System.Diagnostics.Debug.WriteLine("Waiting for song enumeration task with a 5-second timeout...");
+                        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(5));
+                        var completedTask = Task.WhenAny(_songEnumerationTask, timeoutTask).Result;
+
+                        if (completedTask == _songEnumerationTask)
                         {
-                            System.Diagnostics.Debug.WriteLine("Waiting for song enumeration task to complete...");
-                            _songEnumerationTask.Wait(TimeSpan.FromSeconds(5));
+                            // Task completed within the timeout.
+                            // Calling Wait() on the completed task will not block but will propagate any exceptions.
+                            _songEnumerationTask.Wait();
+                            System.Diagnostics.Debug.WriteLine("Song enumeration task completed gracefully.");
+                        }
+                        else
+                        {
+                            // Timeout occurred.
+                            System.Diagnostics.Debug.WriteLine("Warning: Song enumeration task timed out and will be abandoned.");
                         }
                         
                         System.Diagnostics.Debug.WriteLine("Song enumeration task disposed");
@@ -357,31 +368,7 @@ namespace DTX.Stage
                         // Start async operation but track it for completion
                         if (_songEnumerationTask == null)
                         {
-                            _songEnumerationTask = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    _cancellationTokenSource.Token.ThrowIfCancellationRequested();
-                                    
-                                    // Point to the user's DTXFiles folder
-                                    var songPaths = new[] { "DTXFiles" };
-                                    // Purge database for fresh rebuild
-                                    await _songManager.InitializeAsync(songPaths, "songs.db", null, purgeDatabaseFirst: true);
-                                    System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
-
-                                    // Log the number of songs found
-                                    int songCount = _songManager.RootSongs.Count;
-                                    System.Diagnostics.Debug.WriteLine($"SongManager: {songCount} root nodes loaded");
-                                }
-                                catch (OperationCanceledException)
-                                {
-                                    System.Diagnostics.Debug.WriteLine("Song enumeration was cancelled");
-                                }
-                                catch (Exception ex)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"Song enumeration error: {ex.Message}");
-                                }
-                            }, _cancellationTokenSource.Token);
+                            _songEnumerationTask = EnumerateSongsAsync(_cancellationTokenSource.Token);
                         }
                     }
                     else
@@ -416,6 +403,34 @@ namespace DTX.Stage
                 StartupPhase.SaveSongsDB => StartupPhase.Complete,
                 _ => StartupPhase.Complete
             };
+        }
+
+        private async Task EnumerateSongsAsync(CancellationToken token)
+        {
+            try
+            {
+                token.ThrowIfCancellationRequested();
+
+                var songPaths = new[] { "DTXFiles" };
+                await _songManager.InitializeAsync(songPaths, "songs.db", null, true, token).ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
+
+                int songCount = _songManager.RootSongs.Count;
+                System.Diagnostics.Debug.WriteLine($"SongManager: {songCount} root nodes loaded");
+
+                if (!token.IsCancellationRequested)
+                {
+                    _startupPhase = StartupPhase.Complete;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine("Song enumeration was canceled.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during song enumeration: {ex.Message}");
+            }
         }
 
         #endregion
@@ -515,24 +530,25 @@ namespace DTX.Stage
             int currentPhaseIndex = (int)_startupPhase;
             double phaseElapsed = _elapsedTime - _phaseStartTime;
             double currentPhaseDuration = _phaseInfo[_startupPhase].duration;
-            double phaseProgress = Math.Min(phaseElapsed / currentPhaseDuration, 1.0);
 
+            double phaseProgress = Math.Clamp(phaseElapsed / currentPhaseDuration, 0, 1);
             double overallProgress = (currentPhaseIndex + phaseProgress) / totalPhases;
 
-            // Draw progress bar in lower middle of screen
+            string progressText = $"{_startupPhase} ({(overallProgress * 100):F1}%)";
+
+            // Draw progress bar
             var viewport = _game.GraphicsDevice.Viewport;
             int progressBarX = (viewport.Width - PROGRESS_BAR_WIDTH) / 2; // Center horizontally
             int progressBarY = viewport.Height - PROGRESS_BAR_BOTTOM_MARGIN;
 
-            // Background
+            // Draw progress bar background
             DrawTextRect(progressBarX, progressBarY, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, Color.DarkGray);
 
-            // Progress
+            // Draw progress bar foreground
             int progressWidth = (int)(PROGRESS_BAR_WIDTH * overallProgress);
             DrawTextRect(progressBarX, progressBarY, progressWidth, PROGRESS_BAR_HEIGHT, Color.LightGreen);
 
-            // Progress percentage
-            string progressText = $"{overallProgress * 100:F1}%";
+            // Draw progress text next to the bar
             DrawTextWithFallback(progressText, progressBarX + PROGRESS_BAR_WIDTH + MARGIN_EDGE, progressBarY + MARGIN_TOP);
         }
 
@@ -543,25 +559,21 @@ namespace DTX.Stage
                 _spriteBatch.Draw(_whitePixel, new Rectangle(x, y, width, height), color);
             }
         }
-
         #endregion
+    }
 
-        #region Enums
-
-        private enum StartupPhase
-        {
-            SystemSounds = 0,
-            ConfigValidation = 1,
-            SongListDB = 2,
-            SongsDB = 3,
-            EnumerateSongs = 4,
-            LoadScoreCache = 5,
-            LoadScoreFiles = 6,
-            BuildSongLists = 7,
-            SaveSongsDB = 8,
-            Complete = 9
-        }
-
-        #endregion
+    // Enum for different phases of startup
+    public enum StartupPhase
+    {
+        SystemSounds,
+        ConfigValidation,
+        SongListDB,
+        SongsDB,
+        EnumerateSongs,
+        LoadScoreCache,
+        LoadScoreFiles,
+        BuildSongLists,
+        SaveSongsDB,
+        Complete
     }
 }
