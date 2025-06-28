@@ -22,12 +22,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             base.OnConfiguring(optionsBuilder);
 
-            // Ensure UTF-8 support for Japanese text in SQLite
             if (!optionsBuilder.IsConfigured)
             {
-                optionsBuilder.UseSqlite(connectionString =>
+                optionsBuilder.UseSqlite("Data Source=:memory:", options =>
                 {
-                    connectionString.CommandTimeout(30);
+                    options.CommandTimeout(30);
                 });
             }
         }
