@@ -940,31 +940,29 @@ namespace DTX.Stage
         #endregion
 
         #region Handle Activate Input        /// <summary>
-        /// Handle the Activate input (Enter key) with dual functionality:
+        /// Handle the Activate input (Enter key) with context-sensitive functionality:
         /// - Navigate into folders/back boxes when in song list mode
         /// - Enter status panel when on a song and not in status panel mode
-        /// - Exit status panel when in status panel mode
+        /// - Select chart when in status panel mode (placeholder - stays in status panel)
         /// </summary>
         private void HandleActivateInput()
         {
             if (_isInStatusPanel)
             {
-                // Exit status panel mode
-                _isInStatusPanel = false;
-
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Exited status panel navigation mode");
+                // When in status panel, Enter should select the chart (placeholder for now)
+                // Stay in status panel mode - only Escape should exit
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Chart selection placeholder (staying in status panel)");
+                
+                // TODO: Implement chart selection and transition to performance stage
             }
             else if (_selectedSong != null)
             {                // Check if this is a song (Score type) - if so, enter status panel
                 if (_selectedSong.Type == NodeType.Score)
                 {
-                    // Enter status panel mode AND cycle difficulty (replicate right arrow behavior)
+                    // Enter status panel mode (no difficulty cycling)
                     _isInStatusPanel = true;
 
                     System.Diagnostics.Debug.WriteLine("SongSelectionStage: Entered status panel navigation mode");
-
-                    // Perform the same action as right arrow key (cycle difficulty)
-                    CycleDifficulty(1);
                 }
                 else
                 {
