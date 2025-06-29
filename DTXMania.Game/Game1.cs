@@ -3,7 +3,6 @@ using DTX.Graphics;
 using DTX.Input;
 using DTX.Resources;
 using DTX.Stage;
-using DTXMania.Game.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -75,8 +74,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
 
-        // Configure shared font factory after content is loaded
-        ResourceManagerFactory.SetFontFactory(new SharedFontFactory(Content));
+        // Initialize font factory after content is loaded
+        ManagedFont.InitializeFontFactory(Content);
 
         StageManager?.ChangeStage(StageType.Startup);
     }

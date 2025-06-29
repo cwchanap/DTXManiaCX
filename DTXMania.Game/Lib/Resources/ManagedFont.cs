@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Content;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,11 +14,11 @@ using XnaRectangle = Microsoft.Xna.Framework.Rectangle;
 namespace DTX.Resources
 {
     /// <summary>
-    /// Abstract managed font implementation with reference counting
+    /// Managed font implementation with reference counting
     /// Based on DTXMania's CPrivateFont patterns with Japanese support
-    /// Platform-specific implementations handle font loading
+    /// Supports both SpriteFont-based and platform-specific font loading
     /// </summary>
-    public abstract class ManagedFont : IFont
+    public class ManagedFont : IFont
     {
         #region Private Fields
 
@@ -56,6 +57,58 @@ namespace DTX.Resources
                 Texture?.Dispose();
                 Texture = null;
             }
+        }
+
+        #endregion
+
+        #region Font Factory
+
+        private static ContentManager _contentManager;
+        private static SpriteFont _defaultFont;
+
+        /// <summary>
+        /// Initialize the font factory with a ContentManager
+        /// This should be called during application initialization
+        /// </summary>
+        public static void InitializeFontFactory(ContentManager contentManager)
+        {
+            _contentManager = contentManager ?? throw new ArgumentNullException(nameof(contentManager));
+        }
+
+        /// <summary>
+        /// Create a font from system font name or font file path
+        /// </summary>
+        public static ManagedFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
+        {
+            if (_contentManager == null)
+                throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
+
+            // Try to load the default SpriteFont if we don't have one yet
+            if (_defaultFont == null)
+            {
+                try
+                {
+                    _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
+                }
+                catch (Exception ex)
+                {
+                    throw new NotSupportedException(
+                        $"Cannot create font '{fontPath}' - failed to load default SpriteFont 'NotoSerifJP'. " +
+                        "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + ex.Message);
+                }
+            }
+
+            return new ManagedFont(_defaultFont, fontPath, size, style);
+        }
+
+        /// <summary>
+        /// Create a font from existing SpriteFont
+        /// </summary>
+        public static ManagedFont CreateFont(SpriteFont spriteFont, string sourcePath)
+        {
+            // Extract size from SpriteFont if possible, otherwise use default
+            int size = (int)spriteFont.LineSpacing; // Approximate size from line spacing
+            return new ManagedFont(spriteFont, sourcePath, size, FontStyle.Regular);
         }
 
         #endregion
@@ -505,8 +558,16 @@ namespace DTX.Resources
 
         /// <summary>
         /// Platform-specific font loading implementation
+        /// This implementation doesn't support loading from paths - only from existing SpriteFonts
         /// </summary>
-        protected abstract void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style);
+        protected virtual void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
+        {
+            // This implementation doesn't support dynamic font loading
+            // It only works with pre-existing SpriteFont instances
+            throw new NotSupportedException(
+                "ManagedFont only supports existing SpriteFont instances. " +
+                "Use the constructor that takes a SpriteFont parameter instead.");
+        }
 
         /// <summary>
         /// Check if a font file is supported (implemented by derived classes)

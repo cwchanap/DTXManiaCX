@@ -19,7 +19,6 @@ namespace DTX.Resources
         #region Private Fields
 
         private readonly GraphicsDevice _graphicsDevice;
-        private readonly IFontFactory _fontFactory;
         private readonly ConcurrentDictionary<string, ITexture> _textureCache;
         private readonly ConcurrentDictionary<string, IFont> _fontCache;
         private readonly ConcurrentDictionary<string, ISound> _soundCache;
@@ -40,26 +39,9 @@ namespace DTX.Resources
 
         #region Constructor
 
-        public ResourceManager(GraphicsDevice graphicsDevice, IFontFactory fontFactory)
-        {
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            _fontFactory = fontFactory ?? throw new ArgumentNullException(nameof(fontFactory));
-            _textureCache = new ConcurrentDictionary<string, ITexture>();
-            _fontCache = new ConcurrentDictionary<string, IFont>();
-            _soundCache = new ConcurrentDictionary<string, ISound>();
-
-            // Initialize default skin path
-            InitializeDefaultSkinPath();
-        }
-
-        /// <summary>
-        /// Constructor for shared library usage - font factory will be null
-        /// Font loading will throw exceptions until a platform-specific factory is provided
-        /// </summary>
         public ResourceManager(GraphicsDevice graphicsDevice)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            _fontFactory = null; // Will be set by platform-specific code
             _textureCache = new ConcurrentDictionary<string, ITexture>();
             _fontCache = new ConcurrentDictionary<string, IFont>();
             _soundCache = new ConcurrentDictionary<string, ISound>();
@@ -174,15 +156,8 @@ namespace DTX.Resources
 
             try
             {
-                // Check if font factory is available
-                if (_fontFactory == null)
-                {
-                    throw new InvalidOperationException(
-                        "Font factory not available. Platform-specific ResourceManager constructor must be used for font loading.");
-                }
-
-                // Create font using platform-specific factory
-                var font = _fontFactory.CreateFont(_graphicsDevice, normalizedPath, size, style);
+                // Create font using ManagedFont factory
+                var font = ManagedFont.CreateFont(_graphicsDevice, normalizedPath, size, style);
                 font.AddReference();
 
                 // Cache the font
@@ -636,12 +611,7 @@ namespace DTX.Resources
             // Create fallback font using system default
             try
             {
-                if (_fontFactory == null)
-                {
-                    return null; // No font factory available
-                }
-
-                var fallback = _fontFactory.CreateFont(_graphicsDevice, "Arial", size, style);
+                var fallback = ManagedFont.CreateFont(_graphicsDevice, "Arial", size, style);
                 fallback.AddReference();
                 return fallback;
             }
