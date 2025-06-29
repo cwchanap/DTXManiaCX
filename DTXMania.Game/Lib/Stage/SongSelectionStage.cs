@@ -346,8 +346,8 @@ namespace DTX.Stage
             // Initialize DTXManiaNX authentic graphics for status panel (Phase 3)
             _statusPanel.InitializeAuthenticGraphics(_resourceManager);
 
-            // Ensure status panel is visible and properly configured
-            _statusPanel.Visible = true;
+            // Status panel starts hidden and will be shown when a song is selected
+            _statusPanel.Visible = false;
 
             // Initialize preview image panel
             try
@@ -388,8 +388,6 @@ namespace DTX.Stage
                 // Check if SongManager is properly initialized
                 if (!songManager.IsInitialized)
                 {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager not initialized yet - starting initialization");
-
                     // Start background task to initialize SongManager and fetch song list
                     // This task only fetches data and doesn't modify shared state or UI
                     _songInitializationTask = Task.Run(async () =>
@@ -405,14 +403,11 @@ namespace DTX.Stage
                             // Check for cancellation after initialization
                             _cancellationTokenSource.Token.ThrowIfCancellationRequested();
                             
-                            System.Diagnostics.Debug.WriteLine("SongSelectionStage: SongManager initialization completed");
-
                             // Return the song list without modifying shared state
                             return new List<SongListNode>(songManager.RootSongs);
                         }
                         catch (OperationCanceledException)
                         {
-                            System.Diagnostics.Debug.WriteLine("SongSelectionStage: Song initialization was cancelled");
                             return new List<SongListNode>();
                         }
                         catch (Exception ex)
@@ -429,7 +424,6 @@ namespace DTX.Stage
                 {
                     // Initialize display with song list
                     _currentSongList = [.. songManager.RootSongs];
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Loaded {_currentSongList.Count} songs");
                 }
 
                 PopulateSongList();
@@ -454,7 +448,6 @@ namespace DTX.Stage
 
             if (_currentSongList == null || _currentSongList.Count == 0)
             {
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: No songs to display");
                 _songListDisplay.CurrentList = displayList;
                 return;
             }
@@ -467,7 +460,6 @@ namespace DTX.Stage
 
             // Add all songs and folders
             displayList.AddRange(_currentSongList);            // Update the song list display
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Populating display with {displayList.Count} items");
             _songListDisplay.CurrentList = displayList;
         }
 
@@ -482,7 +474,6 @@ namespace DTX.Stage
                 {
                     // Get the result from the completed task
                     var songList = _songInitializationTask.Result;
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Async initialization completed with {songList.Count} songs");
 
                     // Update the song list on the main thread
                     _currentSongList = songList;
@@ -508,18 +499,45 @@ namespace DTX.Stage
 
         private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
-            // Performance metrics: Measure selection change timing
-            var startTime = DateTime.UtcNow;
-
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
+
+
+            // Auto-manage status panel visibility and navigation mode based on selected item type
+            if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
+            {
+                // Show status panel when on a song (to display song information)
+                if (_statusPanel != null)
+                {
+                    _statusPanel.Visible = true;
+                }
+            }
+            else
+            {
+                // Hide status panel and exit navigation mode when not on a song
+                if (_isInStatusPanel)
+                {
+                    _isInStatusPanel = false;
+                }
+                if (_statusPanel != null)
+                {
+                    _statusPanel.Visible = false;
+                }
+            }
 
             // DTXManiaNX-style navigation debouncing
             if (!e.IsScrollComplete)
             {
                 // During scrolling - only update lightweight UI
                 UpdateBreadcrumb();
-                return; // Skip heavy updates
+                
+                // Always update status panel content even during scrolling (critical for song display)
+                if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
+                {
+                    _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+                }
+                
+                return; // Skip other heavy updates
             }            // After scrolling completes - update everything
             // Process all selection changes immediately (debounce removed per senior engineer feedback)
 
@@ -535,12 +553,6 @@ namespace DTX.Stage
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
 
-            // Performance metrics logging
-            var updateDuration = DateTime.UtcNow - startTime;
-            if (updateDuration.TotalMilliseconds > 1.0) // Log only if update takes more than 1ms
-            {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Selection update took {updateDuration.TotalMilliseconds:F2}ms");
-            }
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -790,7 +802,6 @@ namespace DTX.Stage
                     {
                         // Exit status panel mode
                         _isInStatusPanel = false;
-                        System.Diagnostics.Debug.WriteLine("SongSelectionStage: Exited status panel via Back key");
                     }
                     else if (_navigationStack.Count > 0)
                     {
@@ -951,7 +962,6 @@ namespace DTX.Stage
             {
                 // When in status panel, Enter should select the chart (placeholder for now)
                 // Stay in status panel mode - only Escape should exit
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Chart selection placeholder (staying in status panel)");
                 
                 // TODO: Implement chart selection and transition to performance stage
             }
@@ -961,8 +971,10 @@ namespace DTX.Stage
                 {
                     // Enter status panel mode (no difficulty cycling)
                     _isInStatusPanel = true;
-
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Entered status panel navigation mode");
+                    if (_statusPanel != null)
+                    {
+                        _statusPanel.Visible = true;
+                    }
                 }
                 else
                 {
