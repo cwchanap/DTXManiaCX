@@ -165,13 +165,42 @@ namespace DTX.UI.Components
 
         /// <summary>
         /// Update the displayed song information
+        /// Thread-safe method to prevent state corruption during rapid updates
         /// </summary>
         /// <param name="song">Song to display</param>
         /// <param name="difficulty">Current difficulty level</param>
         public void UpdateSongInfo(SongListNode song, int difficulty)
         {
-            _currentSong = song;
-            _currentDifficulty = difficulty;
+            // DEBUG: Log update parameters
+            System.Diagnostics.Debug.WriteLine($"UpdateSongInfo: song='{song?.Title}', difficulty={difficulty}");
+            if (song?.DatabaseChart != null)
+            {
+                var chart = song.DatabaseChart;
+                System.Diagnostics.Debug.WriteLine($"  Song chart: DrumLevel={chart.DrumLevel}, GuitarLevel={chart.GuitarLevel}, BassLevel={chart.BassLevel}");
+            }
+            if (song?.Scores != null)
+            {
+                System.Diagnostics.Debug.WriteLine($"  Song scores array length: {song.Scores.Length}");
+                for (int i = 0; i < song.Scores.Length; i++)
+                {
+                    var score = song.Scores[i];
+                    if (score != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"    Score[{i}]: Instrument={score.Instrument}, DifficultyLevel={score.DifficultyLevel}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"    Score[{i}]: null");
+                    }
+                }
+            }
+            
+            // Force immediate state update - no lazy updates
+            lock (this)
+            {
+                _currentSong = song;
+                _currentDifficulty = difficulty;
+            }
         }
 
         /// <summary>
@@ -279,15 +308,60 @@ namespace DTX.UI.Components
 
         private void DrawSongInfo(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            if (_currentSong.Type == NodeType.Score && _currentSong.Scores?.Length > 0)
+            // Thread-safe capture of current state
+            SongListNode currentSong;
+            int currentDifficulty;
+            
+            lock (this)
             {
-                // Draw DTXManiaNX authentic layout
-                DrawDTXManiaNXLayout(spriteBatch, bounds);
+                currentSong = _currentSong;
+                currentDifficulty = _currentDifficulty;
+            }
+            
+            // Check for songs (including those with database metadata) 
+            var songType = currentSong?.Type ?? NodeType.BackBox;
+            var scoresLength = currentSong?.Scores?.Length ?? 0;
+            var hasDatabase = currentSong?.DatabaseSong != null;
+            
+            if (songType == NodeType.Score && (scoresLength > 0 || hasDatabase))
+            {
+                // Temporarily update the fields for the drawing methods (they expect _currentSong to be set)
+                var originalSong = _currentSong;
+                var originalDifficulty = _currentDifficulty;
+                _currentSong = currentSong;
+                _currentDifficulty = currentDifficulty;
+                
+                try
+                {
+                    // Draw DTXManiaNX authentic layout
+                    DrawDTXManiaNXLayout(spriteBatch, bounds);
+                }
+                finally
+                {
+                    // Restore original state
+                    _currentSong = originalSong;
+                    _currentDifficulty = originalDifficulty;
+                }
             }
             else
             {
-                // Draw simplified info for non-score items
-                DrawSimplifiedInfo(spriteBatch, bounds);
+                // Temporarily update the fields for the drawing methods
+                var originalSong = _currentSong;
+                var originalDifficulty = _currentDifficulty;
+                _currentSong = currentSong;
+                _currentDifficulty = currentDifficulty;
+                
+                try
+                {
+                    // Draw simplified info for non-score items
+                    DrawSimplifiedInfo(spriteBatch, bounds);
+                }
+                finally
+                {
+                    // Restore original state
+                    _currentSong = originalSong;
+                    _currentDifficulty = originalDifficulty;
+                }
             }
         }
 
@@ -551,8 +625,10 @@ namespace DTX.UI.Components
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            if (_currentSong.Scores == null)
-                return;
+            // DEBUG: Log grid drawing start
+            System.Diagnostics.Debug.WriteLine($"DrawDifficultyGrid: Drawing 5x3 grid for song '{_currentSong?.Title}'");
+            
+            // Always draw all 5 difficulty levels regardless of available charts
 
             // Use DTXManiaNX authentic positioning formula
             // Main Panel at X:130, Y:350, difficulty text at X:140, Y:352
@@ -617,25 +693,54 @@ namespace DTX.UI.Components
                 spriteBatch.Draw(_whitePixel, new Rectangle(x + cellWidth - borderThickness, y, borderThickness, cellHeight), borderColor);
             }
 
-            // Draw cell content: difficulty level, rank icon, achievement rate
+            // Draw cell content: difficulty level for the specific combination
             DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, difficultyLevel, instrument);
         }
 
         private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int difficultyLevel, int instrument)
         {
-            // Get score data for this difficulty and instrument
-            var score = GetScoreForDifficultyAndInstrument(difficultyLevel, instrument);
-
+            // Use the Scores array which contains the actual difficulty levels we want to display
+            if (_currentSong?.Scores == null || difficultyLevel >= _currentSong.Scores.Length)
+            {
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                return;
+            }
+            
+            var score = _currentSong.Scores[difficultyLevel];
             if (score == null)
             {
-                // Draw "--" if no chart exists
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                return;
+            }
+            
+            // Check if this instrument column matches the score's instrument type
+            var expectedInstrument = instrument switch
+            {
+                0 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
+                1 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
+                2 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
+                _ => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS
+            };
+            
+            // Only show data if the instrument matches, otherwise show "--"
+            if (score.Instrument != expectedInstrument)
+            {
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                return;
+            }
+            
+            var level = score.DifficultyLevel;
+            if (level <= 0)
+            {
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
                 return;
             }
 
-            // Draw difficulty level (format: XX.XX)
-            var levelText = GetDifficultyLevelForInstrument(score, instrument);
+            // Fix the formatting: divide by 10 and use "F2" for proper decimal display with trailing zeros
+            // Level 34 should display as "3.40", level 58 should display as "5.80"
+            var levelText = (level / 10.0).ToString("F2");
             var textColor = (difficultyLevel == _currentDifficulty) ? Color.Yellow : Color.White;
+            
             DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(x + 10, y + 5), textColor);
 
             // Draw rank icon (if available)
@@ -948,13 +1053,20 @@ namespace DTX.UI.Components
             var chart = _currentSong?.DatabaseChart;
             if (chart != null)
             {
-                return instrument switch
+                var level = instrument switch
                 {
-                    0 => chart.DrumLevel.ToString("F2"), // Drums
-                    1 => chart.GuitarLevel.ToString("F2"), // Guitar
-                    2 => chart.BassLevel.ToString("F2"), // Bass
-                    _ => "--"
+                    0 => chart.DrumLevel, // Drums
+                    1 => chart.GuitarLevel, // Guitar
+                    2 => chart.BassLevel, // Bass
+                    _ => 0
                 };
+                
+                if (level > 0)
+                {
+                    // Convert from integer format (e.g. 560) to decimal format (e.g. 5.60)
+                    // Fix: 56 should display as 5.60, and use F1 for trailing zero
+                    return (level / 10.0).ToString("F1");
+                }
             }
             
             return "--";
