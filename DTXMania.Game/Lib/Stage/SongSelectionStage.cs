@@ -135,15 +135,7 @@ namespace DTX.Stage
             IFont uiFont = null;
             try
             {
-                if (ResourceManagerFactory.HasFontFactory)
-                {
-                    uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
-                }
-                else
-                {
-                    // Create a minimal fallback font using MonoGame's built-in capabilities
-                    uiFont = CreateFallbackFont();
-                }
+                uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
             }
             catch (Exception ex)
             {
