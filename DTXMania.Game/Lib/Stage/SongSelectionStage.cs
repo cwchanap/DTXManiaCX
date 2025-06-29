@@ -52,13 +52,8 @@ namespace DTX.Stage
         private UILabel _breadcrumbLabel;
         private UIPanel _mainPanel;
 
-        // Input tracking (DTXMania pattern)
-        private KeyboardState _currentKeyboardState;
-        private KeyboardState _previousKeyboardState;
-
-        // Keyboard repeat detection system
-        private readonly Dictionary<Keys, KeyRepeatState> _keyRepeatStates;
-        private readonly Queue<InputCommand> _inputCommandQueue;
+        // Input tracking using InputManager
+        private InputManager _inputManager;
         private IConfigManager _configManager;
 
         // Navigation state
@@ -93,8 +88,7 @@ namespace DTX.Stage
         public SongSelectionStage(BaseGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
-            _keyRepeatStates = new Dictionary<Keys, KeyRepeatState>();
-            _inputCommandQueue = new Queue<InputCommand>();
+            _inputManager = new InputManager();
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
@@ -659,9 +653,8 @@ namespace DTX.Stage
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
 
-            // Update input state
-            _previousKeyboardState = _currentKeyboardState;
-            _currentKeyboardState = Keyboard.GetState();
+            // Update input manager
+            _inputManager.Update(deltaTime);
 
             // Update phase
             UpdatePhase(deltaTime);
@@ -713,112 +706,22 @@ namespace DTX.Stage
 
         private void HandleInput()
         {
-            // Update key repeat states and generate input commands
-            UpdateKeyRepeatStates();
-
-            // Process queued input commands
+            // Process queued input commands from InputManager
             ProcessInputCommands();
         }
 
-        /// <summary>
-        /// Update key repeat states for continuous input detection
-        /// </summary>
-        private void UpdateKeyRepeatStates()
-        {
-            // Define keys we want to track for repeat
-            var trackedKeys = new[]
-            {
-                Keys.Up, Keys.Down, Keys.Left, Keys.Right,
-                Keys.Enter, Keys.Escape
-            };
 
-            foreach (var key in trackedKeys)
-            {
-                if (!_keyRepeatStates.ContainsKey(key))
-                {
-                    _keyRepeatStates[key] = new KeyRepeatState();
-                }
 
-                var state = _keyRepeatStates[key];
-                bool isCurrentlyPressed = _currentKeyboardState.IsKeyDown(key);
-                bool wasPressed = _previousKeyboardState.IsKeyDown(key);
-
-                if (isCurrentlyPressed && !wasPressed)
-                {
-                    // Key just pressed - initial press
-                    state.IsPressed = true;
-                    state.InitialPressTime = _elapsedTime;
-                    state.LastRepeatTime = _elapsedTime;
-                    state.CurrentRepeatInterval = 200 / 1000.0; // Default: 200ms initial delay
-                    state.HasStartedRepeating = false;
-
-                    // Queue initial command
-                    QueueInputCommand(GetCommandTypeForKey(key), _elapsedTime, false);
-                }
-                else if (isCurrentlyPressed && wasPressed)
-                {
-                    // Key held down - check for repeat
-                    double timeSinceInitialPress = _elapsedTime - state.InitialPressTime;
-                    double timeSinceLastRepeat = _elapsedTime - state.LastRepeatTime;
-
-                    if (timeSinceLastRepeat >= state.CurrentRepeatInterval)
-                    {
-                        // Time for a repeat
-                        state.LastRepeatTime = _elapsedTime;
-                        state.HasStartedRepeating = true;
-
-                        // Calculate accelerated repeat interval
-                        double accelerationProgress = Math.Min(1.0, timeSinceInitialPress / (1000 / 1000.0)); // Default: 1000ms acceleration
-                        state.CurrentRepeatInterval = MathHelper.Lerp(
-                            200 / 1000.0f, // Default: 200ms initial delay
-                            50 / 1000.0f,  // Default: 50ms final delay
-                            (float)accelerationProgress);
-
-                        // Queue repeat command
-                        QueueInputCommand(GetCommandTypeForKey(key), _elapsedTime, true);
-                    }
-                }
-                else if (!isCurrentlyPressed && wasPressed)
-                {
-                    // Key released
-                    state.Reset();
-                }
-            }
-        }
 
         /// <summary>
-        /// Get the input command type for a given key
-        /// </summary>
-        private InputCommandType GetCommandTypeForKey(Keys key)
-        {
-            return key switch
-            {
-                Keys.Up => InputCommandType.MoveUp,
-                Keys.Down => InputCommandType.MoveDown,
-                Keys.Left => InputCommandType.MoveLeft,
-                Keys.Right => InputCommandType.MoveRight,
-                Keys.Enter => InputCommandType.Activate,
-                Keys.Escape => InputCommandType.Back,
-                _ => InputCommandType.Activate
-            };
-        }
-
-        /// <summary>
-        /// Queue an input command for processing
-        /// </summary>
-        private void QueueInputCommand(InputCommandType commandType, double timestamp, bool isRepeat)
-        {
-            _inputCommandQueue.Enqueue(new InputCommand(commandType, timestamp, isRepeat));
-        }
-
-        /// <summary>
-        /// Process queued input commands
+        /// Process queued input commands from InputManager
         /// </summary>
         private void ProcessInputCommands()
         {
-            while (_inputCommandQueue.Count > 0)
+            var commands = _inputManager.GetInputCommands();
+            while (commands.Count > 0)
             {
-                var command = _inputCommandQueue.Dequeue();
+                var command = commands.Dequeue();
                 ExecuteInputCommand(command);
             }
         }
@@ -1089,63 +992,4 @@ namespace DTX.Stage
 
     #endregion
 
-    #region Input Command System
-
-    /// <summary>
-    /// Represents an input command that can be queued and processed
-    /// </summary>
-    public enum InputCommandType
-    {
-        MoveUp,
-        MoveDown,
-        MoveLeft,
-        MoveRight,
-        Activate,
-        Back
-    }
-
-    /// <summary>
-    /// Input command with timestamp for processing
-    /// </summary>
-    public struct InputCommand
-    {
-        public InputCommandType Type { get; set; }
-        public double Timestamp { get; set; }
-        public bool IsRepeat { get; set; }
-
-        public InputCommand(InputCommandType type, double timestamp, bool isRepeat = false)
-        {
-            Type = type;
-            Timestamp = timestamp;
-            IsRepeat = isRepeat;
-        }
-    }
-
-    /// <summary>
-    /// Tracks the repeat state of a key for continuous input
-    /// </summary>
-    public class KeyRepeatState
-    {
-        public bool IsPressed { get; set; }
-        public double InitialPressTime { get; set; }
-        public double LastRepeatTime { get; set; }
-        public double CurrentRepeatInterval { get; set; }
-        public bool HasStartedRepeating { get; set; }
-
-        public KeyRepeatState()
-        {
-            Reset();
-        }
-
-        public void Reset()
-        {
-            IsPressed = false;
-            InitialPressTime = 0;
-            LastRepeatTime = 0;
-            CurrentRepeatInterval = 0;
-            HasStartedRepeating = false;
-        }
-    }
-
-    #endregion
 }
