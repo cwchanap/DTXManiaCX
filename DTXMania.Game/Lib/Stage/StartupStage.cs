@@ -216,7 +216,7 @@ namespace DTX.Stage
                             // Timeout occurred.
                             System.Diagnostics.Debug.WriteLine("Warning: Song enumeration task timed out and will be abandoned.");
                         }
-                        
+
                         System.Diagnostics.Debug.WriteLine("Song enumeration task disposed");
                     }
                     catch (AggregateException ex)
@@ -420,7 +420,10 @@ namespace DTX.Stage
 
                 if (!token.IsCancellationRequested)
                 {
-                    _startupPhase = StartupPhase.Complete;
+                    lock (_progressMessages) // Reuse existing lock object
+                    {
+                        _startupPhase = StartupPhase.Complete;
+                    }
                 }
             }
             catch (OperationCanceledException)
