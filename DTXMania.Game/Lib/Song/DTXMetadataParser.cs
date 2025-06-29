@@ -164,8 +164,9 @@ namespace DTX.Song
                     
                     await ParseHeaderLinesToEntitiesAsync(reader, tempSong, tempChart);
                     
-                    // Check if we successfully parsed some metadata
-                    if (!string.IsNullOrEmpty(tempSong.Title) || !string.IsNullOrEmpty(tempSong.Artist))
+                    // Check if we successfully parsed some metadata (song info or chart levels)
+                    if (!string.IsNullOrEmpty(tempSong.Title) || !string.IsNullOrEmpty(tempSong.Artist) ||
+                        tempChart.DrumLevel > 0 || tempChart.GuitarLevel > 0 || tempChart.BassLevel > 0)
                     {
                         // Validate that the text is properly decoded (not corrupted)
                         if (IsTextProperlyDecoded(tempSong.Title) && IsTextProperlyDecoded(tempSong.Artist))
