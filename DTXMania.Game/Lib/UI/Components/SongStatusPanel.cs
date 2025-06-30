@@ -571,8 +571,8 @@ namespace DTX.UI.Components
 
         private void DrawBPMSection(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Use EF Core entities instead of legacy metadata
-            var chart = _currentSong?.DatabaseChart;
+            // Get the chart for the current difficulty, not just the primary chart
+            var chart = GetCurrentDifficultyChart();
             if (chart == null)
                 return;
 
@@ -583,12 +583,9 @@ namespace DTX.UI.Components
 
             // Draw song duration first (DTXManiaNX format: "Length: 2:34")
             // Duration display at X:132, Y:268
-            if (chart.Duration > 0)
-            {
-                var formattedDuration = FormatDuration(chart.Duration);
-                var durationText = $"Length: {formattedDuration}";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(132, 268), DTXManiaVisualTheme.SongSelection.StatusValueText);
-            }
+            var formattedDuration = FormatDuration(chart.Duration);
+            var durationText = $"Length: {formattedDuration}";
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(132, 268), DTXManiaVisualTheme.SongSelection.StatusValueText);
 
             // Draw BPM value (DTXManiaNX format: "BPM: 145")
             // BPM value at X:135, Y:298
@@ -1131,6 +1128,66 @@ namespace DTX.UI.Components
             return duration.TotalHours >= 1 
                 ? $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}"
                 : $"{duration.Minutes}:{duration.Seconds:D2}";
+        }
+
+        /// <summary>
+        /// Gets the chart for the current difficulty level
+        /// </summary>
+        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart()
+        {
+            // If no song is selected, return null
+            if (_currentSong?.DatabaseSong == null)
+                return null;
+
+            // Get all charts for this song
+            var allCharts = _currentSong.DatabaseSong.Charts?.ToList();
+            if (allCharts == null || allCharts.Count == 0)
+                return _currentSong.DatabaseChart; // Fallback to primary chart
+
+            // If we only have one chart, return it
+            if (allCharts.Count == 1)
+                return allCharts[0];
+
+            // Get the current score to determine which chart to use
+            var currentScore = GetCurrentScore();
+            if (currentScore == null)
+                return allCharts[0]; // Default to first chart
+
+            // Try to find a chart that matches the current instrument/difficulty
+            // First, try to match by instrument
+            var instrumentCharts = allCharts.Where(chart =>
+            {
+                return currentScore.Instrument switch
+                {
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS => chart.HasDrumChart && chart.DrumLevel > 0,
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR => chart.HasGuitarChart && chart.GuitarLevel > 0,
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS => chart.HasBassChart && chart.BassLevel > 0,
+                    _ => true
+                };
+            }).ToList();
+
+            if (instrumentCharts.Count == 0)
+                return allCharts[0]; // Fallback if no matching instrument
+
+            // If we have multiple charts for the same instrument, try to match by difficulty level
+            if (instrumentCharts.Count == 1)
+                return instrumentCharts[0];
+
+            // Sort by difficulty level and select based on current difficulty index
+            var sortedCharts = instrumentCharts.OrderBy(chart =>
+            {
+                return currentScore.Instrument switch
+                {
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS => chart.DrumLevel,
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR => chart.GuitarLevel,
+                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS => chart.BassLevel,
+                    _ => 50
+                };
+            }).ToList();
+
+            // Clamp difficulty index to available charts
+            int chartIndex = Math.Clamp(_currentDifficulty, 0, sortedCharts.Count - 1);
+            return sortedCharts[chartIndex];
         }
 
         #endregion

@@ -270,6 +270,48 @@ namespace DTXMania.Game.Lib.Song.Entities
                     return existingChart.SongId;
                 }
 
+                // Check if a song with the same title and artist already exists
+                var existingSong = await context.Songs
+                    .FirstOrDefaultAsync(s => s.Title == song.Title && s.Artist == song.Artist);
+
+                if (existingSong != null)
+                {
+                    // Song exists, add chart to existing song
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Adding chart to existing song: {song.Title} by {song.Artist}");
+                    
+                    // Calculate file hash if not already set
+                    if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
+                    {
+                        chart.FileHash = CalculateFileHash(chart.FilePath);
+                    }
+
+                    // Link chart to existing song
+                    chart.SongId = existingSong.Id;
+                    chart.Song = existingSong;
+
+                    context.SongCharts.Add(chart);
+                    await context.SaveChangesAsync();
+
+                    // Create initial score records for each available instrument
+                    if (chart.HasDrumChart && chart.DrumLevel > 0)
+                    {
+                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
+                    }
+                    if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                    {
+                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
+                    }
+                    if (chart.HasBassChart && chart.BassLevel > 0)
+                    {
+                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
+                    }
+
+                    return existingSong.Id;
+                }
+
+                // No existing song found, create a new one
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Creating new song: {song.Title} by {song.Artist}");
+
                 // Calculate file hash if not already set
                 if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
                 {

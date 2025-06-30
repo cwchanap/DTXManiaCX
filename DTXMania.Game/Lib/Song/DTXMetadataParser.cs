@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Globalization;
 using System.Collections.Generic;
+using System.Linq;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTX.Song
@@ -163,6 +164,13 @@ namespace DTX.Song
                     using var reader = new StreamReader(stream, encoding);
                     
                     await ParseHeaderLinesToEntitiesAsync(reader, tempSong, tempChart);
+                    
+                    // Calculate duration by parsing measure data
+                    Debug.WriteLine($"DTXMetadataParser: Starting duration calculation for {filePath}");
+                    stream.Seek(0, SeekOrigin.Begin); // Reset to beginning
+                    using var durationReader = new StreamReader(stream, encoding);
+                    await CalculateDurationAsync(durationReader, tempChart);
+                    Debug.WriteLine($"DTXMetadataParser: Duration calculation completed. Result: {tempChart.Duration:F2} seconds");
                     
                     // Check if we successfully parsed some metadata (song info or chart levels)
                     if (!string.IsNullOrEmpty(tempSong.Title) || !string.IsNullOrEmpty(tempSong.Artist) ||
@@ -483,6 +491,212 @@ namespace DTX.Song
             if (string.IsNullOrEmpty(value)) return false;
 
             return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+        }
+
+        /// <summary>
+        /// Calculates song duration by parsing measure data and tracking BPM/measure length changes
+        /// </summary>
+        private async Task CalculateDurationAsync(StreamReader reader, SongChart chart)
+        {
+            if (chart.Bpm <= 0)
+            {
+                Debug.WriteLine("DTXMetadataParser: Cannot calculate duration - no BPM specified");
+                return;
+            }
+
+            try
+            {
+                // Track timing information
+                double currentBpm = chart.Bpm;
+                int lastMeasureWithNotes = 0;
+                var bpmChanges = new Dictionary<int, double>(); // measure -> BPM
+                var measureLengths = new Dictionary<int, double>(); // measure -> length multiplier (default 1.0 = 4/4)
+                
+                string line;
+                bool inDataSection = false;
+                
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    line = line.Trim();
+                    
+                    // Skip empty lines and comments
+                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//"))
+                        continue;
+                    
+                    // Check if we've reached the data section
+                    if (line.StartsWith("*") || line.StartsWith("[") || IsTimelineData(line))
+                    {
+                        inDataSection = true;
+                    }
+                    
+                    if (!inDataSection)
+                    {
+                        // Still in header, look for additional BPM and measure length commands
+                        if (line.StartsWith("#"))
+                        {
+                            ParseTimingCommand(line, bpmChanges, measureLengths);
+                        }
+                        continue;
+                    }
+                    
+                    // Parse measure data: *MMCCC: NNNNNNNN or #MMCCC: NNNNNNNN
+                    if ((line.StartsWith("*") || IsTimelineData(line)) && line.Contains(":"))
+                    {
+                        var measure = ParseMeasureLine(line);
+                        if (measure.HasValue && HasNoteData(line))
+                        {
+                            lastMeasureWithNotes = Math.Max(lastMeasureWithNotes, measure.Value);
+                        }
+                    }
+                }
+                
+                // Calculate total duration
+                if (lastMeasureWithNotes > 0)
+                {
+                    double totalDuration = CalculateTotalDuration(lastMeasureWithNotes, currentBpm, bpmChanges, measureLengths);
+                    chart.Duration = totalDuration;
+                    
+                    Debug.WriteLine($"DTXMetadataParser: Calculated duration {totalDuration:F2} seconds for {lastMeasureWithNotes} measures");
+                }
+                else
+                {
+                    Debug.WriteLine("DTXMetadataParser: No measures with notes found");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"DTXMetadataParser: Error calculating duration: {ex.Message}");
+                // Duration remains 0 on error
+            }
+        }
+        
+        /// <summary>
+        /// Parses timing-related commands from the header section
+        /// </summary>
+        private void ParseTimingCommand(string line, Dictionary<int, double> bpmChanges, Dictionary<int, double> measureLengths)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1) return;
+
+            var command = line.Substring(0, colonIndex).Trim().ToUpperInvariant();
+            var value = line.Substring(colonIndex + 1).Trim();
+
+            // Remove quotes if present
+            if (value.StartsWith("\"") && value.EndsWith("\"") && value.Length > 1)
+            {
+                value = value.Substring(1, value.Length - 2);
+            }
+
+            // Handle BPM changes at specific measures: #BPM01: 150.0
+            if (command.StartsWith("#BPM") && command.Length > 4)
+            {
+                var measureStr = command.Substring(4);
+                if (int.TryParse(measureStr, out int measure) && TryParseDouble(value, out double bpm))
+                {
+                    bpmChanges[measure] = bpm;
+                }
+            }
+            
+            // Handle measure length changes: #LENGTH01: 0.5 (half-length measure)
+            else if (command.StartsWith("#LENGTH") && command.Length > 7)
+            {
+                var measureStr = command.Substring(7);
+                if (int.TryParse(measureStr, out int measure) && TryParseDouble(value, out double length))
+                {
+                    measureLengths[measure] = length;
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Checks if a line contains timeline data (measure data)
+        /// </summary>
+        private bool IsTimelineData(string line)
+        {
+            // Check for #MMCCC: format (5-digit hex after #)
+            if (line.StartsWith("#") && line.Length >= 6)
+            {
+                var measurePart = line.Substring(1, 5);
+                return measurePart.All(c => char.IsDigit(c) || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'));
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Parses a measure line and returns the measure number
+        /// </summary>
+        private int? ParseMeasureLine(string line)
+        {
+            try
+            {
+                // Format: *MMCCC: NNNNNNNN where MM is measure, CCC is channel
+                if (line.Length >= 6 && line.StartsWith("*"))
+                {
+                    var measureStr = line.Substring(1, 2);
+                    if (int.TryParse(measureStr, out int measure))
+                    {
+                        return measure;
+                    }
+                }
+                // Format: #MMCCC: NNNNNNNN where MM is measure (first 3 digits), CCC is channel (last 2 digits)
+                else if (line.Length >= 6 && line.StartsWith("#"))
+                {
+                    var measurePart = line.Substring(1, 3); // First 3 digits are measure
+                    if (int.TryParse(measurePart, out int measure))
+                    {
+                        return measure;
+                    }
+                }
+            }
+            catch
+            {
+                // Invalid format, ignore
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// Checks if a measure line contains actual note data (not just empty)
+        /// </summary>
+        private bool HasNoteData(string line)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1 || colonIndex + 1 >= line.Length) return false;
+            
+            var noteData = line.Substring(colonIndex + 1).Trim();
+            
+            // Check if there's any non-zero note data
+            return noteData.Any(c => c != '0' && c != ' ' && c != '\t');
+        }
+        
+        /// <summary>
+        /// Calculates total duration considering BPM changes and measure lengths
+        /// </summary>
+        private double CalculateTotalDuration(int lastMeasure, double baseBpm, Dictionary<int, double> bpmChanges, Dictionary<int, double> measureLengths)
+        {
+            double totalTime = 0.0;
+            double currentBpm = baseBpm;
+            
+            for (int measure = 1; measure <= lastMeasure; measure++)
+            {
+                // Check for BPM change at this measure
+                if (bpmChanges.ContainsKey(measure))
+                {
+                    currentBpm = bpmChanges[measure];
+                }
+                
+                // Get measure length (default 1.0 = full 4/4 measure)
+                double measureLength = measureLengths.ContainsKey(measure) ? measureLengths[measure] : 1.0;
+                
+                // Calculate time for this measure: (4 beats * measure_length * 60 seconds) / BPM
+                double measureTime = (4.0 * measureLength * 60.0) / currentBpm;
+                totalTime += measureTime;
+            }
+            
+            // Add a small buffer for the final note to ring out (0.5 seconds)
+            totalTime += 0.5;
+            
+            return totalTime;
         }
 
         #endregion
