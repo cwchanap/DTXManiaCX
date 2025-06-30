@@ -61,7 +61,7 @@ namespace DTX.Input
         }
     }
 
-    public class InputManager
+    public class InputManager : IDisposable
     {
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
@@ -241,5 +241,31 @@ namespace DTX.Input
                 }
             }
         }
+
+        #region IDisposable Implementation
+
+        private bool _disposed = false;
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    // Clear managed resources
+                    _inputCommandQueue?.Clear();
+                    _keyRepeatStates?.Clear();
+                }
+                _disposed = true;
+            }
+        }
+
+        #endregion
     }
 }

@@ -87,7 +87,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             Exit();
 
         // Update input manager before stage manager updates
-        InputManager?.Update();
+        InputManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
         // Handle Alt+Enter for fullscreen toggle
         var keyboardState = Keyboard.GetState();
