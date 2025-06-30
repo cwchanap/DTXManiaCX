@@ -1,5 +1,6 @@
 using DTX.Config;
 using DTX.Stage;
+using DTX.Input;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
 
