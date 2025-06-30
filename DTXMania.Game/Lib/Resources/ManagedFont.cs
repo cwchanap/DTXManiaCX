@@ -63,6 +63,7 @@ namespace DTX.Resources
 
         #region Font Factory
 
+        private static readonly object _fontFactoryLock = new object();
         private static ContentManager _contentManager;
         private static SpriteFont _defaultFont;
 
@@ -72,7 +73,10 @@ namespace DTX.Resources
         /// </summary>
         public static void InitializeFontFactory(ContentManager contentManager)
         {
-            _contentManager = contentManager ?? throw new ArgumentNullException(nameof(contentManager));
+            lock (_fontFactoryLock)
+            {
+                _contentManager = contentManager ?? throw new ArgumentNullException(nameof(contentManager));
+            }
         }
 
         /// <summary>
@@ -80,25 +84,28 @@ namespace DTX.Resources
         /// </summary>
         public static ManagedFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
         {
-            if (_contentManager == null)
-                throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
-
-            // Try to load the default SpriteFont if we don't have one yet
-            if (_defaultFont == null)
+            lock (_fontFactoryLock)
             {
-                try
-                {
-                    _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
-                }
-                catch (Exception ex)
-                {
-                    throw new NotSupportedException(
-                        $"Cannot create font '{fontPath}' - failed to load default SpriteFont 'NotoSerifJP'. " +
-                        "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + ex.Message);
-                }
-            }
+                if (_contentManager == null)
+                    throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
-            return new ManagedFont(_defaultFont, fontPath, size, style);
+                // Try to load the default SpriteFont if we don't have one yet
+                if (_defaultFont == null)
+                {
+                    try
+                    {
+                        _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new NotSupportedException(
+                            $"Cannot create font '{fontPath}' - failed to load default SpriteFont 'NotoSerifJP'. " +
+                            "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + ex.Message);
+                    }
+                }
+
+                return new ManagedFont(_defaultFont, fontPath, size, style);
+            }
         }
 
         /// <summary>

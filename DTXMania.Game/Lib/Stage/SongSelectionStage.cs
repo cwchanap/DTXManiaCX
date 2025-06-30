@@ -188,6 +188,10 @@ namespace DTX.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
+            // Clean up input manager
+            _inputManager?.Dispose();
+            _inputManager = null;
+
             // Clean up DTXManiaNX background graphics (Phase 3)
             _backgroundTexture?.Dispose();
             _headerPanelTexture?.Dispose();
