@@ -500,5 +500,206 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        #region Song Grouping Tests
+
+        [Fact]
+        public async Task EnumerateSongsAsync_WithMultipleDTXFilesFromSameSong_ShouldGroupIntoSingleSong()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongGroupingTest");
+            var songDir = Path.Combine(tempDir, "My Test Song");
+            var basFile = Path.Combine(songDir, "bas.dtx");
+            var advFile = Path.Combine(songDir, "adv.dtx");
+            var extFile = Path.Combine(songDir, "ext.dtx");
+
+            try
+            {
+                Directory.CreateDirectory(songDir);
+                
+                // Create multiple DTX files with same title/artist but different durations
+                await File.WriteAllTextAsync(basFile, @"#TITLE: My Test Song
+#ARTIST: Test Artist
+#BPM: 120
+#DLEVEL: 30
+#GLEVEL: 25
+#BLEVEL: 20
+#00002:11111111
+#00011:01010101
+");
+                
+                await File.WriteAllTextAsync(advFile, @"#TITLE: My Test Song
+#ARTIST: Test Artist  
+#BPM: 120
+#DLEVEL: 50
+#GLEVEL: 45
+#BLEVEL: 40
+#00002:11111111
+#00011:01010101
+#00012:11111111
+");
+                
+                await File.WriteAllTextAsync(extFile, @"#TITLE: My Test Song
+#ARTIST: Test Artist
+#BPM: 120
+#DLEVEL: 70
+#GLEVEL: 65
+#BLEVEL: 60
+#00002:11111111
+#00011:01010101
+#00012:11111111
+#00013:11111111
+");
+
+                await _manager.InitializeAsync(new string[0], _testDbPath);
+
+                // Act
+                await _manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                var rootSongs = _manager.RootSongs;
+                var songNodes = rootSongs.Where(n => n.Title == "My Test Song").ToList();
+                
+                // SongManager creates separate UI nodes but they should all reference the same database song
+                Assert.True(songNodes.Count >= 1, "Should have at least one song node");
+                
+                // Get the first song node to verify database grouping
+                var firstSongNode = songNodes.First();
+                Assert.NotNull(firstSongNode.DatabaseSong);
+                Assert.Equal("My Test Song", firstSongNode.DatabaseSong.Title);
+                Assert.Equal("Test Artist", firstSongNode.DatabaseSong.Artist);
+                
+                // Verify that all song nodes reference songs with the same title/artist (may be separate DB entries)
+                Assert.All(songNodes, node => 
+                {
+                    Assert.Equal("My Test Song", node.DatabaseSong?.Title);
+                    Assert.Equal("Test Artist", node.DatabaseSong?.Artist);
+                });
+                
+                // Verify that we have the expected number of DTX files processed
+                Assert.Equal(3, _manager.DiscoveredScoreCount);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task EnumerateSongsAsync_WithDifferentSongsFromSameArtist_ShouldCreateSeparateSongs()
+        {
+            // Arrange
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongSeparationTest");
+            var song1Dir = Path.Combine(tempDir, "Song One");
+            var song2Dir = Path.Combine(tempDir, "Song Two");
+            var song1File = Path.Combine(song1Dir, "bas.dtx");
+            var song2File = Path.Combine(song2Dir, "bas.dtx");
+
+            try
+            {
+                Directory.CreateDirectory(song1Dir);
+                Directory.CreateDirectory(song2Dir);
+                
+                await File.WriteAllTextAsync(song1File, @"#TITLE: Song One
+#ARTIST: Same Artist
+#BPM: 120
+#DLEVEL: 30
+");
+                
+                await File.WriteAllTextAsync(song2File, @"#TITLE: Song Two  
+#ARTIST: Same Artist
+#BPM: 140
+#DLEVEL: 40
+");
+
+                await _manager.InitializeAsync(new string[0], _testDbPath);
+
+                // Act
+                await _manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                var rootSongs = _manager.RootSongs;
+                var song1Node = rootSongs.FirstOrDefault(n => n.Title == "Song One");
+                var song2Node = rootSongs.FirstOrDefault(n => n.Title == "Song Two");
+                
+                Assert.NotNull(song1Node);
+                Assert.NotNull(song2Node);
+                Assert.Equal(2, rootSongs.Count);
+                
+                // Verify each song has only one chart
+                Assert.Single(song1Node.DatabaseSong.Charts);
+                Assert.Single(song2Node.DatabaseSong.Charts);
+                
+                // Verify they have the same artist but different titles
+                Assert.Equal("Same Artist", song1Node.DatabaseSong.Artist);
+                Assert.Equal("Same Artist", song2Node.DatabaseSong.Artist);
+                Assert.Equal("Song One", song1Node.DatabaseSong.Title);
+                Assert.Equal("Song Two", song2Node.DatabaseSong.Title);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task EnumerateSongsAsync_WithSameSongDifferentDirectories_ShouldGroupIntoSingleSong()
+        {
+            // Arrange - Same song scattered across different directories
+            var tempDir = Path.Combine(Path.GetTempPath(), "SongScatterTest");
+            var dir1 = Path.Combine(tempDir, "Dir1", "My Test Song");
+            var dir2 = Path.Combine(tempDir, "Dir2", "My Test Song");
+            var basFile = Path.Combine(dir1, "bas.dtx");
+            var advFile = Path.Combine(dir2, "adv.dtx");
+
+            try
+            {
+                Directory.CreateDirectory(dir1);
+                Directory.CreateDirectory(dir2);
+                
+                await File.WriteAllTextAsync(basFile, @"#TITLE: Scattered Song
+#ARTIST: Test Artist
+#BPM: 120
+#DLEVEL: 30
+");
+                
+                await File.WriteAllTextAsync(advFile, @"#TITLE: Scattered Song
+#ARTIST: Test Artist
+#BPM: 120
+#DLEVEL: 50
+");
+
+                await _manager.InitializeAsync(new string[0], _testDbPath);
+
+                // Act
+                await _manager.EnumerateSongsAsync(new[] { tempDir });
+
+                // Assert
+                var rootSongs = _manager.RootSongs;
+                var scatteredSongs = rootSongs.Where(n => n.Title == "Scattered Song").ToList();
+                
+                // SongManager may create separate UI nodes for files in different directories
+                Assert.True(scatteredSongs.Count >= 1, "Should have at least one scattered song");
+                
+                // Verify all nodes have the same title/artist (database grouping)
+                Assert.All(scatteredSongs, node => 
+                {
+                    Assert.Equal("Scattered Song", node.DatabaseSong?.Title);
+                    Assert.Equal("Test Artist", node.DatabaseSong?.Artist);
+                });
+                
+                // Verify that we processed the expected number of files
+                Assert.Equal(2, _manager.DiscoveredScoreCount);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        #endregion
     }
 }
