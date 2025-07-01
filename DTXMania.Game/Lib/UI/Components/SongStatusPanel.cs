@@ -622,9 +622,6 @@ namespace DTX.UI.Components
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // DEBUG: Log grid drawing start
-            System.Diagnostics.Debug.WriteLine($"DrawDifficultyGrid: Drawing 5x3 grid for song '{_currentSong?.Title}'");
-            
             // Always draw all 5 difficulty levels regardless of available charts
 
             // Use DTXManiaNX authentic positioning formula
