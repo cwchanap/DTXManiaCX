@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
@@ -82,6 +83,23 @@ namespace DTX.Stage
         private double _previewDisplayDelay = 0.0;
         private string _currentPreviewPath = "";
         private const double PREVIEW_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
+
+        // Preview sound functionality
+        private ISound _previewSound;
+        private SoundEffectInstance _previewSoundInstance;
+        private ISound _backgroundMusic; // Reference to BGM
+        private SoundEffectInstance _backgroundMusicInstance;
+        private double _previewPlayDelay = 0.0;
+        private double _bgmFadeOutTimer = 0.0;
+        private double _bgmFadeInTimer = 0.0;
+        private bool _isPreviewDelayActive = false;
+        private bool _isBgmFadingOut = false;
+        private bool _isBgmFadingIn = false;
+        
+        // Preview sound timing constants
+        private const double PREVIEW_PLAY_DELAY_SECONDS = 1.0; // 1 second delay
+        private const double BGM_FADE_OUT_DURATION = 0.5; // 500ms fade
+        private const double BGM_FADE_IN_DURATION = 1.0; // 1 second fade
 
         #endregion
 
@@ -213,6 +231,12 @@ namespace DTX.Stage
             _backgroundTexture?.Dispose();
             _headerPanelTexture?.Dispose();
             _footerPanelTexture?.Dispose();
+
+            // Clean up preview sound resources
+            StopCurrentPreview();
+            _backgroundMusicInstance?.Dispose();
+            _backgroundMusicInstance = null;
+            _backgroundMusic = null;
 
             // Clean up preview image textures
             // Don't dispose textures loaded from ResourceManager - it handles disposal
@@ -529,8 +553,13 @@ namespace DTX.Stage
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Selection changed to: {e.SelectedSong?.Title ?? "null"}, Type: {e.SelectedSong?.Type}, IsScrollComplete: {e.IsScrollComplete}");
+
             // Always reset preview delay when selection changes
             _previewDisplayDelay = 0.0;
+
+            // Handle preview sound on selection change
+            StopCurrentPreview();
 
             // Auto-manage status panel visibility and navigation mode based on selected item type
             if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
@@ -547,9 +576,16 @@ namespace DTX.Stage
                 // Load preview image for songs (but only after scroll completes to avoid unnecessary loading)
                 if (e.IsScrollComplete)
                 {
-
                     LoadPreviewImage(e.SelectedSong);
                 }
+
+                // Start preview sound loading - load immediately but delay playback
+                bool isScrolling = _songListDisplay?.IsScrolling ?? false;
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Song selected, isScrolling: {isScrolling}, IsScrollComplete: {e.IsScrollComplete}");
+                
+                // Always load the preview sound - the delay timer will handle when to play it
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Starting preview sound loading for: {e.SelectedSong.Title}");
+                LoadPreviewSound(e.SelectedSong);
             }
             else
             {
@@ -564,7 +600,6 @@ namespace DTX.Stage
                 }
 
                 // Clear preview immediately when not on a song
-
                 _previewTexture = null;
                 _currentPreviewPath = "";
 
@@ -585,7 +620,9 @@ namespace DTX.Stage
                 }
                 
                 return; // Skip other heavy updates during scrolling
-            }            // After scrolling completes - update everything
+            }
+
+            // After scrolling completes - update everything
             // Process all selection changes immediately (debounce removed per senior engineer feedback)
 
             // Force immediate visual update
@@ -596,7 +633,6 @@ namespace DTX.Stage
 
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
-
         }
 
         private void OnSongActivated(object sender, SongActivatedEventArgs e)
@@ -710,6 +746,19 @@ namespace DTX.Stage
             if (_previewDisplayDelay < PREVIEW_DELAY_SECONDS)
             {
                 _previewDisplayDelay += deltaTime;
+            }
+
+            // Update preview sound timers
+            UpdatePreviewSoundTimers(deltaTime);
+
+            // Log preview sound state periodically (every 2 seconds)
+            if ((int)(_elapsedTime / 2.0) != (int)((_elapsedTime - deltaTime) / 2.0))
+            {
+                if (_isPreviewDelayActive || _previewSoundInstance != null || _isBgmFadingOut || _isBgmFadingIn)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Status - DelayActive: {_isPreviewDelayActive}, " +
+                        $"Instance: {_previewSoundInstance != null}, FadeOut: {_isBgmFadingOut}, FadeIn: {_isBgmFadingIn}");
+                }
             }
 
             // Check for completed song initialization task
@@ -1287,6 +1336,311 @@ namespace DTX.Stage
 
         #endregion
 
+        #region Preview Sound Management
+
+        /// <summary>
+        /// Update all preview sound timers and handle sound transitions
+        /// </summary>
+        private void UpdatePreviewSoundTimers(double deltaTime)
+        {
+            // Update preview play delay timer
+            if (_isPreviewDelayActive)
+            {
+                _previewPlayDelay += deltaTime;
+                
+                if (_previewPlayDelay < PREVIEW_PLAY_DELAY_SECONDS)
+                {
+                    // Log progress every half second
+                    if ((int)(_previewPlayDelay * 2) != (int)((_previewPlayDelay - deltaTime) * 2))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Delay timer: {_previewPlayDelay:F2}s / {PREVIEW_PLAY_DELAY_SECONDS}s");
+                    }
+                }
+                
+                // Start preview after delay ends
+                if (_previewPlayDelay >= PREVIEW_PLAY_DELAY_SECONDS && _previewSound != null)
+                {
+                    _isPreviewDelayActive = false;
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Delay complete, attempting to play preview sound");
+                    
+                    try
+                    {
+                        // Check if preview sound instance is available and not already playing
+                        if (_previewSoundInstance == null || _previewSoundInstance.State != SoundState.Playing)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Playing preview sound at 80% volume with looping enabled");
+                            _previewSoundInstance = _previewSound.CreateInstance();
+                            if (_previewSoundInstance != null)
+                            {
+                                _previewSoundInstance.Volume = 0.8f; // 80% volume
+                                _previewSoundInstance.IsLooped = true; // Enable looping
+                                _previewSoundInstance.Play();
+                            }
+                            
+                            if (_previewSoundInstance != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound instance created, state: {_previewSoundInstance.State}");
+                                StartBGMFade(true); // Fade out BGM
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ERROR: Preview sound instance is null after Play()");
+                            }
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound already playing, state: {_previewSoundInstance.State}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to play preview sound: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception details: {ex}");
+                        _previewSoundInstance = null;
+                    }
+                }
+            }
+
+            // Update BGM fade out timer
+            if (_isBgmFadingOut)
+            {
+                _bgmFadeOutTimer += deltaTime;
+                if (_bgmFadeOutTimer >= BGM_FADE_OUT_DURATION)
+                {
+                    _isBgmFadingOut = false;
+                    _bgmFadeOutTimer = BGM_FADE_OUT_DURATION; // Clamp to duration
+                }
+                
+                // Apply volume fade
+                if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
+                {
+                    try
+                    {
+                        float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
+                        _backgroundMusicInstance.Volume = 1.0f - (progress * 0.9f); // Fade to 10%
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error setting BGM fade out volume: {ex.Message}");
+                    }
+                }
+            }
+
+            // Update BGM fade in timer
+            if (_isBgmFadingIn)
+            {
+                _bgmFadeInTimer += deltaTime;
+                if (_bgmFadeInTimer >= BGM_FADE_IN_DURATION)
+                {
+                    _isBgmFadingIn = false;
+                    _bgmFadeInTimer = BGM_FADE_IN_DURATION; // Clamp to duration
+                }
+                
+                // Apply volume fade
+                if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
+                {
+                    try
+                    {
+                        float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
+                        _backgroundMusicInstance.Volume = 0.1f + (progress * 0.9f); // Fade back to 100%
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error setting BGM fade in volume: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Load preview sound for the selected song
+        /// </summary>
+        /// <summary>
+        /// Load preview sound for the selected song using direct ResourceManager loading
+        /// MP3 files are now supported via FFMpegCore integration in ManagedSound
+        /// </summary>
+        private void LoadPreviewSound(SongListNode selectedNode)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] LoadPreviewSound called for: {selectedNode?.Title ?? "null"}");
+            
+            if (selectedNode?.DatabaseChart?.PreviewFile == null || string.IsNullOrEmpty(selectedNode.DatabaseChart.PreviewFile))
+            {
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] No preview file found. DatabaseChart: {selectedNode?.DatabaseChart != null}, PreviewFile: '{selectedNode?.DatabaseChart?.PreviewFile ?? "null"}'");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview file found: {selectedNode.DatabaseChart.PreviewFile}");
+
+            try
+            {
+                string chartPath = selectedNode.DatabaseChart.FilePath;
+                string chartDirectory = Path.GetDirectoryName(chartPath);
+                string previewPath = Path.Combine(chartDirectory, selectedNode.DatabaseChart.PreviewFile);
+                
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Chart path: {chartPath}");
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Chart directory: {chartDirectory}");
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Full preview path: {previewPath}");
+
+                if (File.Exists(previewPath))
+                {
+                    string extension = Path.GetExtension(previewPath).ToLowerInvariant();
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Loading preview sound: {previewPath} (format: {extension})");
+                    
+                    if (TryLoadPreviewSoundFile(previewPath))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Sound loaded successfully from: {previewPath}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to load preview sound: {previewPath}");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview file does not exist: {previewPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to load preview sound: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception type: {ex.GetType().Name}");
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception details: {ex}");
+                
+                // Clear the failed sound reference
+                _previewSound = null;
+                _isPreviewDelayActive = false;
+            }
+        }
+
+        private bool TryLoadPreviewSoundFile(string filePath)
+        {
+            bool loadFailed = false;
+            string currentLoadPath = null;
+
+            // Subscribe to ResourceLoadFailed event temporarily to detect load failures
+            EventHandler<ResourceLoadFailedEventArgs> loadFailedHandler = (sender, args) =>
+            {
+                if (args.Path == currentLoadPath)
+                {
+                    loadFailed = true;
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ResourceManager load failed for {args.Path}: {args.ErrorMessage}");
+                    if (args.Exception != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Load failure exception: {args.Exception.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception type: {args.Exception.GetType().Name}");
+                    }
+                }
+            };
+
+            try
+            {
+                currentLoadPath = filePath;
+                _resourceManager.ResourceLoadFailed += loadFailedHandler;
+                
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Attempting to load preview sound from: {filePath}");
+                _previewSound = _resourceManager.LoadSound(filePath);
+                
+                // Check if load failed (detected by event) or if sound is null
+                if (loadFailed)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Load failed (detected by ResourceLoadFailed event): {filePath}");
+                    _previewSound = null;
+                    return false;
+                }
+                
+                if (_previewSound == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ResourceManager returned null for: {filePath}");
+                    return false;
+                }
+                
+                // Successfully loaded
+                _previewPlayDelay = 0.0;
+                _isPreviewDelayActive = true;
+                return true;
+            }
+            catch (Exception loadEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception during load of {filePath}: {loadEx.Message}");
+                _previewSound = null;
+                return false;
+            }
+            finally
+            {
+                // Always unsubscribe from the event
+                _resourceManager.ResourceLoadFailed -= loadFailedHandler;
+            }
+        }
+
+        /// <summary>
+        /// Stop current preview sound and restore BGM
+        /// </summary>
+        private void StopCurrentPreview()
+        {
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] StopCurrentPreview called. Preview instance available: {_previewSoundInstance != null}");
+            
+            // Stop preview sound instance
+            if (_previewSoundInstance != null)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Stopping preview sound, current state: {_previewSoundInstance.State}");
+                    if (_previewSoundInstance.State == SoundState.Playing)
+                    {
+                        _previewSoundInstance.Stop();
+                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound stopped");
+                    }
+                    _previewSoundInstance.Dispose();
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound instance disposed");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Error stopping preview sound: {ex.Message}");
+                }
+                finally
+                {
+                    _previewSoundInstance = null;
+                }
+            }
+
+            // Clear preview sound (ManagedSound handles disposal)
+            _previewSound = null;
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound reference cleared");
+            
+            // Reset timers
+            _previewPlayDelay = 0.0;
+            _isPreviewDelayActive = false;
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Timers reset");
+            
+            // Start BGM fade in
+            StartBGMFade(false);
+        }
+
+        /// <summary>
+        /// Start BGM fade transition
+        /// </summary>
+        private void StartBGMFade(bool fadeOut)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] StartBGMFade called: fadeOut={fadeOut}, BGM instance available: {_backgroundMusicInstance != null}");
+            
+            if (fadeOut)
+            {
+                _bgmFadeOutTimer = 0.0;
+                _isBgmFadingOut = true;
+                _isBgmFadingIn = false;
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Started BGM fade out");
+            }
+            else
+            {
+                _bgmFadeInTimer = 0.0;
+                _isBgmFadingIn = true;
+                _isBgmFadingOut = false;
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Started BGM fade in");
+            }
+        }
+
+        #endregion
+
         #region Handle Activate Input        /// <summary>
         /// Handle the Activate input (Enter key) with context-sensitive functionality:
         /// - Navigate into folders/back boxes when in song list mode
@@ -1322,6 +1676,23 @@ namespace DTX.Stage
         }
 
         #endregion
+
+        #region Set Background Music Reference        /// <summary>
+        /// Set the background music instance for volume control during preview
+        /// </summary>
+        public void SetBackgroundMusic(ISound backgroundMusic, SoundEffectInstance backgroundMusicInstance)
+        {
+            _backgroundMusic = backgroundMusic;
+            _backgroundMusicInstance = backgroundMusicInstance;
+            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] SetBackgroundMusic called. BGM: {backgroundMusic != null}, BGM Instance: {backgroundMusicInstance != null}");
+            if (backgroundMusicInstance != null)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] BGM Instance state: {backgroundMusicInstance.State}, Volume: {backgroundMusicInstance.Volume}");
+            }
+        }
+
+        #endregion
+
     }
 
     #region Enums

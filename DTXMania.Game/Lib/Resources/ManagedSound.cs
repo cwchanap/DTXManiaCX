@@ -3,6 +3,8 @@ using System;
 using System.IO;
 using System.Threading;
 using NVorbis;
+using FFMpegCore;
+using FFMpegCore.Pipes;
 
 namespace DTX.Resources
 {
@@ -64,6 +66,86 @@ namespace DTX.Resources
 
         #endregion
 
+        #region Static Constructor
+
+        static ManagedSound()
+        {
+            // Configure FFMpeg to use bundled binaries from MMTools packages
+            try
+            {
+                // Determine the runtime-specific path for ffmpeg
+                string binaryFolder = GetBundledFFmpegPath();
+                
+                if (!string.IsNullOrEmpty(binaryFolder) && Directory.Exists(binaryFolder))
+                {
+                    GlobalFFOptions.Configure(options => 
+                    {
+                        options.BinaryFolder = binaryFolder;
+                    });
+                }
+                else
+                {
+                    // Fall back to PATH
+                    GlobalFFOptions.Configure(options => 
+                    {
+                        // Let FFMpegCore find ffmpeg in PATH automatically
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log warning but don't fail - MP3 support will just not work
+                System.Diagnostics.Debug.WriteLine($"ManagedSound: Failed to configure FFMpeg: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Get the path to bundled ffmpeg binaries from MMTools packages
+        /// </summary>
+        private static string GetBundledFFmpegPath()
+        {
+            try
+            {
+                // Get the directory where the current assembly is located
+                string assemblyDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                
+                if (string.IsNullOrEmpty(assemblyDir))
+                    return null;
+
+                // Check for platform-specific bundled ffmpeg
+                string[] possiblePaths = {
+                    // macOS (from MMTools.Executables.MacOS.X64)
+                    Path.Combine(assemblyDir, "runtimes", "osx-x64", "MMTools"),
+                    
+                    // Windows (from MMTools.Executables.Windows.X64)
+                    Path.Combine(assemblyDir, "runtimes", "win-x64", "MMTools"),
+                    Path.Combine(assemblyDir, "runtimes", "win-x86", "MMTools"),
+                    
+                    // Linux (if we add support later)
+                    Path.Combine(assemblyDir, "runtimes", "linux-x64", "MMTools"),
+                };
+
+                foreach (string path in possiblePaths)
+                {
+                    string ffmpegPath = Path.Combine(path, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+                    
+                    if (File.Exists(ffmpegPath))
+                    {
+                        return path;
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ManagedSound: Error finding bundled ffmpeg: {ex.Message}");
+                return null;
+            }
+        }
+
+        #endregion
+
         #region Reference Counting
 
         public void AddReference()
@@ -98,25 +180,39 @@ namespace DTX.Resources
             return _soundEffect.CreateInstance();
         }
 
+
+
         public SoundEffectInstance Play(float volume)
         {
-            var instance = Play();
+            return Play(volume, false); // Default to no loop
+        }
+
+        public SoundEffectInstance Play(float volume, float pitch, float pan)
+        {
+            return Play(volume, pitch, pan, false); // Default to no loop
+        }
+
+        public SoundEffectInstance Play(float volume, bool loop = false)
+        {
+            var instance = CreateInstance();
             if (instance != null)
             {
                 instance.Volume = Math.Clamp(volume, 0.0f, 1.0f);
+                instance.IsLooped = loop;
                 instance.Play();
             }
             return instance;
         }
 
-        public SoundEffectInstance Play(float volume, float pitch, float pan)
+        public SoundEffectInstance Play(float volume, float pitch, float pan, bool loop = false)
         {
-            var instance = Play();
+            var instance = CreateInstance();
             if (instance != null)
             {
                 instance.Volume = Math.Clamp(volume, 0.0f, 1.0f);
                 instance.Pitch = Math.Clamp(pitch, -1.0f, 1.0f);
                 instance.Pan = Math.Clamp(pan, -1.0f, 1.0f);
+                instance.IsLooped = loop;
                 instance.Play();
             }
             return instance;
@@ -148,6 +244,9 @@ namespace DTX.Resources
                     break;
                 case ".ogg":
                     LoadOggFile(filePath);
+                    break;
+                case ".mp3":
+                    LoadMp3File(filePath);
                     break;
                 default:
                     throw new NotSupportedException($"Audio format not supported: {extension}");
@@ -189,6 +288,62 @@ namespace DTX.Resources
             // Create SoundEffect from PCM data
             var audioChannels = channels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
             _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
+        }
+
+        private void LoadMp3File(string filePath)
+        {
+            try
+            {
+                // Check if file exists
+                if (!File.Exists(filePath))
+                {
+                    throw new FileNotFoundException($"MP3 file not found: {filePath}");
+                }
+                
+                // Use FFMpegCore to convert MP3 to raw PCM data
+                using var outputStream = new MemoryStream();
+                
+                // Convert MP3 to raw PCM data (no WAV header, just samples)
+                FFMpegArguments
+                    .FromFileInput(filePath)
+                    .OutputToPipe(new StreamPipeSink(outputStream), options => options
+                        .WithAudioCodec("pcm_s16le") // 16-bit signed little-endian PCM
+                        .WithAudioSamplingRate(44100) // Standard sample rate
+                        .WithCustomArgument("-ac 2") // Force stereo output
+                        .ForceFormat("s16le")) // Raw 16-bit little-endian format (no container)
+                    .ProcessSynchronously();
+
+                // Validate output stream
+                if (outputStream.Length == 0)
+                {
+                    throw new InvalidOperationException("FFMpeg produced empty output stream");
+                }
+                
+                // Get the raw PCM data
+                var pcmData = outputStream.ToArray();
+
+                // Create SoundEffect directly from PCM data
+                // 44100 Hz, Stereo (2 channels), 16-bit
+                const int sampleRate = 44100;
+                const AudioChannels channels = AudioChannels.Stereo;
+                
+                _soundEffect = new SoundEffect(pcmData, sampleRate, channels);
+            }
+            catch (FileNotFoundException ex) when (ex.Message.Contains("ffmpeg"))
+            {
+                throw new SoundLoadException(_sourcePath, 
+                    $"FFMpeg binary not found. MP3 support requires bundled ffmpeg binaries from MMTools packages.\n" +
+                    $"Ensure the appropriate MMTools.Executables package is installed for your platform:\n" +
+                    $"  macOS: MMTools.Executables.MacOS.X64\n" +
+                    $"  Windows: MMTools.Executables.Windows.X64\n" +
+                    $"Alternatively, convert {Path.GetFileName(filePath)} to WAV or OGG format.", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new SoundLoadException(_sourcePath, 
+                    $"Failed to convert MP3 file using bundled FFMpeg: {filePath}. " +
+                    $"Error: {ex.Message}. Consider converting the file to WAV or OGG format for better compatibility.", ex);
+            }
         }
 
         #endregion
