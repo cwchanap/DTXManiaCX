@@ -110,10 +110,23 @@ namespace DTX.UI.Components
             if (_currentSong == song)
                 return;
 
+
+
             _currentSong = song;
 
-            // Load preview image asynchronously to avoid blocking navigation
-            _ = Task.Run(() => LoadPreviewImageAsync());
+            // Only load preview image if this is actually a song (not a folder or back bar)
+            if (song?.Type == NodeType.Score)
+            {
+
+                // Load preview image asynchronously to avoid blocking navigation
+                _ = Task.Run(() => LoadPreviewImageAsync());
+            }
+            else
+            {
+                // Clear preview immediately when not on a song
+                _currentPreviewTexture = null;
+
+            }
         }
 
         #endregion
@@ -123,7 +136,12 @@ namespace DTX.UI.Components
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!Visible)
+            {
+
                 return;
+            }
+
+
 
             var bounds = Bounds;
 
@@ -177,6 +195,8 @@ namespace DTX.UI.Components
         {
             var currentSong = _currentSong; // Capture current song to avoid race conditions
 
+
+
             // Clear current preview immediately for responsive UI
             _currentPreviewTexture = null;
 
@@ -185,8 +205,13 @@ namespace DTX.UI.Components
             var previewImage = chart?.PreviewImage;
             var songFilePath = chart?.FilePath;
 
+
+
             if (string.IsNullOrEmpty(previewImage) || string.IsNullOrEmpty(songFilePath))
+            {
+
                 return;
+            }
 
             try
             {
@@ -194,6 +219,8 @@ namespace DTX.UI.Components
                 if (songDirectory != null)
                 {
                     var previewPath = System.IO.Path.Combine(songDirectory, previewImage);
+
+                    
                     if (System.IO.File.Exists(previewPath))
                     {
                         // Only update if this is still the current song (avoid race conditions)
@@ -201,15 +228,24 @@ namespace DTX.UI.Components
                         {
                             _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
                         }
+                        else
+                        {
+
+                        }
+                    }
+                    else
+                    {
+
                     }
                 }
             }
             catch (Exception ex)
             {
+
                 // Only log critical errors to reduce debug noise
                 if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image: {ex.Message}");
+
                 }
             }
         }
@@ -262,10 +298,25 @@ namespace DTX.UI.Components
                 );
             }
 
-            // Draw preview image or default
-            var textureToUse = _currentPreviewTexture ?? _defaultPreviewTexture;
+            // Debug logging for texture selection
+
+
+            // Only show preview image if we're on a song (not folder or back bar)
+            ITexture textureToUse = null;
+            if (_currentSong?.Type == NodeType.Score)
+            {
+                textureToUse = _currentPreviewTexture ?? _defaultPreviewTexture;
+
+            }
+            else
+            {
+
+            }
+            
             if (textureToUse != null)
             {
+
+                
                 // Maintain aspect ratio and center the image
                 var sourceSize = new Vector2(textureToUse.Width, textureToUse.Height);
                 var targetSize = new Vector2(contentBounds.Width, contentBounds.Height);
@@ -289,6 +340,7 @@ namespace DTX.UI.Components
             }
             else
             {
+
                 // Draw placeholder when no image is available
                 DrawPlaceholder(spriteBatch, contentBounds);
             }
