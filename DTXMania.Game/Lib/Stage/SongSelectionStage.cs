@@ -108,6 +108,10 @@ namespace DTX.Stage
         {
             base.Activate(sharedData);
 
+            // Recreate disposed resources
+            _inputManager = new InputManager();
+            _cancellationTokenSource = new CancellationTokenSource();
+
             // Get config manager from game
             if (_game is BaseGame baseGame)
             {
@@ -712,7 +716,7 @@ namespace DTX.Stage
             CheckSongInitializationCompletion();
 
             // Update input manager
-            _inputManager.Update(deltaTime);
+            _inputManager?.Update(deltaTime);
 
             // Update phase
             UpdatePhase(deltaTime);
