@@ -553,8 +553,6 @@ namespace DTX.Stage
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Selection changed to: {e.SelectedSong?.Title ?? "null"}, Type: {e.SelectedSong?.Type}, IsScrollComplete: {e.IsScrollComplete}");
-
             // Always reset preview delay when selection changes
             _previewDisplayDelay = 0.0;
 
@@ -581,10 +579,8 @@ namespace DTX.Stage
 
                 // Start preview sound loading - load immediately but delay playback
                 bool isScrolling = _songListDisplay?.IsScrolling ?? false;
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Song selected, isScrolling: {isScrolling}, IsScrollComplete: {e.IsScrollComplete}");
                 
                 // Always load the preview sound - the delay timer will handle when to play it
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Starting preview sound loading for: {e.SelectedSong.Title}");
                 LoadPreviewSound(e.SelectedSong);
             }
             else
@@ -750,16 +746,6 @@ namespace DTX.Stage
 
             // Update preview sound timers
             UpdatePreviewSoundTimers(deltaTime);
-
-            // Log preview sound state periodically (every 2 seconds)
-            if ((int)(_elapsedTime / 2.0) != (int)((_elapsedTime - deltaTime) / 2.0))
-            {
-                if (_isPreviewDelayActive || _previewSoundInstance != null || _isBgmFadingOut || _isBgmFadingIn)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Status - DelayActive: {_isPreviewDelayActive}, " +
-                        $"Instance: {_previewSoundInstance != null}, FadeOut: {_isBgmFadingOut}, FadeIn: {_isBgmFadingIn}");
-                }
-            }
 
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
@@ -1114,7 +1100,6 @@ namespace DTX.Stage
             // Check if resource manager is still valid
             if (_resourceManager == null)
             {
-
                 return;
             }
 
@@ -1125,50 +1110,16 @@ namespace DTX.Stage
             // If not a song (folder, back button, etc.), don't load any preview
             if (songNode?.Type != NodeType.Score)
             {
-
                 return;
             }
 
             try
             {
-                // Look for preview image in common locations
-                string[] previewExtensions = { ".jpg", ".jpeg", ".png", ".bmp" };
-                string[] previewNames = { "preview", "jacket", "banner" };
+                // Get the song directory from the node
+                string songDirectory = GetSongDirectoryFromNode(songNode);
                 
-                string songDirectory = null;
-                
-                // Debug: Log song node details
-
-                
-                // Try to get song directory from DatabaseSong
-                if (songNode.DatabaseSong?.Charts?.Count > 0)
-                {
-                    var chartPath = songNode.DatabaseSong.Charts.FirstOrDefault()?.FilePath;
-                    if (!string.IsNullOrEmpty(chartPath))
-                    {
-                        songDirectory = Path.GetDirectoryName(chartPath);
-
-                    }
-                    else
-                    {
-
-                    }
-                }
-                else
-                {
-
-                }
-
-                // If we couldn't get directory from chart, try the DirectoryPath property
-                if (string.IsNullOrEmpty(songDirectory) && !string.IsNullOrEmpty(songNode.DirectoryPath))
-                {
-                    songDirectory = songNode.DirectoryPath;
-
-                }
-
                 if (string.IsNullOrEmpty(songDirectory))
                 {
-
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
                     {
@@ -1177,49 +1128,12 @@ namespace DTX.Stage
                     return;
                 }
 
-                // Convert to absolute path if needed - handle both relative and already absolute paths
-                if (!Path.IsPathRooted(songDirectory))
-                {
-
-                    
-                    // Try to resolve relative path from current working directory or known song directories
-                    try
-                    {
-                        var workingDir = Environment.CurrentDirectory;
-
-                        
-                        var possiblePaths = new[]
-                        {
-                            Path.GetFullPath(songDirectory), // From current directory
-                            Path.GetFullPath(Path.Combine(workingDir, songDirectory)), // From app directory
-                            Path.GetFullPath(Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
-                            Path.GetFullPath(Path.Combine(workingDir, "Songs", songDirectory)), // From Songs folder
-                            Path.GetFullPath(Path.Combine(workingDir, "..", "Songs", songDirectory)), // Parent Songs folder
-                            Path.GetFullPath(Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
-                        };
-
-                        foreach (var testPath in possiblePaths)
-                        {
-
-                            if (Directory.Exists(testPath))
-                            {
-                                songDirectory = testPath;
-
-                                break;
-                            }
-                        }
-                    }
-                    catch (Exception)
-                    {
-
-                        songDirectory = Path.GetFullPath(songDirectory); // Fallback to simple resolution
-                    }
-                }
+                // Resolve to absolute path
+                string resolvedDirectory = ResolveSongDirectoryPath(songDirectory);
 
                 // Verify directory exists before trying to find preview files
-                if (!Directory.Exists(songDirectory))
+                if (!Directory.Exists(resolvedDirectory))
                 {
-
                     if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
                     {
                         _previewTexture = _defaultPreviewTexture;
@@ -1227,25 +1141,8 @@ namespace DTX.Stage
                     return;
                 }
 
-
-
-                // Try to find preview image
-                string previewPath = null;
-                foreach (var name in previewNames)
-                {
-                    foreach (var ext in previewExtensions)
-                    {
-                        var testPath = Path.Combine(songDirectory, name + ext);
-
-                        if (File.Exists(testPath))
-                        {
-                            previewPath = testPath;
-
-                            break;
-                        }
-                    }
-                    if (previewPath != null) break;
-                }
+                // Find preview image file
+                string previewPath = FindPreviewImageFile(resolvedDirectory);
 
                 if (previewPath != null)
                 {
@@ -1258,23 +1155,16 @@ namespace DTX.Stage
                         // Verify the loaded texture is valid
                         if (_previewTexture != null && _previewTexture.IsDisposed)
                         {
-
                             _previewTexture = _defaultPreviewTexture;
-                        }
-                        else
-                        {
-
                         }
                     }
                     catch (ObjectDisposedException)
                     {
-
                         _previewTexture = _defaultPreviewTexture;
                     }
                 }
                 else
                 {
-
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
                     {
@@ -1288,8 +1178,6 @@ namespace DTX.Stage
             }
             catch (Exception)
             {
-
-                
                 // Try to use default texture as fallback, but check if it's valid first
                 if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
                 {
@@ -1300,6 +1188,103 @@ namespace DTX.Stage
                     _previewTexture = null;
                 }
             }
+        }
+
+        /// <summary>
+        /// Get the song directory from a SongListNode by checking DatabaseSong charts and DirectoryPath
+        /// </summary>
+        /// <param name="songNode">The song node to extract directory from</param>
+        /// <returns>The song directory path, or null if not found</returns>
+        private string GetSongDirectoryFromNode(SongListNode songNode)
+        {
+            string songDirectory = null;
+            
+            // Try to get song directory from DatabaseSong
+            if (songNode.DatabaseSong?.Charts?.Count > 0)
+            {
+                var chartPath = songNode.DatabaseSong.Charts.FirstOrDefault()?.FilePath;
+                if (!string.IsNullOrEmpty(chartPath))
+                {
+                    songDirectory = Path.GetDirectoryName(chartPath);
+                }
+            }
+
+            // If we couldn't get directory from chart, try the DirectoryPath property
+            if (string.IsNullOrEmpty(songDirectory) && !string.IsNullOrEmpty(songNode.DirectoryPath))
+            {
+                songDirectory = songNode.DirectoryPath;
+            }
+
+            return songDirectory;
+        }
+
+        /// <summary>
+        /// Resolve a song directory to an absolute path by checking multiple possible locations
+        /// </summary>
+        /// <param name="songDirectory">The relative or absolute song directory path</param>
+        /// <returns>The resolved absolute directory path</returns>
+        private string ResolveSongDirectoryPath(string songDirectory)
+        {
+            // Convert to absolute path if needed - handle both relative and already absolute paths
+            if (!Path.IsPathRooted(songDirectory))
+            {
+                // Try to resolve relative path from current working directory or known song directories
+                try
+                {
+                    var workingDir = Environment.CurrentDirectory;
+                    
+                    var possiblePaths = new[]
+                    {
+                        Path.GetFullPath(songDirectory), // From current directory
+                        Path.GetFullPath(Path.Combine(workingDir, songDirectory)), // From app directory
+                        Path.GetFullPath(Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
+                        Path.GetFullPath(Path.Combine(workingDir, "Songs", songDirectory)), // From Songs folder
+                        Path.GetFullPath(Path.Combine(workingDir, "..", "Songs", songDirectory)), // Parent Songs folder
+                        Path.GetFullPath(Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
+                    };
+
+                    foreach (var testPath in possiblePaths)
+                    {
+                        if (Directory.Exists(testPath))
+                        {
+                            songDirectory = testPath;
+                            break;
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    songDirectory = Path.GetFullPath(songDirectory); // Fallback to simple resolution
+                }
+            }
+
+            return songDirectory;
+        }
+
+        /// <summary>
+        /// Find a preview image file by searching for known preview filenames with supported extensions
+        /// </summary>
+        /// <param name="songDirectory">The directory to search for preview images</param>
+        /// <returns>The full path to the preview image file, or null if not found</returns>
+        private string FindPreviewImageFile(string songDirectory)
+        {
+            string[] previewExtensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+            string[] previewNames = { "preview", "jacket", "banner" };
+            
+            // Try to find preview image
+            foreach (var name in previewNames)
+            {
+                foreach (var ext in previewExtensions)
+                {
+                    var testPath = Path.Combine(songDirectory, name + ext);
+                    if (File.Exists(testPath))
+                    {
+                        return testPath;
+                    }
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -1348,27 +1333,16 @@ namespace DTX.Stage
             {
                 _previewPlayDelay += deltaTime;
                 
-                if (_previewPlayDelay < PREVIEW_PLAY_DELAY_SECONDS)
-                {
-                    // Log progress every half second
-                    if ((int)(_previewPlayDelay * 2) != (int)((_previewPlayDelay - deltaTime) * 2))
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Delay timer: {_previewPlayDelay:F2}s / {PREVIEW_PLAY_DELAY_SECONDS}s");
-                    }
-                }
-                
                 // Start preview after delay ends
                 if (_previewPlayDelay >= PREVIEW_PLAY_DELAY_SECONDS && _previewSound != null)
                 {
                     _isPreviewDelayActive = false;
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Delay complete, attempting to play preview sound");
                     
                     try
                     {
                         // Check if preview sound instance is available and not already playing
                         if (_previewSoundInstance == null || _previewSoundInstance.State != SoundState.Playing)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Playing preview sound at 80% volume with looping enabled");
                             _previewSoundInstance = _previewSound.CreateInstance();
                             if (_previewSoundInstance != null)
                             {
@@ -1379,23 +1353,12 @@ namespace DTX.Stage
                             
                             if (_previewSoundInstance != null)
                             {
-                                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound instance created, state: {_previewSoundInstance.State}");
                                 StartBGMFade(true); // Fade out BGM
                             }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ERROR: Preview sound instance is null after Play()");
-                            }
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound already playing, state: {_previewSoundInstance.State}");
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to play preview sound: {ex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception details: {ex}");
                         _previewSoundInstance = null;
                     }
                 }
@@ -1461,51 +1424,29 @@ namespace DTX.Stage
         /// </summary>
         private void LoadPreviewSound(SongListNode selectedNode)
         {
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] LoadPreviewSound called for: {selectedNode?.Title ?? "null"}");
-            
             if (selectedNode?.DatabaseChart?.PreviewFile == null || string.IsNullOrEmpty(selectedNode.DatabaseChart.PreviewFile))
             {
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] No preview file found. DatabaseChart: {selectedNode?.DatabaseChart != null}, PreviewFile: '{selectedNode?.DatabaseChart?.PreviewFile ?? "null"}'");
                 return;
             }
-
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview file found: {selectedNode.DatabaseChart.PreviewFile}");
 
             try
             {
                 string chartPath = selectedNode.DatabaseChart.FilePath;
                 string chartDirectory = Path.GetDirectoryName(chartPath);
                 string previewPath = Path.Combine(chartDirectory, selectedNode.DatabaseChart.PreviewFile);
-                
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Chart path: {chartPath}");
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Chart directory: {chartDirectory}");
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Full preview path: {previewPath}");
 
                 if (File.Exists(previewPath))
                 {
                     string extension = Path.GetExtension(previewPath).ToLowerInvariant();
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Loading preview sound: {previewPath} (format: {extension})");
                     
                     if (TryLoadPreviewSoundFile(previewPath))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Sound loaded successfully from: {previewPath}");
+                        // Sound loaded successfully
                     }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to load preview sound: {previewPath}");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview file does not exist: {previewPath}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Failed to load preview sound: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception type: {ex.GetType().Name}");
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception details: {ex}");
-                
                 // Clear the failed sound reference
                 _previewSound = null;
                 _isPreviewDelayActive = false;
@@ -1523,12 +1464,6 @@ namespace DTX.Stage
                 if (args.Path == currentLoadPath)
                 {
                     loadFailed = true;
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ResourceManager load failed for {args.Path}: {args.ErrorMessage}");
-                    if (args.Exception != null)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Load failure exception: {args.Exception.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception type: {args.Exception.GetType().Name}");
-                    }
                 }
             };
 
@@ -1537,20 +1472,17 @@ namespace DTX.Stage
                 currentLoadPath = filePath;
                 _resourceManager.ResourceLoadFailed += loadFailedHandler;
                 
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Attempting to load preview sound from: {filePath}");
                 _previewSound = _resourceManager.LoadSound(filePath);
                 
                 // Check if load failed (detected by event) or if sound is null
                 if (loadFailed)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Load failed (detected by ResourceLoadFailed event): {filePath}");
                     _previewSound = null;
                     return false;
                 }
                 
                 if (_previewSound == null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] ResourceManager returned null for: {filePath}");
                     return false;
                 }
                 
@@ -1559,9 +1491,8 @@ namespace DTX.Stage
                 _isPreviewDelayActive = true;
                 return true;
             }
-            catch (Exception loadEx)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Exception during load of {filePath}: {loadEx.Message}");
                 _previewSound = null;
                 return false;
             }
@@ -1577,25 +1508,20 @@ namespace DTX.Stage
         /// </summary>
         private void StopCurrentPreview()
         {
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] StopCurrentPreview called. Preview instance available: {_previewSoundInstance != null}");
-            
             // Stop preview sound instance
             if (_previewSoundInstance != null)
             {
                 try
                 {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Stopping preview sound, current state: {_previewSoundInstance.State}");
                     if (_previewSoundInstance.State == SoundState.Playing)
                     {
                         _previewSoundInstance.Stop();
-                        System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound stopped");
                     }
                     _previewSoundInstance.Dispose();
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound instance disposed");
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Error stopping preview sound: {ex.Message}");
+                    // Ignore disposal errors
                 }
                 finally
                 {
@@ -1605,12 +1531,10 @@ namespace DTX.Stage
 
             // Clear preview sound (ManagedSound handles disposal)
             _previewSound = null;
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Preview sound reference cleared");
             
             // Reset timers
             _previewPlayDelay = 0.0;
             _isPreviewDelayActive = false;
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Timers reset");
             
             // Start BGM fade in
             StartBGMFade(false);
@@ -1621,21 +1545,17 @@ namespace DTX.Stage
         /// </summary>
         private void StartBGMFade(bool fadeOut)
         {
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] StartBGMFade called: fadeOut={fadeOut}, BGM instance available: {_backgroundMusicInstance != null}");
-            
             if (fadeOut)
             {
                 _bgmFadeOutTimer = 0.0;
                 _isBgmFadingOut = true;
                 _isBgmFadingIn = false;
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Started BGM fade out");
             }
             else
             {
                 _bgmFadeInTimer = 0.0;
                 _isBgmFadingIn = true;
                 _isBgmFadingOut = false;
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] Started BGM fade in");
             }
         }
 
@@ -1684,11 +1604,6 @@ namespace DTX.Stage
         {
             _backgroundMusic = backgroundMusic;
             _backgroundMusicInstance = backgroundMusicInstance;
-            System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] SetBackgroundMusic called. BGM: {backgroundMusic != null}, BGM Instance: {backgroundMusicInstance != null}");
-            if (backgroundMusicInstance != null)
-            {
-                System.Diagnostics.Debug.WriteLine($"[PREVIEW_SOUND] BGM Instance state: {backgroundMusicInstance.State}, Volume: {backgroundMusicInstance.Volume}");
-            }
         }
 
         #endregion

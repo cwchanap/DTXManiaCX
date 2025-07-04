@@ -29,7 +29,7 @@ namespace DTX.UI.Components
         private const int WITHOUT_STATUS_PANEL_X = 18;
         private const int WITHOUT_STATUS_PANEL_Y = 88;
         private const int WITHOUT_STATUS_PANEL_SIZE = 368;
-        
+
         private const int WITH_STATUS_PANEL_X = 250;
         private const int WITH_STATUS_PANEL_Y = 34;
         private const int WITH_STATUS_PANEL_SIZE = 292;
@@ -137,11 +137,8 @@ namespace DTX.UI.Components
         {
             if (!Visible)
             {
-
                 return;
             }
-
-
 
             var bounds = Bounds;
 
@@ -195,8 +192,6 @@ namespace DTX.UI.Components
         {
             var currentSong = _currentSong; // Capture current song to avoid race conditions
 
-
-
             // Clear current preview immediately for responsive UI
             _currentPreviewTexture = null;
 
@@ -205,11 +200,8 @@ namespace DTX.UI.Components
             var previewImage = chart?.PreviewImage;
             var songFilePath = chart?.FilePath;
 
-
-
             if (string.IsNullOrEmpty(previewImage) || string.IsNullOrEmpty(songFilePath))
             {
-
                 return;
             }
 
@@ -220,7 +212,7 @@ namespace DTX.UI.Components
                 {
                     var previewPath = System.IO.Path.Combine(songDirectory, previewImage);
 
-                    
+
                     if (System.IO.File.Exists(previewPath))
                     {
                         // Only update if this is still the current song (avoid race conditions)
@@ -228,24 +220,15 @@ namespace DTX.UI.Components
                         {
                             _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
                         }
-                        else
-                        {
-
-                        }
-                    }
-                    else
-                    {
-
                     }
                 }
             }
             catch (Exception ex)
             {
-
                 // Only log critical errors to reduce debug noise
                 if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
                 {
-
+                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image for {currentSong?.Title}: {ex.Message}");
                 }
             }
         }
@@ -298,9 +281,6 @@ namespace DTX.UI.Components
                 );
             }
 
-            // Debug logging for texture selection
-
-
             // Only show preview image if we're on a song (not folder or back bar)
             ITexture textureToUse = null;
             if (_currentSong?.Type == NodeType.Score)
@@ -308,22 +288,18 @@ namespace DTX.UI.Components
                 textureToUse = _currentPreviewTexture ?? _defaultPreviewTexture;
 
             }
-            else
-            {
 
-            }
-            
             if (textureToUse != null)
             {
 
-                
+
                 // Maintain aspect ratio and center the image
                 var sourceSize = new Vector2(textureToUse.Width, textureToUse.Height);
                 var targetSize = new Vector2(contentBounds.Width, contentBounds.Height);
-                
+
                 var scale = Math.Min(targetSize.X / sourceSize.X, targetSize.Y / sourceSize.Y);
                 var scaledSize = sourceSize * scale;
-                
+
                 var centeredPosition = new Vector2(
                     contentBounds.X + (contentBounds.Width - scaledSize.X) / 2,
                     contentBounds.Y + (contentBounds.Height - scaledSize.Y) / 2
@@ -364,13 +340,13 @@ namespace DTX.UI.Components
             var iconThickness = 4;
 
             // Horizontal line
-            spriteBatch.Draw(_whitePixel, 
-                new Rectangle(centerX - iconSize / 2, centerY - iconThickness / 2, iconSize, iconThickness), 
+            spriteBatch.Draw(_whitePixel,
+                new Rectangle(centerX - iconSize / 2, centerY - iconThickness / 2, iconSize, iconThickness),
                 iconColor);
-            
+
             // Vertical line
-            spriteBatch.Draw(_whitePixel, 
-                new Rectangle(centerX - iconThickness / 2, centerY - iconSize / 2, iconThickness, iconSize), 
+            spriteBatch.Draw(_whitePixel,
+                new Rectangle(centerX - iconThickness / 2, centerY - iconSize / 2, iconThickness, iconSize),
                 iconColor);
         }
 

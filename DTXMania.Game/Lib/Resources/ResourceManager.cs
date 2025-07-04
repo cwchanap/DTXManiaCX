@@ -628,8 +628,9 @@ namespace DTX.Resources
             try
             {
                 // Create a minimal silent sound effect (1 sample at 44.1kHz)
-                var sampleData = new byte[4]; // 1 sample, 16-bit stereo
-                var soundEffect = new Microsoft.Xna.Framework.Audio.SoundEffect(sampleData, 44100, Microsoft.Xna.Framework.Audio.AudioChannels.Stereo);
+                // Use mono for minimal memory usage in fallback scenario
+                var sampleData = new byte[2]; // 1 sample, 16-bit mono
+                var soundEffect = new Microsoft.Xna.Framework.Audio.SoundEffect(sampleData, 44100, Microsoft.Xna.Framework.Audio.AudioChannels.Mono);
 
                 var fallback = new ManagedSound(soundEffect, originalPath);
                 fallback.AddReference();

@@ -300,16 +300,31 @@ namespace DTX.Resources
                     throw new FileNotFoundException($"MP3 file not found: {filePath}");
                 }
                 
+                // First, probe the file to get audio information
+                var mediaInfo = FFProbe.Analyse(filePath);
+                var audioStream = mediaInfo.PrimaryAudioStream;
+                
+                if (audioStream == null)
+                {
+                    throw new InvalidOperationException($"No audio stream found in file: {filePath}");
+                }
+                
+                // Detect original channel count and preserve it
+                var originalChannels = audioStream.Channels;
+                var targetChannels = originalChannels > 0 ? originalChannels : 2; // Default to stereo if unknown
+                
                 // Use FFMpegCore to convert MP3 to raw PCM data
                 using var outputStream = new MemoryStream();
                 
                 // Convert MP3 to raw PCM data (no WAV header, just samples)
+                // Preserve original channel count instead of forcing stereo output
+                // Note: MonoGame only supports Mono/Stereo, so 3+ channels will be downmixed to stereo
                 FFMpegArguments
                     .FromFileInput(filePath)
                     .OutputToPipe(new StreamPipeSink(outputStream), options => options
                         .WithAudioCodec("pcm_s16le") // 16-bit signed little-endian PCM
                         .WithAudioSamplingRate(44100) // Standard sample rate
-                        .WithCustomArgument("-ac 2") // Force stereo output
+                        .WithCustomArgument($"-ac {targetChannels}") // Preserve original channel count
                         .ForceFormat("s16le")) // Raw 16-bit little-endian format (no container)
                     .ProcessSynchronously();
 
@@ -322,12 +337,12 @@ namespace DTX.Resources
                 // Get the raw PCM data
                 var pcmData = outputStream.ToArray();
 
-                // Create SoundEffect directly from PCM data
-                // 44100 Hz, Stereo (2 channels), 16-bit
+                // Create SoundEffect with appropriate channel configuration
                 const int sampleRate = 44100;
-                const AudioChannels channels = AudioChannels.Stereo;
+                // Map channel count to MonoGame's AudioChannels enum (only supports Mono/Stereo)
+                var audioChannels = targetChannels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
                 
-                _soundEffect = new SoundEffect(pcmData, sampleRate, channels);
+                _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
             }
             catch (FileNotFoundException ex) when (ex.Message.Contains("ffmpeg"))
             {
