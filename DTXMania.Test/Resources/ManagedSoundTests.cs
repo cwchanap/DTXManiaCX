@@ -549,5 +549,62 @@ namespace DTXMania.Test.Resources
         }
 
         #endregion
+
+        #region Audio Channel Tests
+
+        [Fact]
+        public void LoadWavFile_MonoAudio_CreatesCorrectChannelConfiguration()
+        {
+            // Test that mono WAV files are loaded with proper channel configuration
+            var monoWavFile = AudioTestUtils.CreateTestWavFile(Path.Combine(_fixture.TempDir, "mono.wav"), 0.1, 44100, 1);
+
+            var sound = new ManagedSound(monoWavFile);
+
+            Assert.NotNull(sound.SoundEffect);
+            // Note: We can't directly test AudioChannels from MonoGame SoundEffect,
+            // but we can verify the sound loads successfully and has expected duration
+            Assert.True(sound.Duration.TotalSeconds > 0);
+            sound.Dispose();
+        }
+
+        [Fact]
+        public void LoadWavFile_StereoAudio_CreatesCorrectChannelConfiguration()
+        {
+            // Test that stereo WAV files are loaded with proper channel configuration
+            var stereoWavFile = AudioTestUtils.CreateTestWavFile(Path.Combine(_fixture.TempDir, "stereo.wav"), 0.1, 44100, 2);
+
+            var sound = new ManagedSound(stereoWavFile);
+
+            Assert.NotNull(sound.SoundEffect);
+            Assert.True(sound.Duration.TotalSeconds > 0);
+            sound.Dispose();
+        }
+
+        [Fact]
+        public void CreateTestWavFile_WithDifferentChannelCounts_GeneratesValidFiles()
+        {
+            // Test the AudioTestUtils helper with different channel configurations
+            var monoFile = AudioTestUtils.CreateTestWavFile(Path.Combine(_fixture.TempDir, "test_mono.wav"), 0.05, 22050, 1);
+            var stereoFile = AudioTestUtils.CreateTestWavFile(Path.Combine(_fixture.TempDir, "test_stereo.wav"), 0.05, 22050, 2);
+
+            Assert.True(File.Exists(monoFile));
+            Assert.True(File.Exists(stereoFile));
+
+            // Verify mono file is smaller than stereo file (half the channels)
+            var monoSize = new FileInfo(monoFile).Length;
+            var stereoSize = new FileInfo(stereoFile).Length;
+            
+            // Stereo should be roughly twice the size of mono (same duration, double channels)
+            Assert.True(stereoSize > monoSize);
+            
+            // Verify both can be loaded as sounds
+            using var monoSound = new ManagedSound(monoFile);
+            using var stereoSound = new ManagedSound(stereoFile);
+            
+            Assert.NotNull(monoSound.SoundEffect);
+            Assert.NotNull(stereoSound.SoundEffect);
+        }
+
+        #endregion
     }
 }

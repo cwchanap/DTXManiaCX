@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
+  build-and-test-windows:
     runs-on: windows-latest
     
     steps:
@@ -29,12 +29,12 @@ jobs:
           ${{ runner.os }}-nuget-
     
     - name: Restore dependencies
-      run: dotnet restore DTXMania.sln
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
 
-    - name: Build solution
-      run: dotnet build DTXMania.sln --configuration Debug --no-restore
+    - name: Build Windows project
+      run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
-    - name: Run tests
+    - name: Run tests on Windows
       run: |
         dotnet test DTXMania.Test/DTXMania.Test.csproj \
           --configuration Debug \
@@ -58,9 +58,70 @@ jobs:
         fail_ci_if_error: false
         verbose: true
 
+  build-and-test-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Restore dependencies
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
+
+    - name: Build Mac project
+      run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
+
+    - name: Run tests on macOS
+      run: |
+        dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+          --configuration Debug \
+          --no-build \
+          --verbosity normal \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./TestResults \
+          --logger trx
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-macos
+        path: ./TestResults
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        directory: ./TestResults
+        fail_ci_if_error: false
+        verbose: true
+
   build-artifacts:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            project: DTXMania.Game/DTXMania.Game.Windows.csproj
+            output: windows
+            artifact: dtxmania-windows
+          - os: macos-latest
+            project: DTXMania.Game/DTXMania.Game.Mac.csproj
+            output: macos
+            artifact: dtxmania-macos
     
     steps:
     - name: Checkout code
@@ -72,21 +133,21 @@ jobs:
         dotnet-version: '8.0.x'
     
     - name: Restore dependencies
-      run: dotnet restore DTXMania.sln
+      run: dotnet restore ${{ matrix.project }}
     
-    - name: Build Windows Release
-      run: dotnet build DTXMania.Windows/DTXMania.Windows.csproj --configuration Release --no-restore
+    - name: Build Release
+      run: dotnet build ${{ matrix.project }} --configuration Release --no-restore
     
-    - name: Publish Windows
+    - name: Publish
       run: |
-        dotnet publish DTXMania.Windows/DTXMania.Windows.csproj \
+        dotnet publish ${{ matrix.project }} \
           --configuration Release \
-          --output ./publish/windows \
+          --output ./publish/${{ matrix.output }} \
           --no-restore \
           --self-contained false
     
-    - name: Upload Windows artifacts
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: dtxmania-windows-${{ github.sha }}
-        path: ./publish/windows
+        name: ${{ matrix.artifact }}-${{ github.sha }}
+        path: ./publish/${{ matrix.output }}
