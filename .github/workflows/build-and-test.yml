@@ -35,14 +35,7 @@ jobs:
       run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
     - name: Run tests on Windows
-      run: |
-        dotnet test DTXMania.Test/DTXMania.Test.csproj \
-          --configuration Debug \
-          --no-build \
-          --verbosity normal \
-          --collect:"XPlat Code Coverage" \
-          --results-directory ./TestResults \
-          --logger trx
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger trx
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -85,14 +78,7 @@ jobs:
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
 
     - name: Run tests on macOS
-      run: |
-        dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
-          --configuration Debug \
-          --no-build \
-          --verbosity normal \
-          --collect:"XPlat Code Coverage" \
-          --results-directory ./TestResults \
-          --logger trx
+      run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger trx
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -139,12 +125,7 @@ jobs:
       run: dotnet build ${{ matrix.project }} --configuration Release --no-restore
     
     - name: Publish
-      run: |
-        dotnet publish ${{ matrix.project }} \
-          --configuration Release \
-          --output ./publish/${{ matrix.output }} \
-          --no-restore \
-          --self-contained false
+      run: dotnet publish ${{ matrix.project }} --configuration Release --output ./publish/${{ matrix.output }} --no-restore --self-contained false
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
