@@ -12,6 +12,7 @@ using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
 using DTX.UI.Components;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Input;
 using DTX.Config;
@@ -76,13 +77,6 @@ namespace DTX.Stage
         private const int VISIBLE_SONGS = 13;
         private const int CENTER_INDEX = 6;        // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
-
-        // Preview image functionality
-        private ITexture _previewTexture;
-        private ITexture _defaultPreviewTexture;
-        private double _previewDisplayDelay = 0.0;
-        private string _currentPreviewPath = "";
-        private const double PREVIEW_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
 
         // Preview sound functionality
         private ISound _previewSound;
@@ -181,9 +175,6 @@ namespace DTX.Stage
             }            // Load DTXManiaNX background graphics (Phase 3)
             LoadBackgroundGraphics();
 
-            // Load default preview texture
-            LoadDefaultPreviewTexture();
-
             // Load navigation sound (same as TitleStage)
             LoadNavigationSound();
 
@@ -247,12 +238,6 @@ namespace DTX.Stage
             // Clean up navigation sound (same as TitleStage)
             _cursorMoveSound?.Dispose();
             _cursorMoveSound = null;
-
-            // Clean up preview image textures
-            // Don't dispose textures loaded from ResourceManager - it handles disposal
-            // Only dispose default texture if we manually created it
-            _previewTexture = null;
-            _defaultPreviewTexture = null;
 
             // Clean up graphics resources
             _whitePixel?.Dispose();
@@ -383,11 +368,11 @@ namespace DTX.Stage
             }
 
             // Create DTXManiaNX-style status panel
-            // Position at authentic DTXManiaNX coordinates (X:130, Y:350)
+            // Position using centralized layout constants
             _statusPanel = new SongStatusPanel
             {
-                Position = new Vector2(130, 350), // DTXManiaNX authentic position
-                Size = new Vector2(580, 320), // DTXManiaNX authentic size for 3×5 difficulty grid
+                Position = SongSelectionUILayout.StatusPanel.Position, // Use centralized layout constants
+                Size = SongSelectionUILayout.StatusPanel.Size, // Use centralized layout constants
                 Font = uiFont?.SpriteFont,
                 SmallFont = uiFont?.SpriteFont, // Use same font for now
                 ManagedFont = uiFont,
@@ -563,9 +548,6 @@ namespace DTX.Stage
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
-            // Always reset preview delay when selection changes
-            _previewDisplayDelay = 0.0;
-
             // Handle preview sound on selection change
             StopCurrentPreview();
 
@@ -580,12 +562,6 @@ namespace DTX.Stage
 
                 // Update preview image panel immediately for songs so it knows about the new song
                 _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
-
-                // Load preview image for songs (but only after scroll completes to avoid unnecessary loading)
-                if (e.IsScrollComplete)
-                {
-                    LoadPreviewImage(e.SelectedSong);
-                }
 
                 // Start preview sound loading - load immediately but delay playback
                 bool isScrolling = _songListDisplay?.IsScrolling ?? false;
@@ -604,10 +580,6 @@ namespace DTX.Stage
                 {
                     _statusPanel.Visible = false;
                 }
-
-                // Clear preview immediately when not on a song
-                _previewTexture = null;
-                _currentPreviewPath = "";
 
                 // Update preview image panel immediately for non-songs so it clears the preview
                 _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
@@ -748,12 +720,6 @@ namespace DTX.Stage
         {
             _elapsedTime += deltaTime;
 
-            // Update preview display delay counter
-            if (_previewDisplayDelay < PREVIEW_DELAY_SECONDS)
-            {
-                _previewDisplayDelay += deltaTime;
-            }
-
             // Update preview sound timers
             UpdatePreviewSoundTimers(deltaTime);
 
@@ -769,7 +735,7 @@ namespace DTX.Stage
             // Handle input
             HandleInput();
 
-            // Update UI
+            // Update UI (PreviewImagePanel will handle its own timing)
             _uiManager?.Update(deltaTime);
         }
 
@@ -783,10 +749,7 @@ namespace DTX.Stage
             // Draw background
             DrawBackground();
 
-            // Draw preview image if delay has ended
-            DrawPreviewImage();
-
-            // Draw UI
+            // Draw UI (PreviewImagePanel will handle its own drawing including delay)
             _uiManager?.Draw(_spriteBatch, deltaTime);
 
             _spriteBatch.End();
@@ -1018,58 +981,11 @@ namespace DTX.Stage
         }
 
         /// <summary>
-        /// Draw preview image at correct position based on status panel visibility
-        /// </summary>
-        private void DrawPreviewImage()
-        {
-            // Don't draw if we don't have a selected song or it's not a song type
-            if (_selectedSong?.Type != NodeType.Score)
-            {
-                return;
-            }
-
-            // Only draw if delay has ended and we have a valid preview texture
-            if (_previewDisplayDelay < PREVIEW_DELAY_SECONDS || _previewTexture == null || _previewTexture.IsDisposed)
-                return;
-
-            try
-            {
-                // Determine position based on status panel visibility
-                Vector2 position;
-                Vector2 size;
-
-                if (_statusPanel?.Visible == true)
-                {
-                    // Position with status panel: (250, 34) size 292x292
-                    position = new Vector2(250, 34);
-                    size = new Vector2(292, 292);
-                }
-                else
-                {
-                    // Position without status panel: (18, 88) size 368x368
-                    position = new Vector2(18, 88);
-                    size = new Vector2(368, 368);
-                }
-
-                // Draw preview image
-                var destinationRect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
-                _previewTexture.Draw(_spriteBatch, destinationRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
-            }
-            catch (ObjectDisposedException)
-            {
-                // Texture was disposed during draw, clear the reference
-
-                _previewTexture = null;
-            }
-            catch (Exception)
-            {
-
-            }
-        }
-
         #endregion
 
-        #region RenderTarget Management        /// <summary>
+        #region RenderTarget Management
+
+        /// <summary>
         /// Initialize stage-level RenderTarget for shared use by UI components
         /// </summary>
         private void InitializeStageRenderTargets()
@@ -1102,237 +1018,6 @@ namespace DTX.Stage
                 _stageRenderTarget?.Dispose();
             }
             _stageRenderTarget = null;
-        }
-
-        #endregion
-
-        #region Preview Image Management
-
-        /// <summary>
-        /// Load preview image for the selected song
-        /// </summary>
-        private void LoadPreviewImage(SongListNode songNode)
-        {
-            // Check if resource manager is still valid
-            if (_resourceManager == null)
-            {
-                return;
-            }
-
-            // Clear current preview reference (don't dispose - ResourceManager handles that)
-            _previewTexture = null;
-            _currentPreviewPath = "";
-
-            // If not a song (folder, back button, etc.), don't load any preview
-            if (songNode?.Type != NodeType.Score)
-            {
-                return;
-            }
-
-            try
-            {
-                // Get the song directory from the node
-                string songDirectory = GetSongDirectoryFromNode(songNode);
-                
-                if (string.IsNullOrEmpty(songDirectory))
-                {
-                    // Use default texture if available and not disposed
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
-                    {
-                        _previewTexture = _defaultPreviewTexture;
-                    }
-                    return;
-                }
-
-                // Resolve to absolute path
-                string resolvedDirectory = ResolveSongDirectoryPath(songDirectory);
-
-                // Verify directory exists before trying to find preview files
-                if (!Directory.Exists(resolvedDirectory))
-                {
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
-                    {
-                        _previewTexture = _defaultPreviewTexture;
-                    }
-                    return;
-                }
-
-                // Find preview image file
-                string previewPath = FindPreviewImageFile(resolvedDirectory);
-
-                if (previewPath != null)
-                {
-                    // Try to load the texture, with additional error handling
-                    try
-                    {
-                        _previewTexture = _resourceManager.LoadTexture(previewPath);
-                        _currentPreviewPath = previewPath;
-                        
-                        // Verify the loaded texture is valid
-                        if (_previewTexture != null && _previewTexture.IsDisposed)
-                        {
-                            _previewTexture = _defaultPreviewTexture;
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _previewTexture = _defaultPreviewTexture;
-                    }
-                }
-                else
-                {
-                    // Use default texture if available and not disposed
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
-                    {
-                        _previewTexture = _defaultPreviewTexture;
-                    }
-                    else
-                    {
-                        _previewTexture = null;
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                // Try to use default texture as fallback, but check if it's valid first
-                if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
-                {
-                    _previewTexture = _defaultPreviewTexture;
-                }
-                else
-                {
-                    _previewTexture = null;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Get the song directory from a SongListNode by checking DatabaseSong charts and DirectoryPath
-        /// </summary>
-        /// <param name="songNode">The song node to extract directory from</param>
-        /// <returns>The song directory path, or null if not found</returns>
-        private string GetSongDirectoryFromNode(SongListNode songNode)
-        {
-            string songDirectory = null;
-            
-            // Try to get song directory from DatabaseSong
-            if (songNode.DatabaseSong?.Charts?.Count > 0)
-            {
-                var chartPath = songNode.DatabaseSong.Charts.FirstOrDefault()?.FilePath;
-                if (!string.IsNullOrEmpty(chartPath))
-                {
-                    songDirectory = Path.GetDirectoryName(chartPath);
-                }
-            }
-
-            // If we couldn't get directory from chart, try the DirectoryPath property
-            if (string.IsNullOrEmpty(songDirectory) && !string.IsNullOrEmpty(songNode.DirectoryPath))
-            {
-                songDirectory = songNode.DirectoryPath;
-            }
-
-            return songDirectory;
-        }
-
-        /// <summary>
-        /// Resolve a song directory to an absolute path by checking multiple possible locations
-        /// </summary>
-        /// <param name="songDirectory">The relative or absolute song directory path</param>
-        /// <returns>The resolved absolute directory path</returns>
-        private string ResolveSongDirectoryPath(string songDirectory)
-        {
-            // Convert to absolute path if needed - handle both relative and already absolute paths
-            if (!Path.IsPathRooted(songDirectory))
-            {
-                // Try to resolve relative path from current working directory or known song directories
-                try
-                {
-                    var workingDir = Environment.CurrentDirectory;
-                    
-                    var possiblePaths = new[]
-                    {
-                        Path.GetFullPath(songDirectory), // From current directory
-                        Path.GetFullPath(Path.Combine(workingDir, songDirectory)), // From app directory
-                        Path.GetFullPath(Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
-                        Path.GetFullPath(Path.Combine(workingDir, "Songs", songDirectory)), // From Songs folder
-                        Path.GetFullPath(Path.Combine(workingDir, "..", "Songs", songDirectory)), // Parent Songs folder
-                        Path.GetFullPath(Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
-                    };
-
-                    foreach (var testPath in possiblePaths)
-                    {
-                        if (Directory.Exists(testPath))
-                        {
-                            songDirectory = testPath;
-                            break;
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-                    songDirectory = Path.GetFullPath(songDirectory); // Fallback to simple resolution
-                }
-            }
-
-            return songDirectory;
-        }
-
-        /// <summary>
-        /// Find a preview image file by searching for known preview filenames with supported extensions
-        /// </summary>
-        /// <param name="songDirectory">The directory to search for preview images</param>
-        /// <returns>The full path to the preview image file, or null if not found</returns>
-        private string FindPreviewImageFile(string songDirectory)
-        {
-            string[] previewExtensions = { ".jpg", ".jpeg", ".png", ".bmp" };
-            string[] previewNames = { "preview", "jacket", "banner" };
-            
-            // Try to find preview image
-            foreach (var name in previewNames)
-            {
-                foreach (var ext in previewExtensions)
-                {
-                    var testPath = Path.Combine(songDirectory, name + ext);
-                    if (File.Exists(testPath))
-                    {
-                        return testPath;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Load default preview texture
-        /// </summary>
-        private void LoadDefaultPreviewTexture()
-        {
-            try
-            {
-                if (_resourceManager != null)
-                {
-                    _defaultPreviewTexture = _resourceManager.LoadTexture("Graphics/5_default_preview.png");
-                    
-                    // Verify the loaded texture is valid
-                    if (_defaultPreviewTexture != null && _defaultPreviewTexture.IsDisposed)
-                    {
-
-                        _defaultPreviewTexture = null;
-                    }
-                }
-                else
-                {
-
-                    _defaultPreviewTexture = null;
-                }
-            }
-            catch (Exception)
-            {
-                // Default texture is optional
-
-                _defaultPreviewTexture = null;
-            }
         }
 
         /// <summary>
@@ -1610,7 +1295,9 @@ namespace DTX.Stage
 
         #endregion
 
-        #region Handle Activate Input        /// <summary>
+        #region Handle Activate Input
+
+        /// <summary>
         /// Handle the Activate input (Enter key) with context-sensitive functionality:
         /// - Navigate into folders/back boxes when in song list mode
         /// - Enter status panel when on a song and not in status panel mode
@@ -1646,7 +1333,9 @@ namespace DTX.Stage
 
         #endregion
 
-        #region Set Background Music Reference        /// <summary>
+        #region Set Background Music Reference
+
+        /// <summary>
         /// Set the background music instance for volume control during preview
         /// </summary>
         public void SetBackgroundMusic(ISound backgroundMusic, SoundEffectInstance backgroundMusicInstance)
