@@ -244,6 +244,28 @@ namespace DTX.UI.Layout
             public static Vector2 UnselectedBarPosition => new Vector2(UnselectedBarX, 0); // Y varies per bar
             public static Vector2 BarSize => new Vector2(BarWidth, 30); // Height will be dynamic
             
+            // Individual Song Bar Component Layout
+            public const int BarHeight = 30;           // Height of each song bar
+            public const int PreviewImageSize = 24;    // Size of preview image square
+            public const int ClearLampWidth = 8;       // Width of clear lamp indicator
+            public const int ClearLampHeight = 24;     // Height of clear lamp indicator
+            public const int TextPadding = 10;         // General text padding
+            public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
+            
+            // Spacing and positioning within bars
+            public const int PreviewImageMargin = 5;   // Margin around preview image
+            public const int TextMarginWithImage = 10; // Text margin when preview image present
+            public const int TextMarginNoImage = 5;    // Text margin when no preview image
+            
+            // Selection visual effects
+            public const int SelectedBorderThickness = 2; // Border thickness for center/selected bar
+            public const int UnselectedBorderThickness = 1; // Border thickness for normal selected bar
+            
+            // Texture generation constants
+            public const int TitleTextureWidth = 400;  // Width for generated title textures
+            public const int TitleTextureHeight = 24;  // Height for generated title textures
+            public const int TextPositionX = 5;        // X position for text within textures
+            
             /// <summary>
             /// Get the Y coordinate for a specific bar index
             /// </summary>
@@ -360,6 +382,71 @@ namespace DTX.UI.Layout
                 public static Vector2 Position => new Vector2(X, Y);
                 public static Vector2 Size => new Vector2(Width, Height);
             }
+        }
+        
+        #endregion
+        
+        #region Background and Visual Settings
+        
+        /// <summary>
+        /// Background and visual effect settings
+        /// </summary>
+        public static class Background
+        {
+            // Gradient drawing settings
+            public const int GradientLineSpacing = 4;  // Draw every 4th line for performance
+            
+            // Font settings
+            public const int DefaultFontSize = 16;     // Default UI font size
+            public const string DefaultFontName = "Arial"; // Default font name
+            
+            // UI transparency settings
+            public const float MainPanelAlpha = 0.8f;  // Main panel background transparency
+        }
+        
+        #endregion
+        
+        #region Timing and Animation Settings
+        
+        /// <summary>
+        /// Timing and animation constants
+        /// </summary>
+        public static class Timing
+        {
+            // Stage transition timings
+            public const double FadeInDuration = 0.5;   // 0.5 second fade in
+            public const double FadeOutDuration = 0.5;  // 0.5 second fade out
+            public const double TransitionDuration = 0.5; // Stage transition duration
+            
+            // Input debouncing
+            public const double NavigationDebounceSeconds = 0.01; // 10ms debounce for smooth navigation
+            
+            // Task timeout settings
+            public const int TaskTimeoutMilliseconds = 500; // 500ms timeout for task completion
+        }
+        
+        #endregion
+        
+        #region Audio Settings
+        
+        /// <summary>
+        /// Audio volume and sound settings
+        /// </summary>
+        public static class Audio
+        {
+            // Volume levels
+            public const float PreviewSoundVolume = 0.8f;  // 80% volume for preview sounds
+            public const float NavigationSoundVolume = 0.7f; // 70% volume for navigation sounds
+            
+            // BGM fade settings
+            public const double BgmFadeOutDuration = 0.5;  // 500ms fade
+            public const double BgmFadeInDuration = 1.0;   // 1 second fade
+            public const double PreviewPlayDelaySeconds = 1.0; // 1 second delay
+            
+            // Volume fade ranges
+            public const float BgmMinVolume = 0.1f;    // 10% minimum volume during preview
+            public const float BgmMaxVolume = 1.0f;    // 100% maximum volume
+            public const float BgmFadeRange = 0.9f;    // Volume fade range (90% of full volume)
         }
         
         #endregion

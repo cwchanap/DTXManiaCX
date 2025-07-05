@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Resources;
 using DTX.Utilities;
@@ -23,11 +24,12 @@ namespace DTX.UI.Components
     {
         #region Constants
 
-        private const int TITLE_TEXTURE_WIDTH = 400;
-        private const int TITLE_TEXTURE_HEIGHT = 24;
-        private const int PREVIEW_IMAGE_SIZE = 24;
-        private const int CLEAR_LAMP_WIDTH = 8;
-        private const int CLEAR_LAMP_HEIGHT = 24;
+        // Using centralized layout constants from SongSelectionUILayout
+        private const int TITLE_TEXTURE_WIDTH = SongSelectionUILayout.SongBars.TitleTextureWidth;
+        private const int TITLE_TEXTURE_HEIGHT = SongSelectionUILayout.SongBars.TitleTextureHeight;
+        private const int PREVIEW_IMAGE_SIZE = SongSelectionUILayout.SongBars.PreviewImageSize;
+        private const int CLEAR_LAMP_WIDTH = SongSelectionUILayout.SongBars.ClearLampWidth;
+        private const int CLEAR_LAMP_HEIGHT = SongSelectionUILayout.SongBars.ClearLampHeight;
         private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 500 * 1024; // 500KB
 
         #endregion
@@ -335,7 +337,7 @@ namespace DTX.UI.Components
                 _spriteBatch.Begin();
                 
                 var textColor = GetNodeTypeColor(songNode);
-                var position = new Vector2(5, (TITLE_TEXTURE_HEIGHT - _font.LineSpacing) / 2);
+                var position = new Vector2(SongSelectionUILayout.SongBars.TextPositionX, (TITLE_TEXTURE_HEIGHT - _font.LineSpacing) / 2);
                 
                 _spriteBatch.DrawString(_font, displayText, position, textColor);
                 

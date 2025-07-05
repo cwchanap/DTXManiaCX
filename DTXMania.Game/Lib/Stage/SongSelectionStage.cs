@@ -71,11 +71,10 @@ namespace DTX.Stage
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
         private double _phaseStartTime;        // Performance optimization: Input debouncing
         private double _lastNavigationTime = 0;
-        private const double NAVIGATION_DEBOUNCE_SECONDS = 0.01; // 10ms debounce for smooth navigation
 
-        // Constants for DTXMania-style display
-        private const int VISIBLE_SONGS = 13;
-        private const int CENTER_INDEX = 6;        // RenderTarget management for stage-level resource pooling
+        // Constants for DTXMania-style display - using values from SongSelectionUILayout
+        private const int VISIBLE_SONGS = SongSelectionUILayout.SongBars.VisibleItems;
+        private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;        // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
         // Preview sound functionality
@@ -94,9 +93,9 @@ namespace DTX.Stage
         private bool _isBgmFadingIn = false;
         
         // Preview sound timing constants
-        private const double PREVIEW_PLAY_DELAY_SECONDS = 1.0; // 1 second delay
-        private const double BGM_FADE_OUT_DURATION = 0.5; // 500ms fade
-        private const double BGM_FADE_IN_DURATION = 1.0; // 1 second fade
+        private const double PREVIEW_PLAY_DELAY_SECONDS = SongSelectionUILayout.Audio.PreviewPlayDelaySeconds;
+        private const double BGM_FADE_OUT_DURATION = SongSelectionUILayout.Audio.BgmFadeOutDuration;
+        private const double BGM_FADE_IN_DURATION = SongSelectionUILayout.Audio.BgmFadeInDuration;
 
         #endregion
 
@@ -156,7 +155,8 @@ namespace DTX.Stage
             IFont uiFont = null;
             try
             {
-                uiFont = _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
+                uiFont = _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
+                    SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
             catch (Exception ex)
             {
@@ -203,7 +203,7 @@ namespace DTX.Stage
             {
                 try
                 {
-                    _songInitializationTask.Wait(TimeSpan.FromMilliseconds(500));
+                    _songInitializationTask.Wait(TimeSpan.FromMilliseconds(SongSelectionUILayout.Timing.TaskTimeoutMilliseconds));
                 }
                 catch (AggregateException)
                 {
@@ -264,7 +264,8 @@ namespace DTX.Stage
             try
             {
                 // Try to create a simple fallback using the resource manager's fallback mechanism
-                return _resourceManager.LoadFont("Arial", 16, FontStyle.Regular);
+                return _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
+                    SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
             catch
             {
@@ -321,15 +322,15 @@ namespace DTX.Stage
             {
                 Position = Vector2.Zero,
                 Size = new Vector2(_game.GraphicsDevice.Viewport.Width, _game.GraphicsDevice.Viewport.Height),
-                BackgroundColor = Color.Black * 0.8f,
+                BackgroundColor = Color.Black * SongSelectionUILayout.Background.MainPanelAlpha,
                 LayoutMode = PanelLayoutMode.Manual
             };
 
             // Create title label (positioned below header panel)
             _titleLabel = new UILabel("Song Selection")
             {
-                Position = new Vector2(50, 100), // Moved down to account for header panel
-                Size = new Vector2(400, 40),
+                Position = SongSelectionUILayout.UILabels.Title.Position,
+                Size = SongSelectionUILayout.UILabels.Title.Size,
                 TextColor = Color.White,
                 HasShadow = true,
                 HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
@@ -338,8 +339,8 @@ namespace DTX.Stage
             // Create breadcrumb label
             _breadcrumbLabel = new UILabel("")
             {
-                Position = new Vector2(50, 150), // Moved down to account for header panel
-                Size = new Vector2(600, 30),
+                Position = SongSelectionUILayout.UILabels.Breadcrumb.Position,
+                Size = SongSelectionUILayout.UILabels.Breadcrumb.Size,
                 TextColor = Color.Yellow,
                 HasShadow = true,
                 HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
@@ -349,8 +350,8 @@ namespace DTX.Stage
             // Use full screen width to accommodate curved layout coordinates
             _songListDisplay = new SongListDisplay
             {
-                Position = new Vector2(0, 0),
-                Size = new Vector2(1280, 720), // Full screen for curved layout
+                Position = SongSelectionUILayout.SongListDisplay.Position,
+                Size = SongSelectionUILayout.SongListDisplay.Size,
                 Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont,
                 WhitePixel = _whitePixel
@@ -762,7 +763,7 @@ namespace DTX.Stage
             switch (_selectionPhase)
             {
                 case SongSelectionPhase.FadeIn:
-                    if (phaseElapsed >= 0.5) // 0.5 second fade in
+                    if (phaseElapsed >= SongSelectionUILayout.Timing.FadeInDuration)
                     {
                         _selectionPhase = SongSelectionPhase.Normal;
                         _currentPhase = StagePhase.Normal;
@@ -771,7 +772,7 @@ namespace DTX.Stage
                     break;
 
                 case SongSelectionPhase.FadeOut:
-                    if (phaseElapsed >= 0.5) // 0.5 second fade out
+                    if (phaseElapsed >= SongSelectionUILayout.Timing.FadeOutDuration)
                     {
                         // Transition complete
                     }
@@ -877,7 +878,7 @@ namespace DTX.Stage
                     else
                     {
                         // Return to title stage
-                        StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(0.5));
+                        StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
                     }
                     break;
             }
@@ -971,11 +972,11 @@ namespace DTX.Stage
 
             // Simple vertical gradient using multiple horizontal lines
             int height = viewport.Height;
-            for (int y = 0; y < height; y += 4) // Draw every 4th line for performance
+            for (int y = 0; y < height; y += SongSelectionUILayout.Background.GradientLineSpacing)
             {
                 float ratio = (float)y / height;
                 var color = Color.Lerp(topColor, bottomColor, ratio);
-                var lineRect = new Rectangle(0, y, viewport.Width, 4);
+                var lineRect = new Rectangle(0, y, viewport.Width, SongSelectionUILayout.Background.GradientLineSpacing);
                 _spriteBatch.Draw(_whitePixel, lineRect, color);
             }
         }
@@ -1065,7 +1066,7 @@ namespace DTX.Stage
                             _previewSoundInstance = _previewSound.CreateInstance();
                             if (_previewSoundInstance != null)
                             {
-                                _previewSoundInstance.Volume = 0.8f; // 80% volume
+                                _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
                                 _previewSoundInstance.IsLooped = true; // Enable looping
                                 _previewSoundInstance.Play();
                             }
@@ -1099,7 +1100,7 @@ namespace DTX.Stage
                     try
                     {
                         float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
-                        _backgroundMusicInstance.Volume = 1.0f - (progress * 0.9f); // Fade to 10%
+                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
                     }
                     catch (Exception ex)
                     {
@@ -1124,7 +1125,7 @@ namespace DTX.Stage
                     try
                     {
                         float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
-                        _backgroundMusicInstance.Volume = 0.1f + (progress * 0.9f); // Fade back to 100%
+                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
                     }
                     catch (Exception ex)
                     {
@@ -1285,7 +1286,7 @@ namespace DTX.Stage
         {
             try
             {
-                _cursorMoveSound?.Play(0.7f); // Play at 70% volume (same as TitleStage)
+                _cursorMoveSound?.Play(SongSelectionUILayout.Audio.NavigationSoundVolume);
             }
             catch (Exception ex)
             {
