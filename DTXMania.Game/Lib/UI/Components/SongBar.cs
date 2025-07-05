@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Resources;
 using System;
@@ -16,10 +17,11 @@ namespace DTX.UI.Components
     {
         #region Constants
 
-        private const int BAR_HEIGHT = 30;
-        private const int PREVIEW_IMAGE_SIZE = 24;
-        private const int CLEAR_LAMP_WIDTH = 8;
-        private const int TEXT_PADDING = 10;
+        // Using centralized layout constants from SongSelectionUILayout
+        private const int BAR_HEIGHT = SongSelectionUILayout.SongBars.BarHeight;
+        private const int PREVIEW_IMAGE_SIZE = SongSelectionUILayout.SongBars.PreviewImageSize;
+        private const int CLEAR_LAMP_WIDTH = SongSelectionUILayout.SongBars.ClearLampWidth;
+        private const int TEXT_PADDING = SongSelectionUILayout.SongBars.TextPadding;
 
         #endregion
 
@@ -141,7 +143,7 @@ namespace DTX.UI.Components
 
         public SongBar()
         {
-            Size = new Vector2(600, DTXManiaVisualTheme.Layout.SongBarHeight);
+            Size = new Vector2(SongSelectionUILayout.SongBars.BarWidth, DTXManiaVisualTheme.Layout.SongBarHeight);
             UpdateVisualState();
         }
 
@@ -250,7 +252,7 @@ namespace DTX.UI.Components
                 if (_isSelected)
                 {
                     var borderColor = _isCenter ? Color.Yellow : Color.White;
-                    var borderThickness = _isCenter ? 2 : 1;
+                    var borderThickness = _isCenter ? SongSelectionUILayout.SongBars.SelectedBorderThickness : SongSelectionUILayout.SongBars.UnselectedBorderThickness;
 
                     // Top border
                     spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
@@ -290,7 +292,7 @@ namespace DTX.UI.Components
         {
             if (_previewImageTexture != null)
             {
-                var imageX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + 5;
+                var imageX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + SongSelectionUILayout.SongBars.PreviewImageMargin;
                 var imageY = bounds.Y + (bounds.Height - DTXManiaVisualTheme.Layout.PreviewImageSize) / 2;
                 var imageDestRect = new Rectangle(imageX, imageY, DTXManiaVisualTheme.Layout.PreviewImageSize, DTXManiaVisualTheme.Layout.PreviewImageSize);
 
@@ -302,7 +304,7 @@ namespace DTX.UI.Components
         {
             if (_titleTexture != null)
             {
-                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
+                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + SongSelectionUILayout.SongBars.TextMarginWithImage : SongSelectionUILayout.SongBars.TextMarginNoImage);
                 var textY = bounds.Y + (bounds.Height - _titleTexture.Height) / 2;
                 var textPosition = new Vector2(textX, textY);
 
@@ -312,7 +314,7 @@ namespace DTX.UI.Components
             {
                 // Fallback to direct text rendering with DTXManiaNX-style shadow
                 var displayText = GetDisplayText();
-                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
+                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + SongSelectionUILayout.SongBars.TextMarginWithImage : SongSelectionUILayout.SongBars.TextMarginNoImage);
                 var textY = bounds.Y + (bounds.Height - _font.LineSpacing) / 2;
                 var textPosition = new Vector2(textX, textY);
 
@@ -331,7 +333,7 @@ namespace DTX.UI.Components
                 return;
 
             // Draw a small indicator on the right side for node type using DTXManiaNX colors
-            var indicatorWidth = 4;
+            var indicatorWidth = SongSelectionUILayout.SongBars.NodeTypeIndicatorWidth;
             var indicatorBounds = new Rectangle(bounds.Right - indicatorWidth, bounds.Y, indicatorWidth, bounds.Height);
             var indicatorColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
 
