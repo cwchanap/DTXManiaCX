@@ -89,6 +89,9 @@ namespace DTX.Stage
         private SoundEffectInstance _previewSoundInstance;
         private ISound _backgroundMusic; // Reference to BGM
         private SoundEffectInstance _backgroundMusicInstance;
+        
+        // Navigation sound functionality (same as TitleStage)
+        private ISound _cursorMoveSound;
         private double _previewPlayDelay = 0.0;
         private double _bgmFadeOutTimer = 0.0;
         private double _bgmFadeInTimer = 0.0;
@@ -181,6 +184,9 @@ namespace DTX.Stage
             // Load default preview texture
             LoadDefaultPreviewTexture();
 
+            // Load navigation sound (same as TitleStage)
+            LoadNavigationSound();
+
             // Initialize UI
             InitializeUI(uiFont);
 
@@ -237,6 +243,10 @@ namespace DTX.Stage
             _backgroundMusicInstance?.Dispose();
             _backgroundMusicInstance = null;
             _backgroundMusic = null;
+
+            // Clean up navigation sound (same as TitleStage)
+            _cursorMoveSound?.Dispose();
+            _cursorMoveSound = null;
 
             // Clean up preview image textures
             // Don't dispose textures loaded from ResourceManager - it handles disposal
@@ -842,12 +852,14 @@ namespace DTX.Stage
                         // For now, keep it as song navigation to allow changing songs while in panel
                         _songListDisplay.MovePrevious();
                         _lastNavigationTime = _elapsedTime;
+                        PlayCursorMoveSound(); // Play navigation sound
                     }
                     else
                     {
                         // Normal song list navigation
                         _songListDisplay.MovePrevious();
                         _lastNavigationTime = _elapsedTime;
+                        PlayCursorMoveSound(); // Play navigation sound
                     }
                     break;
 
@@ -858,12 +870,14 @@ namespace DTX.Stage
                         // For now, keep it as song navigation to allow changing songs while in panel
                         _songListDisplay.MoveNext();
                         _lastNavigationTime = _elapsedTime;
+                        PlayCursorMoveSound(); // Play navigation sound
                     }
                     else
                     {
                         // Normal song list navigation
                         _songListDisplay.MoveNext();
                         _lastNavigationTime = _elapsedTime;
+                        PlayCursorMoveSound(); // Play navigation sound
                     }
                     break;
                 case InputCommandType.MoveLeft:
@@ -912,6 +926,7 @@ namespace DTX.Stage
             {
                 // Use the SongListDisplay's built-in difficulty cycling
                 _songListDisplay.CycleDifficulty();
+                PlayCursorMoveSound(); // Play navigation sound for difficulty change
             }
             else
             {
@@ -942,7 +957,8 @@ namespace DTX.Stage
                             // Update status panel
                             _statusPanel.UpdateSongInfo(_selectedSong, _currentDifficulty);
 
-                            // Difficulty changed
+                            // Difficulty changed - play navigation sound
+                            PlayCursorMoveSound();
                         }
                     }
                 }
@@ -1319,6 +1335,24 @@ namespace DTX.Stage
             }
         }
 
+        /// <summary>
+        /// Load navigation sound for song list movement (same as TitleStage)
+        /// </summary>
+        private void LoadNavigationSound()
+        {
+            try
+            {
+                // Load DTXMania-style cursor move sound (same as TitleStage)
+                _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded cursor move sound");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load cursor move sound: {ex.Message}");
+                _cursorMoveSound = null;
+            }
+        }
+
         #endregion
 
         #region Preview Sound Management
@@ -1556,6 +1590,21 @@ namespace DTX.Stage
                 _bgmFadeInTimer = 0.0;
                 _isBgmFadingIn = true;
                 _isBgmFadingOut = false;
+            }
+        }
+
+        /// <summary>
+        /// Play cursor move sound for navigation (same as TitleStage)
+        /// </summary>
+        private void PlayCursorMoveSound()
+        {
+            try
+            {
+                _cursorMoveSound?.Play(0.7f); // Play at 70% volume (same as TitleStage)
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to play cursor move sound: {ex.Message}");
             }
         }
 

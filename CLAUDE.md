@@ -24,7 +24,7 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-restore
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-build --verbosity normal
 
 # Run specific test class
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "ClassName=ConfigManagerTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerTests"
 
 # Run with coverage
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
@@ -80,6 +80,7 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 
 #### 3. Resource Management
 - **ResourceManager**: Handles textures, fonts, sounds with caching and reference counting
+- **Audio System**: Advanced audio support with FFMpegCore (MP3) and NVorbis (OGG/Vorbis) 
 - **Skin System**: DTXMania-compatible skin loading with box.def support  
 - **Fallback Resources**: Automatic fallback for missing assets
 - **Memory Management**: Reference counting with automatic cleanup
@@ -104,6 +105,7 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 - **SongManager**: Handles song discovery and metadata parsing
 - **DTXMetadataParser**: Parses DTX files for song information
 - **SongListNode**: Tree structure for organizing songs
+- **Database Integration**: Entity Framework with SQLite (songs.db) for persistent song data
 
 ### Key Design Patterns
 
@@ -131,7 +133,7 @@ configManager.SaveConfig("Config.ini");
 ## Development Guidelines
 
 ### Code Conventions
-- Use existing libraries and frameworks when possible (don't reinvent the wheel)
+- **IMPORTANT**: Use existing libraries and frameworks when possible (don't reinvent the wheel)
 - Follow C# naming conventions and .NET 8 patterns
 - Maintain DTXMania compatibility where applicable
 - Use MonoGame framework for graphics, input, and audio
@@ -181,6 +183,12 @@ configManager.SaveConfig("Config.ini");
 - Fallback fonts when specific fonts are unavailable
 - Japanese font support for authentic DTXMania experience
 - Font files centralized in DTXMania.Game/Content/ with symbolic links
+
+### Audio System
+- **ManagedSound**: Reference-counted audio with automatic cleanup
+- **Format Support**: WAV (native), MP3 (FFMpegCore), OGG/Vorbis (NVorbis)
+- **Performance**: Cached audio loading with memory management
+- **Preview Support**: Song preview functionality for selection screen
 
 ### Error Handling
 - Comprehensive error handling with fallback resources
