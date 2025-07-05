@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Input;
 using DTX.Resources;
@@ -23,39 +24,25 @@ namespace DTX.UI.Components
     {
         #region Constants
 
-        private const int VISIBLE_ITEMS = 13;
-        private const int CENTER_INDEX = 5; // DTXManiaNX uses index 5 as center (0-based)
-        private const int SCROLL_UNIT = 100; private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
+        // Use centralized layout constants from SongSelectionUILayout
+        private const int VISIBLE_ITEMS = SongSelectionUILayout.SongBars.VisibleItems;
+        private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
+        private const int SCROLL_UNIT = SongSelectionUILayout.SongBars.ScrollUnit;        private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
         private const float SCROLL_ACCELERATION_THRESHOLD_2 = 600f;  // Increased from 300f  
         private const float SCROLL_ACCELERATION_THRESHOLD_3 = 1000f; // Increased from 500f
 
-        // DTXManiaNX Current Implementation Coordinates (ptバーの基本座標)
+        // DTXManiaNX Current Implementation Coordinates - now centralized in SongSelectionUILayout
         // NOTE: Original curved X coordinates are present but DISABLED in current DTXManiaNX
         // Current implementation uses vertical list layout with fixed X positions
-        private static readonly Point[] OriginalCurvedCoordinates = new Point[]
-        {
-            new Point(708, 5),      // Bar 0 (original curved, X ignored)
-            new Point(626, 56),     // Bar 1 (original curved, X ignored)
-            new Point(578, 107),    // Bar 2 (original curved, X ignored)
-            new Point(546, 158),    // Bar 3 (original curved, X ignored)
-            new Point(528, 209),    // Bar 4 (original curved, X ignored)
-            new Point(464, 270),    // Bar 5 (original curved, special position)
-            new Point(548, 362),    // Bar 6 (original curved, X ignored)
-            new Point(578, 413),    // Bar 7 (original curved, X ignored)
-            new Point(624, 464),    // Bar 8 (original curved, X ignored)
-            new Point(686, 515),    // Bar 9 (original curved, X ignored)
-            new Point(788, 566),    // Bar 10 (original curved, X ignored)
-            new Point(996, 617),    // Bar 11 (original curved, X ignored)
-            new Point(1280, 668)    // Bar 12 (original curved, X ignored)
-        };
+        private static readonly Point[] OriginalCurvedCoordinates = SongSelectionUILayout.SongBars.BarCoordinates;
 
-        // DTXManiaNX Current Implementation: Vertical List Layout
+        // DTXManiaNX Current Implementation: Vertical List Layout - now centralized
         // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
         // Unselected bars: Fixed X:673 (vertical list formation)
-        private const int SELECTED_BAR_X = 665;
-        private const int SELECTED_BAR_Y = 269;
-        private const int UNSELECTED_BAR_X = 673;
-        private const int BAR_WIDTH = 510; // Maximum bar width
+        private const int SELECTED_BAR_X = SongSelectionUILayout.SongBars.SelectedBarX;
+        private const int SELECTED_BAR_Y = SongSelectionUILayout.SongBars.SelectedBarY;
+        private const int UNSELECTED_BAR_X = SongSelectionUILayout.SongBars.UnselectedBarX;
+        private const int BAR_WIDTH = SongSelectionUILayout.SongBars.BarWidth;
 
         // DTXManiaNX Current Implementation: Simplified Visual Effects
         // Current implementation uses minimal perspective effects for vertical list

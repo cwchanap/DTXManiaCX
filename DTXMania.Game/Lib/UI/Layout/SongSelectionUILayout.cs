@@ -15,8 +15,8 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class StatusPanel
         {
-            public const int X = 130;
-            public const int Y = 350;
+            public const int X = 130; // Restored original DTXManiaNX authentic position
+            public const int Y = 350; // Restored original DTXManiaNX authentic position
             public const int Width = 580;
             public const int Height = 320;
             
@@ -58,8 +58,8 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class DifficultyGrid
         {
-            public const int BaseX = 130;  // Main panel X position
-            public const int BaseY = 350;  // Main panel Y position
+            public const int BaseX = 150;  // Main panel X position
+            public const int BaseY = 400;  // Main panel Y position
             public const int GridX = 140;  // Grid base X position (relative to main panel)
             public const int GridY = 52;   // Grid base Y position (relative to main panel)
             public const int CellWidth = 187;  // Panel width per difficulty cell
@@ -78,7 +78,7 @@ namespace DTX.UI.Layout
             public static Vector2 CellSize => new Vector2(CellWidth, CellHeight);
             
             // Difficulty label position
-            public static Vector2 DifficultyLabelPosition => new Vector2(140, 352);
+            public static Vector2 DifficultyLabelPosition => new Vector2(160, 352);
             
             /// <summary>
             /// Calculate difficulty cell position using DTXManiaNX formula
@@ -127,8 +127,8 @@ namespace DTX.UI.Layout
         {
             public const int BaseX = 15;   // Panel base X position
             public const int BaseY = 368;  // Panel base Y position
-            public const int Width = 350;  // Panel width
-            public const int Height = 300; // Panel height
+            public const int Width = 110;  // Panel width (reduced to realistic size for bar graph area)
+            public const int Height = 300; // Panel height (covers bars + progress area)
             
             // Total notes counter position
             public const int NotesCounterX = 81;  // X position (15 + 66)
@@ -137,8 +137,8 @@ namespace DTX.UI.Layout
             // Progress bar position
             public const int ProgressBarX = 33;  // X position (15 + 18)
             public const int ProgressBarY = 389; // Y position (368 + 21)
-            public const int ProgressBarWidth = 200;
-            public const int ProgressBarHeight = 8;
+            public const int ProgressBarWidth = 5; // Progress bar width (reasonable size)
+            public const int ProgressBarHeight = 120; // Progress bar height (increased to be more visible)
             
             public static Vector2 BasePosition => new Vector2(BaseX, BaseY);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -162,7 +162,7 @@ namespace DTX.UI.Layout
             {
                 public const int StartX = 46;  // Start position X (15 + 31)
                 public const int StartY = 389; // Start position Y (368 + 21)
-                public const int BarSpacing = 8;  // Space between bars
+                public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
                 public const int LaneCount = 9;   // Number of drum lanes
@@ -192,6 +192,80 @@ namespace DTX.UI.Layout
                 {
                     var barX = StartX + (lane * (BarWidth + BarSpacing));
                     return new Vector2(barX, StartY);
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Song Bars Layout
+        
+        /// <summary>
+        /// Song Bars positioning and layout constants (DTXManiaNX authentic)
+        /// Controls the 13-item song list display with selected/unselected bar positioning
+        /// </summary>
+        public static class SongBars
+        {
+            // DTXManiaNX Current Implementation: Vertical List Layout
+            // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
+            // Unselected bars: Fixed X:673 (vertical list formation)
+            public const int SelectedBarX = 715;       // X position for selected song bar (center position)
+            public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
+            public const int UnselectedBarX = 723;     // Fixed X position for all unselected bars
+            public const int BarWidth = 510;           // Maximum width for song bars
+            
+            // Visual constants
+            public const int VisibleItems = 13;        // Number of visible song bars
+            public const int CenterIndex = 5;          // Center bar index (0-based, DTXManiaNX uses 5)
+            public const int ScrollUnit = 100;         // Scroll increment unit
+            
+            // DTXManiaNX Current Implementation Coordinates (ptバーの基本座標)
+            // NOTE: Original curved X coordinates are present but DISABLED in current DTXManiaNX
+            // Current implementation uses vertical list layout with fixed X positions
+            public static readonly Point[] BarCoordinates = new Point[]
+            {
+                new Point(708, 5),      // Bar 0 (original curved, X ignored)
+                new Point(626, 56),     // Bar 1 (original curved, X ignored)
+                new Point(578, 107),    // Bar 2 (original curved, X ignored)
+                new Point(546, 158),    // Bar 3 (original curved, X ignored)
+                new Point(528, 209),    // Bar 4 (original curved, X ignored)
+                new Point(464, 270),    // Bar 5 (original curved, special position)
+                new Point(548, 362),    // Bar 6 (original curved, X ignored)
+                new Point(578, 413),    // Bar 7 (original curved, X ignored)
+                new Point(624, 464),    // Bar 8 (original curved, X ignored)
+                new Point(686, 515),    // Bar 9 (original curved, X ignored)
+                new Point(788, 566),    // Bar 10 (original curved, X ignored)
+                new Point(996, 617),    // Bar 11 (original curved, X ignored)
+                new Point(1280, 668)    // Bar 12 (original curved, X ignored)
+            };
+            
+            // Helper properties for easy access
+            public static Vector2 SelectedBarPosition => new Vector2(SelectedBarX, SelectedBarY);
+            public static Vector2 UnselectedBarPosition => new Vector2(UnselectedBarX, 0); // Y varies per bar
+            public static Vector2 BarSize => new Vector2(BarWidth, 30); // Height will be dynamic
+            
+            /// <summary>
+            /// Get the Y coordinate for a specific bar index
+            /// </summary>
+            public static int GetBarY(int barIndex)
+            {
+                if (barIndex < 0 || barIndex >= BarCoordinates.Length)
+                    return 0;
+                return BarCoordinates[barIndex].Y;
+            }
+            
+            /// <summary>
+            /// Get the full position for a specific bar index
+            /// </summary>
+            public static Vector2 GetBarPosition(int barIndex)
+            {
+                if (barIndex == CenterIndex)
+                {
+                    return SelectedBarPosition;
+                }
+                else
+                {
+                    return new Vector2(UnselectedBarX, GetBarY(barIndex));
                 }
             }
         }
