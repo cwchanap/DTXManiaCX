@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Resources;
 using System;
@@ -39,18 +40,6 @@ namespace DTX.UI.Components
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
         private Rectangle _cachedBackgroundSize;
-
-        // DTXManiaNX layout constants (authentic positioning from documentation)
-        private const int DIFFICULTY_GRID_X = 140; // Grid base X position (relative to main panel at X:130)
-        private const int DIFFICULTY_GRID_Y = 52; // Grid base Y position (relative to main panel)
-        private const int DIFFICULTY_CELL_WIDTH = 187; // Panel width per difficulty cell
-        private const int DIFFICULTY_CELL_HEIGHT = 60; // Panel height per difficulty cell
-        private const int BPM_SECTION_X = 90; // BPM section X position (relative to panel, when panel exists)
-        private const int BPM_SECTION_Y = 275; // BPM section Y position (absolute Y:275 from doc)
-        private const int SKILL_POINT_X = 32; // Skill point section X position (absolute X:32 from doc)
-        private const int SKILL_POINT_Y = 180; // Skill point section Y position (absolute Y:180 from doc)
-        private const int GRAPH_PANEL_X = 15; // Graph panel base X position (absolute X:15 from doc)
-        private const int GRAPH_PANEL_Y = 368; // Graph panel base Y position (absolute Y:368 from doc)
 
         // Layout constants from DTXManiaNX theme
         private float LINE_HEIGHT => DTXManiaVisualTheme.Layout.StatusLineHeight;
@@ -156,7 +145,7 @@ namespace DTX.UI.Components
 
         public SongStatusPanel()
         {
-            Size = new Vector2(DTXManiaVisualTheme.Layout.StatusPanelWidth, DTXManiaVisualTheme.Layout.StatusPanelHeight);
+            Size = SongSelectionUILayout.StatusPanel.Size;
         }
 
         #endregion
@@ -291,9 +280,9 @@ namespace DTX.UI.Components
             {
                 spriteBatch.Draw(_whitePixel, bounds, DTXManiaVisualTheme.SongSelection.StatusBackground);
 
-                // Draw border
+                // Draw border using layout constants
                 var borderColor = DTXManiaVisualTheme.SongSelection.StatusBorder;
-                var borderThickness = 2;
+                var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
 
                 // Top border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
@@ -382,11 +371,12 @@ namespace DTX.UI.Components
 
         private void DrawSimplifiedInfo(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            float y = bounds.Y + 10;
-            float x = bounds.X + 10;
+            var padding = SongSelectionUILayout.Spacing.CellPadding;
+            float y = bounds.Y + padding;
+            float x = bounds.X + padding;
 
             // Draw song type indicator
-            DrawSongTypeInfo(spriteBatch, ref x, ref y, bounds.Width - 20);
+            DrawSongTypeInfo(spriteBatch, ref x, ref y, bounds.Width - (padding * 2));
         }
 
         private void DrawSongTypeInfo(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
@@ -576,23 +566,20 @@ namespace DTX.UI.Components
             if (chart == null)
                 return;
 
-            // Use absolute positioning from DTXManiaNX documentation
-            // BPM section: X:90, Y:275 (when status panel exists)
-            var x = BPM_SECTION_X;
-            var y = BPM_SECTION_Y;
+            // Use positioning from SongSelectionUILayout
+            var lengthPosition = SongSelectionUILayout.BPMSection.LengthTextPosition;
+            var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
 
             // Draw song duration first (DTXManiaNX format: "Length: 2:34")
-            // Duration display at X:132, Y:268
             var formattedDuration = FormatDuration(chart.Duration);
             var durationText = $"Length: {formattedDuration}";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, new Vector2(132, 268), DTXManiaVisualTheme.SongSelection.StatusValueText);
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, lengthPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
 
             // Draw BPM value (DTXManiaNX format: "BPM: 145")
-            // BPM value at X:135, Y:298
             if (chart.Bpm > 0)
             {
                 var bpmText = $"BPM: {chart.Bpm:F0}";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, new Vector2(135, 298), DTXManiaVisualTheme.SongSelection.StatusValueText);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, bpmPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
         }
 
@@ -602,70 +589,56 @@ namespace DTX.UI.Components
             if (score == null)
                 return;
 
-            // Use absolute positioning from DTXManiaNX documentation
-            // Skill Point Panel at X:32, Y:180
-            var x = SKILL_POINT_X;
-            var y = SKILL_POINT_Y;
+            // Use positioning from SongSelectionUILayout
+            var skillPanelPosition = SongSelectionUILayout.SkillPointSection.Position;
+            var skillPanelSize = SongSelectionUILayout.SkillPointSection.Size;
+            var skillValuePosition = SongSelectionUILayout.SkillPointSection.ValuePosition;
 
             // Draw skill point background panel (if available)
             if (_whitePixel != null)
             {
-                var skillPanelRect = new Rectangle(x, y, 120, 20);
+                var skillPanelRect = new Rectangle((int)skillPanelPosition.X, (int)skillPanelPosition.Y, (int)skillPanelSize.X, (int)skillPanelSize.Y);
                 spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
             }
 
             // Draw highest skill point value (DTXManiaNX format: "##0.00")
-            // Skill Point Value at X:92, Y:200 (32 + 60)
             var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, new Vector2(92, 200), Color.Yellow);
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, skillValuePosition, Color.Yellow);
         }
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
         {
             // Always draw all 5 difficulty levels regardless of available charts
 
-            // Use DTXManiaNX authentic positioning formula
-            // Main Panel at X:130, Y:350, difficulty text at X:140, Y:352
-            var nBaseX = 130; // Main panel X position (from documentation)
-            var nBaseY = 350; // Main panel Y position (from documentation)
+            // Use positioning from SongSelectionUILayout
+            var basePosition = SongSelectionUILayout.DifficultyGrid.BasePosition;
+            var difficultyLabelPosition = SongSelectionUILayout.DifficultyGrid.DifficultyLabelPosition;
 
-            // Draw "Difficulty" text at X:140, Y:352 (relative to main panel)
-            DrawTextWithShadow(spriteBatch, _font, "Difficulty", new Vector2(140, 352), DTXManiaVisualTheme.SongSelection.StatusLabelText);
+            // Draw "Difficulty" text
+            DrawTextWithShadow(spriteBatch, _font, "Difficulty", difficultyLabelPosition, DTXManiaVisualTheme.SongSelection.StatusLabelText);
 
             // DTXManiaNX Column Structure (from documentation)
-            // int[] nPart = { 0, CDTXMania.ConfigIni.bIsSwappedGuitarBass ? 2 : 1, CDTXMania.ConfigIni.bIsSwappedGuitarBass ? 1 : 2 };
             // Column 0: Drums (D), Column 1: Guitar (G), Column 2: Bass (B)
             var nPart = new[] { 0, 1, 2 }; // Simplified: Drums, Guitar, Bass (no swapping for now)
-
-            // Panel dimensions from documentation
-            var nPanelW = DIFFICULTY_CELL_WIDTH; // 187 pixels
-            var nPanelH = DIFFICULTY_CELL_HEIGHT; // 60 pixels
-
-            // Assume panel body width (this.txパネル本体.szImageSize.Width) - typical value from DTXManiaNX
-            var panelBodyWidth = 561; // Estimated panel body width
 
             // Draw 3×5 difficulty grid using DTXManiaNX formula
             for (int i = 0; i < 5; i++) // 5 difficulty levels (0=Novice to 4=Ultimate)
             {
                 for (int j = 0; j < 3; j++) // 3 instruments
                 {
-                    // DTXManiaNX authentic positioning formula:
-                    // int nBoxX = nBaseX + this.txパネル本体.szImageSize.Width + (nPanelW * (nPart[j] - 3));
-                    // int nBoxY = (391 + ((4 - i) * 60)) - 2;  // Higher difficulties at top
-
-                    var nBoxX = nBaseX + panelBodyWidth + (nPanelW * (nPart[j] - 3));
-                    var nBoxY = nBaseY + ((4 - i) * nPanelH) - 2; // Higher difficulties at top
-
-                    DrawDifficultyCell(spriteBatch, nBoxX, nBoxY, i, j);
+                    // Use SongSelectionUILayout method to get cell position
+                    var cellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(i, j);
+                    DrawDifficultyCell(spriteBatch, (int)cellPosition.X, (int)cellPosition.Y, i, j);
                 }
             }
         }
 
         private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int difficultyLevel, int instrument)
         {
-            // Use DTXManiaNX authentic cell dimensions: 187×60 pixels
-            var cellWidth = DIFFICULTY_CELL_WIDTH;
-            var cellHeight = DIFFICULTY_CELL_HEIGHT;
+            // Use DTXManiaNX authentic cell dimensions from SongSelectionUILayout
+            var cellSize = SongSelectionUILayout.DifficultyGrid.CellSize;
+            var cellWidth = (int)cellSize.X;
+            var cellHeight = (int)cellSize.Y;
 
             // Draw cell background
             if (_whitePixel != null)
@@ -676,7 +649,7 @@ namespace DTX.UI.Components
 
                 // Draw cell border
                 var borderColor = isSelected ? Color.Yellow : Color.Gray;
-                var borderThickness = 2;
+                var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
                 // Top border
                 spriteBatch.Draw(_whitePixel, new Rectangle(x, y, cellWidth, borderThickness), borderColor);
                 // Bottom border
@@ -693,17 +666,23 @@ namespace DTX.UI.Components
 
         private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int difficultyLevel, int instrument)
         {
+            var textOffsetX = SongSelectionUILayout.DifficultyGrid.CellTextOffsetX;
+            var emptyTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellEmptyOffsetY;
+            var levelTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellTextOffsetY;
+            var rankTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellRankOffsetY;
+            var scoreTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellScoreOffsetY;
+
             // Use the Scores array which contains the actual difficulty levels we want to display
             if (_currentSong?.Scores == null || difficultyLevel >= _currentSong.Scores.Length)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
                 return;
             }
             
             var score = _currentSong.Scores[difficultyLevel];
             if (score == null)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
                 return;
             }
             
@@ -719,14 +698,14 @@ namespace DTX.UI.Components
             // Only show data if the instrument matches, otherwise show "--"
             if (score.Instrument != expectedInstrument)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
                 return;
             }
             
             var level = score.DifficultyLevel;
             if (level <= 0)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + 10, y + 10), Color.Gray);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
                 return;
             }
 
@@ -735,20 +714,20 @@ namespace DTX.UI.Components
             var levelText = (level / 10.0).ToString("F2");
             var textColor = (difficultyLevel == _currentDifficulty) ? Color.Yellow : Color.White;
             
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(x + 10, y + 5), textColor);
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(x + textOffsetX, y + levelTextOffsetY), textColor);
 
             // Draw rank icon (if available)
             if (score.BestRank > 0)
             {
                 var rankText = GetRankText(score.BestRank);
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, rankText, new Vector2(x + 10, y + 25), GetRankColor(score.BestRank));
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, rankText, new Vector2(x + textOffsetX, y + rankTextOffsetY), GetRankColor(score.BestRank));
             }
 
             // Draw achievement rate (if available)
             if (score.BestScore > 0)
             {
                 var achievementText = score.BestScore >= 1000000 ? "MAX" : $"{score.BestScore / 10000.0:F1}%";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, achievementText, new Vector2(x + 10, y + 40), Color.Cyan);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, achievementText, new Vector2(x + textOffsetX, y + scoreTextOffsetY), Color.Cyan);
             }
         }
 
@@ -760,31 +739,32 @@ namespace DTX.UI.Components
             if (chart == null)
                 return;
 
-            // Use absolute positioning from DTXManiaNX documentation
-            // Graph Panel Base at X:15, Y:368
-            var baseX = GRAPH_PANEL_X;
-            var baseY = GRAPH_PANEL_Y;
+            // Use positioning from SongSelectionUILayout
+            var graphPanelPosition = SongSelectionUILayout.GraphPanel.BasePosition;
+            var graphPanelSize = SongSelectionUILayout.GraphPanel.Size;
+            var notesCounterPosition = SongSelectionUILayout.GraphPanel.NotesCounterPosition;
+            var progressBarPosition = SongSelectionUILayout.GraphPanel.ProgressBarPosition;
 
             // Draw graph panel background (use authentic texture if available)
             if (_whitePixel != null)
             {
-                var graphRect = new Rectangle(baseX, baseY, 350, 300); // Approximate size from documentation
+                var graphRect = new Rectangle((int)graphPanelPosition.X, (int)graphPanelPosition.Y, (int)graphPanelSize.X, (int)graphPanelSize.Y);
                 spriteBatch.Draw(_whitePixel, graphRect, Color.Black * 0.5f);
             }
 
-            // Draw total notes counter at X:81 (15 + 66), Y:666 (368 + 298)
+            // Draw total notes counter
             var totalNotes = chart.DrumNoteCount + chart.GuitarNoteCount + chart.BassNoteCount;
             if (totalNotes > 0)
             {
                 var notesText = totalNotes.ToString("N0");
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, new Vector2(81, 666), Color.Cyan);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, notesCounterPosition, Color.Cyan);
             }
 
             // Draw note distribution bar graph
-            DrawNoteDistributionBars(spriteBatch, baseX, baseY, score);
+            DrawNoteDistributionBars(spriteBatch, (int)graphPanelPosition.X, (int)graphPanelPosition.Y, score);
 
-            // Draw progress bar at X:33 (15 + 18), Y:389 (368 + 21)
-            DrawProgressBar(spriteBatch, 33, 389, score);
+            // Draw progress bar
+            DrawProgressBar(spriteBatch, (int)progressBarPosition.X, (int)progressBarPosition.Y, score);
         }
 
         private void DrawNoteDistributionBars(SpriteBatch spriteBatch, int baseX, int baseY, SongScore score)
@@ -797,42 +777,26 @@ namespace DTX.UI.Components
 
             if (isDrumsMode)
             {
-                // Drums configuration (9 lanes): LC, HH, LP, SD, HT, BD, LT, FT, CY
-                // Start position: X:46 (15 + 31), Y:389 (368 + 21)
-                // Spacing: 8 pixels between bars
-                var startX = 46;
-                var startY = 389;
-                var barSpacing = 8;
-                var barWidth = 4;
-                var maxBarHeight = 252;
-
-                for (int i = 0; i < 9; i++)
+                // Use drums configuration from SongSelectionUILayout
+                for (int i = 0; i < SongSelectionUILayout.NoteDistributionBars.Drums.LaneCount; i++)
                 {
-                    var barX = startX + (i * (barWidth + barSpacing));
-                    var barHeight = (int)(maxBarHeight * (0.2f + (i % 4) * 0.2f)); // Simulated distribution
+                    var barPosition = SongSelectionUILayout.NoteDistributionBars.Drums.GetBarPosition(i);
+                    var barHeight = (int)(SongSelectionUILayout.NoteDistributionBars.Drums.MaxBarHeight * (0.2f + (i % 4) * 0.2f)); // Simulated distribution
                     var barColor = GetDrumLaneColor(i);
 
-                    spriteBatch.Draw(_whitePixel, new Rectangle(barX, startY + maxBarHeight - barHeight, barWidth, barHeight), barColor);
+                    spriteBatch.Draw(_whitePixel, new Rectangle((int)barPosition.X, (int)barPosition.Y + SongSelectionUILayout.NoteDistributionBars.Drums.MaxBarHeight - barHeight, SongSelectionUILayout.NoteDistributionBars.Drums.BarWidth, barHeight), barColor);
                 }
             }
             else
             {
-                // Guitar/Bass configuration (6 lanes): R, G, B, Y, P, Pick
-                // Start position: X:53 (15 + 38), Y:389 (368 + 21)
-                // Spacing: 10 pixels between bars
-                var startX = 53;
-                var startY = 389;
-                var barSpacing = 10;
-                var barWidth = 4;
-                var maxBarHeight = 252;
-
-                for (int i = 0; i < 6; i++)
+                // Use guitar/bass configuration from SongSelectionUILayout
+                for (int i = 0; i < SongSelectionUILayout.NoteDistributionBars.GuitarBass.LaneCount; i++)
                 {
-                    var barX = startX + (i * (barWidth + barSpacing));
-                    var barHeight = (int)(maxBarHeight * (0.3f + (i % 3) * 0.2f)); // Simulated distribution
+                    var barPosition = SongSelectionUILayout.NoteDistributionBars.GuitarBass.GetBarPosition(i);
+                    var barHeight = (int)(SongSelectionUILayout.NoteDistributionBars.GuitarBass.MaxBarHeight * (0.3f + (i % 3) * 0.2f)); // Simulated distribution
                     var barColor = GetGuitarBassLaneColor(i);
 
-                    spriteBatch.Draw(_whitePixel, new Rectangle(barX, startY + maxBarHeight - barHeight, barWidth, barHeight), barColor);
+                    spriteBatch.Draw(_whitePixel, new Rectangle((int)barPosition.X, (int)barPosition.Y + SongSelectionUILayout.NoteDistributionBars.GuitarBass.MaxBarHeight - barHeight, SongSelectionUILayout.NoteDistributionBars.GuitarBass.BarWidth, barHeight), barColor);
                 }
             }
         }
@@ -842,9 +806,10 @@ namespace DTX.UI.Components
             if (_whitePixel == null || score == null)
                 return;
 
-            // Draw a simple progress bar representing chart completion
-            var progressWidth = 200;
-            var progressHeight = 8;
+            // Use progress bar dimensions from SongSelectionUILayout
+            var progressBarSize = SongSelectionUILayout.GraphPanel.ProgressBarSize;
+            var progressWidth = (int)progressBarSize.X;
+            var progressHeight = (int)progressBarSize.Y;
             var progress = Math.Min(1.0f, score.PlayCount / 10.0f); // Simple progress calculation
 
             // Background
@@ -907,7 +872,7 @@ namespace DTX.UI.Components
                 labelSize = new Vector2(label.Length * 8, 16); // Rough estimate
             }
 
-            DrawTextWithShadow(spriteBatch, font, value, new Vector2(x + labelSize.X + 5, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
+            DrawTextWithShadow(spriteBatch, font, value, new Vector2(x + labelSize.X + SongSelectionUILayout.Spacing.LabelValueSpacing, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
         }
 
         private void DrawTextWithShadow(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)
