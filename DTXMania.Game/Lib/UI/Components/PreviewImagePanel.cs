@@ -43,12 +43,10 @@ namespace DTX.UI.Components
         private const int CONTENT_OFFSET_WITH_STATUS = 8; // X+8, Y+8
 
         private bool _hasStatusPanel = true; // Default to with status panel
-        private double _loadDelayTime = 0.5; // Configurable wait time for delayed loading
 
         // Display delay timing (moved from SongSelectionStage)
         private double _displayDelay = 0.0;
         private const double DISPLAY_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
-        private string _currentPreviewPath = "";
 
         #endregion
 
@@ -68,15 +66,6 @@ namespace DTX.UI.Components
                     UpdatePositionAndSize();
                 }
             }
-        }
-
-        /// <summary>
-        /// Delay time before loading preview images (in seconds)
-        /// </summary>
-        public double LoadDelayTime
-        {
-            get => _loadDelayTime;
-            set => _loadDelayTime = Math.Max(0, value);
         }
 
         /// <summary>
@@ -133,7 +122,6 @@ namespace DTX.UI.Components
             {
                 // Clear preview immediately when not on a song
                 _currentPreviewTexture = null;
-                _currentPreviewPath = "";
             }
         }
 
@@ -298,7 +286,6 @@ namespace DTX.UI.Components
 
             // Clear current preview reference (don't dispose - ResourceManager handles that)
             _currentPreviewTexture = null;
-            _currentPreviewPath = "";
 
             // If not a song (folder, back button, etc.), don't load any preview
             if (songNode?.Type != NodeType.Score)
@@ -343,7 +330,6 @@ namespace DTX.UI.Components
                     try
                     {
                         _currentPreviewTexture = _resourceManager.LoadTexture(previewPath);
-                        _currentPreviewPath = previewPath;
                         
                         // Verify the loaded texture is valid
                         if (_currentPreviewTexture != null && _currentPreviewTexture.IsDisposed)
