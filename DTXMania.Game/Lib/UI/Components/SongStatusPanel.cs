@@ -611,7 +611,6 @@ namespace DTX.UI.Components
             // Always draw all 5 difficulty levels regardless of available charts
 
             // Use positioning from SongSelectionUILayout
-            var basePosition = SongSelectionUILayout.DifficultyGrid.BasePosition;
             var difficultyLabelPosition = SongSelectionUILayout.DifficultyGrid.DifficultyLabelPosition;
 
             // Draw "Difficulty" text

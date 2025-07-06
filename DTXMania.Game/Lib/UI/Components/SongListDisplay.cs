@@ -27,7 +27,8 @@ namespace DTX.UI.Components
         // Use centralized layout constants from SongSelectionUILayout
         private const int VISIBLE_ITEMS = SongSelectionUILayout.SongBars.VisibleItems;
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
-        private const int SCROLL_UNIT = SongSelectionUILayout.SongBars.ScrollUnit;        private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
+        private const int SCROLL_UNIT = SongSelectionUILayout.SongBars.ScrollUnit;
+        private const float SCROLL_ACCELERATION_THRESHOLD_1 = 200f;  // Increased from 100f
         private const float SCROLL_ACCELERATION_THRESHOLD_2 = 600f;  // Increased from 300f  
         private const float SCROLL_ACCELERATION_THRESHOLD_3 = 1000f; // Increased from 500f
 
@@ -1025,8 +1026,8 @@ namespace DTX.UI.Components
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
             }
         }        /// <summary>
-        /// Immediately generate texture for the currently selected song without queuing
-        /// </summary>
+                 /// Immediately generate texture for the currently selected song without queuing
+                 /// </summary>
         private void GenerateSelectedSongTextureImmediately()
         {
             if (_barRenderer == null || SelectedSong == null)
@@ -1052,8 +1053,8 @@ namespace DTX.UI.Components
                 System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
         }/// <summary>
-                 /// Pre-generate textures for adjacent songs (±5 from current selection)
-                 /// </summary>
+         /// Pre-generate textures for adjacent songs (±5 from current selection)
+         /// </summary>
         private void PreGenerateAdjacentSongTextures()
         {
             if (_currentList == null || _currentList.Count == 0 || _selectedIndex < 0)
