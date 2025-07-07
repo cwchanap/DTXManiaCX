@@ -37,6 +37,9 @@ namespace DTX.UI.Components
         private ITexture _statusPanelTexture;
         private IResourceManager _resourceManager;
 
+        // BPM background panel for 5_BPM.png texture support
+        private BPMBackgroundPanel _bpmBackgroundPanel;
+
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
         private Rectangle _cachedBackgroundSize;
@@ -49,6 +52,11 @@ namespace DTX.UI.Components
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Whether the BPM background panel should use standalone positioning
+        /// </summary>
+        public bool UseStandaloneBPMPanel { get; set; } = false;
 
         /// <summary>
         /// Font for main text
@@ -111,6 +119,13 @@ namespace DTX.UI.Components
             if (renderTarget != null)
             {
                 _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+                
+                // Initialize BPM background panel with graphics generator
+                if (_bpmBackgroundPanel != null)
+                {
+                    _bpmBackgroundPanel.GraphicsGenerator = _graphicsGenerator;
+                    _bpmBackgroundPanel.Activate(); // Ensure it's activated
+                }
             }
             else
             {
@@ -125,6 +140,15 @@ namespace DTX.UI.Components
         public void InitializeAuthenticGraphics(IResourceManager resourceManager)
         {
             _resourceManager = resourceManager;
+            
+            // Initialize BPM background panel with resource manager
+            if (_bpmBackgroundPanel != null)
+            {
+                _bpmBackgroundPanel.ResourceManager = resourceManager;
+                _bpmBackgroundPanel.HasStatusPanel = !UseStandaloneBPMPanel;
+                _bpmBackgroundPanel.Activate(); // Activate the panel so it can be drawn
+            }
+            
             LoadStatusPanelGraphics();
         }        private void LoadStatusPanelGraphics()
         {
@@ -146,6 +170,9 @@ namespace DTX.UI.Components
         public SongStatusPanel()
         {
             Size = SongSelectionUILayout.StatusPanel.Size;
+            
+            // Initialize BPM background panel
+            _bpmBackgroundPanel = new BPMBackgroundPanel();
         }
 
         #endregion
@@ -160,30 +187,6 @@ namespace DTX.UI.Components
         /// <param name="difficulty">Current difficulty level</param>
         public void UpdateSongInfo(SongListNode song, int difficulty)
         {
-            // DEBUG: Log update parameters
-            System.Diagnostics.Debug.WriteLine($"UpdateSongInfo: song='{song?.Title}', difficulty={difficulty}");
-            if (song?.DatabaseChart != null)
-            {
-                var chart = song.DatabaseChart;
-                System.Diagnostics.Debug.WriteLine($"  Song chart: DrumLevel={chart.DrumLevel}, GuitarLevel={chart.GuitarLevel}, BassLevel={chart.BassLevel}");
-            }
-            if (song?.Scores != null)
-            {
-                System.Diagnostics.Debug.WriteLine($"  Song scores array length: {song.Scores.Length}");
-                for (int i = 0; i < song.Scores.Length; i++)
-                {
-                    var score = song.Scores[i];
-                    if (score != null)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"    Score[{i}]: Instrument={score.Instrument}, DifficultyLevel={score.DifficultyLevel}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"    Score[{i}]: null");
-                    }
-                }
-            }
-            
             // Force immediate state update - no lazy updates
             lock (this)
             {
@@ -566,19 +569,28 @@ namespace DTX.UI.Components
             if (chart == null)
                 return;
 
+            // Draw BPM background panel first (5_BPM.png or fallback)
+            if (_bpmBackgroundPanel != null)
+            {
+                _bpmBackgroundPanel.Draw(spriteBatch, 0);
+            }
+
             // Use positioning from SongSelectionUILayout
             var lengthPosition = SongSelectionUILayout.BPMSection.LengthTextPosition;
             var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
 
-            // Draw song duration first (DTXManiaNX format: "Length: 2:34")
+            // When using authentic 5_BPM.png, don't draw redundant labels
+            bool useAuthenticTexture = _bpmBackgroundPanel?.IsUsingAuthenticTexture ?? false;
+
+            // Draw song duration (DTXManiaNX format: "Length: 2:34" or just "2:34")
             var formattedDuration = FormatDuration(chart.Duration);
-            var durationText = $"Length: {formattedDuration}";
+            var durationText = useAuthenticTexture ? formattedDuration : $"Length: {formattedDuration}";
             DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, lengthPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
 
-            // Draw BPM value (DTXManiaNX format: "BPM: 145")
+            // Draw BPM value (DTXManiaNX format: "BPM: 145" or just "145")
             if (chart.Bpm > 0)
             {
-                var bpmText = $"BPM: {chart.Bpm:F0}";
+                var bpmText = useAuthenticTexture ? $"{chart.Bpm:F0}" : $"BPM: {chart.Bpm:F0}";
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, bpmPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
         }
