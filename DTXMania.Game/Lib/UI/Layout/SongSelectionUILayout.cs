@@ -35,18 +35,19 @@ namespace DTX.UI.Layout
         public static class BPMSection
         {
             public const int X = 32;  // Relative to status panel
-            public const int Y = 258; // Absolute Y position
+            public const int Y = 258; // Absolute Y position´
             public const int Width = 200;
             public const int Height = 50;
             public const int LineSpacing = 20; // Space between Length and BPM text
+            public const int TextXOffset = 75; // Additional X offset for both Length and BPM text positioning
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
             
             // Individual text positions
-            public static Vector2 LengthTextPosition => new Vector2(X, Y);
-            public static Vector2 BPMTextPosition => new Vector2(X, Y + LineSpacing);
+            public static Vector2 LengthTextPosition => new Vector2(X + TextXOffset, Y);
+            public static Vector2 BPMTextPosition => new Vector2(X + TextXOffset, Y + LineSpacing);
         }
         
         #endregion
