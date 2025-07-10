@@ -409,7 +409,7 @@ namespace DTX.UI.Components
         {
             // Use EF Core entities instead of legacy metadata
             var song = _currentSong?.DatabaseSong;
-            var chart = _currentSong?.DatabaseChart;
+            var chart = GetCurrentDifficultyChart();
             
             if (song == null && chart == null)
                 return;
@@ -443,11 +443,11 @@ namespace DTX.UI.Components
                 y += LINE_HEIGHT;
             }
 
-            // Total notes
-            var totalNotes = (chart?.DrumNoteCount ?? 0) + (chart?.GuitarNoteCount ?? 0) + (chart?.BassNoteCount ?? 0);
-            if (totalNotes > 0)
+            // Total notes using centralized SongChart methods
+            if (chart != null && chart.HasAnyNotes())
             {
-                DrawLabelValue(spriteBatch, "Total Notes:", totalNotes.ToString("N0"), x, y);
+                var formattedNotes = chart.GetFormattedNoteCount(true); // Include breakdown
+                DrawLabelValue(spriteBatch, "Total Notes:", formattedNotes, x, y);
                 y += LINE_HEIGHT;
             }
 
@@ -460,7 +460,7 @@ namespace DTX.UI.Components
             y += LINE_HEIGHT;
 
             // Use EF Core entities instead of legacy metadata
-            var chart = _currentSong?.DatabaseChart;
+            var chart = GetCurrentDifficultyChart();
             if (chart != null)
             {
                 // Show available instruments with their difficulty levels and note counts
@@ -481,6 +481,7 @@ namespace DTX.UI.Components
                         var text = $"{prefix}{instrumentName}: Lv.{level}";
                         if (noteCount > 0)
                         {
+                            // Use consistent formatting from SongChart
                             text += $" ({noteCount:N0} notes)";
                         }
 
@@ -744,8 +745,8 @@ namespace DTX.UI.Components
 
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Use EF Core entities instead of legacy metadata
-            var chart = _currentSong?.DatabaseChart;
+            // Get the chart for the current difficulty level
+            var chart = GetCurrentDifficultyChart();
             var score = GetCurrentScore();
             if (chart == null)
                 return;
@@ -763,13 +764,8 @@ namespace DTX.UI.Components
                 spriteBatch.Draw(_whitePixel, graphRect, Color.Black * 0.5f);
             }
 
-            // Draw total notes counter
-            var totalNotes = chart.DrumNoteCount + chart.GuitarNoteCount + chart.BassNoteCount;
-            if (totalNotes > 0)
-            {
-                var notesText = totalNotes.ToString("N0");
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, notesCounterPosition, Color.Cyan);
-            }
+            // Draw total notes counter using centralized SongChart methods
+            DrawNotesCounter(spriteBatch, chart, notesCounterPosition);
 
             // Draw note distribution bar graph
             DrawNoteDistributionBars(spriteBatch, (int)graphPanelPosition.X, (int)graphPanelPosition.Y, score);
@@ -832,6 +828,53 @@ namespace DTX.UI.Components
             {
                 spriteBatch.Draw(_whitePixel, new Rectangle(x, y, fillWidth, progressHeight), Color.Green);
             }
+        }
+
+        /// <summary>
+        /// Draw the notes counter using centralized SongChart methods
+        /// </summary>
+        private void DrawNotesCounter(SpriteBatch spriteBatch, DTXMania.Game.Lib.Song.Entities.SongChart chart, Vector2 position)
+        {
+            if (chart == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: DrawNotesCounter called with null chart");
+                return;
+            }
+
+            // Use the new centralized note count methods
+            if (!chart.HasAnyNotes())
+            {
+                // Draw "No notes" indicator if chart has no notes
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "No notes", position, Color.Gray);
+                return;
+            }
+
+            // Get note count statistics
+            var (total, drums, guitar, bass) = chart.GetNoteCountStats();
+            
+            // Determine which instrument is currently selected to highlight relevant count
+            var currentInstrument = GetInstrumentFromDifficulty(_currentDifficulty);
+            var currentInstrumentCount = chart.GetInstrumentNoteCount(currentInstrument);
+            
+            // Create formatted text based on current context
+            string notesText;
+            Color textColor;
+            
+            if (currentInstrumentCount > 0)
+            {
+                // Show only current instrument count (remove duplicate total text)
+                notesText = $"{currentInstrumentCount:N0}";
+                textColor = Color.Yellow; // Highlight current instrument
+            }
+            else
+            {
+                // No notes for current instrument, show total only
+                notesText = chart.GetFormattedNoteCount(false);
+                textColor = Color.Cyan;
+            }
+
+            // Draw main notes text
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, position, textColor);
         }
 
         #endregion
@@ -939,7 +982,7 @@ namespace DTX.UI.Components
             // First, try to use the score's instrument type property if available
             if (score != null)
             {
-                var chart = score.Chart ?? _currentSong?.DatabaseChart;
+                var chart = score.Chart ?? GetCurrentDifficultyChart();
                 if (chart != null)
                 {
                     return score.Instrument switch
@@ -953,7 +996,7 @@ namespace DTX.UI.Components
             }
             
             // Fallback to chart-based lookup using difficulty index if score instrument is not available
-            var fallbackChart = _currentSong?.DatabaseChart;
+            var fallbackChart = GetCurrentDifficultyChart();
             if (fallbackChart != null)
             {
                 return difficulty switch
@@ -997,13 +1040,9 @@ namespace DTX.UI.Components
 
         private string GetInstrumentFromDifficulty(int difficulty)
         {
-            return difficulty switch
-            {
-                0 => "DRUMS",
-                1 => "GUITAR",
-                2 => "BASS",
-                _ => "DRUMS" // Default to drums
-            };
+            // For DTXMania, all difficulties (0-4) typically represent different difficulty levels for the same instrument
+            // Default to DRUMS as the primary instrument, but this could be made configurable
+            return "DRUMS";
         }
 
         private SongScore GetScoreForDifficultyAndInstrument(int difficultyLevel, int instrument)
@@ -1020,7 +1059,7 @@ namespace DTX.UI.Components
         private string GetDifficultyLevelForInstrument(SongScore score, int instrument)
         {
             // Get level from EF Core chart
-            var chart = _currentSong?.DatabaseChart;
+            var chart = GetCurrentDifficultyChart();
             if (chart != null)
             {
                 var level = instrument switch
@@ -1121,46 +1160,50 @@ namespace DTX.UI.Components
             if (allCharts.Count == 1)
                 return allCharts[0];
 
-            // Get the current score to determine which chart to use
-            var currentScore = GetCurrentScore();
-            if (currentScore == null)
-                return allCharts[0]; // Default to first chart
-
-            // Try to find a chart that matches the current instrument/difficulty
-            // First, try to match by instrument
+            // Determine the current instrument based on difficulty index
+            // For now, assume difficulty 0-2 are for drums (basic, advanced, extreme)
+            // Later difficulties (3-4) could be for other instruments
+            var currentInstrument = GetInstrumentFromDifficulty(_currentDifficulty);
+            
+            // Get charts for the current instrument
             var instrumentCharts = allCharts.Where(chart =>
             {
-                return currentScore.Instrument switch
+                return currentInstrument.ToUpperInvariant() switch
                 {
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS => chart.HasDrumChart && chart.DrumLevel > 0,
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR => chart.HasGuitarChart && chart.GuitarLevel > 0,
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS => chart.HasBassChart && chart.BassLevel > 0,
-                    _ => true
+                    "DRUMS" => chart.HasDrumChart && chart.DrumLevel > 0,
+                    "GUITAR" => chart.HasGuitarChart && chart.GuitarLevel > 0,
+                    "BASS" => chart.HasBassChart && chart.BassLevel > 0,
+                    _ => chart.HasDrumChart && chart.DrumLevel > 0 // Default to drums
                 };
             }).ToList();
 
             if (instrumentCharts.Count == 0)
                 return allCharts[0]; // Fallback if no matching instrument
 
-            // If we have multiple charts for the same instrument, try to match by difficulty level
+            // If we only have one chart for this instrument, return it
             if (instrumentCharts.Count == 1)
                 return instrumentCharts[0];
 
-            // Sort by difficulty level and select based on current difficulty index
+            // Sort charts by difficulty level (ASCENDING - easiest first) 
             var sortedCharts = instrumentCharts.OrderBy(chart =>
             {
-                return currentScore.Instrument switch
+                return currentInstrument.ToUpperInvariant() switch
                 {
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS => chart.DrumLevel,
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR => chart.GuitarLevel,
-                    DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS => chart.BassLevel,
-                    _ => 50
+                    "DRUMS" => chart.DrumLevel,
+                    "GUITAR" => chart.GuitarLevel,
+                    "BASS" => chart.BassLevel,
+                    _ => chart.DrumLevel
                 };
             }).ToList();
 
-            // Clamp difficulty index to available charts
+            // Map difficulty index to chart index
+            // For all instruments: 0=basic (lowest), 1=advanced, 2=extreme, 3=master, 4=ultimate (highest)
+            // Map difficulty 0-4 to available charts sorted by level
             int chartIndex = Math.Clamp(_currentDifficulty, 0, sortedCharts.Count - 1);
-            return sortedCharts[chartIndex];
+
+            var selectedChart = sortedCharts[chartIndex];
+
+            return selectedChart;
         }
 
         #endregion
