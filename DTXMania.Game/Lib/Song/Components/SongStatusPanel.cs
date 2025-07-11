@@ -43,6 +43,9 @@ namespace DTX.Song.Components
         // Difficulty panel texture for 5_difficulty panel.png support
         private ITexture _difficultyPanelTexture;
 
+        // Difficulty frame texture for 5_difficulty frame.png support (selection highlight)
+        private ITexture _difficultyFrameTexture;
+
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
         private Rectangle _cachedBackgroundSize;
@@ -140,6 +143,7 @@ namespace DTX.Song.Components
             LoadStatusPanelGraphics();
             LoadBPMBackgroundTexture();
             LoadDifficultyPanelTexture();
+            LoadDifficultyFrameTexture();
         }
 
         private void LoadStatusPanelGraphics()
@@ -188,6 +192,21 @@ namespace DTX.Song.Components
             catch
             {
                 _difficultyPanelTexture = null;
+            }
+        }
+
+        private void LoadDifficultyFrameTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            try
+            {
+                _difficultyFrameTexture = _resourceManager.LoadTexture(TexturePath.DifficultyFrame);
+            }
+            catch
+            {
+                _difficultyFrameTexture = null;
             }
         }
 
@@ -765,6 +784,9 @@ namespace DTX.Song.Components
                     DrawDifficultyCell(spriteBatch, (int)cellPosition.X, (int)cellPosition.Y, i, j);
                 }
             }
+
+            // Draw difficulty frame texture over the currently selected cell
+            DrawDifficultyFrame(spriteBatch);
         }
 
         private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int difficultyLevel, int instrument)
@@ -776,6 +798,21 @@ namespace DTX.Song.Components
 
             // Only draw cell content (no background or borders) - the panel texture provides the background
             DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, difficultyLevel, instrument);
+        }
+
+        private void DrawDifficultyFrame(SpriteBatch spriteBatch)
+        {
+            // Only draw frame if texture is available
+            if (_difficultyFrameTexture == null)
+                return;
+
+            // Get the position of the currently selected difficulty cell
+            // For now, use a default column (0 = Drums) since we need to determine which instrument is selected
+            int selectedColumn = 0; // Default to drums column
+            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(_currentDifficulty, selectedColumn);
+            
+            // Draw the frame texture aligned exactly with the selected cell
+            _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }
 
         private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int difficultyLevel, int instrument)

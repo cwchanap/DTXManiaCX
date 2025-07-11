@@ -57,6 +57,11 @@ namespace DTX.Resources
         /// </summary>
         public const string DifficultyPanel = "Graphics/5_difficulty panel.png";
         
+        /// <summary>
+        /// Difficulty frame texture for highlighting selected grid cell
+        /// </summary>
+        public const string DifficultyFrame = "Graphics/5_difficulty frame.png";
+        
         #endregion
         
         #region Font Textures
@@ -101,6 +106,7 @@ namespace DTX.Resources
                 SongStatusPanel,
                 BpmBackground,
                 DifficultyPanel,
+                DifficultyFrame,
                 ConsoleFont,
                 ConsoleFontSecondary,
                 DefaultPreview
@@ -132,7 +138,8 @@ namespace DTX.Resources
                 SongSelectionFooterPanel,
                 SongStatusPanel,
                 BpmBackground,
-                DifficultyPanel
+                DifficultyPanel,
+                DifficultyFrame
             };
         }
         
