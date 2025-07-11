@@ -37,8 +37,8 @@ namespace DTX.UI.Components
         private ITexture _statusPanelTexture;
         private IResourceManager _resourceManager;
 
-        // BPM background panel for 5_BPM.png texture support
-        private BPMBackgroundPanel _bpmBackgroundPanel;
+        // BPM background texture for 5_BPM.png support
+        private ITexture _bpmBackgroundTexture;
 
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
@@ -54,9 +54,9 @@ namespace DTX.UI.Components
         #region Properties
 
         /// <summary>
-        /// Whether the BPM background panel should use standalone positioning
+        /// Whether the BPM background should use standalone positioning
         /// </summary>
-        public bool UseStandaloneBPMPanel { get; set; } = false;
+        public bool UseStandaloneBPMBackground { get; set; } = false;
 
         /// <summary>
         /// Font for main text
@@ -119,13 +119,6 @@ namespace DTX.UI.Components
             if (renderTarget != null)
             {
                 _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
-                
-                // Initialize BPM background panel with graphics generator
-                if (_bpmBackgroundPanel != null)
-                {
-                    _bpmBackgroundPanel.GraphicsGenerator = _graphicsGenerator;
-                    _bpmBackgroundPanel.Activate(); // Ensure it's activated
-                }
             }
             else
             {
@@ -141,16 +134,11 @@ namespace DTX.UI.Components
         {
             _resourceManager = resourceManager;
             
-            // Initialize BPM background panel with resource manager
-            if (_bpmBackgroundPanel != null)
-            {
-                _bpmBackgroundPanel.ResourceManager = resourceManager;
-                _bpmBackgroundPanel.HasStatusPanel = !UseStandaloneBPMPanel;
-                _bpmBackgroundPanel.Activate(); // Activate the panel so it can be drawn
-            }
-            
             LoadStatusPanelGraphics();
-        }        private void LoadStatusPanelGraphics()
+            LoadBPMBackgroundTexture();
+        }
+
+        private void LoadStatusPanelGraphics()
         {
             try
             {
@@ -163,6 +151,24 @@ namespace DTX.UI.Components
             }
         }
 
+        /// <summary>
+        /// Load the authentic 5_BPM.png background texture
+        /// </summary>
+        private void LoadBPMBackgroundTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            try
+            {
+                _bpmBackgroundTexture = _resourceManager.LoadTexture("Graphics/5_BPM.png");
+            }
+            catch
+            {
+                _bpmBackgroundTexture = null;
+            }
+        }
+
         #endregion
 
         #region Constructor
@@ -170,9 +176,6 @@ namespace DTX.UI.Components
         public SongStatusPanel()
         {
             Size = SongSelectionUILayout.StatusPanel.Size;
-            
-            // Initialize BPM background panel
-            _bpmBackgroundPanel = new BPMBackgroundPanel();
         }
 
         #endregion
@@ -208,6 +211,8 @@ namespace DTX.UI.Components
                 _graphicsGenerator = null;
                 _statusPanelTexture?.Dispose();
                 _statusPanelTexture = null;
+                // Note: Don't dispose _bpmBackgroundTexture as it's managed by ResourceManager
+                _bpmBackgroundTexture = null;
             }
             base.Dispose(disposing);
         }
@@ -572,18 +577,15 @@ namespace DTX.UI.Components
             if (chart == null)
                 return;
 
-            // Draw BPM background panel first (5_BPM.png or fallback)
-            if (_bpmBackgroundPanel != null)
-            {
-                _bpmBackgroundPanel.Draw(spriteBatch, 0);
-            }
+            // Draw BMP background texture first (5_BPM.png or fallback)
+            DrawBPMBackground(spriteBatch);
 
             // Use positioning from SongSelectionUILayout
             var lengthPosition = SongSelectionUILayout.BPMSection.LengthTextPosition;
             var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
 
             // When using authentic 5_BPM.png, don't draw redundant labels
-            bool useAuthenticTexture = _bpmBackgroundPanel?.IsUsingAuthenticTexture ?? false;
+            bool useAuthenticTexture = _bpmBackgroundTexture != null && !_bpmBackgroundTexture.IsDisposed;
 
             // Draw song duration (DTXManiaNX format: "Length: 2:34" or just "2:34")
             var formattedDuration = FormatDuration(chart.Duration);
@@ -595,6 +597,94 @@ namespace DTX.UI.Components
             {
                 var bpmText = useAuthenticTexture ? $"{chart.Bpm:F0}" : $"BPM: {chart.Bpm:F0}";
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, bpmPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
+            }
+        }
+
+        /// <summary>
+        /// Draw BPM background using authentic texture or fallback generation
+        /// </summary>
+        private void DrawBPMBackground(SpriteBatch spriteBatch)
+        {
+            // Determine position and size based on standalone mode
+            Vector2 position;
+            Vector2 size;
+            
+            if (UseStandaloneBPMBackground)
+            {
+                // X:490, Y:385 (standalone mode from DTXManiaNX)
+                position = new Vector2(490, 385);
+                size = SongSelectionUILayout.BPMSection.Size;
+            }
+            else
+            {
+                // X:90, Y:275 (with panel mode from DTXManiaNX)
+                position = SongSelectionUILayout.BPMSection.Position;
+                size = SongSelectionUILayout.BPMSection.Size;
+            }
+
+            // Try to use the authentic 5_BPM.png texture first
+            if (_bpmBackgroundTexture != null && !_bpmBackgroundTexture.IsDisposed)
+            {
+                try
+                {
+                    // Scale the texture to fit the panel bounds
+                    var sourceRect = new Rectangle(0, 0, _bpmBackgroundTexture.Width, _bpmBackgroundTexture.Height);
+                    var destinationRect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+                    _bpmBackgroundTexture.Draw(spriteBatch, destinationRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Texture was disposed, clear reference
+                    _bpmBackgroundTexture = null;
+                }
+            }
+            else if (_graphicsGenerator != null)
+            {
+                // Generate fallback background texture when 5_BPM.png is unavailable
+                try
+                {
+                    var fallbackTexture = _graphicsGenerator.GenerateBPMBackground((int)size.X, (int)size.Y, true);
+                    if (fallbackTexture != null && !fallbackTexture.IsDisposed)
+                    {
+                        fallbackTexture.Draw(spriteBatch, position);
+                        fallbackTexture.Dispose(); // Dispose immediately as this is a one-time use texture
+                    }
+                }
+                catch
+                {
+                    // Fallback failed, draw simple background
+                    DrawSimpleBPMBackground(spriteBatch, position, size);
+                }
+            }
+            else
+            {
+                // Draw simple background when no graphics generator is available
+                DrawSimpleBPMBackground(spriteBatch, position, size);
+            }
+        }
+
+        /// <summary>
+        /// Draw simple BPM background fallback
+        /// </summary>
+        private void DrawSimpleBPMBackground(SpriteBatch spriteBatch, Vector2 position, Vector2 size)
+        {
+            if (_whitePixel != null)
+            {
+                var rect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+                spriteBatch.Draw(_whitePixel, rect, Color.DarkBlue * 0.7f);
+                
+                // Draw border
+                var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
+                var borderColor = Color.Blue;
+                
+                // Top border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, rect.Width, borderThickness), borderColor);
+                // Bottom border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Bottom - borderThickness, rect.Width, borderThickness), borderColor);
+                // Left border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, borderThickness, rect.Height), borderColor);
+                // Right border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.Right - borderThickness, rect.Y, borderThickness, rect.Height), borderColor);
             }
         }
 

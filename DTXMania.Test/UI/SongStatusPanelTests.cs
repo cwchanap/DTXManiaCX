@@ -563,10 +563,10 @@ namespace DTXMania.Test.UI
 
         #endregion
 
-        #region BMP Background Panel Tests
+        #region BPM Background Tests
 
         [Fact]
-        public void BPMBackgroundPanel_IntegrationTest()
+        public void BPMBackground_IntegrationTest()
         {
             // Arrange
             var mockResourceManager = new MockResourceManager(_graphicsDeviceService.GraphicsDevice);
@@ -574,18 +574,18 @@ namespace DTXMania.Test.UI
             _statusPanel.UpdateSongInfo(_testSongNode, 0);
 
             // Test default integrated mode
-            Assert.False(_statusPanel.UseStandaloneBPMPanel);
+            Assert.False(_statusPanel.UseStandaloneBPMBackground);
 
             // Test standalone mode
-            _statusPanel.UseStandaloneBPMPanel = true;
+            _statusPanel.UseStandaloneBPMBackground = true;
             _statusPanel.InitializeAuthenticGraphics(mockResourceManager);
 
             // Assert - Should complete without throwing exceptions
-            Assert.True(_statusPanel.UseStandaloneBPMPanel);
+            Assert.True(_statusPanel.UseStandaloneBPMBackground);
         }
 
         [Fact] 
-        public void BPMBackgroundPanel_SupportsTextureFallback()
+        public void BPMBackground_SupportsTextureFallback()
         {
             // Arrange
             var mockResourceManager = new MockResourceManager(_graphicsDeviceService.GraphicsDevice);
