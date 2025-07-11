@@ -40,6 +40,9 @@ namespace DTX.Song.Components
         // BPM background texture for 5_BPM.png support
         private ITexture _bpmBackgroundTexture;
 
+        // Difficulty panel texture for 5_difficulty panel.png support
+        private ITexture _difficultyPanelTexture;
+
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
         private Rectangle _cachedBackgroundSize;
@@ -136,6 +139,7 @@ namespace DTX.Song.Components
             
             LoadStatusPanelGraphics();
             LoadBPMBackgroundTexture();
+            LoadDifficultyPanelTexture();
         }
 
         private void LoadStatusPanelGraphics()
@@ -166,6 +170,24 @@ namespace DTX.Song.Components
             catch
             {
                 _bpmBackgroundTexture = null;
+            }
+        }
+
+        /// <summary>
+        /// Load the authentic 5_difficulty panel.png texture
+        /// </summary>
+        private void LoadDifficultyPanelTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            try
+            {
+                _difficultyPanelTexture = _resourceManager.LoadTexture(TexturePath.DifficultyPanel);
+            }
+            catch
+            {
+                _difficultyPanelTexture = null;
             }
         }
 
@@ -213,6 +235,8 @@ namespace DTX.Song.Components
                 _statusPanelTexture = null;
                 // Note: Don't dispose _bpmBackgroundTexture as it's managed by ResourceManager
                 _bpmBackgroundTexture = null;
+                // Note: Don't dispose _difficultyPanelTexture as it's managed by ResourceManager
+                _difficultyPanelTexture = null;
             }
             base.Dispose(disposing);
         }
@@ -713,13 +737,19 @@ namespace DTX.Song.Components
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            // Draw difficulty panel background texture if available
+            if (_difficultyPanelTexture != null)
+            {
+                // Position the difficulty panel texture to match the top-left corner of the grid
+                // In DTXManiaNX, difficulty 4 (hardest) appears at the top, difficulty 0 (easiest) at bottom
+                var topLeftCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+                
+                // Draw texture aligned with the actual top-left cell of the grid
+                _difficultyPanelTexture.Draw(spriteBatch, topLeftCellPosition);
+            }
+
             // Always draw all 5 difficulty levels regardless of available charts
-
-            // Use positioning from SongSelectionUILayout
-            var difficultyLabelPosition = SongSelectionUILayout.DifficultyGrid.DifficultyLabelPosition;
-
-            // Draw "Difficulty" text
-            DrawTextWithShadow(spriteBatch, _font, "Difficulty", difficultyLabelPosition, DTXManiaVisualTheme.SongSelection.StatusLabelText);
+            // No longer draw the "Difficulty" label - only show the panel texture and text
 
             // DTXManiaNX Column Structure (from documentation)
             // Column 0: Drums (D), Column 1: Guitar (G), Column 2: Bass (B)
@@ -744,49 +774,33 @@ namespace DTX.Song.Components
             var cellWidth = (int)cellSize.X;
             var cellHeight = (int)cellSize.Y;
 
-            // Draw cell background
-            if (_whitePixel != null)
-            {
-                var isSelected = difficultyLevel == _currentDifficulty;
-                var cellColor = isSelected ? Color.Yellow * 0.3f : Color.Gray * 0.2f;
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, cellWidth, cellHeight), cellColor);
-
-                // Draw cell border
-                var borderColor = isSelected ? Color.Yellow : Color.Gray;
-                var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
-                // Top border
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, cellWidth, borderThickness), borderColor);
-                // Bottom border
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y + cellHeight - borderThickness, cellWidth, borderThickness), borderColor);
-                // Left border
-                spriteBatch.Draw(_whitePixel, new Rectangle(x, y, borderThickness, cellHeight), borderColor);
-                // Right border
-                spriteBatch.Draw(_whitePixel, new Rectangle(x + cellWidth - borderThickness, y, borderThickness, cellHeight), borderColor);
-            }
-
-            // Draw cell content: difficulty level for the specific combination
+            // Only draw cell content (no background or borders) - the panel texture provides the background
             DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, difficultyLevel, instrument);
         }
 
         private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int difficultyLevel, int instrument)
         {
-            var textOffsetX = SongSelectionUILayout.DifficultyGrid.CellTextOffsetX;
-            var emptyTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellEmptyOffsetY;
-            var levelTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellTextOffsetY;
-            var rankTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellRankOffsetY;
-            var scoreTextOffsetY = SongSelectionUILayout.DifficultyGrid.CellScoreOffsetY;
+            // Position text at bottom-right corner of the cell with small padding
+            var rightPadding = 4; // Small right padding  
+            var textOffsetY = cellHeight - 16; // Bottom position with small padding (assuming 16px font height)
 
             // Use the Scores array which contains the actual difficulty levels we want to display
             if (_currentSong?.Scores == null || difficultyLevel >= _currentSong.Scores.Length)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
+                var emptyText = "--";
+                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
+                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
                 return;
             }
             
             var score = _currentSong.Scores[difficultyLevel];
             if (score == null)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
+                var emptyText = "--";
+                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
+                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
                 return;
             }
             
@@ -802,14 +816,20 @@ namespace DTX.Song.Components
             // Only show data if the instrument matches, otherwise show "--"
             if (score.Instrument != expectedInstrument)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
+                var emptyText = "--";
+                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
+                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
                 return;
             }
             
             var level = score.DifficultyLevel;
             if (level <= 0)
             {
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, "--", new Vector2(x + textOffsetX, y + emptyTextOffsetY), Color.Gray);
+                var emptyText = "--";
+                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
+                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
                 return;
             }
 
@@ -818,21 +838,10 @@ namespace DTX.Song.Components
             var levelText = (level / 10.0).ToString("F2");
             var textColor = (difficultyLevel == _currentDifficulty) ? Color.Yellow : Color.White;
             
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(x + textOffsetX, y + levelTextOffsetY), textColor);
-
-            // Draw rank icon (if available)
-            if (score.BestRank > 0)
-            {
-                var rankText = GetRankText(score.BestRank);
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, rankText, new Vector2(x + textOffsetX, y + rankTextOffsetY), GetRankColor(score.BestRank));
-            }
-
-            // Draw achievement rate (if available)
-            if (score.BestScore > 0)
-            {
-                var achievementText = score.BestScore >= 1000000 ? "MAX" : $"{score.BestScore / 10000.0:F1}%";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, achievementText, new Vector2(x + textOffsetX, y + scoreTextOffsetY), Color.Cyan);
-            }
+            // Calculate right-aligned position and draw the main difficulty level at bottom-right corner
+            var levelTextWidth = (_smallFont ?? _font)?.MeasureString(levelText).X ?? 0;
+            var levelTextX = x + cellWidth - levelTextWidth - rightPadding;
+            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(levelTextX, y + textOffsetY), textColor);
         }
 
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
