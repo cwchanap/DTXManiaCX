@@ -262,7 +262,7 @@ namespace DTX.Stage
             try
             {
                 // Use ResourceManager to load background texture with proper skin path resolution
-                _backgroundTexture = _resourceManager.LoadTexture("Graphics/1_background.jpg");
+                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.StartupBackground);
                 System.Diagnostics.Debug.WriteLine("Loaded startup background using ResourceManager");
             }
             catch (Exception ex)

@@ -188,8 +188,8 @@ namespace DTXMania.Test.Resources
             using var font = CreateTestBitmapFont(mockResourceManager.Object);
 
             // Assert
-            mockResourceManager.Verify(rm => rm.LoadTexture("Graphics/Console font 8x16.png"), Times.Once);
-            mockResourceManager.Verify(rm => rm.LoadTexture("Graphics/Console font 2 8x16.png"), Times.Once);
+            mockResourceManager.Verify(rm => rm.LoadTexture(TexturePath.ConsoleFont), Times.Once);
+            mockResourceManager.Verify(rm => rm.LoadTexture(TexturePath.ConsoleFontSecondary), Times.Once);
         }
 
         #endregion
