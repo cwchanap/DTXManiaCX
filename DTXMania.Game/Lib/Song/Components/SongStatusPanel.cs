@@ -143,7 +143,7 @@ namespace DTX.Song.Components
             try
             {
                 // Load DTXManiaNX status panel background
-                _statusPanelTexture = _resourceManager.LoadTexture("Graphics/5_status panel.png");
+                _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
             }
             catch (Exception ex)
             {
@@ -161,7 +161,7 @@ namespace DTX.Song.Components
 
             try
             {
-                _bpmBackgroundTexture = _resourceManager.LoadTexture("Graphics/5_BPM.png");
+                _bpmBackgroundTexture = _resourceManager.LoadTexture(TexturePath.BpmBackground);
             }
             catch
             {
