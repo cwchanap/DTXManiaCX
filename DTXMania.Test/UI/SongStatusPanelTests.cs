@@ -2,7 +2,7 @@ using System;
 using Xunit;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using DTX.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.Helpers;

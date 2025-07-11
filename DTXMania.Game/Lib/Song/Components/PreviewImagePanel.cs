@@ -9,7 +9,7 @@ using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
 
-namespace DTX.UI.Components
+namespace DTX.Song.Components
 {
     /// <summary>
     /// DTXManiaNX-compatible preview image panel for displaying album art and preview videos

@@ -1,5 +1,5 @@
 using Xunit;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using DTX.Song;
 using DTX.Resources;
 using Microsoft.Xna.Framework;
