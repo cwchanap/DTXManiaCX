@@ -412,7 +412,9 @@ namespace DTX.UI.Components
             var chart = GetCurrentDifficultyChart();
             
             if (song == null && chart == null)
+            {
                 return;
+            }
 
             // Artist
             if (!string.IsNullOrEmpty(song?.Artist))
@@ -837,7 +839,6 @@ namespace DTX.UI.Components
         {
             if (chart == null)
             {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: DrawNotesCounter called with null chart");
                 return;
             }
 
@@ -1149,12 +1150,18 @@ namespace DTX.UI.Components
         {
             // If no song is selected, return null
             if (_currentSong?.DatabaseSong == null)
+            {
                 return null;
-
+            }
+            
             // Get all charts for this song
             var allCharts = _currentSong.DatabaseSong.Charts?.ToList();
+            
             if (allCharts == null || allCharts.Count == 0)
-                return _currentSong.DatabaseChart; // Fallback to primary chart
+            {
+                var fallbackChart = _currentSong.DatabaseChart;
+                return fallbackChart; // Fallback to primary chart
+            }
 
             // If we only have one chart, return it
             if (allCharts.Count == 1)

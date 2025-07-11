@@ -671,6 +671,7 @@ namespace DTX.Song
                 }
 
                 // Process individual song files
+                var tempSongNodes = new List<SongListNode>();
                 foreach (var file in directory.GetFiles())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -680,10 +681,8 @@ namespace DTX.Song
                         var songNode = await CreateSongNodeAsync(file.FullName, parent);
                         if (songNode != null)
                         {
-                            results.Add(songNode);
+                            tempSongNodes.Add(songNode);
                             DiscoveredScoreCount++;
-
-                            SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(songNode));
 
                             progress?.Report(new EnumerationProgress
                             {
@@ -693,6 +692,16 @@ namespace DTX.Song
                             });
                         }
                     }
+                }
+
+                // Group song nodes by song (title + artist) to handle multi-chart songs
+                var groupedSongs = await GroupSongNodesBySong(tempSongNodes);
+                results.AddRange(groupedSongs);
+
+                // Fire SongDiscovered events for the final grouped songs
+                foreach (var finalSongNode in groupedSongs)
+                {
+                    SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(finalSongNode));
                 }
             }
             catch (Exception ex)
@@ -723,14 +732,32 @@ namespace DTX.Song
                 // Add song to EF Core database
                 var songId = await _databaseService.AddSongAsync(song, chart);
 
-                // Create song node for UI hierarchy
-                var songNode = SongListNode.CreateSongNode(song, chart);
-                songNode.Parent = parent;
+                // Reload the complete entity from database to ensure we have all metadata and relationships
+                var completeEntities = await _databaseService.GetSongWithChartsAsync(songId);
+                if (completeEntities == null)
+                {
+                    Debug.WriteLine($"SongManager: Failed to reload song from database after saving: {songId}");
+                    // Fallback to original entities if reload fails
+                    var songNode = SongListNode.CreateSongNode(song, chart);
+                    songNode.Parent = parent;
+                    songNode.DatabaseSongId = songId;
+                    return songNode;
+                }
 
-                // Store the database song ID for future reference
-                songNode.DatabaseSongId = songId;
+                // Create song node using complete database entities (like the database load path)
+                var completeNode = CreateSongNodeFromDatabaseEntities(completeEntities.Value.song, completeEntities.Value.charts);
+                if (completeNode != null)
+                {
+                    completeNode.Parent = parent;
+                    completeNode.DatabaseSongId = songId;
+                    return completeNode;
+                }
 
-                return songNode;
+                // Final fallback if CreateSongNodeFromDatabaseEntities fails
+                var fallbackNode = SongListNode.CreateSongNode(song, chart);
+                fallbackNode.Parent = parent;
+                fallbackNode.DatabaseSongId = songId;
+                return fallbackNode;
             }
             catch (Exception ex)
             {
@@ -837,97 +864,116 @@ namespace DTX.Song
                 // Create song node if we have a title and difficulties
                 if (!string.IsNullOrEmpty(songTitle) && difficulties.Count > 0)
                 {
-                    // Create temporary song and chart entities for the set.def node
-                    var tempSong = new DTXMania.Game.Lib.Song.Entities.Song
-                    {
-                        Title = songTitle,
-                        Artist = "",
-                        Genre = "",
-                        Comment = "",
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-
-                    var tempChart = new DTXMania.Game.Lib.Song.Entities.SongChart
-                    {
-                        FilePath = setDefPath,
-                        FileSize = 0,
-                        LastModified = DateTime.UtcNow,
-                        FileFormat = ".def",
-                        Bpm = 120.0,
-                        Duration = 0.0
-                    };
-
-                    currentSong = SongListNode.CreateSongNode(tempSong, tempChart);
-                    currentSong.Parent = parent;
-
-                    // Process each difficulty
-                    int scoreIndex = 0;
+                    // Parse the first valid DTX file to get real metadata
+                    DTXMania.Game.Lib.Song.Entities.Song? primarySong = null;
+                    DTXMania.Game.Lib.Song.Entities.SongChart? primaryChart = null;
+                    
+                    // Find the first valid DTX file to use as the primary chart
                     foreach (var kvp in difficulties.OrderBy(d => d.Key))
                     {
-                        var level = kvp.Key;
                         var (label, fileName) = kvp.Value;
-
                         if (!string.IsNullOrEmpty(fileName))
                         {
                             var filePath = Path.Combine(directory, fileName);
                             if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
                             {
-                                var (diffSong, diffChart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
-
+                                var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+                                
                                 // Use the set.def title if the file doesn't have one
-                                if (string.IsNullOrEmpty(diffSong.Title))
+                                if (string.IsNullOrEmpty(song.Title))
                                 {
-                                    diffSong.Title = songTitle;
+                                    song.Title = songTitle;
                                 }
+                                
+                                primarySong = song;
+                                primaryChart = chart;
+                                break; // Use the first valid chart as primary
+                            }
+                        }
+                    }
+                    
+                    // If we found a valid primary chart, create the song node
+                    if (primarySong != null && primaryChart != null)
+                    {
+                        currentSong = SongListNode.CreateSongNode(primarySong, primaryChart);
+                        currentSong.Parent = parent;
 
-                                // Add each difficulty to EF Core database if we have the database service
-                                if (_databaseService != null)
+                        // Process each difficulty and store in database
+                        int scoreIndex = 0;
+                        foreach (var kvp in difficulties.OrderBy(d => d.Key))
+                        {
+                            var level = kvp.Key;
+                            var (label, fileName) = kvp.Value;
+
+                            if (!string.IsNullOrEmpty(fileName))
+                            {
+                                var filePath = Path.Combine(directory, fileName);
+                                if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
                                 {
-                                    try
+                                    var (diffSong, diffChart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+
+                                    // Use the set.def title if the file doesn't have one
+                                    if (string.IsNullOrEmpty(diffSong.Title))
                                     {
-                                        var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
-                                        currentSong.DatabaseSongId = songId;
-
-                                        // Populate the Score entry for this difficulty in the set.def node
-                                        if (scoreIndex < currentSong.Scores.Length)
-                                        {
-                                            currentSong.DifficultyLabels[scoreIndex] = !string.IsNullOrEmpty(label) ? label : $"Level {level}";
-
-                                            // Create a score entry for the primary instrument found in the chart
-                                            var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS; // Default
-                                            int difficultyLevel = 50; // Default
-
-                                            if (diffChart.HasDrumChart && diffChart.DrumLevel > 0)
-                                            {
-                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
-                                                difficultyLevel = diffChart.DrumLevel;
-                                            }
-                                            else if (diffChart.HasGuitarChart && diffChart.GuitarLevel > 0)
-                                            {
-                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
-                                                difficultyLevel = diffChart.GuitarLevel;
-                                            }
-                                            else if (diffChart.HasBassChart && diffChart.BassLevel > 0)
-                                            {
-                                                primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
-                                                difficultyLevel = diffChart.BassLevel;
-                                            }
-
-                                            currentSong.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
-                                            {
-                                                Instrument = primaryInstrument,
-                                                DifficultyLevel = difficultyLevel,
-                                                DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
-                                            };
-                                            scoreIndex++;
-                                        }
-
-                                        DiscoveredScoreCount++;
+                                        diffSong.Title = songTitle;
                                     }
-                                    catch (Exception ex)
+
+                                    // Add each difficulty to EF Core database if we have the database service
+                                    if (_databaseService != null)
                                     {
-                                        Debug.WriteLine($"SongManager: Error adding song to database: {ex.Message}");
+                                        try
+                                        {
+                                            var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
+                                            currentSong.DatabaseSongId = songId;
+                                            
+                                            // Update the current song's database entities to reflect the latest data
+                                            if (scoreIndex == 0)
+                                            {
+                                                // For the first chart, update the node's entities to match what's in the database
+                                                currentSong.DatabaseSong = diffSong;
+                                                currentSong.DatabaseChart = diffChart;
+                                            }
+
+                                            // Populate the Score entry for this difficulty in the set.def node
+                                            if (scoreIndex < currentSong.Scores.Length)
+                                            {
+                                                currentSong.DifficultyLabels[scoreIndex] = !string.IsNullOrEmpty(label) ? label : $"Level {level}";
+
+                                                // Create a score entry for the primary instrument found in the chart
+                                                var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS; // Default
+                                                int difficultyLevel = 50; // Default
+
+                                                if (diffChart.HasDrumChart && diffChart.DrumLevel > 0)
+                                                {
+                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                                                    difficultyLevel = diffChart.DrumLevel;
+                                                }
+                                                else if (diffChart.HasGuitarChart && diffChart.GuitarLevel > 0)
+                                                {
+                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
+                                                    difficultyLevel = diffChart.GuitarLevel;
+                                                }
+                                                else if (diffChart.HasBassChart && diffChart.BassLevel > 0)
+                                                {
+                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
+                                                    difficultyLevel = diffChart.BassLevel;
+                                                }
+
+                                                currentSong.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
+                                                {
+                                                    Instrument = primaryInstrument,
+                                                    DifficultyLevel = difficultyLevel,
+                                                    DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
+                                                };
+                                                scoreIndex++;
+                                            }
+
+                                            DiscoveredScoreCount++;
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Debug.WriteLine($"SongManager: Error adding song to database: {ex.Message}");
+                                        }
                                     }
                                 }
                             }
@@ -1249,6 +1295,89 @@ namespace DTX.Song
             {
                 _instance?.Clear();
                 _instance = null;
+            }
+        }
+
+        /// <summary>
+        /// Groups song nodes by song (title + artist) and creates unified nodes with all charts
+        /// This ensures the fresh scan behaves like the database load path
+        /// </summary>
+        private async Task<List<SongListNode>> GroupSongNodesBySong(List<SongListNode> songNodes)
+        {
+            Debug.WriteLine($"=== GroupSongNodesBySong DEBUG ===");
+            Debug.WriteLine($"Input songNodes.Count: {songNodes.Count}");
+            
+            if (_databaseService == null)
+            {
+                Debug.WriteLine($"Database service is null, returning original nodes");
+                return songNodes;
+            }
+
+            var groupedResults = new List<SongListNode>();
+
+            try
+            {
+                // Group by song (Title + Artist)
+                var songGroups = songNodes
+                    .Where(node => node.DatabaseSong != null)
+                    .GroupBy(node => new { node.DatabaseSong.Title, node.DatabaseSong.Artist })
+                    .ToList();
+
+                Debug.WriteLine($"Created {songGroups.Count} song groups");
+
+                foreach (var songGroup in songGroups)
+                {
+                    var songNodes_InGroup = songGroup.ToList();
+                    Debug.WriteLine($"Processing group: '{songGroup.Key.Title}' by '{songGroup.Key.Artist}' with {songNodes_InGroup.Count} charts");
+                    
+                    if (songNodes_InGroup.Count == 1)
+                    {
+                        // Single chart song, use as-is
+                        groupedResults.Add(songNodes_InGroup[0]);
+                    }
+                    else
+                    {
+                        // Multi-chart song, create unified node using database entities
+                        var firstNode = songNodes_InGroup[0];
+                        var songId = firstNode.DatabaseSongId;
+
+                        if (songId.HasValue)
+                        {
+                            // Get complete song with all charts from database
+                            var completeEntities = await _databaseService.GetSongWithChartsAsync(songId.Value);
+                            if (completeEntities.HasValue)
+                            {
+                                // Create unified song node (like database load path)
+                                var unifiedNode = CreateSongNodeFromDatabaseEntities(
+                                    completeEntities.Value.song, 
+                                    completeEntities.Value.charts);
+                                
+                                if (unifiedNode != null)
+                                {
+                                    unifiedNode.Parent = firstNode.Parent;
+                                    unifiedNode.DatabaseSongId = songId;
+                                    groupedResults.Add(unifiedNode);
+                                    
+                                    Debug.WriteLine($"SongManager: Grouped {songNodes_InGroup.Count} charts into unified song: {firstNode.DatabaseSong.Title}");
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // Fallback: if grouping fails, add the first node
+                        Debug.WriteLine($"SongManager: Failed to group charts for song: {firstNode.DatabaseSong?.Title}, using first chart as fallback");
+                        groupedResults.Add(firstNode);
+                    }
+                }
+
+                Debug.WriteLine($"SongManager: Grouped {songNodes.Count} individual nodes into {groupedResults.Count} unified songs");
+                return groupedResults;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error grouping song nodes: {ex.Message}");
+                // Fallback to original nodes if grouping fails
+                return songNodes;
             }
         }
 
