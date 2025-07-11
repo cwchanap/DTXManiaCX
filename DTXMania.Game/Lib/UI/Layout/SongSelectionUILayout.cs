@@ -128,7 +128,7 @@ namespace DTX.UI.Layout
         {
             public const int BaseX = 15;   // Panel base X position
             public const int BaseY = 368;  // Panel base Y position
-            public const int Width = 160;  // Panel width (increased to accommodate larger note counts)
+            public const int Width = 120;  // Panel width (increased to accommodate larger note counts)
             public const int Height = 300; // Panel height (covers bars + progress area)
             
             // Total notes counter position
