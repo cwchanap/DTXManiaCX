@@ -11,6 +11,7 @@ using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
+using DTX.Song.Components;
 using DTX.UI.Components;
 using DTX.UI.Layout;
 using DTX.Song;

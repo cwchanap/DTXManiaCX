@@ -1,7 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Resources;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using System;
 using System.Collections.Generic;
 

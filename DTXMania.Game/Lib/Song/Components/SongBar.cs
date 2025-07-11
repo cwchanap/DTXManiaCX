@@ -7,7 +7,7 @@ using DTX.Resources;
 using System;
 using System.Collections.Generic;
 
-namespace DTX.UI.Components
+namespace DTX.Song.Components
 {
     /// <summary>
     /// Individual song bar component for DTXManiaNX-style song list display
