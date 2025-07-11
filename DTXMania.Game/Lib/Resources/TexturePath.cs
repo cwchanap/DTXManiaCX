@@ -52,6 +52,11 @@ namespace DTX.Resources
         /// </summary>
         public const string BpmBackground = "Graphics/5_BPM.png";
         
+        /// <summary>
+        /// Difficulty panel texture for song status panel
+        /// </summary>
+        public const string DifficultyPanel = "Graphics/5_difficulty panel.png";
+        
         #endregion
         
         #region Font Textures
@@ -95,6 +100,7 @@ namespace DTX.Resources
                 SongSelectionFooterPanel,
                 SongStatusPanel,
                 BpmBackground,
+                DifficultyPanel,
                 ConsoleFont,
                 ConsoleFontSecondary,
                 DefaultPreview
@@ -125,7 +131,8 @@ namespace DTX.Resources
                 SongSelectionHeaderPanel,
                 SongSelectionFooterPanel,
                 SongStatusPanel,
-                BpmBackground
+                BpmBackground,
+                DifficultyPanel
             };
         }
         
