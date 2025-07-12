@@ -767,13 +767,15 @@ namespace DTX.Song.Components
                 _difficultyPanelTexture.Draw(spriteBatch, topLeftCellPosition);
             }
 
-            // Always draw all 5 difficulty levels regardless of available charts
-            // No longer draw the "Difficulty" label - only show the panel texture and text
+            // Draw difficulty grid based on actual chart levels from SET.def
+            // Grid layout: Row 0 = Level 1, Row 1 = Level 2, Row 2 = Level 3, Row 3 = Level 4, Row 4 = Level 5+
+            // Higher levels appear at higher row indices (closer to top visually due to inverted Y calculation)
 
             // DTXManiaNX Column Structure (from documentation)
             // Column 0: Drums (D), Column 1: Guitar (G), Column 2: Bass (B)
-            var nPart = new[] { 0, 1, 2 }; // Simplified: Drums, Guitar, Bass (no swapping for now)
+            var instruments = new[] { 0, 1, 2 }; // Drums, Guitar, Bass
 
+            // Revert to original working logic for now
             // Draw 3×5 difficulty grid using DTXManiaNX formula
             for (int i = 0; i < 5; i++) // 5 difficulty levels (0=Novice to 4=Ultimate)
             {
@@ -781,7 +783,7 @@ namespace DTX.Song.Components
                 {
                     // Use SongSelectionUILayout method to get cell position
                     var cellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(i, j);
-                    DrawDifficultyCell(spriteBatch, (int)cellPosition.X, (int)cellPosition.Y, i, j);
+                    DrawDifficultyCell(spriteBatch, (int)cellPosition.X, (int)cellPosition.Y, i, j, null);
                 }
             }
 
@@ -789,7 +791,7 @@ namespace DTX.Song.Components
             DrawDifficultyFrame(spriteBatch);
         }
 
-        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int difficultyLevel, int instrument)
+        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int gridRow, int instrument, ChartLevelInfo chartInfo = null)
         {
             // Use DTXManiaNX authentic cell dimensions from SongSelectionUILayout
             var cellSize = SongSelectionUILayout.DifficultyGrid.CellSize;
@@ -797,7 +799,7 @@ namespace DTX.Song.Components
             var cellHeight = (int)cellSize.Y;
 
             // Only draw cell content (no background or borders) - the panel texture provides the background
-            DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, difficultyLevel, instrument);
+            DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, gridRow, instrument, chartInfo);
         }
 
         private void DrawDifficultyFrame(SpriteBatch spriteBatch)
@@ -806,8 +808,7 @@ namespace DTX.Song.Components
             if (_difficultyFrameTexture == null)
                 return;
 
-            // Get the position of the currently selected difficulty cell
-            // For now, use a default column (0 = Drums) since we need to determine which instrument is selected
+            // For now, use the current difficulty and default to drums column
             int selectedColumn = 0; // Default to drums column
             var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(_currentDifficulty, selectedColumn);
             
@@ -815,69 +816,86 @@ namespace DTX.Song.Components
             _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }
 
-        private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int difficultyLevel, int instrument)
+        private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int gridRow, int instrument, ChartLevelInfo chartInfo = null)
         {
             // Position text at bottom-right corner of the cell with small padding
             var rightPadding = 4; // Small right padding  
             var textOffsetY = cellHeight - 16; // Bottom position with small padding (assuming 16px font height)
 
-            // Use the Scores array which contains the actual difficulty levels we want to display
-            if (_currentSong?.Scores == null || difficultyLevel >= _currentSong.Scores.Length)
+            // Get available charts and find one that matches this grid position
+            var availableCharts = GetAvailableChartsWithLevels();
+            
+            // Get charts for this instrument only and sort by level (DESCENDING - hardest first)
+            var instrumentCharts = availableCharts
+                .Where(chart => chart.InstrumentColumn == instrument)
+                .OrderByDescending(chart => chart.Level)  // Sort HIGH to LOW: [L5, L3, L2]
+                .ToList();
+            
+            // IMPORTANT: DTXManiaNX coordinate system is INVERTED!
+            // In the rendering loop: i=0 → BOTTOM visual position, i=4 → TOP visual position
+            // GetCellPosition formula: nBoxY = BaseY + ((4 - difficultyLevel) * CellHeight)
+            // So gridRow=0 renders at BOTTOM, gridRow=4 renders at TOP
+            
+            ChartLevelInfo matchingChart = null;
+            if (instrumentCharts.Count > 0)
             {
-                var emptyText = "--";
-                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
-                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
-                return;
+                // User requirement: "L5 chart at top row" = gridRow=4 (due to inverted coordinates)
+                // User requirement: "L2 and L3 chart at 2nd and 3rd row (count from bottom)" = gridRow=1 and gridRow=2
+                
+                if (instrumentCharts.Count == 1)
+                {
+                    // Single chart goes to top row (gridRow=4 due to inverted Y)
+                    if (gridRow == 4)
+                    {
+                        matchingChart = instrumentCharts[0]; // The only chart
+                    }
+                }
+                else if (instrumentCharts.Count == 2)
+                {
+                    // Two charts: hardest at top (gridRow=4), easiest at bottom (gridRow=0)
+                    if (gridRow == 4)
+                    {
+                        matchingChart = instrumentCharts[0]; // Hardest chart (first in desc order)
+                    }
+                    else if (gridRow == 0)
+                    {
+                        matchingChart = instrumentCharts[1]; // Easiest chart (last in desc order)
+                    }
+                }
+                else
+                {
+                    // 3+ charts: distribute across rows, with hardest at top (gridRow=4)
+                    // gridRow=4 gets index 0 (hardest), gridRow=3 gets index 1, etc.
+                    int chartIndex = 4 - gridRow; // Invert: gridRow=4→index=0, gridRow=3→index=1, etc.
+                    if (chartIndex >= 0 && chartIndex < instrumentCharts.Count)
+                    {
+                        matchingChart = instrumentCharts[chartIndex];
+                    }
+                }
             }
-            
-            var score = _currentSong.Scores[difficultyLevel];
-            if (score == null)
+
+            if (matchingChart == null)
             {
+                // No chart exists for this position - show empty
                 var emptyText = "--";
                 var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
                 var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
-                return;
-            }
-            
-            // Check if this instrument column matches the score's instrument type
-            var expectedInstrument = instrument switch
-            {
-                0 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
-                1 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
-                2 => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
-                _ => DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS
-            };
-            
-            // Only show data if the instrument matches, otherwise show "--"
-            if (score.Instrument != expectedInstrument)
-            {
-                var emptyText = "--";
-                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
-                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
-                return;
-            }
-            
-            var level = score.DifficultyLevel;
-            if (level <= 0)
-            {
-                var emptyText = "--";
-                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
-                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
+                
                 DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
                 return;
             }
 
-            // Fix the formatting: divide by 10 and use "F2" for proper decimal display with trailing zeros
-            // Level 34 should display as "3.40", level 58 should display as "5.80"
-            var levelText = (level / 10.0).ToString("F2");
-            var textColor = (difficultyLevel == _currentDifficulty) ? Color.Yellow : Color.White;
+            // Display the actual chart level from SET.def
+            var levelText = matchingChart.Level.ToString("F2"); // Show as "5.00", "3.80", etc.
             
-            // Calculate right-aligned position and draw the main difficulty level at bottom-right corner
+            // Determine if this chart is currently selected
+            var isSelected = IsChartSelected(matchingChart);
+            var textColor = isSelected ? Color.Yellow : Color.White;
+            
+            // Calculate right-aligned position and draw the level at bottom-right corner
             var levelTextWidth = (_smallFont ?? _font)?.MeasureString(levelText).X ?? 0;
             var levelTextX = x + cellWidth - levelTextWidth - rightPadding;
+            
             DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(levelTextX, y + textOffsetY), textColor);
         }
 
@@ -1347,6 +1365,94 @@ namespace DTX.Song.Components
             var selectedChart = sortedCharts[chartIndex];
 
             return selectedChart;
+        }
+
+        /// <summary>
+        /// Represents chart level information for grid positioning
+        /// </summary>
+        public class ChartLevelInfo
+        {
+            public float Level { get; set; }
+            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass
+            public string InstrumentName { get; set; }
+            public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
+        }
+
+        /// <summary>
+        /// Get available charts with their levels for grid positioning
+        /// </summary>
+        private List<ChartLevelInfo> GetAvailableChartsWithLevels()
+        {
+            var chartLevels = new List<ChartLevelInfo>();
+
+            if (_currentSong?.DatabaseSong?.Charts == null)
+                return chartLevels;
+
+            var allCharts = _currentSong.DatabaseSong.Charts.ToList();
+
+            foreach (var chart in allCharts)
+            {
+                // Add drum chart if available
+                if (chart.HasDrumChart && chart.DrumLevel > 0)
+                {
+                    // Convert integer level to decimal (e.g., 38 -> 3.8)
+                    float drumLevel = chart.DrumLevel / 10.0f + (chart.DrumLevelDec / 100.0f);
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = drumLevel,
+                        InstrumentColumn = 0, // Drums column
+                        InstrumentName = "DRUMS",
+                        Chart = chart
+                    });
+                }
+
+                // Add guitar chart if available
+                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                {
+                    // Convert integer level to decimal (e.g., 60 -> 6.0)
+                    float guitarLevel = chart.GuitarLevel / 10.0f + (chart.GuitarLevelDec / 100.0f);
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = guitarLevel,
+                        InstrumentColumn = 1, // Guitar column
+                        InstrumentName = "GUITAR",
+                        Chart = chart
+                    });
+                }
+
+                // Add bass chart if available
+                if (chart.HasBassChart && chart.BassLevel > 0)
+                {
+                    // Convert integer level to decimal (e.g., 77 -> 7.7)
+                    float bassLevel = chart.BassLevel / 10.0f + (chart.BassLevelDec / 100.0f);
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = bassLevel,
+                        InstrumentColumn = 2, // Bass column
+                        InstrumentName = "BASS",
+                        Chart = chart
+                    });
+                }
+            }
+
+            return chartLevels;
+        }
+
+        /// <summary>
+        /// Check if a chart is currently selected
+        /// </summary>
+        private bool IsChartSelected(ChartLevelInfo chartInfo)
+        {
+            if (chartInfo == null)
+                return false;
+
+            // Get current instrument and chart
+            var currentInstrument = GetInstrumentFromDifficulty(_currentDifficulty);
+            var currentChart = GetCurrentDifficultyChart();
+
+            // Check if this is the current instrument and chart
+            return currentInstrument.Equals(chartInfo.InstrumentName, StringComparison.OrdinalIgnoreCase) &&
+                   currentChart != null && currentChart == chartInfo.Chart;
         }
 
         #endregion
