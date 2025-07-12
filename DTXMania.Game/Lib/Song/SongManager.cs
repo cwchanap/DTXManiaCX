@@ -879,8 +879,8 @@ namespace DTX.Song
                             {
                                 var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
                                 
-                                // Use the set.def title if the file doesn't have one
-                                if (string.IsNullOrEmpty(song.Title))
+                                // Use the set.def title if available, otherwise keep the DTX title
+                                if (!string.IsNullOrEmpty(songTitle))
                                 {
                                     song.Title = songTitle;
                                 }
@@ -912,8 +912,8 @@ namespace DTX.Song
                                 {
                                     var (diffSong, diffChart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
 
-                                    // Use the set.def title if the file doesn't have one
-                                    if (string.IsNullOrEmpty(diffSong.Title))
+                                    // Use the set.def title if available, otherwise keep the DTX title
+                                    if (!string.IsNullOrEmpty(songTitle))
                                     {
                                         diffSong.Title = songTitle;
                                     }
