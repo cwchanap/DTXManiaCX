@@ -9,7 +9,7 @@ using DTX.UI;
 using DTX.Song;
 using DTX.Resources;
 
-namespace DTX.UI.Components
+namespace DTX.Song.Components
 {
     /// <summary>
     /// DTXManiaNX-compatible preview image panel for displaying album art and preview videos
@@ -190,7 +190,7 @@ namespace DTX.UI.Components
             {
                 if (_resourceManager != null)
                 {
-                    _defaultPreviewTexture = _resourceManager.LoadTexture("Graphics/5_default_preview.png");
+                    _defaultPreviewTexture = _resourceManager.LoadTexture(TexturePath.DefaultPreview);
                     
                     // Verify the loaded texture is valid
                     if (_defaultPreviewTexture != null && _defaultPreviewTexture.IsDisposed)

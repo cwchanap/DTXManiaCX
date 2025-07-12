@@ -1,7 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Resources;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using System;
 using System.Collections.Generic;
 
@@ -122,6 +122,21 @@ namespace DTX.UI
                 return cached;
 
             var texture = CreatePanelTexture(width, height, withBorder);
+            _generatedTextures[cacheKey] = texture;
+            return texture;
+        }
+
+        /// <summary>
+        /// Generate BPM background panel with text labels
+        /// </summary>
+        public ITexture GenerateBPMBackground(int width, int height, bool withLabels = true)
+        {
+            var cacheKey = $"BPMBackground_{width}x{height}_{withLabels}";
+
+            if (_generatedTextures.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            var texture = CreateBPMBackgroundTexture(width, height, withLabels);
             _generatedTextures[cacheKey] = texture;
             return texture;
         }
@@ -359,6 +374,42 @@ namespace DTX.UI
             }            _spriteBatch.End();
 
             return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_BarType_{barType}_{width}x{height}");
+        }
+
+        private ITexture CreateBPMBackgroundTexture(int width, int height, bool withLabels)
+        {
+            var renderTarget = _renderTarget;
+
+            _graphicsDevice.Clear(Color.Transparent);
+
+            _spriteBatch.Begin();
+
+            // Draw background with DTXManiaNX-style panel appearance
+            var bgColor = DTXManiaVisualTheme.SongSelection.PanelBackground;
+            DrawGradientRectangle(_spriteBatch, new Rectangle(0, 0, width, height),
+                                Color.Lerp(bgColor, Color.White, 0.1f), bgColor);
+
+            // Draw border
+            var borderColor = DTXManiaVisualTheme.SongSelection.PanelBorder;
+            DrawRectangleBorder(_spriteBatch, new Rectangle(0, 0, width, height), borderColor, 2);
+
+            if (withLabels)
+            {
+                // Note: We would need a font system to draw text labels
+                // For now, we'll create placeholder areas where text would go
+                
+                // Length label area (top portion)
+                var lengthLabelRect = new Rectangle(5, 5, width - 10, height / 2 - 5);
+                _spriteBatch.Draw(_whitePixel, lengthLabelRect, Color.Black * 0.2f);
+                
+                // BPM label area (bottom portion)
+                var bpmLabelRect = new Rectangle(5, height / 2, width - 10, height / 2 - 5);
+                _spriteBatch.Draw(_whitePixel, bpmLabelRect, Color.Black * 0.2f);
+            }
+
+            _spriteBatch.End();
+
+            return new ManagedTexture(_graphicsDevice, renderTarget, $"Generated_BPMBackground_{width}x{height}");
         }
 
         #endregion

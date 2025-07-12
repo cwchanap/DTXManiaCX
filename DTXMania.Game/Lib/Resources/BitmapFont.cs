@@ -156,8 +156,8 @@ namespace DTX.Resources
             try
             {
                 // Load console font textures (DTXMania pattern)
-                _fontTexture = resourceManager.LoadTexture("Graphics/Console font 8x16.png");
-                _fontTexture2 = resourceManager.LoadTexture("Graphics/Console font 2 8x16.png");
+                _fontTexture = resourceManager.LoadTexture(TexturePath.ConsoleFont);
+                _fontTexture2 = resourceManager.LoadTexture(TexturePath.ConsoleFontSecondary);
                 
                 System.Diagnostics.Debug.WriteLine("Loaded bitmap font textures successfully");
             }

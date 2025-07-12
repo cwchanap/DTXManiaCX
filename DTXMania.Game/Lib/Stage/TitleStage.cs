@@ -234,7 +234,7 @@ namespace DTX.Stage
             try
             {
                 // Use ResourceManager to load background texture with proper skin path resolution
-                _backgroundTexture = _resourceManager.LoadTexture("Graphics/2_background.jpg");
+                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.TitleBackground);
                 System.Diagnostics.Debug.WriteLine("Loaded title background using ResourceManager");
             }
             catch (Exception ex)
@@ -249,7 +249,7 @@ namespace DTX.Stage
             try
             {
                 // Use ResourceManager to load menu texture with proper skin path resolution
-                _menuTexture = _resourceManager.LoadTexture("Graphics/2_menu.png");
+                _menuTexture = _resourceManager.LoadTexture(TexturePath.TitleMenu);
                 System.Diagnostics.Debug.WriteLine("Loaded menu texture using ResourceManager");
             }
             catch (Exception ex)

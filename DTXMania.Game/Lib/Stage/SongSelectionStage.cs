@@ -11,6 +11,7 @@ using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
+using DTX.Song.Components;
 using DTX.UI.Components;
 using DTX.UI.Layout;
 using DTX.Song;
@@ -283,7 +284,7 @@ namespace DTX.Stage
             try
             {
                 // Load DTXManiaNX song selection background graphics
-                _backgroundTexture = _resourceManager.LoadTexture("Graphics/5_background.jpg");
+                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionBackground);
             }
             catch (Exception ex)
             {
@@ -292,7 +293,7 @@ namespace DTX.Stage
 
             try
             {
-                _headerPanelTexture = _resourceManager.LoadTexture("Graphics/5_header panel.png");
+                _headerPanelTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionHeaderPanel);
             }
             catch (Exception ex)
             {
@@ -301,7 +302,7 @@ namespace DTX.Stage
 
             try
             {
-                _footerPanelTexture = _resourceManager.LoadTexture("Graphics/5_footer panel.png");
+                _footerPanelTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionFooterPanel);
             }
             catch (Exception ex)
             {

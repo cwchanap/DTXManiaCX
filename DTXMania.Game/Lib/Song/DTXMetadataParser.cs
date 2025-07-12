@@ -37,7 +37,6 @@ namespace DTX.Song
                 {
                     Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
                     _encodingProviderRegistered = true;
-                    Debug.WriteLine("DTXMetadataParser: Registered CodePages encoding provider for Shift_JIS support");
                 }
                 catch (Exception ex)
                 {
@@ -59,6 +58,7 @@ namespace DTX.Song
         /// <returns>Tuple containing Song and SongChart entities</returns>
         public async Task<(DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)> ParseSongEntitiesAsync(string filePath)
         {
+            
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                 throw new FileNotFoundException($"DTX file not found: {filePath}");
 
@@ -89,7 +89,6 @@ namespace DTX.Song
             // Validate file extension
             if (!IsSupported(chart.FileFormat))
             {
-                Debug.WriteLine($"DTXMetadataParser: Unsupported file format: {chart.FileFormat}");
                 // Set fallback title for unsupported files
                 song.Title = Path.GetFileNameWithoutExtension(filePath);
                 return (song, chart);
@@ -99,9 +98,8 @@ namespace DTX.Song
             {
                 await ParseFileHeaderToEntitiesAsync(filePath, song, chart);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"DTXMetadataParser: Error parsing {filePath}: {ex.Message}");
                 // Return entities with basic file info even if parsing fails
                 if (string.IsNullOrEmpty(song.Title))
                 {
@@ -166,11 +164,9 @@ namespace DTX.Song
                     await ParseHeaderLinesToEntitiesAsync(reader, tempSong, tempChart);
                     
                     // Calculate duration by parsing measure data
-                    Debug.WriteLine($"DTXMetadataParser: Starting duration calculation for {filePath}");
                     stream.Seek(0, SeekOrigin.Begin); // Reset to beginning
                     using var durationReader = new StreamReader(stream, encoding);
-                    await CalculateDurationAsync(durationReader, tempChart);
-                    Debug.WriteLine($"DTXMetadataParser: Duration calculation completed. Result: {tempChart.Duration:F2} seconds");
+                    await CalculateDurationAsync(durationReader, tempChart, filePath);
                     
                     // Check if we successfully parsed some metadata (song info or chart levels)
                     if (!string.IsNullOrEmpty(tempSong.Title) || !string.IsNullOrEmpty(tempSong.Artist) ||
@@ -183,7 +179,6 @@ namespace DTX.Song
                             bestSong = tempSong;
                             bestChart = tempChart;
                             bestEncodingName = encoding.EncodingName;
-                            Debug.WriteLine($"DTXMetadataParser: Successfully parsed with encoding {encoding.EncodingName}");
                             break;
                         }
                         else
@@ -194,14 +189,12 @@ namespace DTX.Song
                                 bestSong = tempSong;
                                 bestChart = tempChart;
                                 bestEncodingName = encoding.EncodingName;
-                                Debug.WriteLine($"DTXMetadataParser: Using {encoding.EncodingName} as fallback (text may be corrupted)");
                             }
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"DTXMetadataParser: Failed with encoding {encoding.EncodingName}: {ex.Message}");
                     continue;
                 }
             }
@@ -227,13 +220,15 @@ namespace DTX.Song
                 chart.HasDrumChart = bestChart.HasDrumChart;
                 chart.HasGuitarChart = bestChart.HasGuitarChart;
                 chart.HasBassChart = bestChart.HasBassChart;
+                chart.DrumNoteCount = bestChart.DrumNoteCount;
+                chart.GuitarNoteCount = bestChart.GuitarNoteCount;
+                chart.BassNoteCount = bestChart.BassNoteCount;
                 chart.PreviewFile = bestChart.PreviewFile;
                 chart.PreviewImage = bestChart.PreviewImage;
                 chart.BackgroundFile = bestChart.BackgroundFile;
                 chart.StageFile = bestChart.StageFile;
                 chart.FileFormat = bestChart.FileFormat;
                 
-                Debug.WriteLine($"DTXMetadataParser: Final result using {bestEncodingName} - Title: {song.Title}, Artist: {song.Artist}");
             }
 
             // Set fallback title if none was found
@@ -495,12 +490,12 @@ namespace DTX.Song
 
         /// <summary>
         /// Calculates song duration by parsing measure data and tracking BPM/measure length changes
+        /// Also counts notes for each instrument
         /// </summary>
-        private async Task CalculateDurationAsync(StreamReader reader, SongChart chart)
+        private async Task CalculateDurationAsync(StreamReader reader, SongChart chart, string filePath)
         {
             if (chart.Bpm <= 0)
             {
-                Debug.WriteLine("DTXMetadataParser: Cannot calculate duration - no BPM specified");
                 return;
             }
 
@@ -509,14 +504,30 @@ namespace DTX.Song
                 // Track timing information
                 double currentBpm = chart.Bpm;
                 int lastMeasureWithNotes = 0;
+                int lastMeasureInFile = 0; // Track the actual last measure in the file (regardless of notes)
                 var bpmChanges = new Dictionary<int, double>(); // measure -> BPM
                 var measureLengths = new Dictionary<int, double>(); // measure -> length multiplier (default 1.0 = 4/4)
+                var bpmDefinitions = new Dictionary<int, double>(); // BPM reference -> actual BPM value
+                
+                // Track note counts for each instrument
+                int drumNoteCount = 0;
+                int guitarNoteCount = 0;
+                int bassNoteCount = 0;
+                
+                // Determine instrument type from filename
+                var fileName = Path.GetFileNameWithoutExtension(filePath).ToLowerInvariant();
+                bool isDrumChart = fileName.Contains("mas") || fileName.Contains("adv") || fileName.Contains("ext");
+                bool isBassChart = fileName.Contains("bas");
+                bool isGuitarChart = fileName.Contains("gui") || fileName.Contains("gtr");
                 
                 string line;
                 bool inDataSection = false;
+                int lineCount = 0;
+                int processedLines = 0;
                 
                 while ((line = await reader.ReadLineAsync()) != null)
                 {
+                    lineCount++;
                     line = line.Trim();
                     
                     // Skip empty lines and comments
@@ -534,38 +545,134 @@ namespace DTX.Song
                         // Still in header, look for additional BPM and measure length commands
                         if (line.StartsWith("#"))
                         {
-                            ParseTimingCommand(line, bpmChanges, measureLengths);
+                            ParseTimingCommand(line, bpmChanges, measureLengths, bpmDefinitions);
                         }
                         continue;
+                    }
+                    
+                    // Handle inline timing commands (BPM changes and measure length changes) in the data section
+                    if (line.StartsWith("#") && line.Contains(":"))
+                    {
+                        var colonIndex = line.IndexOf(':');
+                        var measureChannelPart = line.Substring(1, colonIndex - 1);
+                        if (measureChannelPart.Length == 5)
+                        {
+                            var channelStr = measureChannelPart.Substring(3, 2);
+                            if (int.TryParse(channelStr, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int channel))
+                            {
+                                // Handle measure length changes (channel 02) and BPM definitions inline
+                                if (channel == 0x02)
+                                {
+                                    // This is a measure length change like #09302: 0.75
+                                    var measureStr = measureChannelPart.Substring(0, 3);
+                                    if (int.TryParse(measureStr, out int measure))
+                                    {
+                                        var value = line.Substring(colonIndex + 1).Trim();
+                                        if (TryParseDouble(value, out double length))
+                                        {
+                                            measureLengths[measure] = length;
+                                        }
+                                    }
+                                    continue; // Skip processing as note data
+                                }
+                                // Handle other inline timing commands here if needed
+                            }
+                        }
                     }
                     
                     // Parse measure data: *MMCCC: NNNNNNNN or #MMCCC: NNNNNNNN
                     if ((line.StartsWith("*") || IsTimelineData(line)) && line.Contains(":"))
                     {
+                        processedLines++;
+                        
                         var measure = ParseMeasureLine(line);
-                        if (measure.HasValue && HasNoteData(line))
+                        var hasNotes = HasNoteData(line);
+                        
+                        if (measure.HasValue)
                         {
-                            lastMeasureWithNotes = Math.Max(lastMeasureWithNotes, measure.Value);
+                            // Always track the last measure in the file (regardless of notes)
+                            lastMeasureInFile = Math.Max(lastMeasureInFile, measure.Value);
+                            
+                            // Track last measure with notes for reference
+                            if (hasNotes)
+                            {
+                                lastMeasureWithNotes = Math.Max(lastMeasureWithNotes, measure.Value);
+                            }
+                            
+                            // Temporary debug output - removed for cleaner output
+                            
+                            // Count notes and handle BPM changes based on channel
+                            var channel = ParseChannelFromLine(line);
+                            
+                            if (channel.HasValue)
+                            {
+                                // Check for BPM change channel (channel 08)
+                                if (channel.Value == 0x08 && hasNotes)
+                                {
+                                    // Parse BPM change data from the measure
+                                    var bpmRef = ParseBPMChangeFromMeasure(line);
+                                    if (bpmRef.HasValue && bpmDefinitions.ContainsKey((int)bpmRef.Value))
+                                    {
+                                        var actualBpm = bpmDefinitions[(int)bpmRef.Value];
+                                        bpmChanges[measure.Value] = actualBpm;
+                                    }
+                                }
+                                
+                                // Check for measure length changes (channel 02)
+                                if (channel.Value == 0x02 && hasNotes)
+                                {
+                                    // Parse measure length change data
+                                    var lengthData = ParseMeasureLengthFromMeasure(line);
+                                    if (lengthData.HasValue)
+                                    {
+                                        measureLengths[measure.Value] = lengthData.Value;
+                                    }
+                                }
+                                
+                                // Count notes for instruments
+                                if (hasNotes)
+                                {
+                                    int noteCount = CountNotesInLine(line);
+                                    
+                                    if (noteCount > 0)
+                                    {
+                                        // Use correct DTX channel classification
+                                        if (IsDrumChannel(channel.Value))
+                                        {
+                                            drumNoteCount += noteCount;
+                                        }
+                                        else if (IsGuitarChannel(channel.Value))
+                                        {
+                                            guitarNoteCount += noteCount;
+                                        }
+                                        else if (IsBassChannel(channel.Value))
+                                        {
+                                            bassNoteCount += noteCount;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 
-                // Calculate total duration
-                if (lastMeasureWithNotes > 0)
+                // Set note counts in the chart
+                chart.DrumNoteCount = drumNoteCount;
+                chart.GuitarNoteCount = guitarNoteCount;
+                chart.BassNoteCount = bassNoteCount;
+                
+                
+                // Calculate total duration using the actual last measure in the file
+                if (lastMeasureInFile > 0)
                 {
-                    double totalDuration = CalculateTotalDuration(lastMeasureWithNotes, currentBpm, bpmChanges, measureLengths);
+                    double totalDuration = CalculateTotalDuration(lastMeasureInFile, currentBpm, bpmChanges, measureLengths);
                     chart.Duration = totalDuration;
                     
-                    Debug.WriteLine($"DTXMetadataParser: Calculated duration {totalDuration:F2} seconds for {lastMeasureWithNotes} measures");
-                }
-                else
-                {
-                    Debug.WriteLine("DTXMetadataParser: No measures with notes found");
+                    Debug.WriteLine($"DTXMetadataParser: Final results - Duration: {totalDuration:F2}s, LastMeasure: {lastMeasureInFile}, LastWithNotes: {lastMeasureWithNotes}, Notes: D{drumNoteCount} G{guitarNoteCount} B{bassNoteCount}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"DTXMetadataParser: Error calculating duration: {ex.Message}");
                 // Duration remains 0 on error
             }
         }
@@ -573,7 +680,7 @@ namespace DTX.Song
         /// <summary>
         /// Parses timing-related commands from the header section
         /// </summary>
-        private void ParseTimingCommand(string line, Dictionary<int, double> bpmChanges, Dictionary<int, double> measureLengths)
+        private void ParseTimingCommand(string line, Dictionary<int, double> bpmChanges, Dictionary<int, double> measureLengths, Dictionary<int, double> bpmDefinitions)
         {
             var colonIndex = line.IndexOf(':');
             if (colonIndex == -1) return;
@@ -587,13 +694,14 @@ namespace DTX.Song
                 value = value.Substring(1, value.Length - 2);
             }
 
-            // Handle BPM changes at specific measures: #BPM01: 150.0
+            // Handle BPM definitions: #BPM01: 150.0
             if (command.StartsWith("#BPM") && command.Length > 4)
             {
-                var measureStr = command.Substring(4);
-                if (int.TryParse(measureStr, out int measure) && TryParseDouble(value, out double bpm))
+                var refStr = command.Substring(4);
+                if (int.TryParse(refStr, out int bpmRef) && TryParseDouble(value, out double bpm))
                 {
-                    bpmChanges[measure] = bpm;
+                    // Store BPM definition for later reference
+                    bpmDefinitions[bpmRef] = bpm;
                 }
             }
             
@@ -629,22 +737,33 @@ namespace DTX.Song
         {
             try
             {
+                var colonIndex = line.IndexOf(':');
+                if (colonIndex == -1) return null;
+                
                 // Format: *MMCCC: NNNNNNNN where MM is measure, CCC is channel
-                if (line.Length >= 6 && line.StartsWith("*"))
+                if (line.StartsWith("*"))
                 {
-                    var measureStr = line.Substring(1, 2);
-                    if (int.TryParse(measureStr, out int measure))
+                    var measureChannelPart = line.Substring(1, colonIndex - 1);
+                    if (measureChannelPart.Length >= 5) // At least MMCCC
                     {
-                        return measure;
+                        var measureStr = measureChannelPart.Substring(0, measureChannelPart.Length - 3); // Remove CCC to get MM
+                        if (int.TryParse(measureStr, out int measure))
+                        {
+                            return measure;
+                        }
                     }
                 }
-                // Format: #MMCCC: NNNNNNNN where MM is measure (first 3 digits), CCC is channel (last 2 digits)
-                else if (line.Length >= 6 && line.StartsWith("#"))
+                // Format: #MMCCC: NNNNNNNN where MMM is measure (3 digits), CC is channel (2 hex digits)
+                else if (line.StartsWith("#"))
                 {
-                    var measurePart = line.Substring(1, 3); // First 3 digits are measure
-                    if (int.TryParse(measurePart, out int measure))
+                    var measureChannelPart = line.Substring(1, colonIndex - 1);
+                    if (measureChannelPart.Length == 5) // Exactly MMMCC format
                     {
-                        return measure;
+                        var measureStr = measureChannelPart.Substring(0, 3); // First 3 chars = measure
+                        if (int.TryParse(measureStr, out int measure))
+                        {
+                            return measure;
+                        }
                     }
                 }
             }
@@ -697,6 +816,175 @@ namespace DTX.Song
             totalTime += 0.5;
             
             return totalTime;
+        }
+        
+        /// <summary>
+        /// Parses the channel number from a measure line
+        /// </summary>
+        private int? ParseChannelFromLine(string line)
+        {
+            try
+            {
+                var colonIndex = line.IndexOf(':');
+                if (colonIndex == -1) return null;
+                
+                // Format: *MMCCC: NNNNNNNN where MM is measure, CCC is channel (hex)
+                if (line.StartsWith("*"))
+                {
+                    var measureChannelPart = line.Substring(1, colonIndex - 1);
+                    if (measureChannelPart.Length >= 5) // At least MMCCC
+                    {
+                        var channelStr = measureChannelPart.Substring(measureChannelPart.Length - 3); // Last 3 chars are CCC
+                        if (int.TryParse(channelStr, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int channel))
+                        {
+                            return channel;
+                        }
+                    }
+                }
+                // Format: #MMCCC: NNNNNNNN where MMM is measure (3 digits), CC is channel (2 hex digits)
+                else if (line.StartsWith("#"))
+                {
+                    var measureChannelPart = line.Substring(1, colonIndex - 1);
+                    if (measureChannelPart.Length == 5) // Exactly MMMCC format
+                    {
+                        var channelStr = measureChannelPart.Substring(3, 2); // Last 2 chars are CC
+                        if (int.TryParse(channelStr, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int channel))
+                        {
+                            return channel;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Invalid format, ignore
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// Counts the number of notes in a measure line
+        /// DTX format: each pair of characters represents one note position
+        /// </summary>
+        private int CountNotesInLine(string line)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1 || colonIndex + 1 >= line.Length) return 0;
+            
+            var noteData = line.Substring(colonIndex + 1).Trim();
+            int noteCount = 0;
+            
+            // DTX uses pairs of characters to represent notes
+            // Process in pairs: 00, 11, 22, etc.
+            for (int i = 0; i < noteData.Length; i += 2)
+            {
+                if (i + 1 < noteData.Length)
+                {
+                    var pair = noteData.Substring(i, 2);
+                    // Count non-zero pairs as notes (00 = no note, anything else = note)
+                    if (pair != "00" && !string.IsNullOrWhiteSpace(pair))
+                    {
+                        noteCount++;
+                    }
+                }
+            }
+            
+            return noteCount;
+        }
+        
+        /// <summary>
+        /// Checks if a channel is a drum channel
+        /// DTX drum channels: 11, 12, 13, 14, 15, 16, 17, 18, 19, 1A, 1B, 1C (hex)
+        /// </summary>
+        private bool IsDrumChannel(int channel)
+        {
+            // Specific drum channels as provided by user
+            return channel == 0x11 || channel == 0x12 || channel == 0x13 || channel == 0x14 ||
+                   channel == 0x15 || channel == 0x16 || channel == 0x17 || channel == 0x18 ||
+                   channel == 0x19 || channel == 0x1A || channel == 0x1B || channel == 0x1C;
+        }
+        
+        /// <summary>
+        /// Checks if a channel is a guitar channel
+        /// Currently disabled since user reports all charts are drum-only
+        /// </summary>
+        private bool IsGuitarChannel(int channel)
+        {
+            return false; // All charts are drum-only, ignore guitar channels
+        }
+        
+        /// <summary>
+        /// Checks if a channel is a bass channel
+        /// Currently disabled since user reports all charts are drum-only
+        /// </summary>
+        private bool IsBassChannel(int channel)
+        {
+            return false; // All charts are drum-only, ignore bass channels
+        }
+        
+        /// <summary>
+        /// Parses BPM change data from a measure line (channel 08)
+        /// </summary>
+        private double? ParseBPMChangeFromMeasure(string line)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1 || colonIndex + 1 >= line.Length) return null;
+            
+            var noteData = line.Substring(colonIndex + 1).Trim();
+            
+            // DTX BPM changes use pairs of characters that reference BPM01, BPM02, etc.
+            // Find the first non-zero pair
+            for (int i = 0; i < noteData.Length; i += 2)
+            {
+                if (i + 1 < noteData.Length)
+                {
+                    var pair = noteData.Substring(i, 2);
+                    if (pair != "00" && !string.IsNullOrWhiteSpace(pair))
+                    {
+                        // Try to parse as hex to get BPM reference number
+                        if (int.TryParse(pair, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int bpmRef))
+                        {
+                            // This references #BPM01, #BPM02, etc. - we need to look up the actual BPM value
+                            // For now, return the reference number so we can match it with header BPM definitions
+                            return bpmRef;
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
+        /// <summary>
+        /// Parses measure length change data from a measure line (channel 02)
+        /// </summary>
+        private double? ParseMeasureLengthFromMeasure(string line)
+        {
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1 || colonIndex + 1 >= line.Length) return null;
+            
+            var noteData = line.Substring(colonIndex + 1).Trim();
+            
+            // DTX measure length changes use pairs that reference length definitions
+            // Find the first non-zero pair
+            for (int i = 0; i < noteData.Length; i += 2)
+            {
+                if (i + 1 < noteData.Length)
+                {
+                    var pair = noteData.Substring(i, 2);
+                    if (pair != "00" && !string.IsNullOrWhiteSpace(pair))
+                    {
+                        // Try to parse as hex to get length reference number
+                        if (int.TryParse(pair, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int lengthRef))
+                        {
+                            // This references length definitions - return the reference number
+                            return lengthRef;
+                        }
+                    }
+                }
+            }
+            
+            return null;
         }
 
         #endregion

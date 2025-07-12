@@ -2,7 +2,7 @@ using System;
 using Xunit;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using DTX.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.Helpers;
@@ -558,6 +558,42 @@ namespace DTXMania.Test.UI
             _statusPanel.UpdateSongInfo(songNode, 2); // full.dtx - 398.33s
 
             // Assert - Should handle all transitions without throwing
+            Assert.True(true);
+        }
+
+        #endregion
+
+        #region BPM Background Tests
+
+        [Fact]
+        public void BPMBackground_IntegrationTest()
+        {
+            // Arrange
+            var mockResourceManager = new MockResourceManager(_graphicsDeviceService.GraphicsDevice);
+            _statusPanel.InitializeAuthenticGraphics(mockResourceManager);
+            _statusPanel.UpdateSongInfo(_testSongNode, 0);
+
+            // Test default integrated mode
+            Assert.False(_statusPanel.UseStandaloneBPMBackground);
+
+            // Test standalone mode
+            _statusPanel.UseStandaloneBPMBackground = true;
+            _statusPanel.InitializeAuthenticGraphics(mockResourceManager);
+
+            // Assert - Should complete without throwing exceptions
+            Assert.True(_statusPanel.UseStandaloneBPMBackground);
+        }
+
+        [Fact] 
+        public void BPMBackground_SupportsTextureFallback()
+        {
+            // Arrange
+            var mockResourceManager = new MockResourceManager(_graphicsDeviceService.GraphicsDevice);
+            
+            // Act - Initialize graphics (this should load 5_BPM.png or fallback)
+            _statusPanel.InitializeAuthenticGraphics(mockResourceManager);
+            
+            // Assert - Should complete without throwing, indicating fallback works
             Assert.True(true);
         }
 

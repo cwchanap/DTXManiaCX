@@ -1,7 +1,7 @@
 using DTX.Config;
 using DTX.Graphics;
 using DTX.UI;
-using DTX.UI.Components;
+using DTX.Song.Components;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;

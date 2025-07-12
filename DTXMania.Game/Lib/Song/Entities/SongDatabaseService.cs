@@ -388,6 +388,22 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .OrderBy(s => s.Title)
                 .ToListAsync();
         }
+
+        /// Get a song by ID with all its charts
+        public async Task<(SongEntity song, SongChart[] charts)?> GetSongWithChartsAsync(int songId)
+        {
+            using var context = CreateContext();
+
+            var song = await context.Songs
+                .Include(s => s.Charts)
+                .FirstOrDefaultAsync(s => s.Id == songId);
+
+            if (song == null)
+                return null;
+
+            return (song, song.Charts.ToArray());
+        }
+
         /// Update a song score
         public async Task UpdateScoreAsync(int chartId, EInstrumentPart instrument, int newScore, double achievementRate, bool fullCombo)
         {

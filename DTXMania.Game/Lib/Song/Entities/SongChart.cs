@@ -321,5 +321,86 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
         
         #endregion
+        
+        #region Note Count Calculation Methods
+        
+        /// <summary>
+        /// Gets the total note count for a specific instrument
+        /// Consolidates note count logic for UI components
+        /// </summary>
+        /// <param name="instrument">Instrument name (DRUMS, GUITAR, BASS)</param>
+        /// <returns>Note count for the specified instrument, or 0 if not available</returns>
+        public int GetInstrumentNoteCount(string instrument)
+        {
+            if (string.IsNullOrEmpty(instrument))
+                return 0;
+                
+            return instrument.ToUpperInvariant() switch
+            {
+                "DRUMS" => DrumNoteCount,
+                "GUITAR" => GuitarNoteCount,
+                "BASS" => BassNoteCount,
+                _ => 0
+            };
+        }
+        
+        /// <summary>
+        /// Gets the total note count for a specific instrument part enum
+        /// </summary>
+        /// <param name="instrumentPart">Instrument part enum</param>
+        /// <returns>Note count for the specified instrument part</returns>
+        public int GetInstrumentNoteCount(DTXMania.Game.Lib.Song.Entities.EInstrumentPart instrumentPart)
+        {
+            return instrumentPart switch
+            {
+                DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS => DrumNoteCount,
+                DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR => GuitarNoteCount,
+                DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS => BassNoteCount,
+                _ => 0
+            };
+        }
+        
+        /// <summary>
+        /// Gets note count statistics for display purposes
+        /// </summary>
+        /// <returns>Tuple containing (TotalNotes, DrumNotes, GuitarNotes, BassNotes)</returns>
+        public (int Total, int Drums, int Guitar, int Bass) GetNoteCountStats()
+        {
+            return (TotalNoteCount, DrumNoteCount, GuitarNoteCount, BassNoteCount);
+        }
+        
+        /// <summary>
+        /// Checks if the chart has any notes for any instrument
+        /// </summary>
+        /// <returns>True if the chart has any notes, false otherwise</returns>
+        public bool HasAnyNotes()
+        {
+            return TotalNoteCount > 0;
+        }
+        
+        /// <summary>
+        /// Gets formatted note count string for display
+        /// </summary>
+        /// <param name="includeBreakdown">If true, includes breakdown by instrument</param>
+        /// <returns>Formatted note count string</returns>
+        public string GetFormattedNoteCount(bool includeBreakdown = false)
+        {
+            if (!HasAnyNotes())
+                return "No notes";
+                
+            if (!includeBreakdown)
+                return $"{TotalNoteCount:N0} notes";
+                
+            var parts = new List<string>();
+            if (DrumNoteCount > 0) parts.Add($"D:{DrumNoteCount:N0}");
+            if (GuitarNoteCount > 0) parts.Add($"G:{GuitarNoteCount:N0}");
+            if (BassNoteCount > 0) parts.Add($"B:{BassNoteCount:N0}");
+            
+            return parts.Count > 0 
+                ? $"{TotalNoteCount:N0} total ({string.Join(", ", parts)})"
+                : $"{TotalNoteCount:N0} notes";
+        }
+        
+        #endregion
     }
 }
