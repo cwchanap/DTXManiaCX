@@ -22,6 +22,7 @@ namespace DTX.Song.Components
     {
         #region Fields
 
+        private readonly object _updateLock = new object();
         private SongListNode _currentSong;
         private int _currentDifficulty;
         private SpriteFont _font;
@@ -171,8 +172,9 @@ namespace DTX.Song.Components
             {
                 _bpmBackgroundTexture = _resourceManager.LoadTexture(TexturePath.BpmBackground);
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load BPM background texture: {ex.Message}");
                 _bpmBackgroundTexture = null;
             }
         }
@@ -232,7 +234,7 @@ namespace DTX.Song.Components
         public void UpdateSongInfo(SongListNode song, int difficulty)
         {
             // Force immediate state update - no lazy updates
-            lock (this)
+            lock (_updateLock)
             {
                 _currentSong = song;
                 _currentDifficulty = difficulty;
@@ -281,14 +283,12 @@ namespace DTX.Song.Components
             {
                 DrawSongInfo(spriteBatch, bounds);
             }
-            else if (_font != null || _managedFont != null)
+            else
             {
                 DrawNoSongMessage(spriteBatch, bounds);
-            }            else
-            {
-                // Fallback rendering when no fonts are available
-                DrawNoSongMessage(spriteBatch, bounds);
-            }            base.OnDraw(spriteBatch, deltaTime);
+            }
+            
+            base.OnDraw(spriteBatch, deltaTime);
         }
 
         #endregion
@@ -352,7 +352,7 @@ namespace DTX.Song.Components
             SongListNode currentSong;
             int currentDifficulty;
             
-            lock (this)
+            lock (_updateLock)
             {
                 currentSong = _currentSong;
                 currentDifficulty = _currentDifficulty;
@@ -365,74 +365,44 @@ namespace DTX.Song.Components
             
             if (songType == NodeType.Score && (scoresLength > 0 || hasDatabase))
             {
-                // Temporarily update the fields for the drawing methods (they expect _currentSong to be set)
-                var originalSong = _currentSong;
-                var originalDifficulty = _currentDifficulty;
-                _currentSong = currentSong;
-                _currentDifficulty = currentDifficulty;
-                
-                try
-                {
-                    // Draw DTXManiaNX authentic layout
-                    DrawDTXManiaNXLayout(spriteBatch, bounds);
-                }
-                finally
-                {
-                    // Restore original state
-                    _currentSong = originalSong;
-                    _currentDifficulty = originalDifficulty;
-                }
+                // Draw DTXManiaNX authentic layout
+                DrawDTXManiaNXLayout(spriteBatch, bounds, currentSong, currentDifficulty);
             }
             else
             {
-                // Temporarily update the fields for the drawing methods
-                var originalSong = _currentSong;
-                var originalDifficulty = _currentDifficulty;
-                _currentSong = currentSong;
-                _currentDifficulty = currentDifficulty;
-                
-                try
-                {
-                    // Draw simplified info for non-score items
-                    DrawSimplifiedInfo(spriteBatch, bounds);
-                }
-                finally
-                {
-                    // Restore original state
-                    _currentSong = originalSong;
-                    _currentDifficulty = originalDifficulty;
-                }
+                // Draw simplified info for non-score items
+                DrawSimplifiedInfo(spriteBatch, bounds, currentSong, currentDifficulty);
             }
         }
 
-        private void DrawDTXManiaNXLayout(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawDTXManiaNXLayout(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             // Draw BPM and song duration section (top area)
-            DrawBPMSection(spriteBatch, bounds);
+            DrawBPMSection(spriteBatch, bounds, currentSong, currentDifficulty);
 
             // Draw skill point section (above BPM)
-            DrawSkillPointSection(spriteBatch, bounds);
+            DrawSkillPointSection(spriteBatch, bounds, currentSong, currentDifficulty);
 
             // Draw 3×5 difficulty grid (main area)
-            DrawDifficultyGrid(spriteBatch, bounds);
+            DrawDifficultyGrid(spriteBatch, bounds, currentSong, currentDifficulty);
 
             // Draw graph panel area (bottom area)
             DrawGraphPanel(spriteBatch, bounds);
         }
 
-        private void DrawSimplifiedInfo(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawSimplifiedInfo(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             var padding = SongSelectionUILayout.Spacing.CellPadding;
             float y = bounds.Y + padding;
             float x = bounds.X + padding;
 
             // Draw song type indicator
-            DrawSongTypeInfo(spriteBatch, ref x, ref y, bounds.Width - (padding * 2));
+            DrawSongTypeInfo(spriteBatch, ref x, ref y, bounds.Width - (padding * 2), currentSong, currentDifficulty);
         }
 
-        private void DrawSongTypeInfo(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
+        private void DrawSongTypeInfo(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth, SongListNode currentSong, int currentDifficulty)
         {
-            string typeText = _currentSong.Type switch
+            string typeText = currentSong.Type switch
             {
                 NodeType.Score => "♪ SONG",
                 NodeType.Box => "📁 FOLDER",
@@ -445,7 +415,7 @@ namespace DTX.Song.Components
             y += LINE_HEIGHT + SECTION_SPACING;
 
             // Draw title
-            var title = _currentSong.DisplayTitle ?? "Unknown";
+            var title = currentSong.DisplayTitle ?? "Unknown";
             if (title.Length > 30)
                 title = title.Substring(0, 27) + "...";
 
@@ -457,7 +427,7 @@ namespace DTX.Song.Components
         {
             // Use EF Core entities instead of legacy metadata
             var song = _currentSong?.DatabaseSong;
-            var chart = GetCurrentDifficultyChart();
+            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
             
             if (song == null && chart == null)
             {
@@ -510,7 +480,7 @@ namespace DTX.Song.Components
             y += LINE_HEIGHT;
 
             // Use EF Core entities instead of legacy metadata
-            var chart = GetCurrentDifficultyChart();
+            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
             if (chart != null)
             {
                 // Show available instruments with their difficulty levels and note counts
@@ -565,9 +535,9 @@ namespace DTX.Song.Components
             y += SECTION_SPACING;
         }
 
-        private void DrawPerformanceStats(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
+        private void DrawPerformanceStats(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth, SongListNode currentSong, int currentDifficulty)
         {
-            var score = GetCurrentScore();
+            var score = GetCurrentScore(currentSong, currentDifficulty);
             if (score == null)
                 return;
 
@@ -613,10 +583,10 @@ namespace DTX.Song.Components
 
         #region DTXManiaNX Authentic Layout Methods
 
-        private void DrawBPMSection(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawBPMSection(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             // Get the chart for the current difficulty, not just the primary chart
-            var chart = GetCurrentDifficultyChart();
+            var chart = GetCurrentDifficultyChart(currentSong, currentDifficulty);
             if (chart == null)
                 return;
 
@@ -731,9 +701,9 @@ namespace DTX.Song.Components
             }
         }
 
-        private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
-            var score = GetCurrentScore();
+            var score = GetCurrentScore(currentSong, currentDifficulty);
             if (score == null)
                 return;
 
@@ -754,7 +724,7 @@ namespace DTX.Song.Components
             DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, skillValuePosition, Color.Yellow);
         }
 
-        private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             // Draw difficulty panel background texture if available
             if (_difficultyPanelTexture != null)
@@ -902,8 +872,8 @@ namespace DTX.Song.Components
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
         {
             // Get the chart for the current difficulty level
-            var chart = GetCurrentDifficultyChart();
-            var score = GetCurrentScore();
+            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
+            var score = GetCurrentScore(_currentSong, _currentDifficulty);
             if (chart == null)
                 return;
 
@@ -1111,12 +1081,12 @@ namespace DTX.Song.Components
             }
         }
 
-        private SongScore GetCurrentScore()
+        private SongScore GetCurrentScore(SongListNode currentSong, int currentDifficulty)
         {
-            if (_currentSong?.Scores == null || _currentDifficulty < 0 || _currentDifficulty >= _currentSong.Scores.Length)
+            if (currentSong?.Scores == null || currentDifficulty < 0 || currentDifficulty >= currentSong.Scores.Length)
                 return null;
 
-            return _currentSong.Scores[_currentDifficulty];
+            return currentSong.Scores[currentDifficulty];
         }
 
         private string GetDifficultyName(int difficulty)
@@ -1137,7 +1107,7 @@ namespace DTX.Song.Components
             // First, try to use the score's instrument type property if available
             if (score != null)
             {
-                var chart = score.Chart ?? GetCurrentDifficultyChart();
+                var chart = score.Chart ?? GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
                 if (chart != null)
                 {
                     return score.Instrument switch
@@ -1151,7 +1121,7 @@ namespace DTX.Song.Components
             }
             
             // Fallback to chart-based lookup using difficulty index if score instrument is not available
-            var fallbackChart = GetCurrentDifficultyChart();
+            var fallbackChart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
             if (fallbackChart != null)
             {
                 return difficulty switch
@@ -1198,56 +1168,6 @@ namespace DTX.Song.Components
             // For DTXMania, all difficulties (0-4) typically represent different difficulty levels for the same instrument
             // Default to DRUMS as the primary instrument, but this could be made configurable
             return "DRUMS";
-        }
-
-        private SongScore GetScoreForDifficultyAndInstrument(int difficultyLevel, int instrument)
-        {
-            // For now, use the current score system
-            // In a full implementation, this would map to the specific instrument/difficulty combination
-            if (_currentSong?.Scores != null && difficultyLevel >= 0 && difficultyLevel < _currentSong.Scores.Length)
-            {
-                return _currentSong.Scores[difficultyLevel];
-            }
-            return null;
-        }
-
-        private string GetDifficultyLevelForInstrument(SongScore score, int instrument)
-        {
-            // Get level from EF Core chart
-            var chart = GetCurrentDifficultyChart();
-            if (chart != null)
-            {
-                var level = instrument switch
-                {
-                    0 => chart.DrumLevel, // Drums
-                    1 => chart.GuitarLevel, // Guitar
-                    2 => chart.BassLevel, // Bass
-                    _ => 0
-                };
-                
-                if (level > 0)
-                {
-                    // Convert from integer format (e.g. 560) to decimal format (e.g. 5.60)
-                    // Fix: 56 should display as 5.60, and use F1 for trailing zero
-                    return (level / 10.0).ToString("F1");
-                }
-            }
-            
-            return "--";
-        }
-
-        private Color GetRankColor(int rank)
-        {
-            return rank switch
-            {
-                >= 95 => Color.Gold, // SS
-                >= 90 => Color.Silver, // S
-                >= 80 => Color.LightBlue, // A
-                >= 70 => Color.Green, // B
-                >= 60 => Color.Yellow, // C
-                >= 50 => Color.Orange, // D
-                _ => Color.Red // E
-            };
         }
 
         private Color GetDrumLaneColor(int lane)
@@ -1300,20 +1220,20 @@ namespace DTX.Song.Components
         /// <summary>
         /// Gets the chart for the current difficulty level
         /// </summary>
-        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart()
+        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart(SongListNode currentSong, int currentDifficulty)
         {
             // If no song is selected, return null
-            if (_currentSong?.DatabaseSong == null)
+            if (currentSong?.DatabaseSong == null)
             {
                 return null;
             }
             
             // Get all charts for this song
-            var allCharts = _currentSong.DatabaseSong.Charts?.ToList();
+            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
             
             if (allCharts == null || allCharts.Count == 0)
             {
-                var fallbackChart = _currentSong.DatabaseChart;
+                var fallbackChart = currentSong.DatabaseChart;
                 return fallbackChart; // Fallback to primary chart
             }
 
@@ -1360,7 +1280,7 @@ namespace DTX.Song.Components
             // Map difficulty index to chart index
             // For all instruments: 0=basic (lowest), 1=advanced, 2=extreme, 3=master, 4=ultimate (highest)
             // Map difficulty 0-4 to available charts sorted by level
-            int chartIndex = Math.Clamp(_currentDifficulty, 0, sortedCharts.Count - 1);
+            int chartIndex = Math.Clamp(currentDifficulty, 0, sortedCharts.Count - 1);
 
             var selectedChart = sortedCharts[chartIndex];
 
@@ -1448,7 +1368,7 @@ namespace DTX.Song.Components
 
             // Get current instrument and chart
             var currentInstrument = GetInstrumentFromDifficulty(_currentDifficulty);
-            var currentChart = GetCurrentDifficultyChart();
+            var currentChart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
 
             // Check if this is the current instrument and chart
             return currentInstrument.Equals(chartInfo.InstrumentName, StringComparison.OrdinalIgnoreCase) &&

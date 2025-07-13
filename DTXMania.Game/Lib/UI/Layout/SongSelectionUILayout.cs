@@ -35,7 +35,7 @@ namespace DTX.UI.Layout
         public static class BPMSection
         {
             public const int X = 32;  // Relative to status panel
-            public const int Y = 258; // Absolute Y position´
+            public const int Y = 258; // Absolute Y position
             public const int Width = 200;
             public const int Height = 50;
             public const int LineSpacing = 20; // Space between Length and BPM text

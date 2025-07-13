@@ -57,10 +57,10 @@ namespace DTXMania.Test.Song
         }
 
         [Theory]
-        [InlineData(@"C:\Songs\test.dtx", true)]
-        [InlineData(@"C:\Songs\test.gda", true)]
-        [InlineData(@"C:\Songs\test.bms", true)]
-        [InlineData(@"C:\Songs\test.txt", false)]
+        [InlineData("test.dtx", true)]
+        [InlineData("test.gda", true)]
+        [InlineData("test.bms", true)]
+        [InlineData("test.txt", false)]
         [InlineData(@"C:\Songs\test", false)]
         [InlineData("", false)]
         [InlineData(null, false)]
@@ -114,7 +114,7 @@ namespace DTXMania.Test.Song
         {
             // Arrange
             var parser = new DTXMetadataParser();
-            var nonExistentFile = @"C:\NonExistent\test.dtx";
+            var nonExistentFile = Path.Combine(Path.GetTempPath(), "NonExistent", "test.dtx");
 
             // Act & Assert
             await Assert.ThrowsAsync<FileNotFoundException>(() => 

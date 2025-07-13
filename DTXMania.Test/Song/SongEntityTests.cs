@@ -317,7 +317,7 @@ namespace DTXMania.Test.Song
             // Arrange
             var original = new SongChart
             {
-                FilePath = @"C:\Songs\test.dtx",
+                FilePath = Path.Combine("Songs", "test.dtx"),
                 FileFormat = ".dtx",
                 FileSize = 1024,
                 Bpm = 120.5,
