@@ -98,8 +98,9 @@ namespace DTX.Song
             {
                 await ParseFileHeaderToEntitiesAsync(filePath, song, chart);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"DTXMetadataParser: Failed to parse file header for {filePath}: {ex.Message}");
                 // Return entities with basic file info even if parsing fails
                 if (string.IsNullOrEmpty(song.Title))
                 {
@@ -193,8 +194,9 @@ namespace DTX.Song
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Debug.WriteLine($"DTXMetadataParser: Failed to parse with encoding {encoding.EncodingName}: {ex.Message}");
                     continue;
                 }
             }
@@ -514,11 +516,7 @@ namespace DTX.Song
                 int guitarNoteCount = 0;
                 int bassNoteCount = 0;
                 
-                // Determine instrument type from filename
-                var fileName = Path.GetFileNameWithoutExtension(filePath).ToLowerInvariant();
-                bool isDrumChart = fileName.Contains("mas") || fileName.Contains("adv") || fileName.Contains("ext");
-                bool isBassChart = fileName.Contains("bas");
-                bool isGuitarChart = fileName.Contains("gui") || fileName.Contains("gtr");
+                // Note: Instrument type determination removed as it was unused
                 
                 string line;
                 bool inDataSection = false;
@@ -671,8 +669,9 @@ namespace DTX.Song
                     Debug.WriteLine($"DTXMetadataParser: Final results - Duration: {totalDuration:F2}s, LastMeasure: {lastMeasureInFile}, LastWithNotes: {lastMeasureWithNotes}, Notes: D{drumNoteCount} G{guitarNoteCount} B{bassNoteCount}");
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"DTXMetadataParser: Failed to calculate duration and notes: {ex.Message}");
                 // Duration remains 0 on error
             }
         }
