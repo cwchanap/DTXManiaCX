@@ -1,12 +1,8 @@
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
-using DTX.Song;
 using DTX.Resources;
 
 namespace DTX.Song.Components
@@ -131,7 +127,7 @@ namespace DTX.Song.Components
         public override void Update(double deltaTime)
         {
             base.Update(deltaTime);
-            
+
             // Update display delay counter
             if (_displayDelay < DISPLAY_DELAY_SECONDS)
             {
@@ -191,7 +187,7 @@ namespace DTX.Song.Components
                 if (_resourceManager != null)
                 {
                     _defaultPreviewTexture = _resourceManager.LoadTexture(TexturePath.DefaultPreview);
-                    
+
                     // Verify the loaded texture is valid
                     if (_defaultPreviewTexture != null && _defaultPreviewTexture.IsDisposed)
                     {
@@ -210,51 +206,6 @@ namespace DTX.Song.Components
             }
         }
 
-        private void LoadPreviewImageAsync()
-        {
-            var currentSong = _currentSong; // Capture current song to avoid race conditions
-
-            // Clear current preview immediately for responsive UI
-            _currentPreviewTexture = null;
-
-            // Use EF Core entities
-            var chart = currentSong?.DatabaseChart;
-            var previewImage = chart?.PreviewImage;
-            var songFilePath = chart?.FilePath;
-
-            if (string.IsNullOrEmpty(previewImage) || string.IsNullOrEmpty(songFilePath))
-            {
-                return;
-            }
-
-            try
-            {
-                var songDirectory = System.IO.Path.GetDirectoryName(songFilePath);
-                if (songDirectory != null)
-                {
-                    var previewPath = System.IO.Path.Combine(songDirectory, previewImage);
-
-
-                    if (System.IO.File.Exists(previewPath))
-                    {
-                        // Only update if this is still the current song (avoid race conditions)
-                        if (_currentSong == currentSong)
-                        {
-                            _currentPreviewTexture = _resourceManager?.LoadTexture(previewPath);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // Only log critical errors to reduce debug noise
-                if (ex is OutOfMemoryException || ex is System.IO.DirectoryNotFoundException)
-                {
-                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preview image for {currentSong?.Title}: {ex.Message}");
-                }
-            }
-        }
-
         /// <summary>
         /// Reset display delay when selection changes
         /// </summary>
@@ -268,7 +219,7 @@ namespace DTX.Song.Components
         /// </summary>
         private bool ShouldDisplayPreview()
         {
-            return _displayDelay >= DISPLAY_DELAY_SECONDS && 
+            return _displayDelay >= DISPLAY_DELAY_SECONDS &&
                    _currentSong?.Type == NodeType.Score &&
                    (_currentPreviewTexture != null || _defaultPreviewTexture != null);
         }
@@ -297,7 +248,7 @@ namespace DTX.Song.Components
             {
                 // Get the song directory from the node
                 string songDirectory = GetSongDirectoryFromNode(songNode);
-                
+
                 if (string.IsNullOrEmpty(songDirectory))
                 {
                     // Use default texture if available and not disposed
@@ -330,7 +281,7 @@ namespace DTX.Song.Components
                     try
                     {
                         _currentPreviewTexture = _resourceManager.LoadTexture(previewPath);
-                        
+
                         // Verify the loaded texture is valid
                         if (_currentPreviewTexture != null && _currentPreviewTexture.IsDisposed)
                         {
@@ -375,7 +326,7 @@ namespace DTX.Song.Components
         private string GetSongDirectoryFromNode(SongListNode songNode)
         {
             string songDirectory = null;
-            
+
             // Try to get song directory from DatabaseSong
             if (songNode.DatabaseSong?.Charts?.Count > 0)
             {
@@ -407,7 +358,7 @@ namespace DTX.Song.Components
                 try
                 {
                     var workingDir = Environment.CurrentDirectory;
-                    
+
                     var possiblePaths = new[]
                     {
                         System.IO.Path.GetFullPath(songDirectory), // From current directory
@@ -443,7 +394,7 @@ namespace DTX.Song.Components
         {
             string[] previewExtensions = { ".jpg", ".jpeg", ".png", ".bmp" };
             string[] previewNames = { "preview", "jacket", "banner" };
-            
+
             // Try to find preview image
             foreach (var name in previewNames)
             {

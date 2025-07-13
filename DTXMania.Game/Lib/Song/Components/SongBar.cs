@@ -2,10 +2,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.UI.Layout;
-using DTX.Song;
 using DTX.Resources;
 using System;
-using System.Collections.Generic;
 
 namespace DTX.Song.Components
 {
@@ -15,16 +13,6 @@ namespace DTX.Song.Components
     /// </summary>
     public class SongBar : UIElement
     {
-        #region Constants
-
-        // Using centralized layout constants from SongSelectionUILayout
-        private const int BAR_HEIGHT = SongSelectionUILayout.SongBars.BarHeight;
-        private const int PREVIEW_IMAGE_SIZE = SongSelectionUILayout.SongBars.PreviewImageSize;
-        private const int CLEAR_LAMP_WIDTH = SongSelectionUILayout.SongBars.ClearLampWidth;
-        private const int TEXT_PADDING = SongSelectionUILayout.SongBars.TextPadding;
-
-        #endregion
-
         #region Fields
 
         private SongListNode _songNode;
@@ -110,31 +98,6 @@ namespace DTX.Song.Components
                     UpdateVisualState();
                 }
             }
-        }
-
-        /// <summary>
-        /// Font for text rendering
-        /// </summary>
-        public SpriteFont Font
-        {
-            get => _font;
-            set
-            {
-                if (_font != value)
-                {
-                    _font = value;
-                    InvalidateTextures();
-                }
-            }
-        }
-
-        /// <summary>
-        /// White pixel texture for drawing backgrounds
-        /// </summary>
-        public Texture2D WhitePixel
-        {
-            get => _whitePixel;
-            set => _whitePixel = value;
         }
 
         #endregion
