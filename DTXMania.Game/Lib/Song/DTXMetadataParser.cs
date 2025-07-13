@@ -292,12 +292,12 @@ namespace DTX.Song
         private async Task ParseHeaderLinesToEntitiesAsync(StreamReader reader, DTXMania.Game.Lib.Song.Entities.Song song, SongChart chart)
         {
             string line;
-            var lineCount = 0;
             const int maxHeaderLines = 200; // Limit header parsing to first 200 lines
+            var processedHeaderLines = 0;
 
-            while ((line = await reader.ReadLineAsync()) != null && lineCount < maxHeaderLines)
+            while ((line = await reader.ReadLineAsync()) != null && processedHeaderLines < maxHeaderLines)
             {
-                lineCount++;
+                processedHeaderLines++;
                 
                 // Skip empty lines and comments
                 if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//"))
@@ -520,12 +520,9 @@ namespace DTX.Song
                 
                 string line;
                 bool inDataSection = false;
-                int lineCount = 0;
-                int processedLines = 0;
                 
                 while ((line = await reader.ReadLineAsync()) != null)
                 {
-                    lineCount++;
                     line = line.Trim();
                     
                     // Skip empty lines and comments
@@ -581,7 +578,6 @@ namespace DTX.Song
                     // Parse measure data: *MMCCC: NNNNNNNN or #MMCCC: NNNNNNNN
                     if ((line.StartsWith("*") || IsTimelineData(line)) && line.Contains(":"))
                     {
-                        processedLines++;
                         
                         var measure = ParseMeasureLine(line);
                         var hasNotes = HasNoteData(line);
