@@ -2,11 +2,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.UI.Layout;
-using DTX.Song;
 using DTX.Resources;
 using DTX.Utilities;
 using System;
-using System.Collections.Generic;
 using System.IO;
 
 namespace DTX.Song.Components
@@ -27,9 +25,6 @@ namespace DTX.Song.Components
         // Using centralized layout constants from SongSelectionUILayout
         private const int TITLE_TEXTURE_WIDTH = SongSelectionUILayout.SongBars.TitleTextureWidth;
         private const int TITLE_TEXTURE_HEIGHT = SongSelectionUILayout.SongBars.TitleTextureHeight;
-        private const int PREVIEW_IMAGE_SIZE = SongSelectionUILayout.SongBars.PreviewImageSize;
-        private const int CLEAR_LAMP_WIDTH = SongSelectionUILayout.SongBars.ClearLampWidth;
-        private const int CLEAR_LAMP_HEIGHT = SongSelectionUILayout.SongBars.ClearLampHeight;
         private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 500 * 1024; // 500KB
 
         #endregion
@@ -48,14 +43,6 @@ namespace DTX.Song.Components
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
         private SpriteBatch _spriteBatch;        // Clear lamp colors for different difficulties
-        private static readonly Color[] DifficultyColors = new[]
-        {
-            Color.Green,    // Difficulty 0 - Easy
-            Color.Yellow,   // Difficulty 1 - Normal  
-            Color.Orange,   // Difficulty 2 - Hard
-            Color.Red,      // Difficulty 3 - Expert
-            Color.Purple    // Difficulty 4 - Master
-        };
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
         private bool _isFastScrollMode = false;        private bool _disposed = false;
@@ -390,42 +377,6 @@ namespace DTX.Song.Components
             return null;
         }
 
-        private ITexture CreateClearLampTexture(SongListNode songNode, int difficulty)
-        {
-            if (_clearLampRenderTarget == null)
-                return null;            try
-            {
-                // Get clear status for this difficulty
-                var clearStatus = GetClearStatus(songNode, difficulty);
-                var lampColor = GetClearLampColor(clearStatus, difficulty);
-                
-                // Clear render target
-                _graphicsDevice.Clear(Color.Transparent);
-
-                // Render clear lamp
-                _spriteBatch.Begin();
-                
-                var lampBounds = new Rectangle(0, 0, CLEAR_LAMP_WIDTH, CLEAR_LAMP_HEIGHT);
-                _spriteBatch.Draw(_whitePixel, lampBounds, lampColor);
-                
-                _spriteBatch.End();
-
-                // Create texture wrapper
-                var texture2D = new Texture2D(_graphicsDevice, CLEAR_LAMP_WIDTH, CLEAR_LAMP_HEIGHT);
-                var data = new Color[CLEAR_LAMP_WIDTH * CLEAR_LAMP_HEIGHT];
-                _clearLampRenderTarget.GetData(data);
-                texture2D.SetData(data);
-
-                var cacheKey = GetClearLampCacheKey(songNode, difficulty);
-                return new ManagedTexture(_graphicsDevice, texture2D, $"clearlamp_{cacheKey}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to create clear lamp texture: {ex.Message}");
-                return null;
-            }
-        }
-
         private string GetTitleCacheKey(SongListNode songNode)
         {
             return $"{songNode.Type}_{songNode.DisplayTitle}_{songNode.GetHashCode()}";
@@ -477,20 +428,6 @@ namespace DTX.Song.Components
             }
             
             return ClearStatus.NotPlayed;
-        }
-
-        private Color GetClearLampColor(ClearStatus clearStatus, int difficulty)
-        {
-            var baseColor = difficulty < DifficultyColors.Length ? DifficultyColors[difficulty] : Color.Gray;
-
-            return clearStatus switch
-            {
-                ClearStatus.FullCombo => Color.Gold,
-                ClearStatus.Clear => baseColor,
-                ClearStatus.Failed => baseColor * 0.5f,
-                ClearStatus.NotPlayed => Color.Gray * 0.3f,
-                _ => Color.Gray * 0.3f
-            };
         }
 
         private BarType GetBarType(SongListNode songNode)

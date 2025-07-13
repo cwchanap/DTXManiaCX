@@ -642,19 +642,6 @@ namespace DTX.Song.Components
             }
         }
 
-        private void DrawSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter = false, int barIndex = 0)
-        {
-            // Use enhanced rendering only if we have both a renderer and a SpriteFont
-            if (_useEnhancedRendering && _barRenderer != null && _font != null)
-            {
-                DrawEnhancedSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
-            }
-            else
-            {
-                DrawBasicSongItem(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
-            }
-        }
-
         private void DrawSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
         {
             // Use enhanced rendering with perspective effects
@@ -665,23 +652,6 @@ namespace DTX.Song.Components
             else
             {
                 DrawBasicSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
-            }
-        }
-
-        private void DrawEnhancedSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
-        {
-            // Phase 2 Enhancement: Use bar information caching system
-            var barInfo = GetOrCreateBarInfo(node, _currentDifficulty, isSelected);
-
-            if (barInfo != null)
-            {
-                // Draw using cached bar information
-                DrawBarInfo(spriteBatch, barInfo, itemBounds, isSelected, isCenter);
-            }
-            else
-            {
-                // Fallback to original method if bar info generation fails
-                DrawEnhancedSongItemFallback(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex);
             }
         }
 
@@ -699,84 +669,6 @@ namespace DTX.Song.Components
             {
                 // Fallback to basic perspective rendering
                 DrawBasicSongItemWithPerspective(spriteBatch, node, itemBounds, isSelected, isCenter, barIndex, scaleFactor, opacityFactor);
-            }
-        }
-
-        private void DrawEnhancedSongItemFallback(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
-        {
-            // Get or create song bar for this item
-            var songBar = GetOrCreateSongBar(node, itemBounds, isSelected);
-
-            // Update song bar state with DTXManiaNX curved layout information
-            songBar.Position = new Vector2(itemBounds.X, itemBounds.Y);
-            songBar.Size = new Vector2(itemBounds.Width, itemBounds.Height);
-            songBar.IsSelected = isSelected;
-            songBar.IsCenter = isCenter;
-            songBar.CurrentDifficulty = _currentDifficulty;
-
-            // Generate textures if needed (these are cached by the renderer)
-            var titleTexture = _barRenderer.GenerateTitleTexture(node);
-            var previewTexture = _barRenderer.GeneratePreviewImageTexture(node);
-            var clearLampTexture = _barRenderer.GenerateClearLampTexture(node, _currentDifficulty);
-
-            songBar.SetTextures(titleTexture, previewTexture, clearLampTexture);
-
-            // Draw the song bar
-            songBar.Draw(spriteBatch, 0);
-        }
-
-        /// <summary>
-        /// Draw song bar using cached bar information (Phase 2 enhancement)
-        /// </summary>
-        private void DrawBarInfo(SpriteBatch spriteBatch, SongBarInfo barInfo, Rectangle itemBounds, bool isSelected, bool isCenter)
-        {
-            // Draw background using Phase 2 bar type specific graphics generator
-            if (_graphicsGenerator != null)
-            {
-                var backgroundTexture = _graphicsGenerator.GenerateBarTypeBackground(itemBounds.Width, itemBounds.Height, barInfo.BarType, isSelected, isCenter);
-                if (backgroundTexture != null)
-                {
-                    backgroundTexture.Draw(spriteBatch, new Vector2(itemBounds.X, itemBounds.Y));
-                }
-            }
-
-            // Draw clear lamp
-            if (barInfo.ClearLamp != null)
-            {
-                var lampDestRect = new Rectangle(itemBounds.X, itemBounds.Y, DTXManiaVisualTheme.Layout.ClearLampWidth, itemBounds.Height);
-                barInfo.ClearLamp.Draw(spriteBatch, lampDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
-            }
-
-            // Draw preview image
-            if (barInfo.PreviewImage != null)
-            {
-                var imageX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + 5;
-                var imageY = itemBounds.Y + (itemBounds.Height - DTXManiaVisualTheme.Layout.PreviewImageSize) / 2;
-                var imageDestRect = new Rectangle(imageX, imageY, DTXManiaVisualTheme.Layout.PreviewImageSize, DTXManiaVisualTheme.Layout.PreviewImageSize);
-                barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
-            }
-
-            // Draw title
-            if (barInfo.TitleTexture != null)
-            {
-                var textX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (barInfo.PreviewImage != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - barInfo.TitleTexture.Height) / 2;
-                var textPosition = new Vector2(textX, textY);
-                barInfo.TitleTexture.Draw(spriteBatch, textPosition);
-            }
-            else if (_font != null)
-            {
-                // Fallback to direct text rendering
-                var textX = itemBounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (barInfo.PreviewImage != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - _font.LineSpacing) / 2;
-                var textPosition = new Vector2(textX, textY);
-
-                // Draw shadow first
-                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset;
-                spriteBatch.DrawString(_font, barInfo.TitleString, shadowPosition, DTXManiaVisualTheme.FontEffects.SongTextShadowColor);
-
-                // Draw main text
-                spriteBatch.DrawString(_font, barInfo.TitleString, textPosition, barInfo.TextColor);
             }
         }
 
@@ -841,71 +733,6 @@ namespace DTX.Song.Components
                 // Draw main text with perspective
                 var textColor = barInfo.TextColor * opacityFactor;
                 spriteBatch.DrawString(_font, barInfo.TitleString, textPosition, textColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
-            }
-        }
-
-        private void DrawBasicSongItem(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex)
-        {
-            // Draw item background with DTXManiaNX curved layout styling
-            if (_whitePixel != null)
-            {
-                // Use different colors for center vs selected vs normal bars
-                Color backgroundColor;
-                if (isCenter)
-                {
-                    backgroundColor = Color.Gold * 0.8f; // Center bar gets gold highlight
-                }
-                else if (isSelected)
-                {
-                    backgroundColor = _selectedItemColor;
-                }
-                else
-                {
-                    backgroundColor = Color.DarkBlue * 0.3f; // Normal bars get subtle background
-                }
-
-                spriteBatch.Draw(_whitePixel, itemBounds, backgroundColor);
-
-                // Draw border for center bar
-                if (isCenter && _whitePixel != null)
-                {
-                    var borderColor = Color.Yellow;
-                    var borderThickness = 2;
-
-                    // Top border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, borderThickness), borderColor);
-                    // Bottom border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Bottom - borderThickness, itemBounds.Width, borderThickness), borderColor);
-                    // Left border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
-                    // Right border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.Right - borderThickness, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
-                }
-            }
-
-            // Draw text
-            var text = GetDisplayText(node);
-            var textColor = isCenter ? Color.White : (isSelected ? _selectedTextColor : _textColor);
-            var textPos = new Vector2(itemBounds.X + 10, itemBounds.Y + 5);
-
-            if (_font != null)
-            {
-                spriteBatch.DrawString(_font, text, textPos, textColor);
-            }
-            else if (_managedFont != null)
-            {
-                // Use managed font's drawing method
-                _managedFont.DrawString(spriteBatch, text, textPos, textColor);
-            }
-            else
-            {
-                // Fallback: draw a simple rectangle to show the item exists
-                if (_whitePixel != null)
-                {
-                    var fallbackColor = isSelected ? Color.Yellow : Color.Gray;
-                    var textBounds = new Rectangle(itemBounds.X + 10, itemBounds.Y + 5, itemBounds.Width - 20, itemBounds.Height - 10);
-                    spriteBatch.Draw(_whitePixel, textBounds, fallbackColor * 0.5f);
-                }
             }
         }
 
@@ -1091,26 +918,10 @@ namespace DTX.Song.Components
             }
         }
 
-        private SongBar GetOrCreateSongBar(SongListNode node, Rectangle bounds, bool isSelected)
-        {
-            var cacheKey = node.GetHashCode();
-
-            if (!_songBarCache.TryGetValue(cacheKey, out var songBar))
-            {
-                songBar = new SongBar
-                {
-                    SongNode = node,
-                    Font = _font,
-                    WhitePixel = _whitePixel
-                };
-                _songBarCache[cacheKey] = songBar;
-            }
-
-            return songBar;
-        }        /// <summary>
-                 /// Queue texture generation for bars entering view during scroll
-                 /// Implements circular buffer pattern - only regenerate for ONE bar entering view
-                 /// </summary>
+        /// <summary>
+        /// Queue texture generation for bars entering view during scroll
+        /// Implements circular buffer pattern - only regenerate for ONE bar entering view
+        /// </summary>
         private void QueueTextureGenerationForNewBars()
         {
             if (_currentList == null || _currentList.Count == 0)
