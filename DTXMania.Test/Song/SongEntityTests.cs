@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 

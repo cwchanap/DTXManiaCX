@@ -660,7 +660,7 @@ namespace DTX.Song.Components
                     if (fallbackTexture != null && !fallbackTexture.IsDisposed)
                     {
                         fallbackTexture.Draw(spriteBatch, position);
-                        fallbackTexture.Dispose(); // Dispose immediately as this is a one-time use texture
+                        // Note: Don't dispose here - texture is cached and managed by DefaultGraphicsGenerator
                     }
                 }
                 catch
