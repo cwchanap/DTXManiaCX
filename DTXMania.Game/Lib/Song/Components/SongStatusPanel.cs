@@ -2,12 +2,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.UI;
 using DTX.UI.Layout;
-using DTX.Song;
 using DTX.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using DTXMania.Game.Lib.Song.Entities;
 
 // Type alias for SongScore to use the EF Core entity
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
@@ -421,164 +419,6 @@ namespace DTX.Song.Components
 
             DrawTextWithShadow(spriteBatch, _font, title, new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
             y += LINE_HEIGHT + SECTION_SPACING;
-        }
-
-        private void DrawSongMetadata(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
-        {
-            // Use EF Core entities instead of legacy metadata
-            var song = _currentSong?.DatabaseSong;
-            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
-            
-            if (song == null && chart == null)
-            {
-                return;
-            }
-
-            // Artist
-            if (!string.IsNullOrEmpty(song?.Artist))
-            {
-                DrawLabelValue(spriteBatch, "Artist:", song.Artist, x, y);
-                y += LINE_HEIGHT;
-            }
-
-            // Genre
-            if (!string.IsNullOrEmpty(song?.Genre))
-            {
-                DrawLabelValue(spriteBatch, "Genre:", song.Genre, x, y);
-                y += LINE_HEIGHT;
-            }
-
-            // BPM
-            if (chart?.Bpm > 0)
-            {
-                DrawLabelValue(spriteBatch, "BPM:", chart.Bpm.ToString("F0"), x, y);
-                y += LINE_HEIGHT;
-            }
-
-            // Duration
-            if (chart?.Duration > 0)
-            {
-                var formattedDuration = FormatDuration(chart.Duration);
-                DrawLabelValue(spriteBatch, "Duration:", formattedDuration, x, y);
-                y += LINE_HEIGHT;
-            }
-
-            // Total notes using centralized SongChart methods
-            if (chart != null && chart.HasAnyNotes())
-            {
-                var formattedNotes = chart.GetFormattedNoteCount(true); // Include breakdown
-                DrawLabelValue(spriteBatch, "Total Notes:", formattedNotes, x, y);
-                y += LINE_HEIGHT;
-            }
-
-            y += SECTION_SPACING;
-        }
-
-        private void DrawDifficultyInfo(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth)
-        {
-            DrawTextWithShadow(spriteBatch, _font, "Difficulties:", new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusLabelText);
-            y += LINE_HEIGHT;
-
-            // Use EF Core entities instead of legacy metadata
-            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
-            if (chart != null)
-            {
-                // Show available instruments with their difficulty levels and note counts
-                var instruments = new[] { ("DRUMS", chart.DrumLevel, chart.DrumNoteCount, chart.HasDrumChart), 
-                                        ("GUITAR", chart.GuitarLevel, chart.GuitarNoteCount, chart.HasGuitarChart), 
-                                        ("BASS", chart.BassLevel, chart.BassNoteCount, chart.HasBassChart) };
-
-                foreach (var (instrument, level, noteCount, hasChart) in instruments)
-                {
-                    if (hasChart && level > 0)
-                    {
-                        var instrumentName = GetInstrumentDisplayName(instrument);
-                        var isCurrentInstrument = GetInstrumentFromDifficulty(_currentDifficulty) == instrument;
-
-                        var color = isCurrentInstrument ? DTXManiaVisualTheme.SongSelection.CurrentDifficultyIndicator : DTXManiaVisualTheme.SongSelection.StatusValueText;
-                        var prefix = isCurrentInstrument ? "► " : "  ";
-
-                        var text = $"{prefix}{instrumentName}: Lv.{level}";
-                        if (noteCount > 0)
-                        {
-                            // Use consistent formatting from SongChart
-                            text += $" ({noteCount:N0} notes)";
-                        }
-
-                        DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + INDENT, y), color);
-                        y += LINE_HEIGHT * 0.8f;
-                    }
-                }
-            }
-            else
-            {
-                // Fallback to old difficulty display for compatibility
-                for (int i = 0; i < 5; i++)
-                {
-                    if (_currentSong.Scores?.Length > i && _currentSong.Scores[i] != null)
-                    {
-                        var scoreItem = _currentSong.Scores[i];
-                        var difficultyName = GetDifficultyName(i);
-                        var level = GetDifficultyLevel(scoreItem, i);
-                        var isSelected = i == _currentDifficulty;
-
-                        var color = isSelected ? DTXManiaVisualTheme.SongSelection.CurrentDifficultyIndicator : DTXManiaVisualTheme.SongSelection.StatusValueText;
-                        var prefix = isSelected ? "► " : "  ";
-                        var text = $"{prefix}{difficultyName}: {level}";
-
-                        spriteBatch.DrawString(_smallFont ?? _font, text, new Vector2(x + INDENT, y), color);
-                        y += LINE_HEIGHT * 0.8f;
-                    }
-                }
-            }
-
-            y += SECTION_SPACING;
-        }
-
-        private void DrawPerformanceStats(SpriteBatch spriteBatch, ref float x, ref float y, float maxWidth, SongListNode currentSong, int currentDifficulty)
-        {
-            var score = GetCurrentScore(currentSong, currentDifficulty);
-            if (score == null)
-                return;
-
-            DrawTextWithShadow(spriteBatch, _font, "Performance:", new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusLabelText);
-            y += LINE_HEIGHT;
-
-            // Best score
-            if (score.BestScore > 0)
-            {
-                DrawLabelValue(spriteBatch, "Best Score:", score.BestScore.ToString("N0"), x + INDENT, y);
-                y += LINE_HEIGHT * 0.8f;
-            }
-
-            // Best rank
-            if (score.BestRank > 0)
-            {
-                var rankText = GetRankText(score.BestRank);
-                DrawLabelValue(spriteBatch, "Best Rank:", rankText, x + INDENT, y);
-                y += LINE_HEIGHT * 0.8f;
-            }
-
-            // Full combo status
-            if (score.FullCombo)
-            {
-                spriteBatch.DrawString(_smallFont ?? _font, "  ★ FULL COMBO", new Vector2(x + INDENT, y), Color.Gold);
-                y += LINE_HEIGHT * 0.8f;
-            }
-
-            // Play count
-            if (score.PlayCount > 0)
-            {
-                DrawLabelValue(spriteBatch, "Play Count:", score.PlayCount.ToString(), x + INDENT, y);
-                y += LINE_HEIGHT * 0.8f;
-            }
-
-            // Skill values
-            if (score.HighSkill > 0)
-            {
-                DrawLabelValue(spriteBatch, "High Skill:", score.HighSkill.ToString("F2"), x + INDENT, y);
-                y += LINE_HEIGHT * 0.8f;
-            }
         }
 
         #region DTXManiaNX Authentic Layout Methods
@@ -1029,30 +869,6 @@ namespace DTX.Song.Components
             );
             DrawTextWithShadow(spriteBatch, _font, message, messagePos, DTXManiaVisualTheme.SongSelection.StatusValueText);
         }
-        private void DrawLabelValue(SpriteBatch spriteBatch, string label, string value, float x, float y)
-        {
-            var font = _smallFont ?? _font;
-            var managedFont = _managedSmallFont ?? _managedFont;
-
-            DrawTextWithShadow(spriteBatch, font, label, new Vector2(x, y), DTXManiaVisualTheme.SongSelection.StatusLabelText);
-
-            // Calculate label width for positioning the value
-            Vector2 labelSize;
-            if (font != null)
-            {
-                labelSize = font.MeasureString(label);
-            }
-            else if (managedFont != null)
-            {
-                labelSize = managedFont.MeasureString(label);
-            }
-            else
-            {
-                labelSize = new Vector2(label.Length * 8, 16); // Rough estimate
-            }
-
-            DrawTextWithShadow(spriteBatch, font, value, new Vector2(x + labelSize.X + SongSelectionUILayout.Spacing.LabelValueSpacing, y), DTXManiaVisualTheme.SongSelection.StatusValueText);
-        }
 
         private void DrawTextWithShadow(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)
         {
@@ -1087,80 +903,6 @@ namespace DTX.Song.Components
                 return null;
 
             return currentSong.Scores[currentDifficulty];
-        }
-
-        private string GetDifficultyName(int difficulty)
-        {
-            return difficulty switch
-            {
-                0 => "Basic",
-                1 => "Advanced",
-                2 => "Extreme",
-                3 => "Master",
-                4 => "Ultimate",
-                _ => $"Diff {difficulty + 1}"
-            };
-        }
-
-        private string GetDifficultyLevel(SongScore score, int difficulty)
-        {
-            // First, try to use the score's instrument type property if available
-            if (score != null)
-            {
-                var chart = score.Chart ?? GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
-                if (chart != null)
-                {
-                    return score.Instrument switch
-                    {
-                        EInstrumentPart.DRUMS => chart.DrumLevel.ToString(),
-                        EInstrumentPart.GUITAR => chart.GuitarLevel.ToString(),
-                        EInstrumentPart.BASS => chart.BassLevel.ToString(),
-                        _ => "??"
-                    };
-                }
-            }
-            
-            // Fallback to chart-based lookup using difficulty index if score instrument is not available
-            var fallbackChart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
-            if (fallbackChart != null)
-            {
-                return difficulty switch
-                {
-                    0 => fallbackChart.DrumLevel.ToString(),
-                    1 => fallbackChart.GuitarLevel.ToString(),
-                    2 => fallbackChart.BassLevel.ToString(),
-                    3 => "??", // Master level not implemented yet
-                    4 => "??", // Ultimate level not implemented yet
-                    _ => "??"
-                };
-            }
-            
-            return "??";
-        }
-
-        private string GetRankText(int rank)
-        {
-            return rank switch
-            {
-                >= 95 => "SS",
-                >= 90 => "S",
-                >= 80 => "A",
-                >= 70 => "B",
-                >= 60 => "C",
-                >= 50 => "D",
-                _ => "E"
-            };
-        }
-
-        private string GetInstrumentDisplayName(string instrument)
-        {
-            return instrument.ToUpperInvariant() switch
-            {
-                "DRUMS" => "Drums",
-                "GUITAR" => "Guitar",
-                "BASS" => "Bass",
-                _ => instrument
-            };
         }
 
         private string GetInstrumentFromDifficulty(int difficulty)
