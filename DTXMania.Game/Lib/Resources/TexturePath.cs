@@ -62,6 +62,16 @@ namespace DTX.Resources
         /// </summary>
         public const string DifficultyFrame = "Graphics/5_difficulty frame.png";
         
+        /// <summary>
+        /// Graph panel texture for drums mode
+        /// </summary>
+        public const string GraphPanelDrums = "Graphics/5_graph panel drums.png";
+        
+        /// <summary>
+        /// Graph panel texture for guitar/bass mode
+        /// </summary>
+        public const string GraphPanelGuitarBass = "Graphics/5_graph panel guitar bass.png";
+        
         #endregion
         
         #region Font Textures
@@ -107,6 +117,8 @@ namespace DTX.Resources
                 BpmBackground,
                 DifficultyPanel,
                 DifficultyFrame,
+                GraphPanelDrums,
+                GraphPanelGuitarBass,
                 ConsoleFont,
                 ConsoleFontSecondary,
                 DefaultPreview
@@ -139,7 +151,9 @@ namespace DTX.Resources
                 SongStatusPanel,
                 BpmBackground,
                 DifficultyPanel,
-                DifficultyFrame
+                DifficultyFrame,
+                GraphPanelDrums,
+                GraphPanelGuitarBass
             };
         }
         

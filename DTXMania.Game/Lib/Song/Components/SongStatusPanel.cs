@@ -45,6 +45,10 @@ namespace DTX.Song.Components
         // Difficulty frame texture for 5_difficulty frame.png support (selection highlight)
         private ITexture _difficultyFrameTexture;
 
+        // Graph panel textures for 5_graph panel drums.png and 5_graph panel guitar bass.png support
+        private ITexture _graphPanelDrumsTexture;
+        private ITexture _graphPanelGuitarBassTexture;
+
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
         private Rectangle _cachedBackgroundSize;
@@ -143,6 +147,7 @@ namespace DTX.Song.Components
             LoadBPMBackgroundTexture();
             LoadDifficultyPanelTexture();
             LoadDifficultyFrameTexture();
+            LoadGraphPanelTextures();
         }
 
         private void LoadStatusPanelGraphics()
@@ -210,6 +215,35 @@ namespace DTX.Song.Components
             }
         }
 
+        /// <summary>
+        /// Load the authentic graph panel textures for drums and guitar/bass modes
+        /// </summary>
+        private void LoadGraphPanelTextures()
+        {
+            if (_resourceManager == null)
+                return;
+
+            try
+            {
+                _graphPanelDrumsTexture = _resourceManager.LoadTexture(TexturePath.GraphPanelDrums);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load graph panel drums texture: {ex.Message}");
+                _graphPanelDrumsTexture = null;
+            }
+
+            try
+            {
+                _graphPanelGuitarBassTexture = _resourceManager.LoadTexture(TexturePath.GraphPanelGuitarBass);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load graph panel guitar/bass texture: {ex.Message}");
+                _graphPanelGuitarBassTexture = null;
+            }
+        }
+
         #endregion
 
         #region Constructor
@@ -256,6 +290,9 @@ namespace DTX.Song.Components
                 _bpmBackgroundTexture = null;
                 // Note: Don't dispose _difficultyPanelTexture as it's managed by ResourceManager
                 _difficultyPanelTexture = null;
+                // Note: Don't dispose graph panel textures as they're managed by ResourceManager
+                _graphPanelDrumsTexture = null;
+                _graphPanelGuitarBassTexture = null;
             }
             base.Dispose(disposing);
         }
@@ -541,6 +578,69 @@ namespace DTX.Song.Components
             }
         }
 
+        /// <summary>
+        /// Draw graph panel background using authentic DTXManiaNX texture
+        /// </summary>
+        private void DrawGraphPanelBackground(SpriteBatch spriteBatch, Vector2 position, Vector2 size)
+        {
+            // Determine which texture to use based on instrument mode
+            var isDrumsMode = GetInstrumentFromDifficulty(_currentDifficulty) == "DRUMS";
+            var graphPanelTexture = isDrumsMode ? _graphPanelDrumsTexture : _graphPanelGuitarBassTexture;
+
+            // Try to use the authentic graph panel texture first
+            if (graphPanelTexture != null && !graphPanelTexture.IsDisposed)
+            {
+                try
+                {
+                    // Scale the texture to fit the panel bounds
+                    var sourceRect = new Rectangle(0, 0, graphPanelTexture.Width, graphPanelTexture.Height);
+                    var destinationRect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+                    graphPanelTexture.Draw(spriteBatch, destinationRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Texture was disposed, clear reference and draw fallback
+                    if (isDrumsMode)
+                        _graphPanelDrumsTexture = null;
+                    else
+                        _graphPanelGuitarBassTexture = null;
+                    
+                    DrawFallbackGraphPanelBackground(spriteBatch, position, size);
+                }
+            }
+            else
+            {
+                // Draw fallback background when authentic texture is unavailable
+                DrawFallbackGraphPanelBackground(spriteBatch, position, size);
+            }
+        }
+
+        /// <summary>
+        /// Draw fallback graph panel background when authentic texture is unavailable
+        /// </summary>
+        private void DrawFallbackGraphPanelBackground(SpriteBatch spriteBatch, Vector2 position, Vector2 size)
+        {
+            if (_whitePixel != null)
+            {
+                var rect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+                // Use a more subtle background instead of black
+                spriteBatch.Draw(_whitePixel, rect, Color.DarkGray * 0.3f);
+                
+                // Draw border
+                var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
+                var borderColor = Color.Gray;
+                
+                // Top border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, rect.Width, borderThickness), borderColor);
+                // Bottom border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Bottom - borderThickness, rect.Width, borderThickness), borderColor);
+                // Left border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, borderThickness, rect.Height), borderColor);
+                // Right border
+                spriteBatch.Draw(_whitePixel, new Rectangle(rect.Right - borderThickness, rect.Y, borderThickness, rect.Height), borderColor);
+            }
+        }
+
         private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             var score = GetCurrentScore(currentSong, currentDifficulty);
@@ -714,12 +814,16 @@ namespace DTX.Song.Components
             var notesCounterPosition = SongSelectionUILayout.GraphPanel.NotesCounterPosition;
             var progressBarPosition = SongSelectionUILayout.GraphPanel.ProgressBarPosition;
 
-            // Draw graph panel background (use authentic texture if available)
-            if (_whitePixel != null)
-            {
-                var graphRect = new Rectangle((int)graphPanelPosition.X, (int)graphPanelPosition.Y, (int)graphPanelSize.X, (int)graphPanelSize.Y);
-                spriteBatch.Draw(_whitePixel, graphRect, Color.Black * 0.5f);
-            }
+            // Align graph panel background Y coordinate and height with difficulty panel background
+            var difficultyPanelTopLeft = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+            // Calculate exact height: 5 difficulty levels × cell height = total height
+            var difficultyPanelHeight = 5 * SongSelectionUILayout.DifficultyGrid.CellSize.Y;
+            
+            var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, difficultyPanelTopLeft.Y);
+            var alignedGraphPanelSize = new Vector2(graphPanelSize.X, difficultyPanelHeight);
+
+            // Draw graph panel background using authentic DTXManiaNX texture with matching height
+            DrawGraphPanelBackground(spriteBatch, alignedGraphPanelPosition, alignedGraphPanelSize);
 
             // Draw total notes counter using centralized SongChart methods
             DrawNotesCounter(spriteBatch, chart, notesCounterPosition);
