@@ -918,6 +918,9 @@ namespace DTX.Song
                                         diffSong.Title = songTitle;
                                     }
 
+                                    // Set the chart difficulty level from SET.def (L1, L2, L3, L5 etc.)
+                                    diffChart.DifficultyLevel = level;
+
                                     // Add each difficulty to EF Core database if we have the database service
                                     if (_databaseService != null)
                                     {
