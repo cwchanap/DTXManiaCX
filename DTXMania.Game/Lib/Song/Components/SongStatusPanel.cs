@@ -868,13 +868,6 @@ namespace DTX.Song.Components
 
         private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int gridRow, int instrument, ChartLevelInfo chartInfo)
         {
-            // chartInfo is now guaranteed to be non-null since we skip empty cells in the grid loop
-            if (chartInfo == null)
-            {
-                System.Diagnostics.Debug.WriteLine("Warning: DrawDifficultyCellContent called with null chartInfo - this should not happen after optimization");
-                return;
-            }
-
             // Display the actual chart level from SET.def (divide by 10 for proper decimal format)
             var levelText = (chartInfo.Level / 10.0f).ToString("F2"); // Show 38 as "3.80", 60 as "6.00", etc.
             
@@ -892,16 +885,12 @@ namespace DTX.Song.Components
         {
             const int rightPadding = 4;
             
-            // Debug logging for bitmap font availability
-            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: DrawDifficultyText('{text}') - USE_SPRITE_FONT: {USE_SPRITE_FONT}, _levelNumberFont != null: {_levelNumberFont != null}, _levelNumberFont.IsLoaded: {_levelNumberFont?.IsLoaded ?? false}");
             
             // Determine if we should use bitmap font (when enabled and available)
             bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
             
             if (useBitmapFont)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using BITMAP FONT for '{text}'");
-                
                 // Use bitmap font rendering
                 var textSize = _levelNumberFont.MeasureText(text);
                 var textOffsetY = cellHeight - (int)textSize.Y;

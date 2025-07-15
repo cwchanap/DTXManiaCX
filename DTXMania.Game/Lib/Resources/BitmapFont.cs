@@ -28,6 +28,7 @@ namespace DTX.Resources
             public int SourceCharacterHeight { get; set; }
             public string[] TexturePaths { get; set; }
             public bool UseVariableWidths { get; set; } = false;
+            public int CharactersPerRow { get; set; } = 16;  // Number of characters per row in texture grid
         }
 
         #endregion
@@ -248,15 +249,14 @@ namespace DTX.Resources
                 
                 for (int charIndex = 0; charIndex < charCount; charIndex++)
                 {
-                    const int regionY = 16;
-                    
                     // Calculate character position in texture (DTXMania formula)
                     var sourceWidth = _config.SourceCharacterWidths?[0] ?? 8;
                     var sourceHeight = _config.SourceCharacterHeight;
+                    var charactersPerRow = _config.CharactersPerRow;
                     
                     _characterRectangles[charIndex] = new Rectangle(
-                        (charIndex % regionY) * sourceWidth,
-                        (charIndex / regionY) * sourceHeight,
+                        (charIndex % charactersPerRow) * sourceWidth,
+                        (charIndex / charactersPerRow) * sourceHeight,
                         sourceWidth,
                         sourceHeight
                     );
@@ -347,13 +347,13 @@ namespace DTX.Resources
         /// <returns>Width in pixels</returns>
         private int GetCharacterWidth(int charIndex)
         {
-            if (_config.UseVariableWidths && _config.CharacterWidths != null)
+            if (_config.UseVariableWidths && _config.CharacterWidths != null && _config.CharacterWidths.Length > 0)
             {
                 return charIndex < _config.CharacterWidths.Length ? _config.CharacterWidths[charIndex] : _config.CharacterWidths[0];
             }
             else
             {
-                return _config.CharacterWidths?[0] ?? 8; // Default console font width
+                return (_config.CharacterWidths != null && _config.CharacterWidths.Length > 0) ? _config.CharacterWidths[0] : 8; // Default console font width
             }
         }
         
@@ -364,13 +364,13 @@ namespace DTX.Resources
         /// <returns>Source width in pixels</returns>
         private int GetSourceCharacterWidth(int charIndex)
         {
-            if (_config.UseVariableWidths && _config.SourceCharacterWidths != null)
+            if (_config.UseVariableWidths && _config.SourceCharacterWidths != null && _config.SourceCharacterWidths.Length > 0)
             {
                 return charIndex < _config.SourceCharacterWidths.Length ? _config.SourceCharacterWidths[charIndex] : _config.SourceCharacterWidths[0];
             }
             else
             {
-                return _config.SourceCharacterWidths?[0] ?? 8; // Default console font width
+                return (_config.SourceCharacterWidths != null && _config.SourceCharacterWidths.Length > 0) ? _config.SourceCharacterWidths[0] : 8; // Default console font width
             }
         }
         
@@ -389,7 +389,8 @@ namespace DTX.Resources
                 SourceCharacterWidths = new[] { 8 }, // Fixed 8px source width
                 SourceCharacterHeight = 16,
                 TexturePaths = new[] { TexturePath.ConsoleFont, TexturePath.ConsoleFontSecondary },
-                UseVariableWidths = false
+                UseVariableWidths = false,
+                CharactersPerRow = 16 // Standard DTXMania console font layout
             };
         }
         
@@ -408,7 +409,8 @@ namespace DTX.Resources
                 SourceCharacterWidths = new[] { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 30 }, // Numbers: 100px, Dot: 30px
                 SourceCharacterHeight = 130,
                 TexturePaths = new[] { TexturePath.LevelNumberFont },
-                UseVariableWidths = true
+                UseVariableWidths = true,
+                CharactersPerRow = 16 // Not used for variable width fonts, but set for consistency
             };
         }
         
