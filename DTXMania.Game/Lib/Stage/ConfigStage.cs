@@ -157,7 +157,8 @@ namespace DTX.Stage
             // Initialize bitmap font for DTXMania-style text rendering
             try
             {
-                _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager);
+                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
+                _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager, consoleFontConfig);
                 System.Diagnostics.Debug.WriteLine("Bitmap font loaded successfully");
             }
             catch (Exception ex)
@@ -389,7 +390,7 @@ namespace DTX.Stage
                 // Center the title
                 var textSize = _bitmapFont.MeasureText(titleText);
                 x = (1280 - (int)textSize.X) / 2; // Assume 1280 width for centering
-                _bitmapFont.DrawText(_spriteBatch, titleText, x, y, BitmapFont.FontType.Normal);
+                _bitmapFont.DrawText(_spriteBatch, titleText, x, y, Color.White, BitmapFont.FontType.Normal);
             }
             else
             {
@@ -418,8 +419,9 @@ namespace DTX.Stage
                 // Draw text
                 if (_bitmapFont?.IsLoaded == true)
                 {
-                    var textColor = isSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                    _bitmapFont.DrawText(_spriteBatch, displayText, x, y + 10, textColor);
+                    var textColor = isSelected ? Color.Yellow : Color.White;
+                    var fontType = isSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
+                    _bitmapFont.DrawText(_spriteBatch, displayText, x, y + 10, textColor, fontType);
                 }
                 else
                 {
@@ -446,8 +448,9 @@ namespace DTX.Stage
 
             if (_bitmapFont?.IsLoaded == true)
             {
-                var textColor = backSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                _bitmapFont.DrawText(_spriteBatch, "BACK", x, y + 5, textColor);
+                var textColor = backSelected ? Color.Yellow : Color.White;
+                var fontType = backSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
+                _bitmapFont.DrawText(_spriteBatch, "BACK", x, y + 5, textColor, fontType);
             }
             else
             {
@@ -465,8 +468,9 @@ namespace DTX.Stage
 
             if (_bitmapFont?.IsLoaded == true)
             {
-                var textColor = saveSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                _bitmapFont.DrawText(_spriteBatch, "SAVE & EXIT", x, y + 5, textColor);
+                var textColor = saveSelected ? Color.Yellow : Color.White;
+                var fontType = saveSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
+                _bitmapFont.DrawText(_spriteBatch, "SAVE & EXIT", x, y + 5, textColor, fontType);
             }
             else
             {
@@ -483,7 +487,7 @@ namespace DTX.Stage
 
             if (_bitmapFont?.IsLoaded == true)
             {
-                _bitmapFont.DrawText(_spriteBatch, instructions, x, y, BitmapFont.FontType.Normal);
+                _bitmapFont.DrawText(_spriteBatch, instructions, x, y, Color.White, BitmapFont.FontType.Normal);
             }
             else
             {

@@ -86,6 +86,11 @@ namespace DTX.Resources
         /// </summary>
         public const string ConsoleFontSecondary = "Graphics/Console font 2 8x16.png";
         
+        /// <summary>
+        /// Level number bitmap font texture for difficulty level display
+        /// </summary>
+        public const string LevelNumberFont = "Graphics/6_LevelNumber.png";
+        
         #endregion
         
         #region Preview and Default Textures
@@ -121,6 +126,7 @@ namespace DTX.Resources
                 GraphPanelGuitarBass,
                 ConsoleFont,
                 ConsoleFontSecondary,
+                LevelNumberFont,
                 DefaultPreview
             };
         }
@@ -165,7 +171,8 @@ namespace DTX.Resources
             return new[]
             {
                 ConsoleFont,
-                ConsoleFontSecondary
+                ConsoleFontSecondary,
+                LevelNumberFont
             };
         }
         

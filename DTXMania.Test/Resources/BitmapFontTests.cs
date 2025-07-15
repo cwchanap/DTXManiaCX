@@ -22,8 +22,9 @@ namespace DTXMania.Test.Resources
         private BitmapFont CreateTestBitmapFont(IResourceManager? resourceManager = null)
         {
             var mockResourceManager = resourceManager ?? new Mock<IResourceManager>().Object;
+            var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
             // Use internal testing constructor that allows null GraphicsDevice
-            return new BitmapFont(mockResourceManager, true);
+            return new BitmapFont(mockResourceManager, consoleFontConfig, true);
         }
 
         #endregion
@@ -34,7 +35,8 @@ namespace DTXMania.Test.Resources
         public void BitmapFont_Constructor_RequiresResourceManager()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new BitmapFont(null, null));
+            var config = BitmapFont.CreateConsoleFontConfig();
+            Assert.Throws<ArgumentNullException>(() => new BitmapFont(null, null, config));
         }
 
         #endregion

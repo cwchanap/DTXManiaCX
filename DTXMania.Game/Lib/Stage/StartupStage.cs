@@ -118,7 +118,8 @@ namespace DTX.Stage
             _resourceManager = ResourceManagerFactory.CreateResourceManager(graphicsDevice);
 
             // Initialize bitmap font for text rendering
-            _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager);
+            var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
+            _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager, consoleFontConfig);
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
             LoadBackgroundTexture();
@@ -447,7 +448,7 @@ namespace DTX.Stage
         {
             if (_bitmapFont?.IsLoaded == true)
             {
-                _bitmapFont.DrawText(_spriteBatch, text, x, y, fontType);
+                _bitmapFont.DrawText(_spriteBatch, text, x, y, Color.White, fontType);
             }
             else
             {
@@ -490,7 +491,7 @@ namespace DTX.Stage
                 int x = viewport.Width - (int)textSize.X - MARGIN_EDGE;
                 int y = MARGIN_TOP;
 
-                _bitmapFont.DrawText(_spriteBatch, versionText, x, y, BitmapFont.FontType.Normal);
+                _bitmapFont.DrawText(_spriteBatch, versionText, x, y, Color.White, BitmapFont.FontType.Normal);
             }
             else
             {

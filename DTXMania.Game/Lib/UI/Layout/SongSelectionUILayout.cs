@@ -82,13 +82,24 @@ namespace DTX.UI.Layout
             public static Vector2 DifficultyLabelPosition => new Vector2(160, 352);
             
             /// <summary>
-            /// Calculate difficulty cell position using DTXManiaNX formula
+            /// Calculate difficulty cell position using DTXManiaNX formula (for panel background)
             /// </summary>
             public static Vector2 GetCellPosition(int difficultyLevel, int instrument)
             {
                 var nPart = new[] { 0, 1, 2 }; // Drums, Guitar, Bass
                 var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (nPart[instrument] - 3));
                 var nBoxY = BaseY + ((4 - difficultyLevel) * CellHeight) - 2; // Higher difficulties at top
+                return new Vector2(nBoxX, nBoxY);
+            }
+            
+            /// <summary>
+            /// Calculate difficulty cell content position (text and frame) - 20px down from panel position
+            /// </summary>
+            public static Vector2 GetCellContentPosition(int difficultyLevel, int instrument)
+            {
+                var nPart = new[] { 0, 1, 2 }; // Drums, Guitar, Bass
+                var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (nPart[instrument] - 3));
+                var nBoxY = BaseY + ((4 - difficultyLevel) * CellHeight) - 2 + 20; // Higher difficulties at top, +20px offset
                 return new Vector2(nBoxX, nBoxY);
             }
         }
