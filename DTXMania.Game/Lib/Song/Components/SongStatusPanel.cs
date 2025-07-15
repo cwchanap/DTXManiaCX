@@ -18,6 +18,13 @@ namespace DTX.Song.Components
     /// </summary>
     public class SongStatusPanel : UIElement
     {
+        #region Constants
+
+        // Set to false to use bitmap font for level numbers, true to use sprite font
+        private const bool USE_SPRITE_FONT = false;
+
+        #endregion
+
         #region Fields
 
         private readonly object _updateLock = new object();
@@ -31,6 +38,7 @@ namespace DTX.Song.Components
 
         // Visual properties using DTXManiaNX theme
         private DefaultGraphicsGenerator _graphicsGenerator;
+        private GraphicsDevice _cachedGraphicsDevice;
 
         // DTXManiaNX authentic graphics (Phase 3)
         private ITexture _statusPanelTexture;
@@ -48,6 +56,9 @@ namespace DTX.Song.Components
         // Graph panel textures for 5_graph panel drums.png and 5_graph panel guitar bass.png support
         private ITexture _graphPanelDrumsTexture;
         private ITexture _graphPanelGuitarBassTexture;
+
+        // Level number bitmap font for difficulty level display
+        private BitmapFont _levelNumberFont;
 
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
@@ -123,16 +134,33 @@ namespace DTX.Song.Components
         /// </summary>
         public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
         {
+            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: InitializeGraphicsGenerator called. GraphicsDevice: {graphicsDevice != null}, RenderTarget: {renderTarget != null}");
+            
+            // Cache GraphicsDevice for later use
+            _cachedGraphicsDevice = graphicsDevice;
+            
             _graphicsGenerator?.Dispose();
             
             if (renderTarget != null)
             {
                 _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: DefaultGraphicsGenerator created successfully");
             }
             else
             {
                 System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot initialize DefaultGraphicsGenerator without RenderTarget. Default graphics disabled.");
                 _graphicsGenerator = null;
+            }
+            
+            // Try to load level number font if ResourceManager is already available
+            if (graphicsDevice != null && _resourceManager != null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loading level number font (ResourceManager already available)");
+                LoadLevelNumberFont(graphicsDevice);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Deferring font loading - GraphicsDevice: {graphicsDevice != null}, ResourceManager: {_resourceManager != null}");
             }
         }
 
@@ -141,13 +169,29 @@ namespace DTX.Song.Components
         /// </summary>
         public void InitializeAuthenticGraphics(IResourceManager resourceManager)
         {
+            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: InitializeAuthenticGraphics called. ResourceManager: {resourceManager != null}");
+            
             _resourceManager = resourceManager;
+            
+            // Load level number font now that ResourceManager is available
+            if (_cachedGraphicsDevice != null && _resourceManager != null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loading level number font with ResourceManager now available");
+                LoadLevelNumberFont(_cachedGraphicsDevice);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Cannot load font yet - GraphicsDevice: {_cachedGraphicsDevice != null}, ResourceManager: {_resourceManager != null}");
+            }
             
             LoadStatusPanelGraphics();
             LoadBPMBackgroundTexture();
             LoadDifficultyPanelTexture();
             LoadDifficultyFrameTexture();
             LoadGraphPanelTextures();
+            // Level number font will be loaded when graphics generator is initialized
+            
+            System.Diagnostics.Debug.WriteLine("SongStatusPanel: InitializeAuthenticGraphics completed. Waiting for graphics generator...");
         }
 
         private void LoadStatusPanelGraphics()
@@ -244,6 +288,52 @@ namespace DTX.Song.Components
             }
         }
 
+        /// <summary>
+        /// Load the level number bitmap font for difficulty level display
+        /// </summary>
+        private void LoadLevelNumberFont(GraphicsDevice graphicsDevice)
+        {
+            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: LoadLevelNumberFont called. ResourceManager: {_resourceManager != null}, GraphicsDevice: {graphicsDevice != null}");
+            
+            if (_resourceManager == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot load level number font - ResourceManager is null");
+                return;
+            }
+            
+            if (graphicsDevice == null)
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot load level number font - GraphicsDevice is null");
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Creating BitmapFont instance for level numbers...");
+                var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
+                _levelNumberFont = new BitmapFont(graphicsDevice, _resourceManager, levelNumberConfig);
+                
+                if (_levelNumberFont != null && _levelNumberFont.IsLoaded)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font loaded successfully and is ready");
+                }
+                else if (_levelNumberFont != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font created but not loaded properly");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font creation returned null");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load level number bitmap font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Exception type: {ex.GetType().Name}");
+                _levelNumberFont = null;
+            }
+        }
+
         #endregion
 
         #region Constructor
@@ -293,6 +383,9 @@ namespace DTX.Song.Components
                 // Note: Don't dispose graph panel textures as they're managed by ResourceManager
                 _graphPanelDrumsTexture = null;
                 _graphPanelGuitarBassTexture = null;
+                // Dispose level number font
+                _levelNumberFont?.Dispose();
+                _levelNumberFont = null;
             }
             base.Dispose(disposing);
         }
@@ -711,7 +804,7 @@ namespace DTX.Song.Components
                 }
             }
 
-            // Draw 3×5 difficulty grid
+            // Draw only cells that have chart data (optimization: skip empty cells)
             for (int i = 0; i < 5; i++) // 5 difficulty levels (rows)
             {
                 for (int j = 0; j < 3; j++) // 3 instruments (columns)
@@ -719,9 +812,13 @@ namespace DTX.Song.Components
                     // Get the chart that belongs at this grid position (or null if none)
                     var chartForThisPosition = gridCharts[i, j];
                     
-                    // Use SongSelectionUILayout method to get cell position
-                    var cellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(i, j);
-                    DrawDifficultyCell(spriteBatch, (int)cellPosition.X, (int)cellPosition.Y, i, j, chartForThisPosition);
+                    // Only draw cells that have chart data (skip empty "--" cells for performance)
+                    if (chartForThisPosition != null)
+                    {
+                        // Use SongSelectionUILayout method to get cell content position (moved down 20px from panel)
+                        var cellContentPosition = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(i, j);
+                        DrawDifficultyCell(spriteBatch, (int)cellContentPosition.X, (int)cellContentPosition.Y, i, j, chartForThisPosition);
+                    }
                 }
             }
 
@@ -729,7 +826,7 @@ namespace DTX.Song.Components
             DrawDifficultyFrame(spriteBatch);
         }
 
-        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int gridRow, int instrument, ChartLevelInfo chartInfo = null)
+        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int gridRow, int instrument, ChartLevelInfo chartInfo)
         {
             // Use DTXManiaNX authentic cell dimensions from SongSelectionUILayout
             var cellSize = SongSelectionUILayout.DifficultyGrid.CellSize;
@@ -763,26 +860,18 @@ namespace DTX.Song.Components
             int selectedRow = currentChartInfo.Chart.DifficultyLevel - 1; // L1 → row 0, L2 → row 1, L3 → row 2, L5 → row 4, etc.
             selectedRow = Math.Clamp(selectedRow, 0, 4); // Clamp to valid grid range
             
-            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(selectedRow, selectedColumn);
+            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(selectedRow, selectedColumn);
             
             // Draw the frame texture aligned exactly with the selected cell
             _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }
 
-        private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int gridRow, int instrument, ChartLevelInfo chartInfo = null)
+        private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int gridRow, int instrument, ChartLevelInfo chartInfo)
         {
-            // Position text at bottom-right corner of the cell with small padding
-            var rightPadding = 4; // Small right padding  
-            var textOffsetY = cellHeight - 16; // Bottom position with small padding (assuming 16px font height)
-
+            // chartInfo is now guaranteed to be non-null since we skip empty cells in the grid loop
             if (chartInfo == null)
             {
-                // No chart exists for this position - show empty
-                var emptyText = "--";
-                var emptyTextWidth = (_smallFont ?? _font)?.MeasureString(emptyText).X ?? 0;
-                var emptyTextX = x + cellWidth - emptyTextWidth - rightPadding;
-                
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, emptyText, new Vector2(emptyTextX, y + textOffsetY), Color.Gray);
+                System.Diagnostics.Debug.WriteLine("Warning: DrawDifficultyCellContent called with null chartInfo - this should not happen after optimization");
                 return;
             }
 
@@ -793,11 +882,51 @@ namespace DTX.Song.Components
             var isSelected = IsChartSelected(chartInfo);
             var textColor = isSelected ? Color.Yellow : Color.White;
             
-            // Calculate right-aligned position and draw the level at bottom-right corner
-            var levelTextWidth = (_smallFont ?? _font)?.MeasureString(levelText).X ?? 0;
-            var levelTextX = x + cellWidth - levelTextWidth - rightPadding;
+            DrawDifficultyText(spriteBatch, levelText, x, y, cellWidth, cellHeight, textColor);
+        }
+
+        /// <summary>
+        /// Helper method to draw difficulty text using either bitmap font or sprite font with consolidated fallback logic
+        /// </summary>
+        private void DrawDifficultyText(SpriteBatch spriteBatch, string text, int x, int y, int cellWidth, int cellHeight, Color color)
+        {
+            const int rightPadding = 4;
             
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, levelText, new Vector2(levelTextX, y + textOffsetY), textColor);
+            // Debug logging for bitmap font availability
+            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: DrawDifficultyText('{text}') - USE_SPRITE_FONT: {USE_SPRITE_FONT}, _levelNumberFont != null: {_levelNumberFont != null}, _levelNumberFont.IsLoaded: {_levelNumberFont?.IsLoaded ?? false}");
+            
+            // Determine if we should use bitmap font (when enabled and available)
+            bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
+            
+            if (useBitmapFont)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using BITMAP FONT for '{text}'");
+                
+                // Use bitmap font rendering
+                var textSize = _levelNumberFont.MeasureText(text);
+                var textOffsetY = cellHeight - (int)textSize.Y;
+                var textX = x + cellWidth - (int)textSize.X - rightPadding;
+                
+                _levelNumberFont.DrawText(spriteBatch, text, textX, y + textOffsetY, color);
+            }
+            else
+            {
+                if (!USE_SPRITE_FONT)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (FALLBACK - bitmap font not available)");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (USE_SPRITE_FONT=true)");
+                }
+                
+                // Use sprite font rendering (original logic or fallback)
+                var textOffsetY = cellHeight - 16; // Assuming 16px font height
+                var textWidth = (_smallFont ?? _font)?.MeasureString(text).X ?? 0;
+                var textX = x + cellWidth - textWidth - rightPadding;
+                
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(textX, y + textOffsetY), color);
+            }
         }
 
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)

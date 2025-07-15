@@ -144,7 +144,8 @@ namespace DTX.Stage
             // Load fonts
             try
             {
-                _bitmapFont = new BitmapFont(_game.GraphicsDevice, _resourceManager);
+                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
+                _bitmapFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, consoleFontConfig);
             }
             catch (Exception ex)
             {
