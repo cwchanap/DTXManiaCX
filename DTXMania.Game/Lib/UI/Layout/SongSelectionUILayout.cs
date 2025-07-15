@@ -86,8 +86,7 @@ namespace DTX.UI.Layout
             /// </summary>
             public static Vector2 GetCellPosition(int difficultyLevel, int instrument)
             {
-                var nPart = new[] { 0, 1, 2 }; // Drums, Guitar, Bass
-                var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (nPart[instrument] - 3));
+                var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (instrument - 3));
                 var nBoxY = BaseY + ((4 - difficultyLevel) * CellHeight) - 2; // Higher difficulties at top
                 return new Vector2(nBoxX, nBoxY);
             }
@@ -97,8 +96,7 @@ namespace DTX.UI.Layout
             /// </summary>
             public static Vector2 GetCellContentPosition(int difficultyLevel, int instrument)
             {
-                var nPart = new[] { 0, 1, 2 }; // Drums, Guitar, Bass
-                var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (nPart[instrument] - 3));
+                var nBoxX = BaseX + PanelBodyWidth + (CellWidth * (instrument - 3));
                 var nBoxY = BaseY + ((4 - difficultyLevel) * CellHeight) - 2 + 20; // Higher difficulties at top, +20px offset
                 return new Vector2(nBoxX, nBoxY);
             }
