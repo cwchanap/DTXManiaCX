@@ -27,6 +27,7 @@ namespace DTX.Stage
         Title,
         Config,
         SongSelect,
+        SongTransition,
         Performance,
         Result
     }

@@ -39,7 +39,8 @@ namespace DTX.Stage
                 [StageType.Startup] = new StartupStage(_game),
                 [StageType.Title] = new TitleStage(_game),
                 [StageType.Config] = new ConfigStage(_game),
-                [StageType.SongSelect] = new SongSelectionStage(_game)
+                [StageType.SongSelect] = new SongSelectionStage(_game),
+                [StageType.SongTransition] = new SongTransitionStage(_game)
             };
 
             foreach (var kvp in stages)

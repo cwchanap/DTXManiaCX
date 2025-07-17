@@ -66,6 +66,12 @@ namespace DTX.Stage
 
         // Status panel navigation state
         private bool _isInStatusPanel = false;
+        
+        // Song selection timing
+        private bool _isPendingTransition = false;
+        private double _transitionTimer = 0.0;
+        private Dictionary<string, object> _pendingSharedData = null;
+        private const double SOUND_DELAY_SECONDS = 1.0;
 
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
@@ -86,6 +92,7 @@ namespace DTX.Stage
         
         // Navigation sound functionality (same as TitleStage)
         private ISound _cursorMoveSound;
+        private ISound _gameStartSound;
         private double _previewPlayDelay = 0.0;
         private double _bgmFadeOutTimer = 0.0;
         private double _bgmFadeInTimer = 0.0;
@@ -240,6 +247,10 @@ namespace DTX.Stage
             // Clean up navigation sound (same as TitleStage)
             _cursorMoveSound?.Dispose();
             _cursorMoveSound = null;
+            
+            // Clean up game start sound
+            _gameStartSound?.Dispose();
+            _gameStartSound = null;
 
             // Clean up graphics resources
             _whitePixel?.Dispose();
@@ -689,8 +700,21 @@ namespace DTX.Stage
 
         private void SelectSong(SongListNode songNode)
         {
-            // TODO: Transition to performance stage with selected song
-            // For now, just show selection in debug output
+            if (songNode == null || songNode.Type != NodeType.Score)
+                return;
+            
+            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SelectSong called for {songNode.DisplayTitle}");
+            
+            // Create shared data to pass song information to the transition stage
+            var sharedData = new Dictionary<string, object>
+            {
+                ["selectedSong"] = songNode,
+                ["selectedDifficulty"] = _currentDifficulty,
+                ["songId"] = songNode.DatabaseSongId ?? 0
+            };
+            
+            // Transition immediately to SongTransitionStage
+            StageManager?.ChangeStage(StageType.SongTransition, new InstantTransition(), sharedData);
         }
 
         private void SelectRandomSong()
@@ -734,6 +758,9 @@ namespace DTX.Stage
 
             // Update phase
             UpdatePhase(deltaTime);
+
+            // Handle pending transition timer
+            UpdateTransitionTimer(deltaTime);
 
             // Handle input
             HandleInput();
@@ -784,6 +811,10 @@ namespace DTX.Stage
 
         private void HandleInput()
         {
+            // Don't process input if we're transitioning out or input manager is disposed
+            if (_inputManager == null || _isPendingTransition)
+                return;
+                
             // Process queued input commands from InputManager
             ProcessInputCommands();
         }
@@ -796,6 +827,9 @@ namespace DTX.Stage
         /// </summary>
         private void ProcessInputCommands()
         {
+            if (_inputManager == null)
+                return;
+                
             var commands = _inputManager.GetInputCommands();
             while (commands.Count > 0)
             {
@@ -1039,6 +1073,32 @@ namespace DTX.Stage
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load cursor move sound: {ex.Message}");
                 _cursorMoveSound = null;
             }
+            
+            try
+            {
+                // Load now loading sound for song selection
+                _gameStartSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Successfully loaded now loading sound");
+                if (_gameStartSound == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: WARNING - gameStartSound is null after loading");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load now loading sound, trying fallback: {ex.Message}");
+                try
+                {
+                    // Fallback to decide sound if Now loading.ogg doesn't work
+                    _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded fallback sound (Decide.ogg)");
+                }
+                catch (Exception fallbackEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load fallback sound: {fallbackEx.Message}");
+                    _gameStartSound = null;
+                }
+            }
         }
 
         #endregion
@@ -1135,6 +1195,14 @@ namespace DTX.Stage
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Update transition timer and perform delayed transition
+        /// </summary>
+        private void UpdateTransitionTimer(double deltaTime)
+        {
+            // No longer needed - transitions are immediate
         }
 
         /// <summary>
@@ -1295,6 +1363,30 @@ namespace DTX.Stage
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to play cursor move sound: {ex.Message}");
             }
         }
+        
+        /// <summary>
+        /// Play game start sound when selecting a song (same as TitleStage)
+        /// </summary>
+        private void PlayGameStartSound()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: PlayGameStartSound called");
+                if (_gameStartSound == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: WARNING - gameStartSound is null, cannot play");
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Playing now loading sound at 90% volume");
+                _gameStartSound.Play(0.9f); // Play at 90% volume (same as TitleStage)
+                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Now loading sound play command executed");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to play game start sound: {ex.Message}");
+            }
+        }
 
         #endregion
 
@@ -1310,10 +1402,11 @@ namespace DTX.Stage
         {
             if (_isInStatusPanel)
             {
-                // When in status panel, Enter should select the chart (placeholder for now)
-                // Stay in status panel mode - only Escape should exit
-                
-                // TODO: Implement chart selection and transition to performance stage
+                // When in status panel, Enter should select the chart and transition to song transition stage
+                if (_selectedSong != null && _selectedSong.Type == NodeType.Score)
+                {
+                    SelectSong(_selectedSong);
+                }
             }
             else if (_selectedSong != null)
             {                // Check if this is a song (Score type) - if so, enter status panel
