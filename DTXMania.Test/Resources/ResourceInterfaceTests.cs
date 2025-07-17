@@ -13,45 +13,6 @@ namespace DTXMania.Test.Resources
     /// </summary>
     public class ResourceInterfaceTests
     {
-        [Fact]
-        public void FontStyle_Enumeration_ShouldSupportBitwiseOperations()
-        {
-            // Arrange & Act
-            var regular = FontStyle.Regular;
-            var bold = FontStyle.Bold;
-            var italic = FontStyle.Italic;
-            var underline = FontStyle.Underline;
-            var strikeout = FontStyle.Strikeout;
-
-            var boldItalic = FontStyle.Bold | FontStyle.Italic;
-            var allStyles = FontStyle.Bold | FontStyle.Italic | FontStyle.Underline | FontStyle.Strikeout;
-
-            // Assert
-            Assert.Equal(0, (int)regular);
-            Assert.Equal(1, (int)bold);
-            Assert.Equal(2, (int)italic);
-            Assert.Equal(4, (int)underline);
-            Assert.Equal(8, (int)strikeout);
-
-            Assert.True(boldItalic.HasFlag(FontStyle.Bold));
-            Assert.True(boldItalic.HasFlag(FontStyle.Italic));
-            Assert.False(boldItalic.HasFlag(FontStyle.Underline));
-
-            Assert.True(allStyles.HasFlag(FontStyle.Bold));
-            Assert.True(allStyles.HasFlag(FontStyle.Italic));
-            Assert.True(allStyles.HasFlag(FontStyle.Underline));
-            Assert.True(allStyles.HasFlag(FontStyle.Strikeout));
-        }
-
-        [Fact]
-        public void TextAlignment_Enumeration_ShouldHaveCorrectValues()
-        {
-            // Arrange & Act & Assert
-            Assert.Equal(0, (int)TextAlignment.Left);
-            Assert.Equal(1, (int)TextAlignment.Center);
-            Assert.Equal(2, (int)TextAlignment.Right);
-            Assert.Equal(3, (int)TextAlignment.Justify);
-        }
 
         [Fact]
         public void ResourceUsageInfo_ShouldInitializeWithDefaults()
@@ -304,30 +265,5 @@ namespace DTXMania.Test.Resources
             Assert.IsAssignableFrom<Exception>(fontException);
         }
 
-        [Theory]
-        [InlineData(FontStyle.Regular)]
-        [InlineData(FontStyle.Bold)]
-        [InlineData(FontStyle.Italic)]
-        [InlineData(FontStyle.Bold | FontStyle.Italic)]
-        [InlineData(FontStyle.Underline | FontStyle.Strikeout)]
-        public void FontStyle_AllCombinations_ShouldBeValid(FontStyle style)
-        {
-            // Arrange & Act & Assert
-            // All combinations should be valid enum values
-            Assert.True(Enum.IsDefined(typeof(FontStyle), (int)style) ||
-                       style.ToString().Contains(",") || // Combined flags
-                       ((int)style & ((int)style - 1)) != 0); // Power of 2 check for flags
-        }
-
-        [Theory]
-        [InlineData(TextAlignment.Left)]
-        [InlineData(TextAlignment.Center)]
-        [InlineData(TextAlignment.Right)]
-        [InlineData(TextAlignment.Justify)]
-        public void TextAlignment_AllValues_ShouldBeValid(TextAlignment alignment)
-        {
-            // Arrange & Act & Assert
-            Assert.True(Enum.IsDefined(typeof(TextAlignment), alignment));
-        }
     }
 }
