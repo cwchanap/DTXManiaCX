@@ -6,6 +6,7 @@ using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
 using DTX.UI.Components;
+using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Input;
 
@@ -31,10 +32,18 @@ namespace DTX.Stage
         // UI Components
         private UIManager _uiManager;
         private UIPanel _mainPanel;
-        private UILabel _songTitleLabel;
-        private UILabel _artistLabel;
-        private UILabel _difficultyLabel;
-        private UIImage _previewImage;
+        
+        // Font rendering
+        private IFont _titleFont;
+        private IFont _artistFont;
+        
+        // Text content
+        private string _songTitle;
+        private string _artistName;
+        private string _difficultyName;
+        
+        // Preview image with rotation support
+        private ITexture _previewTexture;
         
         // Background and styling
         private Texture2D _whitePixel;
@@ -45,9 +54,6 @@ namespace DTX.Stage
         
         // Timing
         private double _elapsedTime;
-        private const double AUTO_TRANSITION_DELAY = 3.0; // Auto transition after 3 seconds
-        private const double FADE_IN_DURATION = 0.5;
-        private const double FADE_OUT_DURATION = 0.5;
         
         #endregion
 
@@ -142,6 +148,16 @@ namespace DTX.Stage
             _backgroundTexture?.Dispose();
             _backgroundTexture = null;
             
+            // Clean up preview texture
+            _previewTexture?.Dispose();
+            _previewTexture = null;
+            
+            // Clean up fonts
+            _titleFont?.Dispose();
+            _titleFont = null;
+            _artistFont?.Dispose();
+            _artistFont = null;
+            
             // Clean up sound
             _nowLoadingSound?.Dispose();
             _nowLoadingSound = null;
@@ -159,8 +175,8 @@ namespace DTX.Stage
         {
             try
             {
-                // Try to load a background texture, but don't fail if it doesn't exist
-                _backgroundTexture = _resourceManager.LoadTexture("Graphics/5_background.jpg");
+                // Try to load a background texture using layout constants
+                _backgroundTexture = _resourceManager.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath);
             }
             catch (Exception ex)
             {
@@ -175,20 +191,16 @@ namespace DTX.Stage
             {
                 // Load now loading sound for song selection
                 _nowLoadingSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: Successfully loaded now loading sound");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load now loading sound, trying fallback: {ex.Message}");
                 try
                 {
                     // Fallback to decide sound if Now loading.ogg doesn't work
                     _nowLoadingSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Loaded fallback sound (Decide.ogg)");
                 }
-                catch (Exception fallbackEx)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load fallback sound: {fallbackEx.Message}");
                     _nowLoadingSound = null;
                 }
             }
@@ -198,16 +210,10 @@ namespace DTX.Stage
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: PlayNowLoadingSound called");
                 if (_nowLoadingSound == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: WARNING - nowLoadingSound is null, cannot play");
                     return;
-                }
                 
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: Playing now loading sound at 90% volume");
                 _nowLoadingSound.Play(0.9f); // Play at 90% volume
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: Now loading sound play command executed");
             }
             catch (Exception ex)
             {
@@ -230,56 +236,15 @@ namespace DTX.Stage
             };
             
             // Get song information from SongManager if available
-            var songTitle = _selectedSong?.DisplayTitle ?? "Unknown Song";
-            var songArtist = _selectedSong?.DatabaseSong?.Artist ?? "Unknown Artist";
-            var difficultyName = GetDifficultyName(_selectedDifficulty);
+            _songTitle = _selectedSong?.DisplayTitle ?? "Unknown Song";
+            _artistName = _selectedSong?.DatabaseSong?.Artist ?? "Unknown Artist";
+            _difficultyName = GetDifficultyName(_selectedDifficulty);
             
-            // Create song title label - larger and more visible
-            _songTitleLabel = new UILabel(songTitle)
-            {
-                Position = new Vector2(100, 150),
-                Size = new Vector2(600, 80),
-                TextColor = Color.White,
-                HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Center
-            };
-            
-            // Create artist label
-            _artistLabel = new UILabel($"by {songArtist}")
-            {
-                Position = new Vector2(100, 250),
-                Size = new Vector2(600, 50),
-                TextColor = Color.LightGray,
-                HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Center
-            };
-            
-            // Create difficulty label
-            _difficultyLabel = new UILabel($"Difficulty: {difficultyName}")
-            {
-                Position = new Vector2(100, 320),
-                Size = new Vector2(600, 50),
-                TextColor = Color.Yellow,
-                HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Center
-            };
-            
-            // Create preview image
-            _previewImage = new UIImage
-            {
-                Position = new Vector2(300, 400),
-                Size = new Vector2(200, 200),
-                TintColor = Color.White // Use white tint for visibility
-            };
+            // Load fonts for text rendering
+            LoadFonts();
             
             // Load preview image if available
             LoadPreviewImage();
-            
-            // Add components to panel
-            _mainPanel.AddChild(_songTitleLabel);
-            _mainPanel.AddChild(_artistLabel);
-            _mainPanel.AddChild(_difficultyLabel);
-            _mainPanel.AddChild(_previewImage);
             
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
@@ -287,9 +252,31 @@ namespace DTX.Stage
             // Activate the main panel
             _mainPanel.Activate();
             
-            System.Diagnostics.Debug.WriteLine($"SongTransitionStage: UI initialized with song: {songTitle}");
         }
 
+        private void LoadFonts()
+        {
+            try
+            {
+                // Load title font (larger size for title)
+                _titleFont = _resourceManager.LoadFont("NotoSerifJP", 24);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title font: {ex.Message}");
+            }
+            
+            try
+            {
+                // Load artist font (smaller size for artist)
+                _artistFont = _resourceManager.LoadFont("NotoSerifJP", 18);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist font: {ex.Message}");
+            }
+        }
+        
         private void LoadPreviewImage()
         {
             try
@@ -300,8 +287,42 @@ namespace DTX.Stage
                     var previewPath = _selectedSong.DatabaseChart.PreviewFile;
                     if (System.IO.File.Exists(previewPath))
                     {
-                        var previewTexture = _resourceManager.LoadTexture(previewPath);
-                        _previewImage.Texture = previewTexture.Texture;
+                        _previewTexture = _resourceManager.LoadTexture(previewPath);
+                    }
+                }
+                
+                // Try fallback preview image if primary not found
+                if (_previewTexture == null && _selectedSong != null)
+                {
+                    // Look for common preview file names in song directory
+                    var songDir = _selectedSong.DirectoryPath ?? 
+                                 (_selectedSong.DatabaseChart?.FilePath != null ? 
+                                  System.IO.Path.GetDirectoryName(_selectedSong.DatabaseChart.FilePath) : null);
+                    if (!string.IsNullOrEmpty(songDir))
+                    {
+                        var fallbackFiles = new[] { "preview.jpg", "preview.png", "jacket.jpg", "jacket.png" };
+                        foreach (var fallbackFile in fallbackFiles)
+                        {
+                            var fallbackPath = System.IO.Path.Combine(songDir, fallbackFile);
+                            if (System.IO.File.Exists(fallbackPath))
+                            {
+                                _previewTexture = _resourceManager.LoadTexture(fallbackPath);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Use default preview image as final fallback
+                if (_previewTexture == null)
+                {
+                    try
+                    {
+                        _previewTexture = _resourceManager.LoadTexture("Graphics/5_preimage default.png");
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load default preview image: {fallbackEx.Message}");
                     }
                 }
             }
@@ -346,7 +367,7 @@ namespace DTX.Stage
             _uiManager?.Update(deltaTime);
             
             // Auto transition after delay (only if user hasn't pressed anything)
-            if (_elapsedTime >= AUTO_TRANSITION_DELAY && _currentPhase == StagePhase.Normal)
+            if (_elapsedTime >= SongTransitionUILayout.Timing.AutoTransitionDelay && _currentPhase == StagePhase.Normal)
             {
                 TransitionToPerformance();
             }
@@ -368,6 +389,12 @@ namespace DTX.Stage
             // Draw UI without fade effects (simpler approach)
             _uiManager?.Draw(_spriteBatch, deltaTime);
             
+            // Draw text with ManagedFont
+            DrawText();
+            
+            // Draw preview image with rotation separately
+            DrawPreviewImage();
+            
             _spriteBatch.End();
         }
 
@@ -381,16 +408,16 @@ namespace DTX.Stage
             }
             else if (_whitePixel != null)
             {
-                // Fallback to a simple gradient background
-                var topColor = Color.DarkBlue;
-                var bottomColor = Color.Black;
+                // Fallback to a simple gradient background using layout constants
+                var topColor = SongTransitionUILayout.Background.GradientTopColor;
+                var bottomColor = SongTransitionUILayout.Background.GradientBottomColor;
                 
                 // Simple vertical gradient using fewer draws for better performance
-                for (int y = 0; y < viewport.Height; y += 8)
+                for (int y = 0; y < viewport.Height; y += SongTransitionUILayout.Background.GradientLineSpacing)
                 {
                     float ratio = (float)y / viewport.Height;
                     var color = Color.Lerp(topColor, bottomColor, ratio);
-                    var lineRect = new Rectangle(0, y, viewport.Width, 8);
+                    var lineRect = new Rectangle(0, y, viewport.Width, SongTransitionUILayout.Background.GradientLineSpacing);
                     _spriteBatch.Draw(_whitePixel, lineRect, color);
                 }
             }
@@ -401,14 +428,87 @@ namespace DTX.Stage
             }
         }
 
-        private float GetFadeAlpha()
+        private void DrawText()
         {
-            return _currentPhase switch
+            try
             {
-                StagePhase.FadeIn => Math.Min(1.0f, (float)(_elapsedTime / FADE_IN_DURATION)),
-                StagePhase.FadeOut => Math.Max(0.0f, 1.0f - (float)(_elapsedTime / FADE_OUT_DURATION)),
-                _ => 1.0f
-            };
+                // Draw song title at specified position (190, 285)
+                if (_titleFont != null && !string.IsNullOrEmpty(_songTitle))
+                {
+                    var titlePosition = new Vector2(190, 285);
+                    var titleColor = Color.White;
+                    
+                    // Draw with shadow for better visibility
+                    _titleFont.DrawStringWithShadow(_spriteBatch, _songTitle, titlePosition, 
+                        titleColor, Color.Black * 0.8f, new Vector2(2, 2));
+                }
+                
+                // Draw artist name at specified position (190, 360)
+                if (_artistFont != null && !string.IsNullOrEmpty(_artistName))
+                {
+                    var artistPosition = new Vector2(190, 360);
+                    var artistColor = Color.LightGray;
+                    var artistText = $"by {_artistName}";
+                    
+                    // Draw with shadow for better visibility
+                    _artistFont.DrawStringWithShadow(_spriteBatch, artistText, artistPosition,
+                        artistColor, Color.Black * 0.8f, new Vector2(1, 1));
+                }
+                
+                // Draw difficulty info below artist
+                if (_artistFont != null && !string.IsNullOrEmpty(_difficultyName))
+                {
+                    var difficultyPosition = new Vector2(190, 390);
+                    var difficultyColor = Color.Yellow;
+                    var difficultyText = $"Difficulty: {_difficultyName}";
+                    
+                    // Draw with shadow for better visibility
+                    _artistFont.DrawStringWithShadow(_spriteBatch, difficultyText, difficultyPosition,
+                        difficultyColor, Color.Black * 0.8f, new Vector2(1, 1));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw text: {ex.Message}");
+            }
+        }
+        
+        private void DrawPreviewImage()
+        {
+            if (_previewTexture == null)
+                return;
+            
+            try
+            {
+                // Use SongTransitionUILayout constants for positioning and rotation
+                var position = SongTransitionUILayout.PreviewImage.Position;
+                var size = SongTransitionUILayout.PreviewImage.Size;
+                var rotation = SongTransitionUILayout.PreviewImage.RotationRadians;
+                var origin = SongTransitionUILayout.PreviewImage.Origin;
+                var tintColor = SongTransitionUILayout.PreviewImage.TintColor;
+                
+                // Calculate scale to fit the image within the specified size
+                var textureSize = new Vector2(_previewTexture.Width, _previewTexture.Height);
+                var targetSize = size;
+                var scale = new Vector2(
+                    targetSize.X / textureSize.X,
+                    targetSize.Y / textureSize.Y
+                );
+                
+                // Use smaller scale to maintain aspect ratio (letterbox/pillarbox)
+                var uniformScale = Math.Min(scale.X, scale.Y);
+                var finalScale = new Vector2(uniformScale, uniformScale);
+                
+                // Draw the preview image with rotation using MonoGame pattern
+                // Position is adjusted to account for origin being at center
+                var drawPosition = position + origin;
+                
+                _previewTexture.Draw(_spriteBatch, drawPosition, finalScale, rotation, origin);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw preview image: {ex.Message}");
+            }
         }
 
         private void UpdatePhase()
@@ -416,14 +516,14 @@ namespace DTX.Stage
             switch (_currentPhase)
             {
                 case StagePhase.FadeIn:
-                    if (_elapsedTime >= FADE_IN_DURATION)
+                    if (_elapsedTime >= SongTransitionUILayout.Timing.FadeInDuration)
                     {
                         _currentPhase = StagePhase.Normal;
                     }
                     break;
                     
                 case StagePhase.FadeOut:
-                    if (_elapsedTime >= FADE_OUT_DURATION)
+                    if (_elapsedTime >= SongTransitionUILayout.Timing.FadeOutDuration)
                     {
                         // Transition complete
                         PerformTransition();
