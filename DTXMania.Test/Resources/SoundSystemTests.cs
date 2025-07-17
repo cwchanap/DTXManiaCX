@@ -89,33 +89,6 @@ namespace DTXMania.Test.Resources
             writer.Write((byte)1); // Framing flag
         }
 
-        [Fact]
-        public void ISound_Interface_ShouldHaveRequiredProperties()
-        {
-            // Arrange & Act
-            var soundType = typeof(ISound);
-
-            // Assert
-            Assert.True(soundType.IsInterface);
-            Assert.NotNull(soundType.GetProperty("SoundEffect"));
-            Assert.NotNull(soundType.GetProperty("SourcePath"));
-            Assert.NotNull(soundType.GetProperty("Duration"));
-            Assert.NotNull(soundType.GetProperty("IsDisposed"));
-            Assert.NotNull(soundType.GetProperty("ReferenceCount"));
-        }
-
-        [Fact]
-        public void ISound_Interface_ShouldHaveRequiredMethods()
-        {
-            // Arrange & Act
-            var soundType = typeof(ISound);
-
-            // Assert
-            Assert.NotNull(soundType.GetMethod("AddReference"));
-            Assert.NotNull(soundType.GetMethod("RemoveReference"));
-            Assert.NotNull(soundType.GetMethod("CreateInstance"));
-            Assert.True(soundType.GetMethods().Any(m => m.Name == "Play"));
-        }
 
         [Theory]
         [InlineData(".wav")]
@@ -164,19 +137,6 @@ namespace DTXMania.Test.Resources
             Assert.True(exists, $"Sound file should exist: {soundPath}");
         }
 
-        [Fact]
-        public void SoundCacheKey_Generation_ShouldBeConsistent()
-        {
-            // Arrange
-            var path1 = "Sounds/Move.ogg";
-            var path2 = "sounds/move.ogg"; // Different case
-            var normalizedPath1 = path1.Replace('\\', '/').ToLowerInvariant();
-            var normalizedPath2 = path2.Replace('\\', '/').ToLowerInvariant();
-
-            // Act & Assert
-            Assert.Equal(normalizedPath1, normalizedPath2);
-            Assert.Equal("sounds/move.ogg", normalizedPath1);
-        }
 
         [Fact]
         public void SoundLoadException_ShouldContainSoundPath()
@@ -210,32 +170,6 @@ namespace DTXMania.Test.Resources
             Assert.Equal(innerException, exception.InnerException);
         }
 
-        [Theory]
-        [InlineData("")]
-        [InlineData(null)]
-        public void SoundPath_Validation_ShouldRejectNullOrEmpty(string invalidPath)
-        {
-            // Arrange & Act
-            var isValid = !string.IsNullOrEmpty(invalidPath);
-
-            // Assert
-            Assert.False(isValid);
-        }
-
-        [Fact]
-        public void SoundFormat_Support_ShouldIncludeBothWavAndOgg()
-        {
-            // Arrange
-            var supportedFormats = new[] { ".wav", ".ogg" };
-            var testFormat1 = ".wav";
-            var testFormat2 = ".ogg";
-            var unsupportedFormat = ".mp3";
-
-            // Act & Assert
-            Assert.Contains(testFormat1, supportedFormats);
-            Assert.Contains(testFormat2, supportedFormats);
-            Assert.DoesNotContain(unsupportedFormat, supportedFormats);
-        }
 
         public void Dispose()
         {

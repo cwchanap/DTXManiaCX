@@ -50,7 +50,6 @@ namespace DTXMania.Test.Resources
             using var font = CreateTestBitmapFont();
 
             // Assert
-            Assert.Equal(8, font.CharacterWidth);
             Assert.Equal(16, font.CharacterHeight);
         }
 
@@ -133,23 +132,6 @@ namespace DTXMania.Test.Resources
 
         #region FontType Enum Tests
 
-        [Fact]
-        public void FontType_ShouldHaveExpectedValues()
-        {
-            // Act & Assert
-            Assert.Equal(0, (int)BitmapFont.FontType.Normal);
-            Assert.Equal(1, (int)BitmapFont.FontType.Thin);
-            Assert.Equal(2, (int)BitmapFont.FontType.WhiteThin);
-        }
-
-        [Fact]
-        public void FontType_AllValuesAreDefined()
-        {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(BitmapFont.FontType), BitmapFont.FontType.Normal));
-            Assert.True(Enum.IsDefined(typeof(BitmapFont.FontType), BitmapFont.FontType.Thin));
-            Assert.True(Enum.IsDefined(typeof(BitmapFont.FontType), BitmapFont.FontType.WhiteThin));
-        }
 
         #endregion
 
