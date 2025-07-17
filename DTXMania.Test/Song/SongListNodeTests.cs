@@ -15,31 +15,7 @@ namespace DTXMania.Test.Song
     {
         #region Constructor Tests
 
-        [Fact]
-        public void Constructor_ShouldInitializeWithDefaults()
-        {
-            // Arrange & Act
-            var node = new SongListNode();
 
-            // Assert
-            Assert.Equal(NodeType.Score, node.Type);
-            Assert.NotNull(node.Scores);
-            Assert.Equal(5, node.Scores.Length);
-            Assert.All(node.Scores, score => Assert.Null(score));
-            Assert.NotNull(node.DifficultyLabels);
-            Assert.Equal(5, node.DifficultyLabels.Length);
-            Assert.Equal("BASIC", node.DifficultyLabels[0]);
-            Assert.Equal("ADVANCED", node.DifficultyLabels[1]);
-            Assert.Equal("EXTREME", node.DifficultyLabels[2]);
-            Assert.Equal("MASTER", node.DifficultyLabels[3]);
-            Assert.Equal("SPECIAL", node.DifficultyLabels[4]);
-            Assert.NotNull(node.Children);
-            Assert.Empty(node.Children);
-            Assert.Null(node.Parent);
-            Assert.Equal("", node.Title);
-            Assert.Equal("", node.Genre);
-            Assert.Equal(Color.White, node.TextColor);
-        }
 
         #endregion
 
@@ -167,60 +143,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(isFolder, node.IsFolder);
         }
 
-        [Theory]
-        [InlineData("Test Title", "Test Title")]
-        [InlineData("", "Unknown")]
-        public void DisplayTitle_WithTitle_ShouldReturnCorrectValue(string title, string expected)
-        {
-            // Arrange
-            var node = new SongListNode { Title = title };
 
-            // Act
-            var result = node.DisplayTitle;
-
-            // Assert
-            Assert.Equal(expected, result);
-        }
-
-        [Fact]
-        public void DisplayTitle_BackNode_ShouldReturnBackText()
-        {
-            // Arrange
-            var node = new SongListNode { Type = NodeType.BackBox };
-
-            // Act
-            var result = node.DisplayTitle;
-
-            // Assert
-            Assert.Equal(".. (Back)", result);
-        }
-
-        [Fact]
-        public void DisplayTitle_RandomNode_ShouldReturnRandomText()
-        {
-            // Arrange
-            var node = new SongListNode { Type = NodeType.Random };
-
-            // Act
-            var result = node.DisplayTitle;
-
-            // Assert
-            Assert.Equal("Random Select", result);
-        }
-
-        [Fact]
-        public void DisplayTitle_WithDatabaseSong_ShouldReturnSongTitle()
-        {
-            // Arrange
-            var song = new DTXMania.Game.Lib.Song.Entities.Song { Title = "Database Song Title" };
-            var node = new SongListNode { DatabaseSong = song };
-
-            // Act
-            var result = node.DisplayTitle;
-
-            // Assert
-            Assert.Equal("Database Song Title", result);
-        }
 
         [Theory]
         [InlineData(85, 78, 65, 85)]

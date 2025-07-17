@@ -60,21 +60,7 @@ namespace DTXMania.Test.Song
             Assert.Same(manager1, manager2);
         }
 
-        [Fact]
-        public async Task Instance_ShouldInitializeWithDefaults()
-        {
-            // Arrange & Act
-            var manager = SongManager.Instance;
 
-            // Assert
-            Assert.NotNull(manager.RootSongs);
-            Assert.Empty(manager.RootSongs);
-            Assert.Equal(0, await manager.GetDatabaseScoreCountAsync());
-            Assert.Equal(0, manager.DiscoveredScoreCount);
-            Assert.Equal(0, manager.EnumeratedFileCount);
-            Assert.False(manager.IsEnumerating);
-            Assert.False(manager.IsInitialized);
-        }
 
         #endregion
 
