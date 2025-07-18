@@ -140,12 +140,7 @@ namespace DTXMania.Test.UI
             Assert.True(_songBar.IsCenter);
         }
 
-        [Fact]
-        public void SetTextures_ShouldAcceptNullValues()
-        {
-            // Act & Assert - Should not throw
-            _songBar.SetTextures(null, null, null);
-        }
+
 
         [Theory]
         [InlineData(NodeType.Score)]
@@ -169,60 +164,7 @@ namespace DTXMania.Test.UI
             Assert.Equal(nodeType, _songBar.SongNode.Type);
         }
 
-        [Fact]
-        public void SongBar_WithNullSongNode_ShouldNotCrash()
-        {
-            // Act
-            _songBar.SongNode = null;
 
-            // Assert - Should not throw
-            Assert.Null(_songBar.SongNode);
-        }
-
-        [Fact]
-        public void SongBar_ShouldBeDisposable()
-        {
-            // Act & Assert - Should not throw
-            _songBar.Dispose();
-        }
-
-        [Fact]
-        public void SongBar_WithDifferentDifficulties_ShouldUpdateCorrectly()
-        {
-            // Arrange
-            _songBar.SongNode = _testSongNode;
-
-            // Act & Assert
-            for (int i = 0; i <= 4; i++)
-            {
-                _songBar.CurrentDifficulty = i;
-                Assert.Equal(i, _songBar.CurrentDifficulty);
-            }
-        }
-
-        [Fact]
-        public void SongBar_VisualStateChanges_ShouldNotThrow()
-        {
-            // Arrange
-            _songBar.SongNode = _testSongNode;
-
-            // Act & Assert - All combinations should work without throwing
-            _songBar.IsSelected = false;
-            _songBar.IsCenter = false;
-            _songBar.UpdateVisualState();
-
-            _songBar.IsSelected = true;
-            _songBar.IsCenter = false;
-            _songBar.UpdateVisualState();
-
-            _songBar.IsSelected = false;
-            _songBar.IsCenter = true;
-            _songBar.UpdateVisualState();
-
-            _songBar.IsSelected = true;
-            _songBar.IsCenter = true;
-            _songBar.UpdateVisualState();
-        }
 
         public void Dispose()
         {

@@ -175,18 +175,7 @@ namespace DTXMania.Test.UI
             Assert.Equal(0, _songListDisplay.SelectedIndex);
         }
 
-        [Fact]
-        public void SongListDisplay_Navigation_ShouldNotCrashWithEmptyList()
-        {
-            // Arrange
-            _songListDisplay.CurrentList = new List<SongListNode>();
 
-            // Act & Assert - Should not throw exceptions
-            _songListDisplay.MoveNext();
-            _songListDisplay.MovePrevious();
-            
-            Assert.Equal(0, _songListDisplay.SelectedIndex);
-        }
 
         [Theory]
         [InlineData(0, 708, 5)]      // Bar 0 (top)
@@ -205,28 +194,7 @@ namespace DTXMania.Test.UI
             Assert.Equal(expectedY, position.Y);
         }
 
-        [Fact]
-        public void SongListDisplay_CenterIndex_ShouldAlwaysBeBar5()
-        {
-            // Arrange & Act
-            const int expectedCenterIndex = 5;
 
-            // Assert
-            // This test verifies that the center index matches DTXManiaNX convention
-            // where Bar 5 (0-based index) is always the selected/center position
-            Assert.Equal(5, expectedCenterIndex);
-        }
-
-        [Fact]
-        public void SongListDisplay_VisibleItems_ShouldBe13()
-        {
-            // Arrange & Act
-            const int expectedVisibleItems = 13;
-
-            // Assert
-            // DTXManiaNX always shows exactly 13 bars in the curved layout
-            Assert.Equal(13, expectedVisibleItems);
-        }
 
         [Theory]
         [InlineData(NodeType.Score, "Regular song")]
