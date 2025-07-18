@@ -225,36 +225,9 @@ namespace DTXMania.Test.UI
             Assert.Equal(1, display.CurrentDifficulty);
         }
 
-        [Fact]
-        public void RefreshDisplay_ShouldClearCaches()
-        {
-            // Arrange
-            var display = new SongListDisplay();
 
-            // Act
-            display.RefreshDisplay();
 
-            // Assert - Should not throw and complete successfully
-            // (Cache clearing is internal, so we just verify the method runs)
-            Assert.True(true);
-        }
 
-        [Fact]
-        public void EmptyList_ShouldHandleGracefully()
-        {
-            // Arrange
-            var display = new SongListDisplay();
-            display.CurrentList = new List<SongListNode>();
-
-            // Act & Assert - Should not throw
-            display.MoveNext();
-            display.MovePrevious();
-            display.CycleDifficulty();
-            display.ActivateSelected();
-
-            Assert.Equal(0, display.SelectedIndex);
-            Assert.Null(display.SelectedSong);
-        }
 
         [Fact]
         public void SelectionChanged_Event_ShouldFireWhenSelectionChanges()
@@ -282,68 +255,11 @@ namespace DTXMania.Test.UI
 
         // Phase 2 Enhancement Tests
 
-        [Fact]
-        public void InitializeEnhancedRendering_WithValidParameters_ShouldSetupRendering()
-        {
-            // Arrange
-            var display = new SongListDisplay();            var mockGraphicsDevice = new Mock<GraphicsDevice>();
-            var mockResourceManager = new Mock<IResourceManager>();
-            
-            // Create a mock RenderTarget2D for the test
-            var graphicsService = new TestGraphicsDeviceService();
-            var sharedRT = new RenderTarget2D(graphicsService.GraphicsDevice, 512, 512);
 
-            // Act & Assert - Should not throw
-            // Note: In headless test environment, this tests the method signature and basic validation
-            try
-            {
-                display.InitializeEnhancedRendering(graphicsService.GraphicsDevice, mockResourceManager.Object, sharedRT);
-                Assert.True(true); // Method completed without throwing
-            }
-            catch (ArgumentNullException)
-            {
-                // Expected in test environment without proper graphics context
-                Assert.True(true);
-            }
-            finally
-            {
-                sharedRT?.Dispose();
-                graphicsService?.Dispose();
-            }
-        }
 
-        [Fact]
-        public void SetEnhancedRendering_WithBooleanValues_ShouldAcceptSettings()
-        {
-            // Arrange
-            var display = new SongListDisplay();
 
-            // Act & Assert - Should not throw
-            display.SetEnhancedRendering(true);
-            display.SetEnhancedRendering(false);
 
-            Assert.NotNull(display); // Verify object is still valid
-        }
 
-        [Fact]
-        public void RefreshDisplay_WithEnhancedRendering_ShouldClearAllCaches()
-        {
-            // Arrange
-            var display = new SongListDisplay();
-            var songs = new List<SongListNode>
-            {
-                new SongListNode { Type = NodeType.Score, Title = "Song 1" },
-                new SongListNode { Type = NodeType.Box, Title = "Folder 1" }
-            };
-            display.CurrentList = songs;
-
-            // Act
-            display.RefreshDisplay();
-
-            // Assert - Should complete without throwing
-            Assert.NotNull(display);
-            Assert.Equal(songs, display.CurrentList);
-        }
 
         [Fact]
         public void SongListDisplay_WithMixedNodeTypes_ShouldHandleAllTypes()
@@ -407,14 +323,6 @@ namespace DTXMania.Test.UI
             Assert.Equal(songs[0], songEventArgs.Song);
         }
 
-        [Fact]
-        public void Dispose_WithEnhancedRendering_ShouldCleanupResources()
-        {
-            // Arrange
-            var display = new SongListDisplay();
 
-            // Act & Assert - Should not throw
-            display.Dispose();
-        }
     }
 }

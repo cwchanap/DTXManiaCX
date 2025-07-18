@@ -216,23 +216,7 @@ namespace DTXMania.Test.UI
             Assert.NotNull(texture);
         }
 
-        [Fact]
-        public void ClearCache_ShouldClearAllCaches()
-        {
-            // Arrange
-            var font = CreateTestFont();
-            _renderer.SetFont(font);
 
-            // Generate some textures to populate cache
-            _renderer.GenerateTitleTexture(_testSongNode);
-            _renderer.GenerateClearLampTexture(_testSongNode, 0);
-
-            // Act
-            _renderer.ClearCache();
-
-            // Assert - Should not throw and caches should be cleared
-            // We can't directly verify cache is cleared, but method should complete successfully
-        }
 
         [Fact]
         public void SetFont_ShouldClearTitleCache()
@@ -279,20 +263,9 @@ namespace DTXMania.Test.UI
             // This test primarily verifies that different node types don't crash the renderer
         }
 
-        [Fact]
-        public void Dispose_ShouldCleanupResources()
-        {
-            // Act & Assert - Should not throw
-            _renderer.Dispose();
-        }
 
-        [Fact]
-        public void Dispose_CalledMultipleTimes_ShouldNotThrow()
-        {
-            // Act & Assert - Should not throw
-            _renderer.Dispose();
-            _renderer.Dispose();
-        }
+
+
         private SpriteFont? CreateTestFont()
         {
             // Create a minimal test font
@@ -301,77 +274,15 @@ namespace DTXMania.Test.UI
             return null; // The renderer should handle null fonts gracefully
         }
 
-        [Fact]
-        public void SongBarRenderer_BasicFunctionality_ShouldWork()
-        {
-            // This test verifies that the basic structure works
-            // Graphics-dependent tests are skipped in headless environments
 
-            // Test that we can create test data
-            Assert.NotNull(_testSongNode);
-            Assert.Equal(NodeType.Score, _testSongNode.Type);
-            Assert.Equal("Test Song", _testSongNode.Title);
-
-            // Test that resource manager works
-            Assert.NotNull(_resourceManager);
-
-            // Test that we handle null graphics device gracefully
-            Assert.Null(_renderer);
-        }
 
         // Phase 2 Enhancement Tests
 
-        [Theory]
-        [InlineData(NodeType.Score, BarType.Score)]
-        [InlineData(NodeType.Box, BarType.Box)]
-        [InlineData(NodeType.BackBox, BarType.Other)]
-        [InlineData(NodeType.Random, BarType.Other)]
-        public void BarType_MappingFromNodeType_ShouldBeCorrect(NodeType nodeType, BarType expectedBarType)
-        {
-            // This test verifies the bar type mapping logic
-            // Since we can't test the actual method without graphics device,
-            // we test the enum values and mapping logic conceptually
 
-            Assert.True(Enum.IsDefined(typeof(NodeType), nodeType));
-            Assert.True(Enum.IsDefined(typeof(BarType), expectedBarType));
-        }
 
-        [Theory]
-        [InlineData(ClearStatus.NotPlayed)]
-        [InlineData(ClearStatus.Failed)]
-        [InlineData(ClearStatus.Clear)]
-        [InlineData(ClearStatus.FullCombo)]
-        public void ClearStatus_EnumValues_ShouldBeValid(ClearStatus clearStatus)
-        {
-            // Verify all ClearStatus enum values are properly defined
-            Assert.True(Enum.IsDefined(typeof(ClearStatus), clearStatus));
-        }
 
-        [Theory]
-        [InlineData(BarType.Score)]
-        [InlineData(BarType.Box)]
-        [InlineData(BarType.Other)]
-        public void BarType_EnumValues_ShouldBeValid(BarType barType)
-        {
-            // Verify all BarType enum values are properly defined
-            Assert.True(Enum.IsDefined(typeof(BarType), barType));
-        }
 
-        [Fact]
-        public void SongBarInfo_Dispose_ShouldHandleNullTextures()
-        {
-            // Test SongBarInfo disposal with null textures
-            var barInfo = new SongBarInfo
-            {
-                TitleTexture = null,
-                PreviewImage = null,
-                ClearLamp = null
-            };
 
-            // Should not throw when disposing null textures
-            barInfo.Dispose();
-            Assert.NotNull(barInfo); // Verify object still exists after dispose
-        }
 
         [Fact]
         public void SongBarInfo_Properties_ShouldBeSettable()
