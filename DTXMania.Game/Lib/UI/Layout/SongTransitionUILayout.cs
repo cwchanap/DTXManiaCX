@@ -32,6 +32,7 @@ namespace DTX.UI.Layout
             public const int Y = 150;
             public const int Width = 600;
             public const int Height = 80;
+            public const int FontSize = 40;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -47,6 +48,7 @@ namespace DTX.UI.Layout
             public const int Y = 250;
             public const int Width = 600;
             public const int Height = 50;
+            public const int FontSize = 30;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -58,13 +60,70 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class Difficulty
         {
-            public const int X = 100;
-            public const int Y = 320;
-            public const int Width = 600;
+            public const int X = 191;
+            public const int Y = 80;
+            public const int Width = 262;
             public const int Height = 50;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
+            public static Color TextColor => Color.Yellow;
+        }
+        
+        /// <summary>
+        /// Difficulty sprite configuration for 6_Difficulty.png spritesheet
+        /// Image is 262x600 with 50px height per sprite
+        /// </summary>
+        public static class DifficultySprite
+        {
+            public const int X = 191;
+            public const int Y = 80;
+            public const int SpriteWidth = 262;
+            public const int SpriteHeight = 50;
+            public const int TotalHeight = 600;
+            public const int SpritesPerColumn = TotalHeight / SpriteHeight; // 12 sprites
+            
+            // Background rectangle configuration
+            public const int BackgroundWidth = 262;
+            public const int BackgroundHeight = 120;
+            
+            // Sprite indices for difficulty levels
+            public const int MasterIndex = 5;     // 6th entry (0-based index 5)
+            public const int BasicIndex = 6;      // 7th entry (0-based index 6)
+            public const int AdvancedIndex = 7;   // 8th entry (0-based index 7)
+            public const int ExtremeIndex = 8;    // 9th entry (0-based index 8)
+            public const int RealIndex = 11;      // 12th entry (0-based index 11)
+            
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Vector2 SpriteSize => new Vector2(SpriteWidth, SpriteHeight);
+            public static Vector2 BackgroundSize => new Vector2(BackgroundWidth, BackgroundHeight);
+            
+            /// <summary>
+            /// Gets the sprite index for a given difficulty level
+            /// </summary>
+            public static int GetSpriteIndex(int difficultyLevel)
+            {
+                return difficultyLevel switch
+                {
+                    0 => BasicIndex,      // Basic
+                    1 => AdvancedIndex,   // Advanced
+                    2 => ExtremeIndex,    // Extreme
+                    3 => MasterIndex,     // Master
+                    4 => RealIndex,       // Ultimate/Real
+                    _ => BasicIndex       // Default to Basic
+                };
+            }
+        }
+        
+        /// <summary>
+        /// Difficulty level number configuration for 6_LevelNumber.png bitmap font
+        /// </summary>
+        public static class DifficultyLevelNumber
+        {
+            public const int X = 191;
+            public const int Y = 130;
+            
+            public static Vector2 Position => new Vector2(X, Y);
             public static Color TextColor => Color.Yellow;
         }
         
