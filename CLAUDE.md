@@ -80,6 +80,9 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 
 #### 3. Resource Management
 - **ResourceManager**: Handles textures, fonts, sounds with caching and reference counting
+- **ManagedSpriteTexture**: Spritesheet support extending ManagedTexture for sprite-based rendering
+- **BitmapFont**: DTXMania-style bitmap font rendering using texture spritesheets (e.g., 6_LevelNumber.png)
+- **TexturePath**: Centralized constants for all texture file paths following DTXManiaNX skin conventions
 - **Audio System**: Advanced audio support with FFMpegCore (MP3) and NVorbis (OGG/Vorbis) 
 - **Skin System**: DTXMania-compatible skin loading with box.def support  
 - **Fallback Resources**: Automatic fallback for missing assets
@@ -98,7 +101,8 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 #### 6. UI System
 - **Component-based**: UILabel, UIButton, UIImage, UIPanel, UIList
 - **DTXMania Patterns**: Follows On活性化/On進行描画 lifecycle
-- **Layout System**: Automatic positioning with multiple layout modes
+- **Layout System**: Centralized UI layout configuration classes (e.g., SongSelectionUILayout, SongTransitionUILayout)
+- **Layout Constants**: Position, sizing, font size, and color configuration stored in dedicated layout classes
 - **Input Handling**: Mouse and keyboard with proper state tracking
 
 #### 7. Song Management
@@ -120,6 +124,15 @@ OnActivate() -> OnFirstUpdate() -> OnUpdate()/OnDraw() -> OnTransitionOut() -> O
 // Always use ResourceManager for loading assets:
 var texture = resourceManager.LoadTexture("Graphics/background.jpg");
 // Resources are automatically reference counted and cached
+
+// For spritesheets, use ManagedSpriteTexture:
+var spriteTexture = new ManagedSpriteTexture(
+    graphicsDevice, baseTexture.Texture, sourcePath, 
+    spriteWidth, spriteHeight);
+spriteTexture.DrawSprite(spriteBatch, spriteIndex, position);
+
+// Use TexturePath constants for consistent file paths:
+var texture = resourceManager.LoadTexture(TexturePath.DifficultySprite);
 ```
 
 #### Configuration Access
@@ -130,6 +143,16 @@ config.ScreenWidth = 1920;
 configManager.SaveConfig("Config.ini");
 ```
 
+#### UI Layout Management
+```csharp
+// Use centralized layout classes for consistent positioning:
+var position = SongTransitionUILayout.DifficultySprite.Position;
+var fontSize = SongTransitionUILayout.SongTitle.FontSize;
+var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
+
+// Avoid hardcoded values - use layout constants instead
+```
+
 ## Development Guidelines
 
 ### Code Conventions
@@ -137,6 +160,9 @@ configManager.SaveConfig("Config.ini");
 - Follow C# naming conventions and .NET 8 patterns
 - Maintain DTXMania compatibility where applicable
 - Use MonoGame framework for graphics, input, and audio
+- **Centralize Configuration**: Store layout constants, positions, sizes, and colors in dedicated UI layout classes
+- **Use TexturePath Constants**: Reference texture files through TexturePath class instead of hardcoded strings
+- **Sprite-based Rendering**: Use ManagedSpriteTexture for spritesheet-based graphics like difficulty labels and level numbers
 
 ### Testing Requirements
 - Write unit tests for all new functionality
@@ -179,7 +205,8 @@ configManager.SaveConfig("Config.ini");
 
 ### Font System
 - SharedFontFactory provides cross-platform font support using MonoGame SpriteFont
-- BitmapFont support for DTXMania-style text rendering
+- BitmapFont support for DTXMania-style text rendering using spritesheet textures (6_LevelNumber.png)
+- ManagedSpriteTexture enables sprite-based text rendering for difficulty labels and level numbers
 - Fallback fonts when specific fonts are unavailable
 - Japanese font support for authentic DTXMania experience
 - Font files centralized in DTXMania.Game/Content/ with symbolic links
@@ -207,6 +234,7 @@ configManager.SaveConfig("Config.ini");
 
 ### UI Components
 - `DTXMania.Game/Lib/UI/Components/` - UI components
+- `DTXMania.Game/Lib/UI/Layout/` - Centralized UI layout configuration classes
 - `DTXMania.Game/Lib/UI/` - UI core system
 
 ### Platform-Specific Project Files

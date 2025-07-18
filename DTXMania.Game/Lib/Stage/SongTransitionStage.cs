@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
@@ -44,6 +45,12 @@ namespace DTX.Stage
         
         // Preview image with rotation support
         private ITexture _previewTexture;
+        
+        // Difficulty sprite
+        private ManagedSpriteTexture _difficultySprite;
+        
+        // Level number bitmap font for difficulty level display
+        private BitmapFont _levelNumberFont;
         
         // Background and styling
         private Texture2D _whitePixel;
@@ -152,6 +159,14 @@ namespace DTX.Stage
             _previewTexture?.Dispose();
             _previewTexture = null;
             
+            // Clean up difficulty sprite
+            _difficultySprite?.Dispose();
+            _difficultySprite = null;
+            
+            // Clean up level number font
+            _levelNumberFont?.Dispose();
+            _levelNumberFont = null;
+            
             // Clean up fonts
             _titleFont?.Dispose();
             _titleFont = null;
@@ -246,6 +261,12 @@ namespace DTX.Stage
             // Load preview image if available
             LoadPreviewImage();
             
+            // Load difficulty sprite
+            LoadDifficultySprite();
+            
+            // Load level number font
+            LoadLevelNumberFont();
+            
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
             
@@ -258,8 +279,8 @@ namespace DTX.Stage
         {
             try
             {
-                // Load title font (larger size for title)
-                _titleFont = _resourceManager.LoadFont("NotoSerifJP", 24);
+                // Load title font using layout configuration
+                _titleFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize);
             }
             catch (Exception ex)
             {
@@ -268,8 +289,8 @@ namespace DTX.Stage
             
             try
             {
-                // Load artist font (smaller size for artist)
-                _artistFont = _resourceManager.LoadFont("NotoSerifJP", 18);
+                // Load artist font using layout configuration
+                _artistFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize);
             }
             catch (Exception ex)
             {
@@ -332,6 +353,53 @@ namespace DTX.Stage
             }
         }
 
+        private void LoadDifficultySprite()
+        {
+            try
+            {
+                // Load the base texture through ResourceManager first
+                var baseTexture = _resourceManager.LoadTexture(TexturePath.DifficultySprite);
+                if (baseTexture != null && baseTexture.Texture != null)
+                {
+                    // Create ManagedSpriteTexture from the loaded texture
+                    _difficultySprite = new ManagedSpriteTexture(
+                        _game.GraphicsDevice,
+                        baseTexture.Texture,
+                        TexturePath.DifficultySprite,
+                        SongTransitionUILayout.DifficultySprite.SpriteWidth,
+                        SongTransitionUILayout.DifficultySprite.SpriteHeight
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load difficulty sprite: {ex.Message}");
+            }
+        }
+
+        private void LoadLevelNumberFont()
+        {
+            try
+            {
+                // Load level number bitmap font using the same configuration as SongStatusPanel
+                var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
+                _levelNumberFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, levelNumberConfig);
+                
+                if (_levelNumberFont != null && _levelNumberFont.IsLoaded)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Level number bitmap font loaded successfully");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Level number bitmap font creation failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load level number bitmap font: {ex.Message}");
+                _levelNumberFont = null;
+            }
+        }
 
         private string GetDifficultyName(int difficulty)
         {
@@ -344,6 +412,54 @@ namespace DTX.Stage
                 4 => "Ultimate",
                 _ => "Unknown"
             };
+        }
+        
+        private float GetCurrentDifficultyLevel()
+        {
+            // Get the chart for the current difficulty level
+            var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+            if (chart == null)
+                return 0;
+            
+            // Get the appropriate level based on the current instrument
+            // For now, assuming drums mode - this could be expanded later
+            return chart.DrumLevel > 0 ? chart.DrumLevel : 
+                   chart.GuitarLevel > 0 ? chart.GuitarLevel : 
+                   chart.BassLevel > 0 ? chart.BassLevel : 0;
+        }
+        
+        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart(SongListNode currentSong, int currentDifficulty)
+        {
+            // If no song is selected, return null
+            if (currentSong?.DatabaseSong == null)
+            {
+                return null;
+            }
+            
+            // Get all charts for this song
+            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
+            
+            if (allCharts == null || allCharts.Count == 0)
+            {
+                var fallbackChart = currentSong.DatabaseChart;
+                return fallbackChart; // Fallback to primary chart
+            }
+
+            // If we only have one chart, return it
+            if (allCharts.Count == 1)
+                return allCharts[0];
+
+            // For simplicity, assume drums mode and map difficulty to chart index
+            var drumCharts = allCharts.Where(chart => chart.HasDrumChart && chart.DrumLevel > 0)
+                                     .OrderBy(chart => chart.DrumLevel)
+                                     .ToList();
+            
+            if (drumCharts.Count == 0)
+                return allCharts[0]; // Fallback if no drum charts
+            
+            // Map difficulty index to chart index, clamped to available charts
+            int chartIndex = Math.Clamp(currentDifficulty, 0, drumCharts.Count - 1);
+            return drumCharts[chartIndex];
         }
 
         #endregion
@@ -391,6 +507,15 @@ namespace DTX.Stage
             
             // Draw text with ManagedFont
             DrawText();
+            
+            // Draw difficulty background rectangle
+            DrawDifficultyBackground();
+            
+            // Draw difficulty sprite
+            DrawDifficultySprite();
+            
+            // Draw difficulty level number
+            DrawDifficultyLevelNumber();
             
             // Draw preview image with rotation separately
             DrawPreviewImage();
@@ -455,21 +580,80 @@ namespace DTX.Stage
                         artistColor, Color.Black * 0.8f, new Vector2(1, 1));
                 }
                 
-                // Draw difficulty info below artist
-                if (_artistFont != null && !string.IsNullOrEmpty(_difficultyName))
-                {
-                    var difficultyPosition = new Vector2(190, 390);
-                    var difficultyColor = Color.Yellow;
-                    var difficultyText = $"Difficulty: {_difficultyName}";
-                    
-                    // Draw with shadow for better visibility
-                    _artistFont.DrawStringWithShadow(_spriteBatch, difficultyText, difficultyPosition,
-                        difficultyColor, Color.Black * 0.8f, new Vector2(1, 1));
-                }
+                // Note: Difficulty is now drawn as sprite in DrawDifficultySprite method
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw text: {ex.Message}");
+            }
+        }
+        
+        private void DrawDifficultyBackground()
+        {
+            if (_whitePixel == null)
+                return;
+            
+            try
+            {
+                // Draw grey background rectangle using layout configuration
+                var position = SongTransitionUILayout.DifficultySprite.Position;
+                var size = SongTransitionUILayout.DifficultySprite.BackgroundSize;
+                var rectangle = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+                var greyColor = Color.Gray;
+                
+                _spriteBatch.Draw(_whitePixel, rectangle, greyColor);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty background: {ex.Message}");
+            }
+        }
+        
+        private void DrawDifficultySprite()
+        {
+            if (_difficultySprite == null)
+                return;
+            
+            try
+            {
+                // Get the sprite index for the current difficulty
+                var spriteIndex = SongTransitionUILayout.DifficultySprite.GetSpriteIndex(_selectedDifficulty);
+                var position = SongTransitionUILayout.DifficultySprite.Position;
+                
+                // Draw the difficulty sprite at the specified position
+                _difficultySprite.DrawSprite(_spriteBatch, spriteIndex, position);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty sprite: {ex.Message}");
+            }
+        }
+        
+        private void DrawDifficultyLevelNumber()
+        {
+            if (_levelNumberFont == null || !_levelNumberFont.IsLoaded)
+                return;
+            
+            try
+            {
+                // Get the difficulty level from the current song chart
+                var difficultyLevel = GetCurrentDifficultyLevel();
+                if (difficultyLevel <= 0)
+                    return;
+                
+                // Format the level number similar to SongStatusPanel (divide by 10 for decimal format)
+                var levelText = (difficultyLevel / 10.0f).ToString("F2"); // Show 38 as "3.80", 60 as "6.00", etc.
+                
+                // Use layout configuration for position and color
+                var position = SongTransitionUILayout.DifficultyLevelNumber.Position;
+                var textColor = SongTransitionUILayout.DifficultyLevelNumber.TextColor;
+                
+                // Draw the level number using bitmap font
+                _levelNumberFont.DrawText(_spriteBatch, levelText, (int)position.X, (int)position.Y, textColor);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty level number: {ex.Message}");
             }
         }
         

@@ -91,6 +91,12 @@ namespace DTX.Resources
         /// </summary>
         public const string LevelNumberFont = "Graphics/6_LevelNumber.png";
         
+        /// <summary>
+        /// Difficulty sprite texture (262x600, 50px per sprite)
+        /// Contains difficulty labels: Master(6th), Basic(7th), Advanced(8th), Extreme(9th), Real(12th)
+        /// </summary>
+        public const string DifficultySprite = "Graphics/6_Difficulty.png";
+        
         #endregion
         
         #region Preview and Default Textures
@@ -127,6 +133,7 @@ namespace DTX.Resources
                 ConsoleFont,
                 ConsoleFontSecondary,
                 LevelNumberFont,
+                DifficultySprite,
                 DefaultPreview
             };
         }
@@ -172,7 +179,8 @@ namespace DTX.Resources
             {
                 ConsoleFont,
                 ConsoleFontSecondary,
-                LevelNumberFont
+                LevelNumberFont,
+                DifficultySprite
             };
         }
         
