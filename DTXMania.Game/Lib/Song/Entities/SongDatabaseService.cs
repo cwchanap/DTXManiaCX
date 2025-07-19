@@ -20,6 +20,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly object _initializationLock = new object();
         private bool _isInitialized = false;
 
+        /// <summary>
+        /// Gets the path to the database file
+        /// </summary>
+        public string DatabasePath => _databasePath;
+
         public SongDatabaseService(string databasePath = "songs.db")
         {
             _databasePath = databasePath;
@@ -266,7 +271,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 if (existingChart != null)
                 {
                     // Song already exists, return the existing song ID
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Song already exists with path: {chart.FilePath}");
                     return existingChart.SongId;
                 }
 
@@ -277,7 +281,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 if (existingSong != null)
                 {
                     // Song exists, add chart to existing song
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Adding chart to existing song: {song.Title} by {song.Artist}");
                     
                     // Calculate file hash if not already set
                     if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
@@ -310,7 +313,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
 
                 // No existing song found, create a new one
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Creating new song: {song.Title} by {song.Artist}");
 
                 // Calculate file hash if not already set
                 if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
@@ -651,6 +653,85 @@ namespace DTXMania.Game.Lib.Song.Entities
             {
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error removing invalid database file: {ex.Message}");
                 // Try to continue anyway - maybe the file was already deleted
+            }
+        }
+
+        /// <summary>
+        /// Removes stale chart entries where the files no longer exist
+        /// This helps clean up duplicate entries caused by file moves
+        /// </summary>
+        public async Task CleanupStaleChartsAsync()
+        {
+            try
+            {
+                using var context = CreateContext();
+                
+                var allCharts = await context.SongCharts.ToListAsync();
+                var stalePaths = new List<int>();
+                
+                foreach (var chart in allCharts)
+                {
+                    if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
+                    {
+                        stalePaths.Add(chart.Id);
+                    }
+                }
+                
+                if (stalePaths.Count > 0)
+                {
+                    // Remove associated scores first
+                    var staleScores = await context.SongScores
+                        .Where(s => stalePaths.Contains(s.ChartId))
+                        .ToListAsync();
+                    
+                    if (staleScores.Count > 0)
+                    {
+                        context.SongScores.RemoveRange(staleScores);
+                    }
+                    
+                    // Remove the charts
+                    var staleCharts = await context.SongCharts
+                        .Where(c => stalePaths.Contains(c.Id))
+                        .ToListAsync();
+                    
+                    if (staleCharts.Count > 0)
+                    {
+                        context.SongCharts.RemoveRange(staleCharts);
+                    }
+                    
+                    await context.SaveChangesAsync();
+                    
+                    // Clean up songs that no longer have any charts
+                    await CleanupOrphanedSongsAsync(context);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error during stale chart cleanup: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Removes songs that no longer have any associated charts
+        /// </summary>
+        private async Task CleanupOrphanedSongsAsync(SongDbContext context)
+        {
+            try
+            {
+                var orphanedSongs = await context.Songs
+                    .Where(s => !context.SongCharts.Any(c => c.SongId == s.Id))
+                    .ToListAsync();
+                
+                if (orphanedSongs.Count > 0)
+                {
+                    context.Songs.RemoveRange(orphanedSongs);
+                    await context.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error cleaning up orphaned songs: {ex.Message}");
             }
         }
 

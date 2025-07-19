@@ -55,8 +55,12 @@ namespace DTX.Stage
         private ConfigManager _configManager;
 
         // Task tracking for async operations
-        private Task _songEnumerationTask;
+        private Task _currentAsyncTask;
         private CancellationTokenSource _cancellationTokenSource;
+        private readonly string[] _songPaths = { "DTXFiles" };
+
+        // Debug/testing flags
+        private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable
 
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
@@ -88,13 +92,13 @@ namespace DTX.Stage
             {
                 { StartupPhase.SystemSounds, ("Loading system sounds...", 0.5) },
                 { StartupPhase.ConfigValidation, ("Validating configuration...", 0.3) },
-                { StartupPhase.SongListDB, ("Loading songlist.db...", 0.3) },
+                { StartupPhase.SongListDB, ("Initializing song database...", 0.3) },
                 { StartupPhase.SongsDB, ("Loading songs.db...", 0.4) },
-                { StartupPhase.EnumerateSongs, ("Enumerating songs...", 1.5) },
-                { StartupPhase.LoadScoreCache, ("Loading score properties from songs.db...", 0.6) },
-                { StartupPhase.LoadScoreFiles, ("Loading score properties from files...", 0.7) },
-                { StartupPhase.BuildSongLists, ("Building songlists...", 0.3) },
-                { StartupPhase.SaveSongsDB, ("Saving songs.db...", 0.2) },
+                { StartupPhase.LoadScoreCache, ("Loading cached song data...", 0.6) },
+                { StartupPhase.LoadScoreFiles, ("Checking for filesystem changes...", 0.7) },
+                { StartupPhase.EnumerateSongs, ("Scanning for new/modified songs...", 1.5) },
+                { StartupPhase.BuildSongLists, ("Building song lists...", 0.3) },
+                { StartupPhase.SaveSongsDB, ("Saving song database...", 0.2) },
                 { StartupPhase.Complete, ("Setup done.", 0.1) }
             };
         }
@@ -129,7 +133,7 @@ namespace DTX.Stage
             _startupPhase = StartupPhase.SystemSounds;
             _phaseStartTime = 0;
             _progressMessages.Clear();
-            _songEnumerationTask = null; // Reset task tracking
+            _currentAsyncTask = null; // Reset task tracking
 
             // Add initial messages (DTXMania pattern)
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
@@ -192,8 +196,8 @@ namespace DTX.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
 
-                // Cancel and await completion of the enumeration task if it exists
-                if (_songEnumerationTask != null)
+                // Cancel and await completion of the current async task if it exists
+                if (_currentAsyncTask != null)
                 {
                     try
                     {
@@ -201,24 +205,24 @@ namespace DTX.Stage
                         _cancellationTokenSource?.Cancel();
 
                         // Wait for the task to complete, with a timeout.
-                        System.Diagnostics.Debug.WriteLine("Waiting for song enumeration task with a 5-second timeout...");
+                        System.Diagnostics.Debug.WriteLine("Waiting for current async task with a 5-second timeout...");
                         var timeoutTask = Task.Delay(TimeSpan.FromSeconds(5));
-                        var completedTask = Task.WhenAny(_songEnumerationTask, timeoutTask).Result;
+                        var completedTask = Task.WhenAny(_currentAsyncTask, timeoutTask).Result;
 
-                        if (completedTask == _songEnumerationTask)
+                        if (completedTask == _currentAsyncTask)
                         {
                             // Task completed within the timeout.
                             // Calling Wait() on the completed task will not block but will propagate any exceptions.
-                            _songEnumerationTask.Wait();
-                            System.Diagnostics.Debug.WriteLine("Song enumeration task completed gracefully.");
+                            _currentAsyncTask.Wait();
+                            System.Diagnostics.Debug.WriteLine("Current async task completed gracefully.");
                         }
                         else
                         {
                             // Timeout occurred.
-                            System.Diagnostics.Debug.WriteLine("Warning: Song enumeration task timed out and will be abandoned.");
+                            System.Diagnostics.Debug.WriteLine("Warning: Current async task timed out and will be abandoned.");
                         }
 
-                        System.Diagnostics.Debug.WriteLine("Song enumeration task disposed");
+                        System.Diagnostics.Debug.WriteLine("Current async task disposed");
                     }
                     catch (AggregateException ex)
                     {
@@ -231,7 +235,7 @@ namespace DTX.Stage
                     }
                     finally
                     {
-                        _songEnumerationTask = null;
+                        _currentAsyncTask = null;
                     }
                 }
 
@@ -292,32 +296,51 @@ namespace DTX.Stage
             PerformPhaseOperationSync(_startupPhase, phaseElapsed);
 
             // Check if current phase is complete
-            bool phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
-
-            // Special handling for EnumerateSongs phase - wait for task completion
-            if (_startupPhase == StartupPhase.EnumerateSongs && _songEnumerationTask != null)
+            bool phaseComplete = false;
+            
+            // For async phases, wait for task completion AND minimum duration
+            if (HasAsyncOperation(_startupPhase))
             {
-                phaseComplete = phaseComplete && _songEnumerationTask.IsCompleted;
+                if (_currentAsyncTask != null)
+                {
+                    // Phase is complete when both minimum duration has passed AND task is completed
+                    phaseComplete = phaseElapsed >= currentPhaseInfo.duration && _currentAsyncTask.IsCompleted;
 
-                if (!_songEnumerationTask.IsCompleted)
-                {
-                    _currentProgressMessage = "Enumerating songs... (in progress)";
+                    if (!_currentAsyncTask.IsCompleted)
+                    {
+                        _currentProgressMessage = $"{currentPhaseInfo.message} (in progress)";
+                    }
+                    else if (_currentAsyncTask.IsCompletedSuccessfully)
+                    {
+                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} ✓ Complete";
+                    }
+                    else if (_currentAsyncTask.IsFaulted)
+                    {
+                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} ⚠ Error";
+                        System.Diagnostics.Debug.WriteLine($"{_startupPhase} task failed: {_currentAsyncTask.Exception?.InnerException?.Message}");
+                        // Continue to next phase even on error after minimum duration
+                        phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
+                    }
                 }
-                else if (_songEnumerationTask.IsCompletedSuccessfully)
+                else
                 {
-                    _currentProgressMessage = "Enumerating songs... ✓ Complete";
+                    // No async task started yet, not complete
+                    phaseComplete = false;
                 }
-                else if (_songEnumerationTask.IsFaulted)
-                {
-                    _currentProgressMessage = "Enumerating songs... ⚠ Error";
-                    System.Diagnostics.Debug.WriteLine($"Song enumeration task failed: {_songEnumerationTask.Exception?.InnerException?.Message}");
-                }
+            }
+            else
+            {
+                // For non-async phases, complete based on duration only
+                phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
             }
 
             if (phaseComplete)
             {
                 // Add completion message
                 _progressMessages.Add($"✓ {currentPhaseInfo.message.Replace("...", "")}");
+
+                // Reset async task for the next phase
+                _currentAsyncTask = null;
 
                 // Move to next phase
                 var nextPhase = GetNextPhase(_startupPhase);
@@ -362,30 +385,63 @@ namespace DTX.Stage
                     }
                     break;
 
-                case StartupPhase.EnumerateSongs:
-                    // Initialize SongManager with song enumeration (async operation)
-                    if (!_songManager.IsInitialized)
+                case StartupPhase.SongListDB:
+                    // Initialize database service
+                    if (_currentAsyncTask == null)
                     {
-                        // Start async operation but track it for completion
-                        if (_songEnumerationTask == null)
-                        {
-                            _songEnumerationTask = EnumerateSongsAsync(_cancellationTokenSource.Token);
-                        }
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine("SongManager already initialized, skipping enumeration");
+                        System.Diagnostics.Debug.WriteLine("Starting database service initialization...");
+                        _currentAsyncTask = InitializeDatabaseServiceAsync();
                     }
                     break;
 
-                case StartupPhase.SongListDB:
                 case StartupPhase.SongsDB:
+                    // This is handled together with SongListDB in InitializeDatabaseServiceAsync
+                    System.Diagnostics.Debug.WriteLine("SongsDB initialization (handled with SongListDB)");
+                    break;
+
                 case StartupPhase.LoadScoreCache:
+                    // Try to load existing songs from database cache
+                    if (_currentAsyncTask == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Starting score cache loading...");
+                        _currentAsyncTask = LoadScoreCacheAsync();
+                    }
+                    break;
+
                 case StartupPhase.LoadScoreFiles:
+                    // Perform filesystem change detection during this phase
+                    if (_currentAsyncTask == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Starting filesystem change detection...");
+                        _currentAsyncTask = CheckFilesystemChangesAsync();
+                    }
+                    break;
+
+                case StartupPhase.EnumerateSongs:
+                    // Enumerate songs from file system (if cache loading failed or was outdated)
+                    if (_currentAsyncTask == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Starting song enumeration...");
+                        _currentAsyncTask = EnumerateSongsAsync();
+                    }
+                    break;
+
                 case StartupPhase.BuildSongLists:
+                    // Build final song lists
+                    if (_currentAsyncTask == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Starting song lists building...");
+                        _currentAsyncTask = BuildSongListsAsync();
+                    }
+                    break;
+
                 case StartupPhase.SaveSongsDB:
-                    // Placeholder operations for other phases
-                    System.Diagnostics.Debug.WriteLine($"Performing {phase} operation...");
+                    // Save songs to database
+                    if (_currentAsyncTask == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Starting songs DB save...");
+                        _currentAsyncTask = SaveSongsDBAsync();
+                    }
                     break;
             }
         }
@@ -396,36 +452,135 @@ namespace DTX.Stage
                 StartupPhase.SystemSounds => StartupPhase.ConfigValidation,
                 StartupPhase.ConfigValidation => StartupPhase.SongListDB,
                 StartupPhase.SongListDB => StartupPhase.SongsDB,
-                StartupPhase.SongsDB => StartupPhase.EnumerateSongs,
-                StartupPhase.EnumerateSongs => StartupPhase.LoadScoreCache,
+                StartupPhase.SongsDB => StartupPhase.LoadScoreCache,
                 StartupPhase.LoadScoreCache => StartupPhase.LoadScoreFiles,
-                StartupPhase.LoadScoreFiles => StartupPhase.BuildSongLists,
+                StartupPhase.LoadScoreFiles => StartupPhase.EnumerateSongs,
+                StartupPhase.EnumerateSongs => StartupPhase.BuildSongLists,
                 StartupPhase.BuildSongLists => StartupPhase.SaveSongsDB,
                 StartupPhase.SaveSongsDB => StartupPhase.Complete,
                 _ => StartupPhase.Complete
             };
         }
 
-        private async Task EnumerateSongsAsync(CancellationToken token)
+        /// <summary>
+        /// Determines if a phase requires async operations
+        /// </summary>
+        private bool HasAsyncOperation(StartupPhase phase)
+        {
+            return phase switch
+            {
+                StartupPhase.SongListDB => true,
+                StartupPhase.LoadScoreCache => true,
+                StartupPhase.LoadScoreFiles => true,
+                StartupPhase.EnumerateSongs => true,
+                StartupPhase.BuildSongLists => true,
+                StartupPhase.SaveSongsDB => true,
+                _ => false
+            };
+        }
+
+        /// <summary>
+        /// Initialize database service async operation
+        /// </summary>
+        private async Task InitializeDatabaseServiceAsync()
         {
             try
             {
-                token.ThrowIfCancellationRequested();
+                bool success = await _songManager.InitializeDatabaseServiceAsync("songs.db", false).ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.Message}");
+            }
+        }
 
-                var songPaths = new[] { "DTXFiles" };
-                await _songManager.InitializeAsync(songPaths, "songs.db", null, false, token).ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine("SongManager initialized successfully");
+        /// <summary>
+        /// Load score cache async operation
+        /// </summary>
+        private async Task LoadScoreCacheAsync()
+        {
+            try
+            {
+                bool success = await _songManager.LoadScoreCacheAsync(_songPaths).ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"Score cache loading: {(success ? "SUCCESS" : "FAILED - enumeration needed")}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during score cache loading: {ex.Message}");
+            }
+        }
 
-                int songCount = _songManager.RootSongs.Count;
-                System.Diagnostics.Debug.WriteLine($"SongManager: {songCount} root nodes loaded");
-
-                if (!token.IsCancellationRequested)
+        /// <summary>
+        /// Check filesystem changes async operation
+        /// </summary>
+        private async Task CheckFilesystemChangesAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("Checking filesystem for changes...");
+                
+                // Perform detailed filesystem change detection
+                bool changesDetected = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
+                
+                if (changesDetected)
                 {
-                    lock (_progressMessages) // Reuse existing lock object
-                    {
-                        _startupPhase = StartupPhase.Complete;
-                    }
+                    System.Diagnostics.Debug.WriteLine("Filesystem changes detected - enumeration will be needed");
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected - database is up to date");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during filesystem change detection: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Enumerate songs async operation with enhanced filesystem change detection
+        /// </summary>
+        private async Task EnumerateSongsAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("Starting filesystem change detection...");
+                
+                // First check if enumeration is needed based on filesystem changes
+                bool needsEnumeration = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
+                
+                if (!needsEnumeration)
+                {
+                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected, skipping enumeration");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine("Filesystem changes detected, proceeding with enumeration...");
+                
+                // Create progress reporter for detailed enumeration feedback
+                var progressReporter = new Progress<EnumerationProgress>(progress =>
+                {
+                    // Update progress message with enumeration details
+                    var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
+                    if (!string.IsNullOrEmpty(progress.CurrentFile))
+                    {
+                        var fileName = Path.GetFileName(progress.CurrentFile);
+                        _currentProgressMessage = $"{phaseInfo.message} [{progress.ProcessedCount} processed, {progress.DiscoveredSongs} songs] {fileName}";
+                    }
+                    else if (!string.IsNullOrEmpty(progress.CurrentDirectory))
+                    {
+                        var dirName = Path.GetFileName(progress.CurrentDirectory);
+                        _currentProgressMessage = $"{phaseInfo.message} Scanning directory: {dirName}";
+                    }
+                    else
+                    {
+                        _currentProgressMessage = $"{phaseInfo.message} [{progress.ProcessedCount} processed, {progress.DiscoveredSongs} songs found]";
+                    }
+                });
+
+                int songCount = await _songManager.EnumerateSongsOnlyAsync(_songPaths, progressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"Song enumeration complete: {songCount} songs found");
             }
             catch (OperationCanceledException)
             {
@@ -434,6 +589,72 @@ namespace DTX.Stage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error during song enumeration: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Build song lists async operation - this populates the actual song list from database
+        /// </summary>
+        private async Task BuildSongListsAsync()
+        {
+            try
+            {
+                // The current BuildSongListsAsync method is just a placeholder
+                // We need to call the actual method that builds the song list from database
+                System.Diagnostics.Debug.WriteLine("Building song lists from database...");
+                
+                // This is the critical method that actually populates _rootSongs from the database
+                await CallBuildSongListFromDatabaseAsync().ConfigureAwait(false);
+                
+                // Verify the results
+                int songCount = _songManager.RootSongs.Count;
+                System.Diagnostics.Debug.WriteLine($"Song lists building complete: {songCount} root nodes loaded");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during song lists building: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Helper method to call the private BuildSongListFromDatabaseAsync method
+        /// </summary>
+        private async Task CallBuildSongListFromDatabaseAsync()
+        {
+            try
+            {
+                // We need to use reflection or create a public method to call BuildSongListFromDatabaseAsync
+                // For now, let's add a public wrapper method to SongManager
+                await _songManager.BuildSongListFromDatabasePublicAsync(_songPaths).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error calling BuildSongListFromDatabaseAsync: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Save songs database async operation
+        /// </summary>
+        private async Task SaveSongsDBAsync()
+        {
+            try
+            {
+                bool success = await _songManager.SaveSongsDBAsync().ConfigureAwait(false);
+                
+                // Mark SongManager as fully initialized after successful save
+                if (success)
+                {
+                    _songManager.SetInitialized();
+                    int songCount = _songManager.RootSongs.Count;
+                    System.Diagnostics.Debug.WriteLine($"SongManager fully initialized: {songCount} root nodes loaded");
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"Songs DB save: {(success ? "SUCCESS" : "FAILED")}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during songs DB save: {ex.Message}");
             }
         }
 
@@ -566,18 +787,18 @@ namespace DTX.Stage
         #endregion
     }
 
-    // Enum for different phases of startup
+    // Enum for different phases of startup (order matches execution sequence)
     public enum StartupPhase
     {
-        SystemSounds,
-        ConfigValidation,
-        SongListDB,
-        SongsDB,
-        EnumerateSongs,
-        LoadScoreCache,
-        LoadScoreFiles,
-        BuildSongLists,
-        SaveSongsDB,
-        Complete
+        SystemSounds = 0,        // 0
+        ConfigValidation = 1,    // 1  
+        SongListDB = 2,          // 2
+        SongsDB = 3,             // 3
+        LoadScoreCache = 4,      // 4
+        LoadScoreFiles = 5,      // 5
+        EnumerateSongs = 6,      // 6
+        BuildSongLists = 7,      // 7
+        SaveSongsDB = 8,         // 8
+        Complete = 9             // 9
     }
 }

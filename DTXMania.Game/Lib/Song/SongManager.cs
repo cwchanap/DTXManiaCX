@@ -163,6 +163,240 @@ namespace DTX.Song
 
         #endregion
 
+        #region Individual Phase Operations
+
+        /// <summary>
+        /// Initializes the database service (SongListDB and SongsDB phases)
+        /// </summary>
+        public async Task<bool> InitializeDatabaseServiceAsync(string databasePath = "songs.db", bool purgeDatabaseFirst = false)
+        {
+            try
+            {
+                // Initialize the database service if not already done
+                if (_databaseService == null)
+                {
+                    _databaseService = new SongDatabaseService(databasePath);
+                }
+
+                // Check for database corruption first
+                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync().ConfigureAwait(false);
+
+                // Purge the database only if explicitly requested OR if corruption is detected
+                if (purgeDatabaseFirst)
+                {
+                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
+                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
+                }
+                else if (isDatabaseCorrupted)
+                {
+                    Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
+                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
+                }
+
+                await _databaseService.InitializeDatabaseAsync().ConfigureAwait(false);
+                Debug.WriteLine("SongManager: Database service initialized successfully");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during database service initialization: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads existing songs from database (LoadScoreCache phase)
+        /// </summary>
+        public async Task<bool> LoadScoreCacheAsync(string[] searchPaths)
+        {
+            try
+            {
+                if (_databaseService == null)
+                {
+                    Debug.WriteLine("SongManager: Cannot load score cache - database service not initialized");
+                    return false;
+                }
+
+                // Check if we need to enumerate or can build from database
+                bool needsEnumeration = await GetDatabaseScoreCountAsync().ConfigureAwait(false) == 0 || await NeedsEnumerationAsync(searchPaths).ConfigureAwait(false);
+
+                if (!needsEnumeration)
+                {
+                    Debug.WriteLine("SongManager: Building song list from database cache");
+                    await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
+                    return true;
+                }
+                else
+                {
+                    Debug.WriteLine("SongManager: Score cache is empty or outdated, enumeration needed");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during score cache loading: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Enumerates songs from file system (EnumerateSongs phase)
+        /// </summary>
+        public async Task<int> EnumerateSongsOnlyAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            Debug.WriteLine("SongManager: Starting EnumerateSongsOnlyAsync...");
+            var result = await EnumerateSongsAsync(searchPaths, progress, cancellationToken).ConfigureAwait(false);
+            
+            Debug.WriteLine($"SongManager: EnumerateSongsAsync returned {result} songs");
+            
+            // Check database count after enumeration
+            var dbCount = await GetDatabaseScoreCountAsync().ConfigureAwait(false);
+            Debug.WriteLine($"SongManager: Database now contains {dbCount} songs");
+            
+            // Check _rootSongs count
+            lock (_lockObject)
+            {
+                Debug.WriteLine($"SongManager: _rootSongs contains {_rootSongs.Count} nodes");
+                
+                // Log some sample songs for debugging
+                for (int i = 0; i < Math.Min(3, _rootSongs.Count); i++)
+                {
+                    var node = _rootSongs[i];
+                    Debug.WriteLine($"SongManager: Root node {i}: {node.Type} - {node.Title}");
+                    
+                    if (node.Type == NodeType.Score && node.Scores.Length > 0)
+                    {
+                        var score = node.Scores[0];
+                        var previewImage = score.Chart?.PreviewImage ?? "null";
+                        Debug.WriteLine($"SongManager: Song details - DifficultyLevel: {score.DifficultyLevel}, PreviewImage: {previewImage}");
+                    }
+                }
+            }
+            
+            // Update enumeration timestamp after successful enumeration
+            if (result >= 0) // Changed from > 0 to >= 0 to handle empty directories
+            {
+                await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
+            }
+            
+            return result;
+        }
+
+        /// <summary>
+        /// Builds final song lists from enumerated data (BuildSongLists phase)
+        /// </summary>
+        public async Task<bool> BuildSongListsAsync()
+        {
+            try
+            {
+                lock (_lockObject)
+                {
+                    if (_rootSongs.Count == 0)
+                    {
+                        Debug.WriteLine("SongManager: No songs to build lists from");
+                        return false;
+                    }
+                }
+
+                Debug.WriteLine($"SongManager: Building song lists complete. {_rootSongs.Count} root nodes organized");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during song list building: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Saves song data to database (SaveSongsDB phase)
+        /// </summary>
+        public async Task<bool> SaveSongsDBAsync()
+        {
+            try
+            {
+                if (_databaseService == null)
+                {
+                    Debug.WriteLine("SongManager: Cannot save songs DB - database service not initialized");
+                    return false;
+                }
+
+                // Database is automatically saved during enumeration, so this is mostly a confirmation step
+                var stats = await GetDatabaseStatsAsync().ConfigureAwait(false);
+                if (stats != null)
+                {
+                    Debug.WriteLine($"SongManager: Songs DB save complete. Database contains {stats.ScoreCount} songs");
+                    return true;
+                }
+                else
+                {
+                    Debug.WriteLine("SongManager: Unable to verify database save");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error during songs DB save: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Marks the song manager as fully initialized
+        /// </summary>
+        public void SetInitialized()
+        {
+            lock (_lockObject)
+            {
+                _isInitialized = true;
+            }
+            Debug.WriteLine("SongManager: Marked as initialized");
+        }
+
+        /// <summary>
+        /// Public wrapper for BuildSongListFromDatabaseAsync (needed for StartupStage)
+        /// </summary>
+        public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
+        {
+            Debug.WriteLine($"SongManager: BuildSongListFromDatabasePublicAsync called with {searchPaths.Length} search paths");
+            
+            // Check database state before building
+            var dbCount = await GetDatabaseScoreCountAsync();
+            Debug.WriteLine($"SongManager: Database contains {dbCount} songs before building list");
+            
+            // Check current _rootSongs state
+            lock (_lockObject)
+            {
+                Debug.WriteLine($"SongManager: _rootSongs currently has {_rootSongs.Count} nodes");
+            }
+            
+            await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
+            
+            // Check results after building
+            lock (_lockObject)
+            {
+                Debug.WriteLine($"SongManager: _rootSongs now has {_rootSongs.Count} nodes after building");
+                
+                // Log some details about the root nodes
+                for (int i = 0; i < Math.Min(5, _rootSongs.Count); i++)
+                {
+                    var node = _rootSongs[i];
+                    Debug.WriteLine($"SongManager: Root node {i}: {node.Type} - {node.Title} (children: {node.Children.Count})");
+                }
+                
+                if (_rootSongs.Count > 5)
+                {
+                    Debug.WriteLine($"SongManager: ... and {_rootSongs.Count - 5} more root nodes");
+                }
+            }
+        }
+
+        #endregion
+
         #region Initialization and Database Management
 
         /// <summary>
@@ -348,6 +582,13 @@ namespace DTX.Song
                     newRootNodes.AddRange(pathNodes);
                 }
 
+                // Clean up stale database entries before finalizing
+                if (_databaseService != null)
+                {
+                    Debug.WriteLine("SongManager: Cleaning up stale database entries...");
+                    await _databaseService.CleanupStaleChartsAsync();
+                }
+
                 // Update root songs list
                 lock (_lockObject)
                 {
@@ -401,6 +642,10 @@ namespace DTX.Song
 
             try
             {
+                // Clean up stale database entries first to avoid processing outdated file paths
+                Debug.WriteLine("SongManager: Cleaning up stale database entries before building song list...");
+                await _databaseService.CleanupStaleChartsAsync();
+
                 var newRootNodes = new List<SongListNode>();
 
                 foreach (var searchPath in searchPaths)
@@ -473,6 +718,13 @@ namespace DTX.Song
 
                 if (string.IsNullOrEmpty(firstChart.FilePath))
                     continue;
+
+                // Check if the file still exists at the recorded path
+                if (!File.Exists(firstChart.FilePath))
+                {
+                    Debug.WriteLine($"SongManager: Skipping song '{firstSong.Title}' - file no longer exists at {firstChart.FilePath}");
+                    continue;
+                }
 
                 // Get the directory path relative to the search path
                 var fullDirectoryPath = Path.GetDirectoryName(firstChart.FilePath);
@@ -649,6 +901,7 @@ namespace DTX.Song
                     if (isDTXFilesFolder || hasBoxDef)
                     {
                         // This is a BOX folder (DTXFiles.* prefix or has box.def)
+                        Debug.WriteLine($"SongManager: Creating BOX node for {subDir.Name}");
                         var boxNode = CreateBoxNodeFromDirectory(subDir, parent, subDirBoxDef);
                         var children = await EnumerateDirectoryAsync(subDir.FullName, boxNode, progress, cancellationToken);
 
@@ -660,6 +913,11 @@ namespace DTX.Song
                         if (boxNode.Children.Count > 0)
                         {
                             results.Add(boxNode);
+                            Debug.WriteLine($"SongManager: Added BOX {subDir.Name} with {boxNode.Children.Count} children");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"SongManager: Skipping empty BOX {subDir.Name}");
                         }
                     }
                     else
@@ -672,17 +930,20 @@ namespace DTX.Song
 
                 // Process individual song files
                 var tempSongNodes = new List<SongListNode>();
+                Debug.WriteLine($"SongManager: Processing files in directory {directoryPath}");
                 foreach (var file in directory.GetFiles())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (DTXMetadataParser.IsSupportedFile(file.FullName))
                     {
+                        Debug.WriteLine($"SongManager: Creating song node for {file.Name}");
                         var songNode = await CreateSongNodeAsync(file.FullName, parent);
                         if (songNode != null)
                         {
                             tempSongNodes.Add(songNode);
                             DiscoveredScoreCount++;
+                            Debug.WriteLine($"SongManager: Successfully created song node for {songNode.Title}");
 
                             progress?.Report(new EnumerationProgress
                             {
@@ -691,6 +952,14 @@ namespace DTX.Song
                                 DiscoveredSongs = DiscoveredScoreCount
                             });
                         }
+                        else
+                        {
+                            Debug.WriteLine($"SongManager: Failed to create song node for {file.Name}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"SongManager: Skipping unsupported file {file.Name}");
                     }
                 }
 
@@ -767,6 +1036,157 @@ namespace DTX.Song
         }
 
         // Include all the other parsing methods from the original file
+        /// <summary>
+        /// Normalizes a SET.def line to handle corrupted/spaced formatting and UTF-16 encoding issues
+        /// </summary>
+        private string NormalizeSetDefLine(string line)
+        {
+            try
+            {
+                // Remove any byte order marks or invalid characters at the start
+                line = line.TrimStart('\uFEFF', '\u200B');
+                
+                // First handle UTF-16 encoding with null bytes like "\u0000#\u0000T\u0000I\u0000T\u0000L\u0000E\u0000"
+                if (line.Contains('\u0000'))
+                {
+                    // Remove null bytes and clean up the string
+                    string cleanedLine = line.Replace("\u0000", "").Trim();
+                    
+                    // If we now have a proper command line, use it
+                    if (cleanedLine.StartsWith("#") && cleanedLine.Length > 1)
+                    {
+                        return cleanedLine;
+                    }
+                }
+                
+                // Handle spaced-out text like "# T I T L E   M y   H o p e   I s   G o n e" -> "#TITLE My Hope Is Gone"
+                if (line.Contains(" ") && line.Contains("#"))
+                {
+                    // Find the # character
+                    int hashIndex = line.IndexOf('#');
+                    if (hashIndex >= 0)
+                    {
+                        string afterHash = line.Substring(hashIndex + 1).Trim();
+                        
+                        // Remove excessive spaces and reconstruct
+                        var parts = afterHash.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 2)
+                        {
+                            // Check for common command patterns
+                            string commandPattern = string.Join("", parts).ToUpper();
+                            
+                            // Handle "T I T L E" pattern
+                            if (commandPattern.StartsWith("TITLE"))
+                            {
+                                // Reconstruct: find where TITLE ends in the parts array
+                                var titleParts = new List<string>();
+                                var valueParts = new List<string>();
+                                string accumulatedCommand = "";
+                                bool foundCommand = false;
+                                
+                                foreach (var part in parts)
+                                {
+                                    if (!foundCommand)
+                                    {
+                                        accumulatedCommand += part;
+                                        titleParts.Add(part);
+                                        if (accumulatedCommand.ToUpper() == "TITLE")
+                                        {
+                                            foundCommand = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        valueParts.Add(part);
+                                    }
+                                }
+                                
+                                if (foundCommand && valueParts.Count > 0)
+                                {
+                                    return $"#TITLE {string.Join(" ", valueParts)}";
+                                }
+                            }
+                            // Handle "L # L A B E L" pattern
+                            else if (commandPattern.Contains("LABEL"))
+                            {
+                                var commandParts = new List<string>();
+                                var valueParts = new List<string>();
+                                string accumulatedCommand = "";
+                                bool foundCommand = false;
+                                
+                                foreach (var part in parts)
+                                {
+                                    if (!foundCommand)
+                                    {
+                                        accumulatedCommand += part;
+                                        commandParts.Add(part);
+                                        if (accumulatedCommand.ToUpper().EndsWith("LABEL"))
+                                        {
+                                            foundCommand = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        valueParts.Add(part);
+                                    }
+                                }
+                                
+                                if (foundCommand && valueParts.Count > 0)
+                                {
+                                    string command = string.Join("", commandParts);
+                                    return $"#{command} {string.Join(" ", valueParts)}";
+                                }
+                            }
+                            // Handle "L # F I L E" pattern
+                            else if (commandPattern.Contains("FILE"))
+                            {
+                                var commandParts = new List<string>();
+                                var valueParts = new List<string>();
+                                string accumulatedCommand = "";
+                                bool foundCommand = false;
+                                
+                                foreach (var part in parts)
+                                {
+                                    if (!foundCommand)
+                                    {
+                                        accumulatedCommand += part;
+                                        commandParts.Add(part);
+                                        if (accumulatedCommand.ToUpper().EndsWith("FILE"))
+                                        {
+                                            foundCommand = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        valueParts.Add(part);
+                                    }
+                                }
+                                
+                                if (foundCommand && valueParts.Count > 0)
+                                {
+                                    string command = string.Join("", commandParts);
+                                    return $"#{command} {string.Join(" ", valueParts)}";
+                                }
+                            }
+                            
+                            // Fallback: simple reconstruction
+                            string reconstructedCommand = parts[0];
+                            string value = string.Join(" ", parts.Skip(1));
+                            return $"#{reconstructedCommand} {value}";
+                        }
+                    }
+                }
+                
+                // If no special processing needed, return as-is
+                return line.Trim();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error normalizing SET.def line '{line}': {ex.Message}");
+                return "";
+            }
+        }
+
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
         {
             var results = new List<SongListNode>();
@@ -824,10 +1244,15 @@ namespace DTX.Song
                     if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
                         continue;
 
-                    // Parse SET.def commands
-                    if (trimmedLine.StartsWith("#"))
+                    // Parse SET.def commands with robust parsing for corrupted/spaced text
+                    if (trimmedLine.StartsWith("#") || trimmedLine.Contains("#"))
                     {
-                        var parts = trimmedLine.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                        // Handle both normal and spaced-out command formats
+                        string normalizedLine = NormalizeSetDefLine(trimmedLine);
+                        
+                        if (string.IsNullOrEmpty(normalizedLine)) continue;
+                        
+                        var parts = normalizedLine.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
                         if (parts.Length >= 2)
                         {
                             var command = parts[0].Substring(1).ToUpperInvariant(); // Remove # and convert to uppercase
@@ -861,8 +1286,11 @@ namespace DTX.Song
                     }
                 }
 
-                // Create song node if we have a title and difficulties
-                if (!string.IsNullOrEmpty(songTitle) && difficulties.Count > 0)
+                // Store the SET.def title (may be empty if parsing failed)
+                string setDefTitle = songTitle;
+
+                // Create song node if we have difficulties (title will be determined later)
+                if (difficulties.Count > 0)
                 {
                     // Parse the first valid DTX file to get real metadata
                     DTXMania.Game.Lib.Song.Entities.Song? primarySong = null;
@@ -879,11 +1307,20 @@ namespace DTX.Song
                             {
                                 var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
                                 
-                                // Use the set.def title if available, otherwise keep the DTX title
-                                if (!string.IsNullOrEmpty(songTitle))
+                                // Priority: SET.def title > DTX title > directory name
+                                if (!string.IsNullOrEmpty(setDefTitle))
                                 {
-                                    song.Title = songTitle;
+                                    // Use SET.def title if available
+                                    song.Title = setDefTitle;
                                 }
+                                else if (string.IsNullOrEmpty(song.Title))
+                                {
+                                    // If DTX also has no title, use directory name as fallback
+                                    var dirInfo = new DirectoryInfo(directory);
+                                    song.Title = dirInfo.Name;
+                                    Debug.WriteLine($"SongManager: Both SET.def and DTX title parsing failed, using directory name: {song.Title}");
+                                }
+                                // Otherwise, keep the DTX title as-is
                                 
                                 primarySong = song;
                                 primaryChart = chart;
@@ -1180,27 +1617,529 @@ namespace DTX.Song
         /// <summary>
         /// Checks if enumeration is needed based on database existence and directory modification times
         /// </summary>
-        public async Task<bool> NeedsEnumerationAsync(string[] searchPaths)
+        public async Task<bool> NeedsEnumerationAsync(string[] searchPaths, bool forceEnumeration = false)
         {
             try
             {
+                if (forceEnumeration)
+                {
+                    Debug.WriteLine("SongManager: Force enumeration requested");
+                    return true;
+                }
+
                 // Check if database service exists and is accessible
                 if (_databaseService == null || !await _databaseService.DatabaseExistsAsync())
+                {
+                    Debug.WriteLine("SongManager: Database doesn't exist, enumeration needed");
                     return true;
+                }
 
                 // If database has no songs, we need enumeration
                 var stats = await _databaseService.GetDatabaseStatsAsync();
                 if (stats.SongCount == 0)
+                {
+                    Debug.WriteLine("SongManager: Database is empty, enumeration needed");
                     return true;
+                }
 
-                // For now, always enumerate if database exists but is empty
-                // Future enhancement: check directory modification times vs database timestamps
+                Debug.WriteLine($"SongManager: Database contains {stats.SongCount} songs, checking for filesystem changes...");
+
+                // Check for filesystem changes by comparing directory modification times
+                var changeDetected = await DetectFilesystemChangesAsync(searchPaths);
+                if (changeDetected)
+                {
+                    Debug.WriteLine("SongManager: Filesystem changes detected, enumeration needed");
+                    return true;
+                }
+
+                Debug.WriteLine("SongManager: No changes detected, enumeration not needed");
                 return false;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
+                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
                 return true; // Default to enumeration if we can't determine
+            }
+        }
+
+        /// <summary>
+        /// Checks if files in the database still exist at their recorded paths
+        /// This detects when files have been moved or deleted
+        /// </summary>
+        private async Task<bool> CheckDatabaseFilesStillExist()
+        {
+            try
+            {
+                if (_databaseService == null)
+                    return false;
+
+                var allSongs = await _databaseService.GetSongsAsync();
+                int missingFiles = 0;
+                int updatedFiles = 0;
+                int totalFiles = 0;
+
+                foreach (var song in allSongs)
+                {
+                    if (song.Charts != null)
+                    {
+                        foreach (var chart in song.Charts)
+                        {
+                            totalFiles++;
+                            if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
+                            {
+                                // File is missing from recorded path - try to find it in new location
+                                string? newPath = await FindMovedFileAsync(chart.FilePath);
+                                
+                                if (!string.IsNullOrEmpty(newPath))
+                                {
+                                    // Found the file in a new location - update database
+                                    Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
+                                    await UpdateChartFilePathAsync(chart.Id, newPath);
+                                    updatedFiles++;
+                                }
+                                else
+                                {
+                                    missingFiles++;
+                                    Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"SongManager: File existence check - {missingFiles} missing, {updatedFiles} updated, {totalFiles} total files");
+
+                // Return true if we had missing files OR updated file paths (both require re-enumeration)
+                return missingFiles > 0 || updatedFiles > 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking database file existence: {ex.Message}");
+                // If we can't check, assume no changes to avoid unnecessary re-enumeration
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to find a moved file by searching for it in the current search paths
+        /// Returns the new path if found, null if not found
+        /// </summary>
+        private async Task<string?> FindMovedFileAsync(string originalPath)
+        {
+            try
+            {
+                var fileName = Path.GetFileName(originalPath);
+                if (string.IsNullOrEmpty(fileName))
+                    return null;
+
+                // Get current search paths
+                var searchPaths = new List<string>();
+                if (_databaseService != null)
+                {
+                    // Add default search paths
+                    searchPaths.Add("DTXFiles");
+                    
+                    // You could extend this to get search paths from config if needed
+                }
+
+                // Search for the file in all DTX directories within search paths
+                foreach (var searchPath in searchPaths)
+                {
+                    if (!Directory.Exists(searchPath))
+                        continue;
+
+                    var files = Directory.GetFiles(searchPath, fileName, SearchOption.AllDirectories);
+                    foreach (var foundFile in files)
+                    {
+                        // Verify it's actually a DTX file and has similar content/size
+                        if (await IsLikelyMatchAsync(originalPath, foundFile))
+                        {
+                            return foundFile;
+                        }
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error finding moved file {originalPath}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Checks if a found file is likely the same as the original file
+        /// Uses filename and file size as basic heuristics
+        /// </summary>
+        private async Task<bool> IsLikelyMatchAsync(string originalPath, string candidatePath)
+        {
+            try
+            {
+                // Basic filename match (already checked by caller)
+                if (Path.GetFileName(originalPath) != Path.GetFileName(candidatePath))
+                    return false;
+
+                // Check file sizes match (good indicator it's the same file)
+                if (File.Exists(originalPath))
+                {
+                    var originalSize = new FileInfo(originalPath).Length;
+                    var candidateSize = new FileInfo(candidatePath).Length;
+                    return originalSize == candidateSize;
+                }
+
+                // If original doesn't exist, assume candidate is a match based on filename
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error comparing files {originalPath} vs {candidatePath}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Updates the file path for a chart in the database
+        /// </summary>
+        private async Task UpdateChartFilePathAsync(int chartId, string newPath)
+        {
+            try
+            {
+                if (_databaseService == null)
+                    return;
+
+                using var context = _databaseService.CreateContext();
+                var chart = await context.SongCharts.FindAsync(chartId);
+                if (chart != null)
+                {
+                    chart.FilePath = newPath;
+                    await context.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error updating chart file path for ID {chartId}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Detects filesystem changes in song directories
+        /// </summary>
+        private async Task<bool> DetectFilesystemChangesAsync(string[] searchPaths)
+        {
+            try
+            {
+                // Get the last enumeration timestamp from database
+                var lastEnumerationTime = await GetLastEnumerationTimestampAsync();
+                if (lastEnumerationTime == null)
+                {
+                    Debug.WriteLine("SongManager: No last enumeration timestamp found - first time enumeration");
+                    return true; // First time enumeration
+                }
+
+                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+
+                // First, check if file counts have changed - this is a reliable indicator
+                var currentFileCount = await CountDTXFilesAsync(searchPaths);
+                var databaseSongCount = await GetDatabaseScoreCountAsync();
+                
+                Debug.WriteLine($"SongManager: Current DTX files: {currentFileCount}, Database songs: {databaseSongCount}");
+                
+                if (currentFileCount != databaseSongCount)
+                {
+                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseSongCount}");
+                    return true;
+                }
+
+                // Check if files in database still exist at their recorded paths (detects moves)
+                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist();
+                if (filesMovedOrDeleted)
+                {
+                    Debug.WriteLine($"SongManager: Some files have been moved or deleted since last enumeration");
+                    return true;
+                }
+
+                // Check each search path for changes
+                foreach (var searchPath in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(searchPath))
+                    {
+                        Debug.WriteLine($"SongManager: Search path is null or empty, skipping");
+                        continue;
+                    }
+
+                    var fullPath = Path.GetFullPath(searchPath);
+                    Debug.WriteLine($"SongManager: Checking search path: {fullPath}");
+
+                    if (!Directory.Exists(fullPath))
+                    {
+                        Debug.WriteLine($"SongManager: Search path doesn't exist: {fullPath}");
+                        // If the directory doesn't exist but we have songs in DB, this is a change
+                        var songCount = await GetDatabaseScoreCountAsync();
+                        if (songCount > 0)
+                        {
+                            Debug.WriteLine($"SongManager: Directory missing but database has {songCount} songs - change detected");
+                            return true;
+                        }
+                        continue;
+                    }
+
+                    // Check if directory or its contents have been modified since last enumeration
+                    var hasChanges = await CheckDirectoryForChangesAsync(fullPath, lastEnumerationTime.Value);
+                    if (hasChanges)
+                    {
+                        Debug.WriteLine($"SongManager: Changes detected in {fullPath}");
+                        return true;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"SongManager: No changes detected in {fullPath}");
+                    }
+                }
+
+                Debug.WriteLine("SongManager: No changes detected in any search path");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error detecting filesystem changes: {ex.Message}");
+                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                return true; // Default to enumeration on error
+            }
+        }
+
+        /// <summary>
+        /// Counts DTX files in all search paths
+        /// </summary>
+        private async Task<int> CountDTXFilesAsync(string[] searchPaths)
+        {
+            int totalCount = 0;
+            try
+            {
+                foreach (var searchPath in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
+                        continue;
+
+                    var dirInfo = new DirectoryInfo(searchPath);
+                    var dtxFiles = dirInfo.GetFiles("*.dtx", SearchOption.AllDirectories);
+                    totalCount += dtxFiles.Length;
+                    Debug.WriteLine($"SongManager: Found {dtxFiles.Length} DTX files in {searchPath}");
+                }
+                Debug.WriteLine($"SongManager: Total DTX files found: {totalCount}");
+                return totalCount;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error counting DTX files: {ex.Message}");
+                return -1; // Return invalid count to trigger enumeration
+            }
+        }
+
+        /// <summary>
+        /// Recursively checks a directory for changes since the last enumeration
+        /// </summary>
+        private async Task<bool> CheckDirectoryForChangesAsync(string directoryPath, DateTime lastEnumerationTime)
+        {
+            try
+            {
+                var dirInfo = new DirectoryInfo(directoryPath);
+                Debug.WriteLine($"SongManager: Checking directory: {directoryPath}");
+                Debug.WriteLine($"SongManager: Directory last write time: {dirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+                Debug.WriteLine($"SongManager: Comparing against: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                
+                // Check if the directory itself was modified
+                if (dirInfo.LastWriteTime > lastEnumerationTime)
+                {
+                    Debug.WriteLine($"SongManager: Directory modified: {directoryPath} at {dirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
+                    return true;
+                }
+
+                // Check for new or modified DTX/SET files
+                var dtxExtensions = new[] { "*.dtx", "*.set" };
+                int totalFilesChecked = 0;
+                int modifiedFilesFound = 0;
+
+                foreach (var extension in dtxExtensions)
+                {
+                    Debug.WriteLine($"SongManager: Scanning for {extension} files in {directoryPath}");
+                    var files = dirInfo.GetFiles(extension, SearchOption.AllDirectories);
+                    Debug.WriteLine($"SongManager: Found {files.Length} {extension} files");
+                    
+                    foreach (var file in files)
+                    {
+                        totalFilesChecked++;
+                        var fileIsNew = file.CreationTime > lastEnumerationTime;
+                        var fileIsModified = file.LastWriteTime > lastEnumerationTime;
+                        
+                        if (fileIsNew || fileIsModified)
+                        {
+                            modifiedFilesFound++;
+                            var reason = fileIsNew ? "new" : "modified";
+                            var timestamp = fileIsNew ? file.CreationTime : file.LastWriteTime;
+                            Debug.WriteLine($"SongManager: {reason.ToUpper()} file detected: {file.FullName}");
+                            Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                            return true;
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"SongManager: Checked {totalFilesChecked} files, found {modifiedFilesFound} modified files");
+
+                // Check subdirectories recursively (but limit depth to avoid infinite loops)
+                var subdirChanges = await CheckSubdirectoriesForChangesAsync(directoryPath, lastEnumerationTime, 0, 10);
+                if (subdirChanges) return true;
+
+                Debug.WriteLine($"SongManager: No changes detected in {directoryPath}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking directory {directoryPath}: {ex.Message}");
+                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                return true; // Assume changes on error
+            }
+        }
+
+        /// <summary>
+        /// Recursively checks subdirectories with depth limit
+        /// </summary>
+        private async Task<bool> CheckSubdirectoriesForChangesAsync(string directoryPath, DateTime lastEnumerationTime, int currentDepth, int maxDepth)
+        {
+            if (currentDepth >= maxDepth)
+            {
+                Debug.WriteLine($"SongManager: Maximum depth {maxDepth} reached for {directoryPath}");
+                return false;
+            }
+
+            try
+            {
+                var dirInfo = new DirectoryInfo(directoryPath);
+                var subdirectories = dirInfo.GetDirectories();
+                Debug.WriteLine($"SongManager: Checking {subdirectories.Length} subdirectories in {directoryPath} (depth {currentDepth})");
+
+                foreach (var subdir in subdirectories)
+                {
+                    // Skip hidden directories and common non-song directories
+                    if (subdir.Name.StartsWith(".") || 
+                        subdir.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+                        subdir.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.WriteLine($"SongManager: Skipping directory: {subdir.Name}");
+                        continue;
+                    }
+
+                    Debug.WriteLine($"SongManager: Checking subdirectory: {subdir.FullName}");
+                    Debug.WriteLine($"SongManager: Subdirectory last write time: {subdir.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+
+                    if (subdir.LastWriteTime > lastEnumerationTime)
+                    {
+                        Debug.WriteLine($"SongManager: Subdirectory modified: {subdir.FullName} at {subdir.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
+                        return true;
+                    }
+
+                    // Check for DTX files directly in this subdirectory
+                    var dtxFiles = subdir.GetFiles("*.dtx", SearchOption.TopDirectoryOnly);
+                    if (dtxFiles.Length > 0)
+                    {
+                        Debug.WriteLine($"SongManager: Found {dtxFiles.Length} DTX files in {subdir.FullName}");
+                        foreach (var dtxFile in dtxFiles)
+                        {
+                            if (dtxFile.CreationTime > lastEnumerationTime || dtxFile.LastWriteTime > lastEnumerationTime)
+                            {
+                                var reason = dtxFile.CreationTime > lastEnumerationTime ? "new" : "modified";
+                                var timestamp = dtxFile.CreationTime > lastEnumerationTime ? dtxFile.CreationTime : dtxFile.LastWriteTime;
+                                Debug.WriteLine($"SongManager: {reason.ToUpper()} DTX file in subdirectory: {dtxFile.FullName}");
+                                Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                                return true;
+                            }
+                        }
+                    }
+
+                    // Recursively check subdirectory
+                    var hasChanges = await CheckSubdirectoriesForChangesAsync(subdir.FullName, lastEnumerationTime, currentDepth + 1, maxDepth);
+                    if (hasChanges) return true;
+                }
+
+                Debug.WriteLine($"SongManager: No changes found in subdirectories of {directoryPath}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error checking subdirectories of {directoryPath}: {ex.Message}");
+                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                return true; // Assume changes on error
+            }
+        }
+
+        /// <summary>
+        /// Gets the timestamp of the last enumeration from the database
+        /// </summary>
+        private async Task<DateTime?> GetLastEnumerationTimestampAsync()
+        {
+            try
+            {
+                if (_databaseService == null)
+                {
+                    Debug.WriteLine("SongManager: Database service is null");
+                    return null;
+                }
+
+                var dbPath = _databaseService.DatabasePath;
+                Debug.WriteLine($"SongManager: Checking database path: {dbPath}");
+
+                if (!File.Exists(dbPath))
+                {
+                    Debug.WriteLine($"SongManager: Database file doesn't exist: {dbPath}");
+                    return null;
+                }
+
+                var dbInfo = new FileInfo(dbPath);
+                var lastWriteTime = dbInfo.LastWriteTime;
+                Debug.WriteLine($"SongManager: Database last write time: {lastWriteTime:yyyy-MM-dd HH:mm:ss}");
+
+                // Check if the database actually has songs
+                var songCount = await GetDatabaseScoreCountAsync();
+                Debug.WriteLine($"SongManager: Database contains {songCount} songs");
+
+                if (songCount == 0)
+                {
+                    Debug.WriteLine("SongManager: Database is empty, treating as no enumeration done");
+                    return null;
+                }
+
+                // Use database modification time, but subtract a small buffer to ensure we catch recent changes
+                // This is important because filesystem timestamps might have slight differences
+                var timestampWithBuffer = lastWriteTime.AddMinutes(-1);
+                Debug.WriteLine($"SongManager: Using enumeration timestamp with 1-minute buffer: {timestampWithBuffer:yyyy-MM-dd HH:mm:ss}");
+                
+                return timestampWithBuffer;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error getting last enumeration timestamp: {ex.Message}");
+                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Updates the enumeration timestamp in the database
+        /// </summary>
+        private async Task UpdateEnumerationTimestampAsync()
+        {
+            try
+            {
+                if (_databaseService == null) return;
+
+                // This could be enhanced to store enumeration metadata in a dedicated table
+                // For now, the database modification time serves as the enumeration timestamp
+                Debug.WriteLine($"SongManager: Enumeration timestamp updated to {DateTime.Now}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error updating enumeration timestamp: {ex.Message}");
             }
         }
 
