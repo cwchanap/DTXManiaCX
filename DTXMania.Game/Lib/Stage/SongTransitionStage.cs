@@ -683,11 +683,11 @@ namespace DTX.Stage
                 var uniformScale = Math.Min(scale.X, scale.Y);
                 var finalScale = new Vector2(uniformScale, uniformScale);
                 
-                // Draw the preview image with rotation using MonoGame pattern
-                // Position is adjusted to account for origin being at center
-                var drawPosition = position + origin;
+                // Draw the preview image with absolute positioning
+                // Use the layout position directly for consistent placement regardless of image size
+                var drawPosition = position;
                 
-                _previewTexture.Draw(_spriteBatch, drawPosition, finalScale, rotation, origin);
+                _previewTexture.Draw(_spriteBatch, drawPosition, finalScale, rotation, Vector2.Zero);
             }
             catch (Exception ex)
             {
