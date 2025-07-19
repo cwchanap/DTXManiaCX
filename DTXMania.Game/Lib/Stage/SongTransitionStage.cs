@@ -573,7 +573,7 @@ namespace DTX.Stage
                 {
                     var artistPosition = SongTransitionUILayout.Artist.Position;
                     var artistColor = SongTransitionUILayout.Artist.TextColor;
-                    var artistText = $"by {_artistName}";
+                    var artistText = _artistName;
                     
                     // Draw with shadow for better visibility
                     _artistFont.DrawStringWithShadow(_spriteBatch, artistText, artistPosition,
