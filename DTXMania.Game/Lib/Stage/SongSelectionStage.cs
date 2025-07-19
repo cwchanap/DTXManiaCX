@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -457,8 +458,15 @@ namespace DTX.Stage
                             // Check for cancellation before starting
                             _cancellationTokenSource.Token.ThrowIfCancellationRequested();
                             
-                            var songPaths = new[] { "DTXFiles" };
-                            await songManager.InitializeAsync(songPaths);
+                            // SongManager should already be initialized from StartupStage
+                            // Just check if it's initialized and return the song list
+                            if (!songManager.IsInitialized)
+                            {
+                                Debug.WriteLine("SongSelectionStage: SongManager not initialized from StartupStage - this should not happen");
+                                // As a fallback, initialize it here
+                                var songPaths = new[] { "DTXFiles" };
+                                await songManager.InitializeAsync(songPaths);
+                            }
                             
                             // Check for cancellation after initialization
                             _cancellationTokenSource.Token.ThrowIfCancellationRequested();

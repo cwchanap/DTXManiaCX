@@ -557,22 +557,22 @@ namespace DTX.Stage
         {
             try
             {
-                // Draw song title at specified position (190, 285)
+                // Draw song title using layout configuration
                 if (_titleFont != null && !string.IsNullOrEmpty(_songTitle))
                 {
-                    var titlePosition = new Vector2(190, 285);
-                    var titleColor = Color.White;
+                    var titlePosition = SongTransitionUILayout.SongTitle.Position;
+                    var titleColor = SongTransitionUILayout.SongTitle.TextColor;
                     
                     // Draw with shadow for better visibility
                     _titleFont.DrawStringWithShadow(_spriteBatch, _songTitle, titlePosition, 
                         titleColor, Color.Black * 0.8f, new Vector2(2, 2));
                 }
                 
-                // Draw artist name at specified position (190, 360)
+                // Draw artist name using layout configuration
                 if (_artistFont != null && !string.IsNullOrEmpty(_artistName))
                 {
-                    var artistPosition = new Vector2(190, 360);
-                    var artistColor = Color.LightGray;
+                    var artistPosition = SongTransitionUILayout.Artist.Position;
+                    var artistColor = SongTransitionUILayout.Artist.TextColor;
                     var artistText = $"by {_artistName}";
                     
                     // Draw with shadow for better visibility

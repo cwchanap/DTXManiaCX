@@ -28,11 +28,11 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class SongTitle
         {
-            public const int X = 100;
-            public const int Y = 150;
+            public const int X = 190;
+            public const int Y = 285;
             public const int Width = 600;
             public const int Height = 80;
-            public const int FontSize = 40;
+            public const int FontSize = 50;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -44,11 +44,11 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class Artist
         {
-            public const int X = 100;
-            public const int Y = 250;
+            public const int X = 190;
+            public const int Y = 360;
             public const int Width = 600;
             public const int Height = 50;
-            public const int FontSize = 30;
+            public const int FontSize = 50;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
