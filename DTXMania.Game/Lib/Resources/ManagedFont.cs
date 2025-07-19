@@ -66,6 +66,7 @@ namespace DTX.Resources
         private static readonly object _fontFactoryLock = new object();
         private static ContentManager _contentManager;
         private static SpriteFont _defaultFont;
+        private static readonly Dictionary<string, SpriteFont> _loadedFonts = new Dictionary<string, SpriteFont>();
 
         /// <summary>
         /// Initialize the font factory with a ContentManager
@@ -89,23 +90,64 @@ namespace DTX.Resources
                 if (_contentManager == null)
                     throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
-                // Try to load the default SpriteFont if we don't have one yet
-                if (_defaultFont == null)
-                {
-                    try
-                    {
-                        _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new NotSupportedException(
-                            $"Cannot create font '{fontPath}' - failed to load default SpriteFont 'NotoSerifJP'. " +
-                            "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + ex.Message);
-                    }
-                }
-
-                return new ManagedFont(_defaultFont, fontPath, size, style);
+                // Select the best SpriteFont based on requested size
+                var spriteFont = GetBestSizeSpriteFont(size);
+                
+                return new ManagedFont(spriteFont, fontPath, size, style);
             }
+        }
+
+        /// <summary>
+        /// Get the best SpriteFont for the requested size
+        /// </summary>
+        private static SpriteFont GetBestSizeSpriteFont(int requestedSize)
+        {
+            // Define available font sizes and their corresponding asset names
+            var availableSizes = new[]
+            {
+                (size: 14, assetName: "NotoSerifJP"),
+                (size: 24, assetName: "NotoSerifJP-24"), 
+                (size: 48, assetName: "NotoSerifJP-48")
+            };
+
+            // Find the closest size match
+            var bestMatch = availableSizes
+                .OrderBy(x => Math.Abs(x.size - requestedSize))
+                .First();
+
+            // Load the font if not already cached
+            if (!_loadedFonts.TryGetValue(bestMatch.assetName, out var spriteFont))
+            {
+                try
+                {
+                    spriteFont = _contentManager.Load<SpriteFont>(bestMatch.assetName);
+                    _loadedFonts[bestMatch.assetName] = spriteFont;
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Loaded {bestMatch.assetName} for requested size {requestedSize}");
+                }
+                catch (Exception ex)
+                {
+                    // Fallback to default font if specific size fails
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Failed to load {bestMatch.assetName}, falling back to default. Error: {ex.Message}");
+                    
+                    if (_defaultFont == null)
+                    {
+                        try
+                        {
+                            _defaultFont = _contentManager.Load<SpriteFont>("NotoSerifJP");
+                            _loadedFonts["NotoSerifJP"] = _defaultFont;
+                        }
+                        catch (Exception defaultEx)
+                        {
+                            throw new NotSupportedException(
+                                $"Cannot create font - failed to load any SpriteFont. " +
+                                "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + defaultEx.Message);
+                        }
+                    }
+                    spriteFont = _defaultFont;
+                }
+            }
+
+            return spriteFont;
         }
 
         /// <summary>

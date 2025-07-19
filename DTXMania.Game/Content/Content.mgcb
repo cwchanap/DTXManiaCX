@@ -20,3 +20,17 @@
 /processorParam:TextureFormat=Compressed
 /build:NotoSerifJP.spritefont
 
+#begin NotoSerifJP-24.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:NotoSerifJP-24.spritefont
+
+#begin NotoSerifJP-48.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:NotoSerifJP-48.spritefont
+

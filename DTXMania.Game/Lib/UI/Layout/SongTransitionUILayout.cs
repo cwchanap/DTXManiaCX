@@ -45,10 +45,10 @@ namespace DTX.UI.Layout
         public static class Artist
         {
             public const int X = 190;
-            public const int Y = 360;
+            public const int Y = 450;
             public const int Width = 600;
             public const int Height = 50;
-            public const int FontSize = 50;
+            public const int FontSize = 30;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
