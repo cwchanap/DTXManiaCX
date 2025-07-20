@@ -57,7 +57,7 @@ namespace DTX.Stage
         // Task tracking for async operations
         private Task _currentAsyncTask;
         private CancellationTokenSource _cancellationTokenSource;
-        private readonly string[] _songPaths = { "DTXFiles" };
+        private readonly string[] _songPaths = Constants.SongPaths.Default;
 
         // Debug/testing flags
         private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable

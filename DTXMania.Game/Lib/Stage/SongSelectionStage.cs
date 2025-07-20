@@ -68,12 +68,6 @@ namespace DTX.Stage
         // Status panel navigation state
         private bool _isInStatusPanel = false;
         
-        // Song selection timing
-        private bool _isPendingTransition = false;
-        private double _transitionTimer = 0.0;
-        private Dictionary<string, object> _pendingSharedData = null;
-        private const double SOUND_DELAY_SECONDS = 1.0;
-
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
@@ -463,9 +457,6 @@ namespace DTX.Stage
                             if (!songManager.IsInitialized)
                             {
                                 Debug.WriteLine("SongSelectionStage: SongManager not initialized from StartupStage - this should not happen");
-                                // As a fallback, initialize it here
-                                var songPaths = new[] { "DTXFiles" };
-                                await songManager.InitializeAsync(songPaths);
                             }
                             
                             // Check for cancellation after initialization
@@ -767,9 +758,6 @@ namespace DTX.Stage
             // Update phase
             UpdatePhase(deltaTime);
 
-            // Handle pending transition timer
-            UpdateTransitionTimer(deltaTime);
-
             // Handle input
             HandleInput();
 
@@ -819,8 +807,8 @@ namespace DTX.Stage
 
         private void HandleInput()
         {
-            // Don't process input if we're transitioning out or input manager is disposed
-            if (_inputManager == null || _isPendingTransition)
+            // Don't process input if input manager is disposed
+            if (_inputManager == null)
                 return;
                 
             // Process queued input commands from InputManager
@@ -1203,14 +1191,6 @@ namespace DTX.Stage
                     }
                 }
             }
-        }
-
-        /// <summary>
-        /// Update transition timer and perform delayed transition
-        /// </summary>
-        private void UpdateTransitionTimer(double deltaTime)
-        {
-            // No longer needed - transitions are immediate
         }
 
         /// <summary>
