@@ -173,7 +173,7 @@ namespace DTX.Stage
             _artistFont?.Dispose();
             _artistFont = null;
             
-            // Clean up sound
+            // Clean up sounds
             _nowLoadingSound?.Dispose();
             _nowLoadingSound = null;
             
@@ -302,13 +302,20 @@ namespace DTX.Stage
         {
             try
             {
-                // Try to load preview image from song data
-                if (_selectedSong?.DatabaseChart?.PreviewFile != null)
+                // Try to load preview image from song data - use PreviewImage field for images, not PreviewFile (which is for audio)
+                if (_selectedSong?.DatabaseChart?.PreviewImage != null)
                 {
-                    var previewPath = _selectedSong.DatabaseChart.PreviewFile;
-                    if (System.IO.File.Exists(previewPath))
+                    // Get the chart directory and combine with relative preview image path
+                    string chartPath = _selectedSong.DatabaseChart.FilePath;
+                    string chartDirectory = System.IO.Path.GetDirectoryName(chartPath);
+                    string previewImagePath = System.IO.Path.Combine(chartDirectory, _selectedSong.DatabaseChart.PreviewImage);
+                    
+                    // Convert to absolute path to avoid ResourceManager's skin-based path resolution
+                    string absolutePreviewImagePath = System.IO.Path.GetFullPath(previewImagePath);
+                    
+                    if (System.IO.File.Exists(absolutePreviewImagePath))
                     {
-                        _previewTexture = _resourceManager.LoadTexture(previewPath);
+                        _previewTexture = _resourceManager.LoadTexture(absolutePreviewImagePath);
                     }
                 }
                 
@@ -400,6 +407,7 @@ namespace DTX.Stage
                 _levelNumberFont = null;
             }
         }
+        
 
         private string GetDifficultyName(int difficulty)
         {

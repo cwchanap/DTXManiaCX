@@ -59,6 +59,9 @@ namespace DTX.Stage
         private CancellationTokenSource _cancellationTokenSource;
         private readonly string[] _songPaths = Constants.SongPaths.Default;
 
+        // Filesystem change detection result (cached to avoid duplicate checks)
+        private bool? _needsEnumeration = null;
+
         // Debug/testing flags
         private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable
 
@@ -520,10 +523,10 @@ namespace DTX.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Checking filesystem for changes...");
                 
-                // Perform detailed filesystem change detection
-                bool changesDetected = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
+                // Perform detailed filesystem change detection and cache the result
+                _needsEnumeration = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
                 
-                if (changesDetected)
+                if (_needsEnumeration.Value)
                 {
                     System.Diagnostics.Debug.WriteLine("Filesystem changes detected - enumeration will be needed");
                 }
@@ -535,6 +538,8 @@ namespace DTX.Stage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error during filesystem change detection: {ex.Message}");
+                // On error, assume enumeration is needed to be safe
+                _needsEnumeration = true;
             }
         }
 
@@ -545,18 +550,18 @@ namespace DTX.Stage
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("Starting filesystem change detection...");
+                System.Diagnostics.Debug.WriteLine("Using cached filesystem change detection result...");
                 
-                // First check if enumeration is needed based on filesystem changes
-                bool needsEnumeration = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
+                // Use cached result from CheckFilesystemChangesAsync to avoid duplicate filesystem checks
+                bool needsEnumeration = _needsEnumeration ?? true; // Default to true if not set for safety
                 
                 if (!needsEnumeration)
                 {
-                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected, skipping enumeration");
+                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected (cached), skipping enumeration");
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine("Filesystem changes detected, proceeding with enumeration...");
+                System.Diagnostics.Debug.WriteLine("Filesystem changes detected (cached), proceeding with enumeration...");
                 
                 // Create progress reporter for detailed enumeration feedback
                 var progressReporter = new Progress<EnumerationProgress>(progress =>
