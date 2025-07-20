@@ -1212,15 +1212,30 @@ namespace DTX.Stage
                 string chartPath = selectedNode.DatabaseChart.FilePath;
                 string chartDirectory = Path.GetDirectoryName(chartPath);
                 string previewPath = Path.Combine(chartDirectory, selectedNode.DatabaseChart.PreviewFile);
+                
+                // Convert to absolute path to avoid ResourceManager's skin-based path resolution
+                string absolutePreviewPath = Path.GetFullPath(previewPath);
+                
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Attempting to load preview sound: {previewPath}");
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Absolute preview path: {absolutePreviewPath}");
 
-                if (File.Exists(previewPath))
+                if (File.Exists(absolutePreviewPath))
                 {
-                    string extension = Path.GetExtension(previewPath).ToLowerInvariant();
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound file exists, loading: {absolutePreviewPath}");
+                    string extension = Path.GetExtension(absolutePreviewPath).ToLowerInvariant();
                     
-                    if (TryLoadPreviewSoundFile(previewPath))
+                    if (TryLoadPreviewSoundFile(absolutePreviewPath))
                     {
-                        // Sound loaded successfully
+                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound loaded successfully: {absolutePreviewPath}");
                     }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound loading failed: {absolutePreviewPath}");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound file does not exist: {absolutePreviewPath}");
                 }
             }
             catch (Exception)
