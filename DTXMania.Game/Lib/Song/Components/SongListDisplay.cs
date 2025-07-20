@@ -734,6 +734,12 @@ namespace DTX.Song.Components
                 var textColor = barInfo.TextColor * opacityFactor;
                 spriteBatch.DrawString(_font, barInfo.TitleString, textPosition, textColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
             }
+
+            // Draw artist name for score nodes
+            if (isCenter && barInfo.SongNode.Type == NodeType.Score && !string.IsNullOrEmpty(barInfo.SongNode.DatabaseSong?.Artist))
+            {
+                DrawArtistName(spriteBatch, barInfo.SongNode.DatabaseSong.Artist, itemBounds, new Vector2(scaleFactor, scaleFactor), opacityFactor);
+            }
         }
 
         private void DrawBasicSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
@@ -775,7 +781,7 @@ namespace DTX.Song.Components
                 }
             }
 
-            // Draw text with perspective scaling and opacity
+            // Draw song title text with perspective scaling and opacity
             var text = GetDisplayText(node);
             var baseTextColor = isCenter ? Color.White : (isSelected ? _selectedTextColor : _textColor);
             var textColor = baseTextColor * opacityFactor;
@@ -785,11 +791,23 @@ namespace DTX.Song.Components
             if (_font != null)
             {
                 spriteBatch.DrawString(_font, text, textPos, textColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                
+                // Draw artist name for center (selected) song
+                if (isCenter && node.Type == NodeType.Score && !string.IsNullOrEmpty(node.DatabaseSong?.Artist))
+                {
+                    DrawArtistName(spriteBatch, node.DatabaseSong.Artist, itemBounds, textScale, opacityFactor);
+                }
             }
             else if (_managedFont != null)
             {
                 // Use managed font's drawing method with scaling (if supported)
                 _managedFont.DrawString(spriteBatch, text, textPos, textColor);
+                
+                // Draw artist name for center (selected) song
+                if (isCenter && node.Type == NodeType.Score && !string.IsNullOrEmpty(node.DatabaseSong?.Artist))
+                {
+                    DrawArtistNameWithManagedFont(spriteBatch, node.DatabaseSong.Artist, itemBounds, textScale, opacityFactor);
+                }
             }
             else
             {
@@ -822,6 +840,122 @@ namespace DTX.Song.Components
                 default:
                     return node.DisplayTitle ?? "Unknown Song";
             }
+        }
+
+        /// <summary>
+        /// Draw artist name for the currently selected song using SpriteFont
+        /// </summary>
+        private void DrawArtistName(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
+        {
+            if (string.IsNullOrEmpty(artistName) || _font == null)
+                return;
+
+            // Measure the artist text size
+            var artistTextSize = _font.MeasureString(artistName);
+
+            // Calculate position using layout constants - right-aligned with padding
+            // Position artist name BELOW the song bar, not at the bottom edge of the bar
+            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * textScale.X);
+            var artistY = itemBounds.Bottom + (8 * textScale.Y); // Position below the bar with 8px spacing
+            var artistPosition = new Vector2(artistX, artistY);
+
+            // Ensure artist name doesn't exceed maximum width
+            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
+            var scaledWidth = artistTextSize.X * textScale.X;
+            var finalTextScale = textScale;
+
+            if (scaledWidth > maxWidth)
+            {
+                // Scale down to fit within maximum width
+                var widthScale = maxWidth / scaledWidth;
+                finalTextScale = new Vector2(textScale.X * widthScale, textScale.Y * widthScale);
+                
+                // Recalculate position with new scale
+                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * finalTextScale.X);
+                artistY = itemBounds.Bottom + (8 * finalTextScale.Y); // Keep consistent spacing below the bar
+                artistPosition = new Vector2(artistX, artistY);
+            }
+
+            // Use subtle gray color for artist name with opacity
+            var artistColor = Color.LightGray * 0.8f * opacityFactor;
+
+            // Draw artist name
+            spriteBatch.DrawString(_font, artistName, artistPosition, artistColor, 0f, Vector2.Zero, finalTextScale, SpriteEffects.None, 0f);
+        }
+
+        /// <summary>
+        /// Draw artist name for the currently selected song using ManagedFont
+        /// </summary>
+        private void DrawArtistNameWithManagedFont(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
+        {
+            if (string.IsNullOrEmpty(artistName) || _managedFont == null)
+                return;
+
+            // Measure the artist text size
+            var artistTextSize = _managedFont.MeasureString(artistName);
+
+            // Calculate position using layout constants - right-aligned with padding
+            // Position artist name BELOW the song bar, not at the bottom edge of the bar
+            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
+            var artistY = itemBounds.Bottom + 8; // Position below the bar with 8px spacing
+            var artistPosition = new Vector2(artistX, artistY);
+
+            // Ensure artist name doesn't exceed maximum width
+            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
+            if (artistTextSize.X > maxWidth)
+            {
+                // For ManagedFont, we'll truncate the text if it's too long
+                // Note: ManagedFont scaling may not be supported, so we truncate instead
+                var truncatedText = TruncateTextToWidth(artistName, maxWidth, _managedFont);
+                artistName = truncatedText;
+                
+                // Recalculate position with truncated text
+                artistTextSize = _managedFont.MeasureString(artistName);
+                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
+                artistPosition = new Vector2(artistX, artistY);
+            }
+
+            // Use subtle gray color for artist name with opacity
+            var artistColor = Color.LightGray * 0.8f * opacityFactor;
+
+            // Draw artist name using ManagedFont
+            _managedFont.DrawString(spriteBatch, artistName, artistPosition, artistColor);
+        }
+
+        /// <summary>
+        /// Truncate text to fit within specified width using binary search
+        /// </summary>
+        private string TruncateTextToWidth(string text, float maxWidth, IFont font)
+        {
+            if (string.IsNullOrEmpty(text) || font == null)
+                return text;
+
+            // If the full text fits, return it as-is
+            if (font.MeasureString(text).X <= maxWidth)
+                return text;
+
+            // Binary search for the longest text that fits within maxWidth
+            int left = 0;
+            int right = text.Length;
+            string bestFit = "";
+
+            while (left <= right)
+            {
+                int mid = left + (right - left) / 2;
+                string candidate = text.Substring(0, mid) + "...";
+                
+                if (font.MeasureString(candidate).X <= maxWidth)
+                {
+                    bestFit = candidate;
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid - 1;
+                }
+            }
+
+            return bestFit;
         }
         private void UpdateSelection()
         {
