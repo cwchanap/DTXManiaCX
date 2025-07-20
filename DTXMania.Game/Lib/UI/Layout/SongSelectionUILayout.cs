@@ -327,7 +327,21 @@ namespace DTX.UI.Layout
         }
         
         #endregion
-        
+
+        #region Comment Bar Layout
+
+        /// <summary>
+        /// Comment Bar layout for song comments (DTXManiaNX authentic)
+        /// Note: Artist names are handled by the existing song bar rendering system
+        /// </summary>
+        public static class CommentBar
+        {
+            // Font scaling for long text
+            public const float FontScale = 0.5f;       // Font scale factor for comment text
+        }
+
+        #endregion
+
         #region Preview Image Panel Layout
         
         /// <summary>

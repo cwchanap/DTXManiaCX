@@ -109,6 +109,10 @@ namespace DTX.Song.Components
         private bool _useEnhancedRendering = true;
         private DefaultGraphicsGenerator _graphicsGenerator;
 
+        // Comment bar components for song comments
+        private ITexture _commentBarTexture;
+        private IResourceManager _resourceManager;
+
         // Phase 2 enhancements: Bar information caching
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
@@ -212,6 +216,19 @@ namespace DTX.Song.Components
                 _managedFont = value;
                 _font = value?.SpriteFont; // Update SpriteFont reference
                 _barRenderer?.SetFont(_font);
+            }
+        }
+
+        /// <summary>
+        /// Set the resource manager for loading textures
+        /// </summary>
+        public void SetResourceManager(IResourceManager resourceManager)
+        {
+            _resourceManager = resourceManager;
+            // Try to load comment bar texture if we don't have it yet
+            if (_commentBarTexture == null && _resourceManager != null)
+            {
+                LoadCommentBarTexture();
             }
         }
 
@@ -389,6 +406,7 @@ namespace DTX.Song.Components
             RenderTarget2D sharedRenderTarget)
         {
             _barRenderer?.Dispose();
+            _resourceManager = resourceManager;
 
             if (sharedRenderTarget != null)
             {
@@ -414,6 +432,9 @@ namespace DTX.Song.Components
             {
                 songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
             }
+
+            // Load comment bar texture
+            LoadCommentBarTexture();
         }
 
         /// <summary>
@@ -435,6 +456,25 @@ namespace DTX.Song.Components
 
             // Queue immediate texture generation for all currently visible items
             QueueTextureGenerationForNewBars();
+        }
+
+        /// <summary>
+        /// Load the comment bar background texture
+        /// </summary>
+        private void LoadCommentBarTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            try
+            {
+                _commentBarTexture = _resourceManager.LoadTexture(TexturePath.CommentBar);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load comment bar texture: {ex.Message}");
+                _commentBarTexture = null;
+            }
         }
 
         #endregion
@@ -463,6 +503,9 @@ namespace DTX.Song.Components
             {
                 spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
             }
+
+            // Draw comment bar (behind song bars)
+            DrawCommentBar(spriteBatch);
 
             // Draw song items
             DrawSongItems(spriteBatch, bounds);
@@ -957,6 +1000,126 @@ namespace DTX.Song.Components
 
             return bestFit;
         }
+
+        /// <summary>
+        /// Draw comment bar background and comment text for the currently selected song
+        /// Renders behind song bars as per DTXManiaNX design
+        /// Note: Artist names are handled by the existing song bar rendering system
+        /// </summary>
+        private void DrawCommentBar(SpriteBatch spriteBatch)
+        {
+            if (SelectedSong == null || SelectedSong.Type != NodeType.Score)
+                return;
+
+            // Try to load texture if we don't have it yet and resource manager is available
+            if (_commentBarTexture == null && _resourceManager != null)
+            {
+                LoadCommentBarTexture();
+            }
+
+            // Draw comment bar background texture - using original DTXManiaNX coordinates
+            // The texture has built-in padding to align with the selected song bar
+            var commentBarX = 560; // Original DTXManiaNX X coordinate
+            var commentBarY = 257; // Original DTXManiaNX Y coordinate (behind selected song bar at Y:269)
+            var commentBarPosition = new Vector2(commentBarX, commentBarY);
+
+            if (_commentBarTexture != null)
+            {
+                _commentBarTexture.Draw(spriteBatch, commentBarPosition);
+            }
+            else
+            {
+                // Fallback: Draw a simple rectangle aligned with the selected song bar
+                if (_whitePixel != null)
+                {
+                    var fallbackRect = new Rectangle(commentBarX, commentBarY, BAR_WIDTH, 80);
+                    var fallbackColor = Color.Blue * 0.3f; // Semi-transparent blue
+                    spriteBatch.Draw(_whitePixel, fallbackRect, fallbackColor);
+                }
+            }
+
+            // Draw comment text (using original DTXManiaNX coordinates)
+            if (!string.IsNullOrEmpty(SelectedSong.DatabaseSong?.Comment))
+            {
+                DrawCommentBarCommentText(spriteBatch, SelectedSong.DatabaseSong.Comment);
+            }
+        }
+
+
+
+        /// <summary>
+        /// Draw comment text for comment bar (using original DTXManiaNX coordinates)
+        /// </summary>
+        private void DrawCommentBarCommentText(SpriteBatch spriteBatch, string commentText)
+        {
+            if (string.IsNullOrEmpty(commentText) || _font == null)
+                return;
+
+            // Use font scaling and original DTXManiaNX position
+            var textScale = new Vector2(SongSelectionUILayout.CommentBar.FontScale);
+            var commentPosition = new Vector2(683, 339); // Original DTXManiaNX coordinates
+            var maxWidth = 510; // Maximum width constraint (same as song bars)
+
+            // Handle multi-line text wrapping
+            var wrappedText = WrapTextToWidth(commentText, maxWidth, _font, textScale.X);
+
+            // Draw each line of wrapped text
+            var lineHeight = _font.LineSpacing * textScale.Y;
+            var currentY = commentPosition.Y;
+
+            foreach (var line in wrappedText)
+            {
+                var linePosition = new Vector2(commentPosition.X, currentY);
+                var commentColor = Color.LightGray * 0.8f;
+                spriteBatch.DrawString(_font, line, linePosition, commentColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                currentY += lineHeight;
+            }
+        }
+
+        /// <summary>
+        /// Wrap text to fit within specified width, returning array of lines
+        /// </summary>
+        private string[] WrapTextToWidth(string text, float maxWidth, SpriteFont font, float scale)
+        {
+            if (string.IsNullOrEmpty(text) || font == null)
+                return new[] { text ?? "" };
+
+            var words = text.Split(' ');
+            var lines = new System.Collections.Generic.List<string>();
+            var currentLine = "";
+
+            foreach (var word in words)
+            {
+                var testLine = string.IsNullOrEmpty(currentLine) ? word : currentLine + " " + word;
+                var testWidth = font.MeasureString(testLine).X * scale;
+
+                if (testWidth <= maxWidth)
+                {
+                    currentLine = testLine;
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(currentLine))
+                    {
+                        lines.Add(currentLine);
+                        currentLine = word;
+                    }
+                    else
+                    {
+                        // Single word is too long, add it anyway
+                        lines.Add(word);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(currentLine))
+            {
+                lines.Add(currentLine);
+            }
+
+            return lines.ToArray();
+        }
+
         private void UpdateSelection()
         {
             var previousSong = SelectedSong;

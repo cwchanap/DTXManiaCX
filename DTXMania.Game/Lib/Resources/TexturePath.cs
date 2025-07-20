@@ -71,7 +71,12 @@ namespace DTX.Resources
         /// Graph panel texture for guitar/bass mode
         /// </summary>
         public const string GraphPanelGuitarBass = "Graphics/5_graph panel guitar bass.png";
-        
+
+        /// <summary>
+        /// Comment bar background texture for artist name and song comments
+        /// </summary>
+        public const string CommentBar = "Graphics/5_comment bar.png";
+
         #endregion
         
         #region Font Textures
@@ -130,6 +135,7 @@ namespace DTX.Resources
                 DifficultyFrame,
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
+                CommentBar,
                 ConsoleFont,
                 ConsoleFontSecondary,
                 LevelNumberFont,
@@ -166,7 +172,8 @@ namespace DTX.Resources
                 DifficultyPanel,
                 DifficultyFrame,
                 GraphPanelDrums,
-                GraphPanelGuitarBass
+                GraphPanelGuitarBass,
+                CommentBar
             };
         }
         
