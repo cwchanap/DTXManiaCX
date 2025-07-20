@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
@@ -63,6 +64,13 @@ namespace DTX.Song
 
         // Initialization state tracking
         private bool _isInitialized = false;
+
+        // Compiled regex patterns for SET.def normalization (performance optimization)
+        private static readonly Regex NullBytePattern = new Regex(@"\u0000", RegexOptions.Compiled);
+        private static readonly Regex BomPattern = new Regex(@"[\uFEFF\u200B]+", RegexOptions.Compiled);
+        private static readonly Regex HashSpacePattern = new Regex(@"#\s+([A-Z]+)\s+(.*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex SpacedCommandPattern = new Regex(@"#\s*([A-Z\s]+?)\s+(.*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex ExcessiveSpacesPattern = new Regex(@"\s+", RegexOptions.Compiled);
 
         #endregion
 
@@ -399,85 +407,6 @@ namespace DTX.Song
 
         #region Initialization and Database Management
 
-        /// <summary>
-        /// Initializes the SongManager with song data and marks it as initialized
-        /// Should only be called once during application startup
-        /// </summary>
-        /// <param name="searchPaths">Directories to search for song files</param>
-        /// <param name="databasePath">Path to the SQLite database file</param>
-        /// <param name="progress">Progress reporter for enumeration operations</param>
-        /// <param name="purgeDatabaseFirst">Force database rebuild even if healthy (use only for debugging/testing)</param>
-        /// <param name="cancellationToken">Cancellation token for the operation</param>
-        /// <returns>True if initialization succeeded, false otherwise</returns>
-        /// <remarks>
-        /// The database will be automatically purged and rebuilt if corruption is detected.
-        /// Set purgeDatabaseFirst=true only for debugging/testing purposes as it forces a complete rebuild.
-        /// </remarks>
-        public async Task<bool> InitializeAsync(string[] searchPaths, string databasePath = "songs.db", IProgress<EnumerationProgress>? progress = null, bool purgeDatabaseFirst = false, CancellationToken cancellationToken = default)
-        {
-            lock (_lockObject)
-            {
-                if (_isInitialized)
-                {
-                    Debug.WriteLine("SongManager: Already initialized");
-                    return true;
-                }
-            }
-
-            try
-            {
-                // Initialize the database service
-                _databaseService = new SongDatabaseService(databasePath);
-
-                // Check for database corruption first
-                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync().ConfigureAwait(false);
-                
-                // Purge the database only if explicitly requested OR if corruption is detected
-                if (purgeDatabaseFirst)
-                {
-                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
-                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
-                }
-                else if (isDatabaseCorrupted)
-                {
-                    Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
-                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
-                }
-                else
-                {
-                    Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
-                }
-
-                await _databaseService.InitializeDatabaseAsync().ConfigureAwait(false);
-
-                // Check if enumeration is needed
-                bool needsEnumeration = await GetDatabaseScoreCountAsync().ConfigureAwait(false) == 0 || await NeedsEnumerationAsync(searchPaths).ConfigureAwait(false);
-
-                if (needsEnumeration)
-                {
-                    Debug.WriteLine("SongManager: Starting song enumeration during initialization");
-                    await EnumerateSongsAsync(searchPaths, progress, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    Debug.WriteLine("SongManager: Database has songs, building song list from database");
-                    await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
-                }
-
-                lock (_lockObject)
-                {
-                    _isInitialized = true;
-                }
-
-                Debug.WriteLine($"SongManager: Initialization complete. {await GetDatabaseScoreCountAsync().ConfigureAwait(false)} songs loaded.");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error during initialization: {ex.Message}");
-                return false;
-            }
-        }
 
         /// <summary>
         /// Checks if the database exists and is accessible
@@ -881,16 +810,22 @@ namespace DTX.Song
                 }
 
                 // Process subdirectories - distinguish between BOX folders and song folders
-                foreach (var subDir in directory.GetDirectories())
+                // Use async enumeration to avoid blocking the thread
+                var subdirectoryPaths = await Task.Run(() => 
+                    Directory.EnumerateDirectories(directoryPath).ToList(), cancellationToken);
+
+                foreach (var subdirPath in subdirectoryPaths)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    var subDirInfo = new DirectoryInfo(subdirPath);
+                    
                     // Check if this is a DTXFiles.* prefixed folder (should be NodeType.Box)
-                    var isDTXFilesFolder = subDir.Name.StartsWith("DTXFiles.", StringComparison.OrdinalIgnoreCase);
+                    var isDTXFilesFolder = subDirInfo.Name.StartsWith("DTXFiles.", StringComparison.OrdinalIgnoreCase);
 
                     // Check for box.def in the subdirectory itself
                     BoxDefinition? subDirBoxDef = null;
-                    var subDirBoxDefPath = Path.Combine(subDir.FullName, "box.def");
+                    var subDirBoxDefPath = Path.Combine(subdirPath, "box.def");
                     var hasBoxDef = File.Exists(subDirBoxDefPath);
                     if (hasBoxDef)
                     {
@@ -901,9 +836,9 @@ namespace DTX.Song
                     if (isDTXFilesFolder || hasBoxDef)
                     {
                         // This is a BOX folder (DTXFiles.* prefix or has box.def)
-                        Debug.WriteLine($"SongManager: Creating BOX node for {subDir.Name}");
-                        var boxNode = CreateBoxNodeFromDirectory(subDir, parent, subDirBoxDef);
-                        var children = await EnumerateDirectoryAsync(subDir.FullName, boxNode, progress, cancellationToken);
+                        Debug.WriteLine($"SongManager: Creating BOX node for {subDirInfo.Name}");
+                        var boxNode = CreateBoxNodeFromDirectory(subDirInfo, parent, subDirBoxDef);
+                        var children = await EnumerateDirectoryAsync(subdirPath, boxNode, progress, cancellationToken);
 
                         foreach (var child in children)
                         {
@@ -913,17 +848,17 @@ namespace DTX.Song
                         if (boxNode.Children.Count > 0)
                         {
                             results.Add(boxNode);
-                            Debug.WriteLine($"SongManager: Added BOX {subDir.Name} with {boxNode.Children.Count} children");
+                            Debug.WriteLine($"SongManager: Added BOX {subDirInfo.Name} with {boxNode.Children.Count} children");
                         }
                         else
                         {
-                            Debug.WriteLine($"SongManager: Skipping empty BOX {subDir.Name}");
+                            Debug.WriteLine($"SongManager: Skipping empty BOX {subDirInfo.Name}");
                         }
                     }
                     else
                     {
                         // This is a regular song folder - treat contents as individual songs
-                        var children = await EnumerateDirectoryAsync(subDir.FullName, parent, progress, cancellationToken);
+                        var children = await EnumerateDirectoryAsync(subdirPath, parent, progress, cancellationToken);
                         results.AddRange(children);
                     }
                 }
@@ -931,14 +866,20 @@ namespace DTX.Song
                 // Process individual song files
                 var tempSongNodes = new List<SongListNode>();
                 Debug.WriteLine($"SongManager: Processing files in directory {directoryPath}");
-                foreach (var file in directory.GetFiles())
+                
+                // Use async enumeration for files to avoid blocking
+                var filePaths = await Task.Run(() => 
+                    Directory.EnumerateFiles(directoryPath).ToList(), cancellationToken);
+
+                foreach (var filePath in filePaths)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (DTXMetadataParser.IsSupportedFile(file.FullName))
+                    if (DTXMetadataParser.IsSupportedFile(filePath))
                     {
-                        Debug.WriteLine($"SongManager: Creating song node for {file.Name}");
-                        var songNode = await CreateSongNodeAsync(file.FullName, parent);
+                        var fileName = Path.GetFileName(filePath);
+                        Debug.WriteLine($"SongManager: Creating song node for {fileName}");
+                        var songNode = await CreateSongNodeAsync(filePath, parent);
                         if (songNode != null)
                         {
                             tempSongNodes.Add(songNode);
@@ -947,19 +888,19 @@ namespace DTX.Song
 
                             progress?.Report(new EnumerationProgress
                             {
-                                CurrentFile = file.Name,
+                                CurrentFile = fileName,
                                 ProcessedCount = ++EnumeratedFileCount,
                                 DiscoveredSongs = DiscoveredScoreCount
                             });
                         }
                         else
                         {
-                            Debug.WriteLine($"SongManager: Failed to create song node for {file.Name}");
+                            Debug.WriteLine($"SongManager: Failed to create song node for {fileName}");
                         }
                     }
                     else
                     {
-                        Debug.WriteLine($"SongManager: Skipping unsupported file {file.Name}");
+                        Debug.WriteLine($"SongManager: Skipping unsupported file {Path.GetFileName(filePath)}");
                     }
                 }
 
@@ -1038,153 +979,147 @@ namespace DTX.Song
         // Include all the other parsing methods from the original file
         /// <summary>
         /// Normalizes a SET.def line to handle corrupted/spaced formatting and UTF-16 encoding issues
+        /// Optimized version using compiled regex patterns and StringBuilder for better performance
         /// </summary>
         private string NormalizeSetDefLine(string line)
         {
+            if (string.IsNullOrWhiteSpace(line)) return "";
+            
             try
             {
-                // Remove any byte order marks or invalid characters at the start
-                line = line.TrimStart('\uFEFF', '\u200B');
+                var sb = new StringBuilder(line.Length);
                 
-                // First handle UTF-16 encoding with null bytes like "\u0000#\u0000T\u0000I\u0000T\u0000L\u0000E\u0000"
-                if (line.Contains('\u0000'))
+                // Step 1: Remove BOMs and null bytes using compiled regex (faster than multiple Replace calls)
+                string processedLine = BomPattern.Replace(line, "");
+                processedLine = NullBytePattern.Replace(processedLine, "");
+                processedLine = processedLine.Trim();
+                
+                // Quick check: if it's already a proper command line, return it
+                if (processedLine.StartsWith("#") && !processedLine.Contains("  ") && processedLine.Length > 1)
                 {
-                    // Remove null bytes and clean up the string
-                    string cleanedLine = line.Replace("\u0000", "").Trim();
+                    return processedLine;
+                }
+                
+                // Step 2: Handle spaced-out commands using compiled regex
+                if (processedLine.Contains("#"))
+                {
+                    // Try simple spaced pattern first: "# TITLE My Song" -> "#TITLE My Song"
+                    var simpleMatch = HashSpacePattern.Match(processedLine);
+                    if (simpleMatch.Success)
+                    {
+                        var command = simpleMatch.Groups[1].Value.Replace(" ", "");
+                        var value = simpleMatch.Groups[2].Value;
+                        return $"#{command} {value}";
+                    }
                     
-                    // If we now have a proper command line, use it
-                    if (cleanedLine.StartsWith("#") && cleanedLine.Length > 1)
+                    // Handle complex spaced patterns: "# T I T L E My Song" 
+                    var complexMatch = SpacedCommandPattern.Match(processedLine);
+                    if (complexMatch.Success)
                     {
-                        return cleanedLine;
-                    }
-                }
-                
-                // Handle spaced-out text like "# T I T L E   M y   H o p e   I s   G o n e" -> "#TITLE My Hope Is Gone"
-                if (line.Contains(" ") && line.Contains("#"))
-                {
-                    // Find the # character
-                    int hashIndex = line.IndexOf('#');
-                    if (hashIndex >= 0)
-                    {
-                        string afterHash = line.Substring(hashIndex + 1).Trim();
+                        var spacedCommand = complexMatch.Groups[1].Value;
+                        var value = complexMatch.Groups[2].Value;
                         
-                        // Remove excessive spaces and reconstruct
-                        var parts = afterHash.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length >= 2)
+                        // Remove spaces from command part using compiled regex
+                        var command = ExcessiveSpacesPattern.Replace(spacedCommand, "");
+                        
+                        // Handle special patterns efficiently
+                        var upperCommand = command.ToUpperInvariant();
+                        if (IsKnownCommand(upperCommand))
                         {
-                            // Check for common command patterns
-                            string commandPattern = string.Join("", parts).ToUpper();
-                            
-                            // Handle "T I T L E" pattern
-                            if (commandPattern.StartsWith("TITLE"))
-                            {
-                                // Reconstruct: find where TITLE ends in the parts array
-                                var titleParts = new List<string>();
-                                var valueParts = new List<string>();
-                                string accumulatedCommand = "";
-                                bool foundCommand = false;
-                                
-                                foreach (var part in parts)
-                                {
-                                    if (!foundCommand)
-                                    {
-                                        accumulatedCommand += part;
-                                        titleParts.Add(part);
-                                        if (accumulatedCommand.ToUpper() == "TITLE")
-                                        {
-                                            foundCommand = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        valueParts.Add(part);
-                                    }
-                                }
-                                
-                                if (foundCommand && valueParts.Count > 0)
-                                {
-                                    return $"#TITLE {string.Join(" ", valueParts)}";
-                                }
-                            }
-                            // Handle "L # L A B E L" pattern
-                            else if (commandPattern.Contains("LABEL"))
-                            {
-                                var commandParts = new List<string>();
-                                var valueParts = new List<string>();
-                                string accumulatedCommand = "";
-                                bool foundCommand = false;
-                                
-                                foreach (var part in parts)
-                                {
-                                    if (!foundCommand)
-                                    {
-                                        accumulatedCommand += part;
-                                        commandParts.Add(part);
-                                        if (accumulatedCommand.ToUpper().EndsWith("LABEL"))
-                                        {
-                                            foundCommand = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        valueParts.Add(part);
-                                    }
-                                }
-                                
-                                if (foundCommand && valueParts.Count > 0)
-                                {
-                                    string command = string.Join("", commandParts);
-                                    return $"#{command} {string.Join(" ", valueParts)}";
-                                }
-                            }
-                            // Handle "L # F I L E" pattern
-                            else if (commandPattern.Contains("FILE"))
-                            {
-                                var commandParts = new List<string>();
-                                var valueParts = new List<string>();
-                                string accumulatedCommand = "";
-                                bool foundCommand = false;
-                                
-                                foreach (var part in parts)
-                                {
-                                    if (!foundCommand)
-                                    {
-                                        accumulatedCommand += part;
-                                        commandParts.Add(part);
-                                        if (accumulatedCommand.ToUpper().EndsWith("FILE"))
-                                        {
-                                            foundCommand = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        valueParts.Add(part);
-                                    }
-                                }
-                                
-                                if (foundCommand && valueParts.Count > 0)
-                                {
-                                    string command = string.Join("", commandParts);
-                                    return $"#{command} {string.Join(" ", valueParts)}";
-                                }
-                            }
-                            
-                            // Fallback: simple reconstruction
-                            string reconstructedCommand = parts[0];
-                            string value = string.Join(" ", parts.Skip(1));
-                            return $"#{reconstructedCommand} {value}";
+                            return $"#{upperCommand} {value}";
                         }
+                        
+                        // Handle L#LABEL and L#FILE patterns
+                        if (upperCommand.Length > 1 && char.IsDigit(upperCommand[1]))
+                        {
+                            if (upperCommand.EndsWith("LABEL") || upperCommand.EndsWith("FILE"))
+                            {
+                                return $"#{upperCommand} {value}";
+                            }
+                        }
+                        
+                        return $"#{command} {value}";
                     }
+                    
+                    // Fallback: try to reconstruct manually for very corrupted lines
+                    return ReconstructCorruptedLine(processedLine);
                 }
                 
-                // If no special processing needed, return as-is
-                return line.Trim();
+                return processedLine;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error normalizing SET.def line '{line}': {ex.Message}");
                 return "";
             }
+        }
+        
+        /// <summary>
+        /// Fast lookup for known SET.def commands to avoid string processing
+        /// </summary>
+        private static bool IsKnownCommand(string command)
+        {
+            // Use switch expression for optimal performance (faster than HashSet for small sets)
+            return command switch
+            {
+                "TITLE" or "L1LABEL" or "L2LABEL" or "L3LABEL" or "L4LABEL" or "L5LABEL" or
+                "L1FILE" or "L2FILE" or "L3FILE" or "L4FILE" or "L5FILE" => true,
+                _ => false
+            };
+        }
+        
+        /// <summary>
+        /// Fallback method for heavily corrupted lines using StringBuilder
+        /// </summary>
+        private string ReconstructCorruptedLine(string line)
+        {
+            var hashIndex = line.IndexOf('#');
+            if (hashIndex < 0) return line;
+            
+            var afterHash = line.Substring(hashIndex + 1).Trim();
+            if (string.IsNullOrEmpty(afterHash)) return line;
+            
+            // Use StringBuilder for efficient string building
+            var sb = new StringBuilder(line.Length);
+            var parts = afterHash.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            
+            if (parts.Length < 2) return line;
+            
+            // Build command efficiently
+            var commandBuilder = new StringBuilder(parts.Length * 2);
+            var valueBuilder = new StringBuilder(afterHash.Length);
+            var commandComplete = false;
+            
+            foreach (var part in parts)
+            {
+                if (!commandComplete)
+                {
+                    commandBuilder.Append(part);
+                    var accumulated = commandBuilder.ToString().ToUpperInvariant();
+                    
+                    // Check if we've completed a known command
+                    if (IsKnownCommand(accumulated) || 
+                        (accumulated.Length > 2 && accumulated.EndsWith("LABEL")) ||
+                        (accumulated.Length > 2 && accumulated.EndsWith("FILE")))
+                    {
+                        commandComplete = true;
+                        continue;
+                    }
+                }
+                else
+                {
+                    if (valueBuilder.Length > 0) valueBuilder.Append(' ');
+                    valueBuilder.Append(part);
+                }
+            }
+            
+            if (commandComplete && valueBuilder.Length > 0)
+            {
+                return $"#{commandBuilder} {valueBuilder}";
+            }
+            
+            // Final fallback
+            return $"#{parts[0]} {string.Join(" ", parts.Skip(1))}";
         }
 
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
@@ -1749,8 +1684,11 @@ namespace DTX.Song
                     if (!Directory.Exists(searchPath))
                         continue;
 
-                    var files = Directory.GetFiles(searchPath, fileName, SearchOption.AllDirectories);
-                    foreach (var foundFile in files)
+                    // Use async enumeration to avoid blocking
+                    var foundFiles = await Task.Run(() => 
+                        Directory.EnumerateFiles(searchPath, fileName, SearchOption.AllDirectories).ToList());
+                    
+                    foreach (var foundFile in foundFiles)
                     {
                         // Verify it's actually a DTX file and has similar content/size
                         if (await IsLikelyMatchAsync(originalPath, foundFile))
@@ -1922,10 +1860,17 @@ namespace DTX.Song
                     if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
                         continue;
 
-                    var dirInfo = new DirectoryInfo(searchPath);
-                    var dtxFiles = dirInfo.GetFiles("*.dtx", SearchOption.AllDirectories);
-                    totalCount += dtxFiles.Length;
-                    Debug.WriteLine($"SongManager: Found {dtxFiles.Length} DTX files in {searchPath}");
+                    // Use async enumeration to avoid blocking
+                    await Task.Run(() =>
+                    {
+                        int pathCount = 0;
+                        foreach (var dtxFile in Directory.EnumerateFiles(searchPath, "*.dtx", SearchOption.AllDirectories))
+                        {
+                            pathCount++;
+                        }
+                        totalCount += pathCount;
+                        Debug.WriteLine($"SongManager: Found {pathCount} DTX files in {searchPath}");
+                    });
                 }
                 Debug.WriteLine($"SongManager: Total DTX files found: {totalCount}");
                 return totalCount;
@@ -1956,7 +1901,7 @@ namespace DTX.Song
                     return true;
                 }
 
-                // Check for new or modified DTX/SET files
+                // Check for new or modified DTX/SET files using async enumeration
                 var dtxExtensions = new[] { "*.dtx", "*.set" };
                 int totalFilesChecked = 0;
                 int modifiedFilesFound = 0;
@@ -1964,25 +1909,35 @@ namespace DTX.Song
                 foreach (var extension in dtxExtensions)
                 {
                     Debug.WriteLine($"SongManager: Scanning for {extension} files in {directoryPath}");
-                    var files = dirInfo.GetFiles(extension, SearchOption.AllDirectories);
-                    Debug.WriteLine($"SongManager: Found {files.Length} {extension} files");
                     
-                    foreach (var file in files)
+                    // Use async enumeration to avoid blocking
+                    var hasChanges = await Task.Run(() =>
                     {
-                        totalFilesChecked++;
-                        var fileIsNew = file.CreationTime > lastEnumerationTime;
-                        var fileIsModified = file.LastWriteTime > lastEnumerationTime;
-                        
-                        if (fileIsNew || fileIsModified)
+                        int extensionFileCount = 0;
+                        foreach (var filePath in Directory.EnumerateFiles(directoryPath, extension, SearchOption.AllDirectories))
                         {
-                            modifiedFilesFound++;
-                            var reason = fileIsNew ? "new" : "modified";
-                            var timestamp = fileIsNew ? file.CreationTime : file.LastWriteTime;
-                            Debug.WriteLine($"SongManager: {reason.ToUpper()} file detected: {file.FullName}");
-                            Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
-                            return true;
+                            extensionFileCount++;
+                            totalFilesChecked++;
+                            
+                            var fileInfo = new FileInfo(filePath);
+                            var fileIsNew = fileInfo.CreationTime > lastEnumerationTime;
+                            var fileIsModified = fileInfo.LastWriteTime > lastEnumerationTime;
+                            
+                            if (fileIsNew || fileIsModified)
+                            {
+                                modifiedFilesFound++;
+                                var reason = fileIsNew ? "new" : "modified";
+                                var timestamp = fileIsNew ? fileInfo.CreationTime : fileInfo.LastWriteTime;
+                                Debug.WriteLine($"SongManager: {reason.ToUpper()} file detected: {filePath}");
+                                Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                                return true;
+                            }
                         }
-                    }
+                        Debug.WriteLine($"SongManager: Found {extensionFileCount} {extension} files");
+                        return false;
+                    });
+                    
+                    if (hasChanges) return true;
                 }
 
                 Debug.WriteLine($"SongManager: Checked {totalFilesChecked} files, found {modifiedFilesFound} modified files");
@@ -2015,51 +1970,77 @@ namespace DTX.Song
 
             try
             {
-                var dirInfo = new DirectoryInfo(directoryPath);
-                var subdirectories = dirInfo.GetDirectories();
-                Debug.WriteLine($"SongManager: Checking {subdirectories.Length} subdirectories in {directoryPath} (depth {currentDepth})");
-
-                foreach (var subdir in subdirectories)
+                // Use async enumeration for directories
+                var hasChanges = await Task.Run(() =>
                 {
-                    // Skip hidden directories and common non-song directories
-                    if (subdir.Name.StartsWith(".") || 
-                        subdir.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
-                        subdir.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping directory: {subdir.Name}");
-                        continue;
-                    }
+                    var subdirectoryPaths = Directory.EnumerateDirectories(directoryPath).ToList();
+                    Debug.WriteLine($"SongManager: Checking {subdirectoryPaths.Count} subdirectories in {directoryPath} (depth {currentDepth})");
 
-                    Debug.WriteLine($"SongManager: Checking subdirectory: {subdir.FullName}");
-                    Debug.WriteLine($"SongManager: Subdirectory last write time: {subdir.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
-
-                    if (subdir.LastWriteTime > lastEnumerationTime)
+                    foreach (var subdirPath in subdirectoryPaths)
                     {
-                        Debug.WriteLine($"SongManager: Subdirectory modified: {subdir.FullName} at {subdir.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
-                        return true;
-                    }
-
-                    // Check for DTX files directly in this subdirectory
-                    var dtxFiles = subdir.GetFiles("*.dtx", SearchOption.TopDirectoryOnly);
-                    if (dtxFiles.Length > 0)
-                    {
-                        Debug.WriteLine($"SongManager: Found {dtxFiles.Length} DTX files in {subdir.FullName}");
-                        foreach (var dtxFile in dtxFiles)
+                        var subdirInfo = new DirectoryInfo(subdirPath);
+                        
+                        // Skip hidden directories and common non-song directories
+                        if (subdirInfo.Name.StartsWith(".") || 
+                            subdirInfo.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+                            subdirInfo.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (dtxFile.CreationTime > lastEnumerationTime || dtxFile.LastWriteTime > lastEnumerationTime)
+                            Debug.WriteLine($"SongManager: Skipping directory: {subdirInfo.Name}");
+                            continue;
+                        }
+
+                        Debug.WriteLine($"SongManager: Checking subdirectory: {subdirPath}");
+                        Debug.WriteLine($"SongManager: Subdirectory last write time: {subdirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+
+                        if (subdirInfo.LastWriteTime > lastEnumerationTime)
+                        {
+                            Debug.WriteLine($"SongManager: Subdirectory modified: {subdirPath} at {subdirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
+                            return true;
+                        }
+
+                        // Check for DTX files directly in this subdirectory using enumeration
+                        var dtxFileCount = 0;
+                        foreach (var dtxFilePath in Directory.EnumerateFiles(subdirPath, "*.dtx", SearchOption.TopDirectoryOnly))
+                        {
+                            dtxFileCount++;
+                            var dtxFileInfo = new FileInfo(dtxFilePath);
+                            
+                            if (dtxFileInfo.CreationTime > lastEnumerationTime || dtxFileInfo.LastWriteTime > lastEnumerationTime)
                             {
-                                var reason = dtxFile.CreationTime > lastEnumerationTime ? "new" : "modified";
-                                var timestamp = dtxFile.CreationTime > lastEnumerationTime ? dtxFile.CreationTime : dtxFile.LastWriteTime;
-                                Debug.WriteLine($"SongManager: {reason.ToUpper()} DTX file in subdirectory: {dtxFile.FullName}");
+                                var reason = dtxFileInfo.CreationTime > lastEnumerationTime ? "new" : "modified";
+                                var timestamp = dtxFileInfo.CreationTime > lastEnumerationTime ? dtxFileInfo.CreationTime : dtxFileInfo.LastWriteTime;
+                                Debug.WriteLine($"SongManager: {reason.ToUpper()} DTX file in subdirectory: {dtxFilePath}");
                                 Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
                                 return true;
                             }
                         }
+                        
+                        if (dtxFileCount > 0)
+                        {
+                            Debug.WriteLine($"SongManager: Found {dtxFileCount} DTX files in {subdirPath}");
+                        }
+                    }
+                    return false;
+                });
+                
+                if (hasChanges) return true;
+
+                // Now recursively check each subdirectory
+                foreach (var subdirPath in Directory.EnumerateDirectories(directoryPath))
+                {
+                    var subdirInfo = new DirectoryInfo(subdirPath);
+                    
+                    // Skip hidden directories and common non-song directories
+                    if (subdirInfo.Name.StartsWith(".") || 
+                        subdirInfo.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+                        subdirInfo.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
                     }
 
                     // Recursively check subdirectory
-                    var hasChanges = await CheckSubdirectoriesForChangesAsync(subdir.FullName, lastEnumerationTime, currentDepth + 1, maxDepth);
-                    if (hasChanges) return true;
+                    var subdirHasChanges = await CheckSubdirectoriesForChangesAsync(subdirPath, lastEnumerationTime, currentDepth + 1, maxDepth);
+                    if (subdirHasChanges) return true;
                 }
 
                 Debug.WriteLine($"SongManager: No changes found in subdirectories of {directoryPath}");

@@ -116,7 +116,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -163,7 +163,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -211,7 +211,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -261,7 +261,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -338,7 +338,7 @@ namespace DTXMania.Test.Song
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -405,7 +405,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -449,7 +449,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });
@@ -491,7 +491,7 @@ INVALID LINE WITHOUT HASH
             try
             {
                 // Initialize database service first
-                await _songManager.InitializeAsync(new string[0], _testDbPath);
+                await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act
                 await _songManager.EnumerateSongsAsync(new[] { tempDir });

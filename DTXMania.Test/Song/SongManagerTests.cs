@@ -66,25 +66,12 @@ namespace DTXMania.Test.Song
 
         #region Database Management Tests
 
-        [Fact]
-        public async Task InitializeAsync_WithNonExistentPaths_ShouldCompleteWithoutErrors()
-        {
-            // Arrange
-            var nonExistentPaths = new[] { "NonExistent1", "NonExistent2" };
-
-            // Act
-            var result = await _manager.InitializeAsync(nonExistentPaths, _testDbPath);
-
-            // Assert
-            Assert.True(result);
-            Assert.Equal(0, await _manager.GetDatabaseScoreCountAsync());
-        }
 
         [Fact]
         public async Task DatabaseService_ShouldBeAvailableAfterInitialization()
         {
             // Arrange
-            await _manager.InitializeAsync(new string[0], _testDbPath);
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
             // Act
             var databaseService = _manager.DatabaseService;
@@ -182,8 +169,8 @@ namespace DTXMania.Test.Song
 #DLEVEL: 50
 ");
 
-                // Initialize with empty paths to avoid automatic enumeration
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
                 
                 // Act - Now enumerate the specific directory
                 var result = await _manager.EnumerateSongsAsync(new[] { tempDir });
@@ -217,8 +204,8 @@ namespace DTXMania.Test.Song
 #DLEVEL: 60
 ");
 
-                // Initialize with empty paths to avoid automatic enumeration
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
                 var result = await _manager.EnumerateSongsAsync(new[] { tempDir });
@@ -263,8 +250,8 @@ namespace DTXMania.Test.Song
 #DLEVEL: 50
 ");
 
-                // Initialize with empty paths to avoid automatic enumeration
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
 
                 // Act - Test that enumeration worked
@@ -314,8 +301,8 @@ namespace DTXMania.Test.Song
 #DLEVEL: 40
 ");
 
-                // Initialize with empty paths to avoid automatic enumeration
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
 
                 // Act
@@ -347,8 +334,8 @@ namespace DTXMania.Test.Song
                 Directory.CreateDirectory(tempDir);
                 File.WriteAllText(dtxFile, "#TITLE: Test Song\n#DLEVEL: 50\n");
                 
-                // Initialize and enumerate to populate data
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service and enumerate to populate data
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
                 
                 // Verify we have data
@@ -407,8 +394,8 @@ namespace DTXMania.Test.Song
 #DLEVEL: 50
 ");
 
-                // Initialize with empty paths to avoid automatic enumeration
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                // Initialize database service
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
@@ -426,66 +413,6 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        #region Initialization Tests
-
-        [Fact]
-        public async Task InitializeAsync_ShouldMarkAsInitialized()
-        {
-            // Arrange
-            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTestInit");
-            var dtxFile = Path.Combine(tempDir, "test.dtx");
-
-            try
-            {
-                Directory.CreateDirectory(tempDir);
-                await File.WriteAllTextAsync(dtxFile, @"#TITLE: Init Test Song
-#DLEVEL: 50
-");
-
-                // Act
-                var result = await _manager.InitializeAsync(new[] { tempDir }, _testDbPath);
-
-                // Assert
-                Assert.True(result);
-                Assert.True(_manager.IsInitialized);
-                Assert.True(await _manager.GetDatabaseScoreCountAsync() > 0);
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, true);
-            }
-        }
-
-        [Fact]
-        public async Task InitializeAsync_WhenAlreadyInitialized_ShouldReturnTrue()
-        {
-            // Arrange
-            var tempDir = Path.Combine(Path.GetTempPath(), "SongManagerTestDoubleInit");
-            
-            try
-            {
-                Directory.CreateDirectory(tempDir);
-                
-                // First initialization
-                await _manager.InitializeAsync(new[] { tempDir }, _testDbPath);
-                Assert.True(_manager.IsInitialized);
-
-                // Act - Second initialization
-                var result = await _manager.InitializeAsync(new[] { tempDir }, _testDbPath);
-
-                // Assert
-                Assert.True(result);
-                Assert.True(_manager.IsInitialized);
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, true);
-            }
-        }
-
-        #endregion
 
         #region Song Grouping Tests
 
@@ -537,7 +464,7 @@ namespace DTXMania.Test.Song
 #00013:11111111
 ");
 
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
@@ -599,7 +526,7 @@ namespace DTXMania.Test.Song
 #DLEVEL: 40
 ");
 
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
                 await _manager.EnumerateSongsAsync(new[] { tempDir });
@@ -657,7 +584,7 @@ namespace DTXMania.Test.Song
 #DLEVEL: 50
 ");
 
-                await _manager.InitializeAsync(new string[0], _testDbPath);
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
                 // Act
                 await _manager.EnumerateSongsAsync(new[] { tempDir });

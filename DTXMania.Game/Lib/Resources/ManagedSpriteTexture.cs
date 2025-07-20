@@ -86,7 +86,8 @@ namespace DTX.Resources
         /// </summary>
         public Rectangle GetSpriteSourceRectangle(int row, int col)
         {
-            if (row < 0 || col < 0 || col >= _spritesPerRow)
+            int totalRows = Height / _spriteHeight;
+            if (row < 0 || row >= totalRows || col < 0 || col >= _spritesPerRow)
                 throw new ArgumentOutOfRangeException("Row or column index is out of range");
 
             return new Rectangle(
