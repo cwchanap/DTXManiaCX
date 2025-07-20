@@ -170,8 +170,8 @@ namespace DTX.UI.Layout
             // Drums configuration (9 lanes)
             public static class Drums
             {
-                public const int StartX = 46;  // Start position X (15 + 31)
-                public const int StartY = 389; // Start position Y (368 + 21)
+                public const int StartX = 50;  // Start position X (15 + 31)
+                public const int StartY = 400; // Start position Y (368 + 21)
                 public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
@@ -261,6 +261,11 @@ namespace DTX.UI.Layout
             public const int ClearLampHeight = 24;     // Height of clear lamp indicator
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
+            
+            // Artist name display layout (for currently selected song)
+            public const int ArtistNameRightMargin = 10;  // Margin from right edge of song bar
+            public const int ArtistNameLeftPadding = 5;   // Padding from song title text area
+            public const int ArtistNameMaxWidth = 200;    // Maximum width for artist name text
             
             // Spacing and positioning within bars
             public const int PreviewImageMargin = 5;   // Margin around preview image
