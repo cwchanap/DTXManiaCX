@@ -89,7 +89,14 @@ namespace DTX.Stage.Performance
             Score = 0;
 
             // Load font
-            LoadFont();
+            try
+            {
+                LoadFont();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("ScoreDisplay could not be initialized because the font could not be loaded.", ex);
+            }
         }
 
         #endregion
@@ -142,13 +149,12 @@ namespace DTX.Stage.Performance
                     32,
                     FontStyle.Bold
                 );
-                
-                System.Diagnostics.Debug.WriteLine("ScoreDisplay: Font loaded successfully");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ScoreDisplay: Failed to load font: {ex.Message}");
                 _scoreFont = null;
+                throw;
             }
         }
 
