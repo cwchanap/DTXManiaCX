@@ -22,7 +22,12 @@ namespace DTX.Resources
         /// Song selection stage background texture
         /// </summary>
         public const string SongSelectionBackground = "Graphics/5_background.jpg";
-        
+
+        /// <summary>
+        /// Performance stage background texture
+        /// </summary>
+        public const string PerformanceBackground = "Graphics/7_background.jpg";
+
         #endregion
         
         #region UI Panel Textures
@@ -126,6 +131,7 @@ namespace DTX.Resources
                 StartupBackground,
                 TitleBackground,
                 SongSelectionBackground,
+                PerformanceBackground,
                 TitleMenu,
                 SongSelectionHeaderPanel,
                 SongSelectionFooterPanel,
@@ -153,7 +159,8 @@ namespace DTX.Resources
             {
                 StartupBackground,
                 TitleBackground,
-                SongSelectionBackground
+                SongSelectionBackground,
+                PerformanceBackground
             };
         }
         
