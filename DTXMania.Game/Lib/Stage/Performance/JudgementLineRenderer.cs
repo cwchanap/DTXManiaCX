@@ -59,7 +59,14 @@ namespace DTX.Stage.Performance
         public JudgementLineRenderer(GraphicsDevice graphicsDevice)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            CreateWhiteTexture();
+            try
+            {
+                CreateWhiteTexture();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("JudgementLineRenderer could not be initialized because the white texture could not be created.", ex);
+            }
         }
 
         #endregion
@@ -161,12 +168,12 @@ namespace DTX.Stage.Performance
             {
                 _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
                 _whiteTexture.SetData(new[] { Color.White });
-                System.Diagnostics.Debug.WriteLine("JudgementLineRenderer: White texture created");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"JudgementLineRenderer: Failed to create white texture: {ex.Message}");
                 _whiteTexture = null;
+                throw;
             }
         }
 

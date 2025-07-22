@@ -12,7 +12,7 @@ namespace DTX.Stage.Performance
     {
         #region Private Fields
 
-        private Texture2D _whiteTexture;
+        private static Texture2D _whiteTexture;
         private GraphicsDevice _graphicsDevice;
         private bool _disposed = false;
 
@@ -23,7 +23,17 @@ namespace DTX.Stage.Performance
         public LaneBackgroundRenderer(GraphicsDevice graphicsDevice)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            CreateWhiteTexture();
+            try
+            {
+                if (_whiteTexture == null || _whiteTexture.IsDisposed)
+                {
+                    CreateWhiteTexture();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("LaneBackgroundRenderer could not be initialized because the white texture could not be created.", ex);
+            }
         }
 
         #endregion
@@ -135,12 +145,12 @@ namespace DTX.Stage.Performance
             {
                 _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
                 _whiteTexture.SetData(new[] { Color.White });
-                System.Diagnostics.Debug.WriteLine("LaneBackgroundRenderer: White texture created");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"LaneBackgroundRenderer: Failed to create white texture: {ex.Message}");
                 _whiteTexture = null;
+                throw;
             }
         }
 
@@ -161,8 +171,8 @@ namespace DTX.Stage.Performance
                 if (disposing)
                 {
                     // Dispose managed resources
-                    _whiteTexture?.Dispose();
-                    _whiteTexture = null;
+                    // _whiteTexture is static and shared, so we don't dispose it here.
+                    // A central resource manager should handle its lifetime.
                     _graphicsDevice = null;
                 }
 

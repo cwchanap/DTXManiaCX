@@ -19,6 +19,7 @@ namespace DTX.Stage.Performance
         private bool _isLoading = false;
         private bool _loadingFailed = false;
         private bool _disposed = false;
+        private Texture2D _whiteTexture;
 
         #endregion
 
@@ -70,27 +71,17 @@ namespace DTX.Stage.Performance
             {
                 System.Diagnostics.Debug.WriteLine("BackgroundRenderer: Starting async background load");
 
-                // Load background texture using ResourceManager on a background thread
-                await Task.Run(() =>
-                {
-                    try
-                    {
-                        _backgroundTexture = _resourceManager.LoadTexture(TexturePath.PerformanceBackground);
-                        System.Diagnostics.Debug.WriteLine("BackgroundRenderer: Background texture loaded successfully");
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"BackgroundRenderer: Failed to load background texture: {ex.Message}");
-                        _loadingFailed = true;
-                        
-                        // ResourceManager should provide a fallback texture, but if it doesn't, we'll handle it in Draw
-                        _backgroundTexture = null;
-                    }
-                });
+                // Load background texture using ResourceManager
+                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.PerformanceBackground);
+                System.Diagnostics.Debug.WriteLine("BackgroundRenderer: Background texture loaded successfully");
+
+                // Since the async wrapper is removed, this task completes synchronously.
+                // For true async loading, ResourceManager would need a LoadTextureAsync method.
+                await Task.CompletedTask;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"BackgroundRenderer: Async loading failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"BackgroundRenderer: Failed to load background texture: {ex.Message}");
                 _loadingFailed = true;
                 _backgroundTexture = null;
             }
@@ -141,27 +132,15 @@ namespace DTX.Stage.Performance
         {
             // Create a simple 1x1 white texture for drawing colored rectangles
             // This is a temporary solution - in a real implementation, we'd cache this texture
-            var whiteTexture = CreateWhiteTexture(spriteBatch.GraphicsDevice);
-            
-            if (whiteTexture != null)
+            if (_whiteTexture == null)
             {
-                spriteBatch.Draw(whiteTexture, area, PerformanceUILayout.FallbackBackgroundColor);
-                whiteTexture.Dispose(); // Dispose immediately since it's temporary
+                _whiteTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
+                _whiteTexture.SetData(new[] { Color.White });
             }
-        }
 
-        private Texture2D CreateWhiteTexture(GraphicsDevice graphicsDevice)
-        {
-            try
+            if (_whiteTexture != null)
             {
-                var texture = new Texture2D(graphicsDevice, 1, 1);
-                texture.SetData(new[] { Color.White });
-                return texture;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"BackgroundRenderer: Failed to create white texture: {ex.Message}");
-                return null;
+                spriteBatch.Draw(_whiteTexture, area, PerformanceUILayout.FallbackBackgroundColor);
             }
         }
 
@@ -184,6 +163,7 @@ namespace DTX.Stage.Performance
                     // Dispose managed resources
                     _backgroundTexture?.Dispose();
                     _backgroundTexture = null;
+                    _whiteTexture?.Dispose();
                 }
 
                 _disposed = true;
