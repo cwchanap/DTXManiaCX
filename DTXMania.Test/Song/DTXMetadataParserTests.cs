@@ -8,8 +8,8 @@ using DTXMania.Game.Lib.Song.Entities;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Unit tests for DTXMetadataParser class
-    /// Tests DTX file parsing and metadata extraction
+    /// Unit tests for DTXChartParser metadata functionality
+    /// Tests DTX file parsing and metadata extraction (consolidated from DTXMetadataParser)
     /// </summary>
     public class DTXMetadataParserTests
     {
@@ -19,12 +19,11 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithNonExistentFile_ShouldThrowFileNotFoundException()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var nonExistentFile = Path.Combine(Path.GetTempPath(), "NonExistent", "test.dtx");
 
             // Act & Assert
-            await Assert.ThrowsAsync<FileNotFoundException>(() => 
-                parser.ParseSongEntitiesAsync(nonExistentFile));
+            await Assert.ThrowsAsync<FileNotFoundException>(() =>
+                DTXChartParser.ParseSongEntitiesAsync(nonExistentFile));
         }
 
         [Theory]
@@ -32,19 +31,15 @@ namespace DTXMania.Test.Song
         [InlineData(null)]
         public async Task ParseSongEntitiesAsync_WithInvalidPath_ShouldThrowFileNotFoundException(string filePath)
         {
-            // Arrange
-            var parser = new DTXMetadataParser();
-
             // Act & Assert
-            await Assert.ThrowsAsync<FileNotFoundException>(() => 
-                parser.ParseSongEntitiesAsync(filePath));
+            await Assert.ThrowsAsync<FileNotFoundException>(() =>
+                DTXChartParser.ParseSongEntitiesAsync(filePath));
         }
 
         [Fact]
         public async Task ParseSongEntitiesAsync_WithValidDTXFile_ShouldParseBasicMetadata()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
             
@@ -67,7 +62,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, dtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.Equal("Test Song", song.Title);
@@ -94,7 +89,7 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithLevelFormat_ShouldParseCorrectly()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
+
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
             
@@ -107,7 +102,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, dtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.Equal("Level Format Test", song.Title);
@@ -128,10 +123,9 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithQuotedValues_ShouldRemoveQuotes()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
-            
+
             var dtxContent = @"#TITLE: ""Quoted Title""
 #ARTIST: ""Quoted Artist""
 #GENRE: ""Quoted Genre""
@@ -142,7 +136,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, dtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.Equal("Quoted Title", song.Title);
@@ -162,16 +156,15 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithEmptyFile_ShouldReturnBasicInfo()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
-            
+
             try
             {
                 await File.WriteAllTextAsync(dtxFile, "");
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.Equal(Path.GetFileNameWithoutExtension(dtxFile), song.Title);
@@ -194,16 +187,15 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithUnsupportedExtension_ShouldReturnBasicInfo()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var tempFile = Path.GetTempFileName();
             var txtFile = Path.ChangeExtension(tempFile, ".txt");
-            
+
             try
             {
                 await File.WriteAllTextAsync(txtFile, "#TITLE: Should Not Parse");
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(txtFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(txtFile);
 
                 // Assert
                 Assert.Equal(Path.GetFileNameWithoutExtension(txtFile), song.Title);
@@ -223,10 +215,9 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithDecimalLevels_ShouldRoundCorrectly()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
-            
+
             var dtxContent = @"#DLEVEL: 85.7
 #GLEVEL: 78.3
 #BLEVEL: 65.9
@@ -237,7 +228,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, dtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.Equal(86, chart.DrumLevel); // 85.7 rounded
