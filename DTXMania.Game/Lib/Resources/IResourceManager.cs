@@ -1,3 +1,4 @@
+using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 
@@ -54,8 +55,16 @@ namespace DTX.Resources
         /// <returns>Sound interface with playback capabilities</returns>
         ISound LoadSound(string path);
 
+        /// <summary>
+        /// Creates a new 1x1 texture of the specified color.
+        /// This texture is managed and cached by the resource manager.
+        /// </summary>
+        /// <param name="color">The color of the texture.</param>
+        /// <returns>A managed texture instance.</returns>
+        ITexture CreateTextureFromColor(Color color);
+ 
         #endregion
-
+ 
         #region Path Management
 
         /// <summary>

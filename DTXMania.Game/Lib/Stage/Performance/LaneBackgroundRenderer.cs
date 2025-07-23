@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using DTX.Resources;
 
 namespace DTX.Stage.Performance
 {
@@ -12,23 +13,21 @@ namespace DTX.Stage.Performance
     {
         #region Private Fields
 
-        private static Texture2D _whiteTexture;
-        private GraphicsDevice _graphicsDevice;
+        private readonly ITexture _whiteTexture;
         private bool _disposed = false;
 
         #endregion
 
         #region Constructor
 
-        public LaneBackgroundRenderer(GraphicsDevice graphicsDevice)
+        public LaneBackgroundRenderer(IResourceManager resourceManager)
         {
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+            if (resourceManager == null)
+                throw new ArgumentNullException(nameof(resourceManager));
+
             try
             {
-                if (_whiteTexture == null || _whiteTexture.IsDisposed)
-                {
-                    CreateWhiteTexture();
-                }
+                _whiteTexture = resourceManager.CreateTextureFromColor(Color.White);
             }
             catch (Exception ex)
             {
@@ -87,7 +86,7 @@ namespace DTX.Stage.Performance
             // Draw with transparency for placeholder effect
             var transparentColor = laneColor * 0.3f;
             
-            spriteBatch.Draw(_whiteTexture, laneRect, transparentColor);
+            spriteBatch.Draw(_whiteTexture.Texture, laneRect, transparentColor);
         }
 
         /// <summary>
@@ -132,53 +131,31 @@ namespace DTX.Stage.Performance
             // Apply custom alpha
             var colorWithAlpha = laneColor * alpha;
             
-            spriteBatch.Draw(_whiteTexture, laneRect, colorWithAlpha);
+            spriteBatch.Draw(_whiteTexture.Texture, laneRect, colorWithAlpha);
         }
-
-        #endregion
-
-        #region Private Methods
-
-        private void CreateWhiteTexture()
-        {
-            try
-            {
-                _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"LaneBackgroundRenderer: Failed to create white texture: {ex.Message}");
-                _whiteTexture = null;
-                throw;
-            }
-        }
-
-        #endregion
-
-        #region IDisposable Implementation
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
-            {
-                if (disposing)
-                {
-                    // Dispose managed resources
-                    // _whiteTexture is static and shared, so we don't dispose it here.
-                    // A central resource manager should handle its lifetime.
-                    _graphicsDevice = null;
-                }
-
-                _disposed = true;
-            }
-        }
+ 
+         #endregion
+ 
+         #region IDisposable Implementation
+ 
+         public void Dispose()
+         {
+             Dispose(true);
+             GC.SuppressFinalize(this);
+         }
+ 
+         protected virtual void Dispose(bool disposing)
+         {
+             if (!_disposed)
+             {
+                 if (disposing)
+                 {
+                    _whiteTexture?.RemoveReference();
+                 }
+ 
+                 _disposed = true;
+             }
+         }
 
         #endregion
     }

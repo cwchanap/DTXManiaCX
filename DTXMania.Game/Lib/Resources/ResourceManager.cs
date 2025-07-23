@@ -235,11 +235,32 @@ namespace DTX.Resources
             finally
             {
                 _totalLoadTime.Stop();
-            }
-        }
-
-        public void SetSkinPath(string skinPath)
-        {
+                     }
+                 }
+        
+                public ITexture CreateTextureFromColor(Color color)
+                {
+                    var cacheKey = $"__Color|{color.PackedValue}";
+        
+                    if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
+                    {
+                        cachedTexture.AddReference();
+                        return cachedTexture;
+                    }
+        
+                    var texture = new Texture2D(_graphicsDevice, 1, 1);
+                    texture.SetData(new[] { color });
+        
+                    var managedTexture = new ManagedTexture(_graphicsDevice, texture, cacheKey);
+                    managedTexture.AddReference();
+        
+                    _textureCache.TryAdd(cacheKey, managedTexture);
+        
+                    return managedTexture;
+                }
+         
+                 public void SetSkinPath(string skinPath)
+                 {
             if (string.IsNullOrEmpty(skinPath))
                 throw new ArgumentException("Skin path cannot be null or empty", nameof(skinPath));
 
