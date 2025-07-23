@@ -152,10 +152,6 @@ namespace DTX.Stage.Performance
             Vector2 labelSize = _labelFont.MeasureString(_labelText);
             
             // Calculate positions for centered text
-            Vector2 comboPos = new Vector2(
-                _position.X - (comboSize.X * _scale / 2),
-                _position.Y - comboSize.Y * _scale
-            );
             
             Vector2 labelPos = new Vector2(
                 _position.X - (labelSize.X / 2),

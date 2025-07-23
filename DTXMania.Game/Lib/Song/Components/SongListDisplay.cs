@@ -1019,10 +1019,8 @@ namespace DTX.Song.Components
 
             // Draw comment bar background texture - using original DTXManiaNX coordinates
             // The texture has built-in padding to align with the selected song bar
-            var commentBarX = 560; // Original DTXManiaNX X coordinate
-            var commentBarY = 257; // Original DTXManiaNX Y coordinate (behind selected song bar at Y:269)
-            var commentBarPosition = new Vector2(commentBarX, commentBarY);
-
+            var commentBarPosition = SongSelectionUILayout.CommentBar.Position;
+            
             if (_commentBarTexture != null)
             {
                 _commentBarTexture.Draw(spriteBatch, commentBarPosition);
@@ -1032,8 +1030,12 @@ namespace DTX.Song.Components
                 // Fallback: Draw a simple rectangle aligned with the selected song bar
                 if (_whitePixel != null)
                 {
-                    var fallbackRect = new Rectangle(commentBarX, commentBarY, BAR_WIDTH, 80);
-                    var fallbackColor = Color.Blue * 0.3f; // Semi-transparent blue
+                    var fallbackRect = new Rectangle(
+                        (int)commentBarPosition.X,
+                        (int)commentBarPosition.Y,
+                        BAR_WIDTH,
+                        SongSelectionUILayout.CommentBar.FallbackHeight);
+                    var fallbackColor = SongSelectionUILayout.CommentBar.FallbackColor;
                     spriteBatch.Draw(_whitePixel, fallbackRect, fallbackColor);
                 }
             }
@@ -1057,8 +1059,8 @@ namespace DTX.Song.Components
 
             // Use font scaling and original DTXManiaNX position
             var textScale = new Vector2(SongSelectionUILayout.CommentBar.FontScale);
-            var commentPosition = new Vector2(683, 339); // Original DTXManiaNX coordinates
-            var maxWidth = 510; // Maximum width constraint (same as song bars)
+            var commentPosition = SongSelectionUILayout.CommentBar.CommentTextPosition;
+            var maxWidth = SongSelectionUILayout.CommentBar.CommentTextMaxWidth;
 
             // Handle multi-line text wrapping
             var wrappedText = WrapTextToWidth(commentText, maxWidth, _font, textScale.X);
