@@ -38,11 +38,6 @@ namespace DTX.Stage
         private ComboDisplay _comboDisplay;
         private GaugeDisplay _gaugeDisplay;
 
-        // Temporary placeholder values
-        private int _currentScore = 0;
-        private int _currentCombo = 0;
-        private float _currentGaugeValue = 0.5f; // 50% life
-
         #endregion
 
         #region Properties
@@ -209,7 +204,7 @@ namespace DTX.Stage
                 return;
 
             // Handle ESC key to return to song selection
-            if (_inputManager.IsKeyPressed(27)) // 27 is the key code for Escape
+            if (_inputManager.IsKeyPressed((int)Keys.Escape))
             {
                 System.Diagnostics.Debug.WriteLine("PerformanceStage: ESC pressed, returning to SongSelect");
                 ReturnToSongSelect();

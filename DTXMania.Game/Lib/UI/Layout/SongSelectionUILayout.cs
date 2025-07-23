@@ -336,8 +336,17 @@ namespace DTX.UI.Layout
         /// </summary>
         public static class CommentBar
         {
+            public const int X = 560;
+            public const int Y = 257;
+            public const int FallbackHeight = 80;
+            public static readonly Color FallbackColor = Color.Blue * 0.3f;
+
             // Font scaling for long text
             public const float FontScale = 0.5f;       // Font scale factor for comment text
+            public static readonly Vector2 CommentTextPosition = new Vector2(683, 339);
+            public const int CommentTextMaxWidth = 510;
+
+            public static Vector2 Position => new Vector2(X, Y);
         }
 
         #endregion
