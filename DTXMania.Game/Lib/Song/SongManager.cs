@@ -57,7 +57,6 @@ namespace DTX.Song
         #region Private Fields
 
         private readonly List<SongListNode> _rootSongs = new();
-        private readonly DTXMetadataParser _metadataParser = new();
         private readonly object _lockObject = new();
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
@@ -875,7 +874,7 @@ namespace DTX.Song
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (DTXMetadataParser.IsSupportedFile(filePath))
+                    if (DTXChartParser.IsSupportedFile(filePath))
                     {
                         var fileName = Path.GetFileName(filePath);
                         Debug.WriteLine($"SongManager: Creating song node for {fileName}");
@@ -931,7 +930,7 @@ namespace DTX.Song
             {
                 if (_databaseService == null) return null;
 
-                var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
 
                 if (song == null || chart == null)
                 {
@@ -1238,9 +1237,9 @@ namespace DTX.Song
                         if (!string.IsNullOrEmpty(fileName))
                         {
                             var filePath = Path.Combine(directory, fileName);
-                            if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
+                            if (File.Exists(filePath) && DTXChartParser.IsSupportedFile(filePath))
                             {
-                                var (song, chart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+                                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
                                 
                                 // Priority: SET.def title > DTX title > directory name
                                 if (!string.IsNullOrEmpty(setDefTitle))
@@ -1280,9 +1279,9 @@ namespace DTX.Song
                             if (!string.IsNullOrEmpty(fileName))
                             {
                                 var filePath = Path.Combine(directory, fileName);
-                                if (File.Exists(filePath) && DTXMetadataParser.IsSupportedFile(filePath))
+                                if (File.Exists(filePath) && DTXChartParser.IsSupportedFile(filePath))
                                 {
-                                    var (diffSong, diffChart) = await _metadataParser.ParseSongEntitiesAsync(filePath);
+                                    var (diffSong, diffChart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
 
                                     // Use the set.def title if available, otherwise keep the DTX title
                                     if (!string.IsNullOrEmpty(songTitle))
