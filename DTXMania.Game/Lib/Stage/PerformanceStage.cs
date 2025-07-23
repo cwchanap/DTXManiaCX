@@ -157,7 +157,7 @@ namespace DTX.Stage
 
             // Initialize lane background and judgement line renderers
             var graphicsDevice = _spriteBatch.GraphicsDevice;
-            _laneBackgroundRenderer = new LaneBackgroundRenderer(graphicsDevice);
+            _laneBackgroundRenderer = new LaneBackgroundRenderer(_resourceManager);
             _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice);
 
             // Initialize score and combo displays
