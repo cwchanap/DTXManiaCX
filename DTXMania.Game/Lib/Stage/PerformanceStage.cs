@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -53,7 +54,7 @@ namespace DTX.Stage
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
-        private double _readyCountdown = 1000.0; // 1 second ready period
+        private double _readyCountdown = 1.0; // 1 second ready period (in seconds, not milliseconds)
         private DateTime _songStartTime;
 
         #endregion
@@ -300,20 +301,31 @@ namespace DTX.Stage
                 System.Diagnostics.Debug.WriteLine($"PerformanceStage: Parsed chart with {_parsedChart.TotalNotes} notes, BPM: {_parsedChart.Bpm}");
 
                 // Create chart manager
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Creating ChartManager...");
                 _chartManager = new ChartManager(_parsedChart);
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: ChartManager created successfully: {_chartManager != null}");
 
                 // Set BPM in note renderer
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Setting BPM in note renderer...");
                 _noteRenderer?.SetBpm(_parsedChart.Bpm);
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: BPM set in note renderer");
 
                 // Load background audio
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Loading background audio...");
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
                     await _audioLoader.PreloadForChartAsync(chartPath, _parsedChart.BackgroundAudioPath);
                     System.Diagnostics.Debug.WriteLine($"PerformanceStage: Loaded audio: {_parsedChart.BackgroundAudioPath}");
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("PerformanceStage: No background audio path specified");
+                }
 
                 // Create song timer
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Creating SongTimer...");
                 _songTimer = _audioLoader.CreateSongTimer();
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: SongTimer created: {_songTimer != null}");
 
                 _isLoading = false;
                 _isReady = true;
@@ -339,6 +351,7 @@ namespace DTX.Stage
             if (_isReady && _readyCountdown > 0)
             {
                 _readyCountdown -= deltaTime;
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Ready countdown: {_readyCountdown:F2}s (deltaTime: {deltaTime:F4}s)");
                 if (_readyCountdown <= 0)
                 {
                     StartSong();
@@ -355,13 +368,18 @@ namespace DTX.Stage
         /// </summary>
         private void StartSong()
         {
+            System.Diagnostics.Debug.WriteLine($"PerformanceStage: StartSong called, _songTimer is {(_songTimer != null ? "not null" : "null")}");
             if (_songTimer != null)
             {
                 // Use simplified timing approach for Phase 2
                 _songStartTime = DateTime.UtcNow;
                 _songTimer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero)); // Placeholder GameTime
                 _isReady = false;
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Song started");
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Song started, IsPlaying: {_songTimer.IsPlaying}");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Cannot start song - SongTimer is null");
             }
         }
 
@@ -371,10 +389,16 @@ namespace DTX.Stage
         private void DrawNotes()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: DrawNotes - Missing components: noteRenderer={_noteRenderer != null}, chartManager={_chartManager != null}, songTimer={_songTimer != null}");
                 return;
+            }
 
             if (!_songTimer.IsPlaying)
+            {
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: DrawNotes - SongTimer is not playing");
                 return;
+            }
 
             // Get current song time using simplified timing
             var currentTimeMs = (DateTime.UtcNow - _songStartTime).TotalMilliseconds;
@@ -382,8 +406,11 @@ namespace DTX.Stage
             // Get active notes
             var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, 3000.0); // 3 second look-ahead
 
+            var activeNotesList = activeNotes.ToList();
+            System.Diagnostics.Debug.WriteLine($"PerformanceStage: DrawNotes - currentTime: {currentTimeMs:F0}ms, activeNotes: {activeNotesList.Count}");
+
             // Draw the notes
-            _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
+            _noteRenderer.DrawNotes(_spriteBatch, activeNotesList, currentTimeMs);
         }
 
         /// <summary>

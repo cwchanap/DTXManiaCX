@@ -73,10 +73,11 @@ namespace DTX.Stage.Performance
                     throw new FileNotFoundException($"Audio file not found: {audioPath}");
                 }
 
-                // Load the sound using ResourceManager
-                // Note: ResourceManager.LoadSound is typically synchronous, but we wrap it in Task.Run
-                // for consistency with async pattern and to avoid blocking the UI thread
-                _loadedSound = await Task.Run(() => _resourceManager.LoadSound(audioPath));
+                // For DTX audio files, we need to bypass the ResourceManager's skin system
+                // and load the sound directly since these files are not part of the skin
+                System.Diagnostics.Debug.WriteLine($"AudioLoader: Loading audio directly from: {audioPath}");
+                _loadedSound = await Task.Run(() => new ManagedSound(audioPath));
+                _loadedSound.AddReference(); // Ensure proper reference counting
                 LoadedAudioPath = audioPath;
 
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Successfully loaded audio: {Path.GetFileName(audioPath)}");
@@ -125,7 +126,7 @@ namespace DTX.Stage.Performance
         /// Preloads audio for a specific chart
         /// </summary>
         /// <param name="chartPath">Path to the DTX chart file</param>
-        /// <param name="backgroundAudioPath">Path to the background audio (from ParsedChart)</param>
+        /// <param name="backgroundAudioPath">Path to the background audio (from ParsedChart) - should already be resolved</param>
         /// <returns>Task that completes when preloading is finished</returns>
         public async Task PreloadForChartAsync(string chartPath, string backgroundAudioPath)
         {
@@ -135,21 +136,12 @@ namespace DTX.Stage.Performance
                 return;
             }
 
-            string resolvedPath;
+            System.Diagnostics.Debug.WriteLine($"AudioLoader: Received background audio path: '{backgroundAudioPath}'");
+            System.Diagnostics.Debug.WriteLine($"AudioLoader: Chart path: '{chartPath}'");
 
-            // If the background audio path is already absolute, use it directly
-            if (Path.IsPathRooted(backgroundAudioPath))
-            {
-                resolvedPath = backgroundAudioPath;
-            }
-            else
-            {
-                // Make path relative to the chart file location
-                var chartDirectory = Path.GetDirectoryName(chartPath) ?? "";
-                resolvedPath = Path.Combine(chartDirectory, backgroundAudioPath);
-            }
-
-            await LoadBackgroundMusicAsync(resolvedPath);
+            // The background audio path should already be resolved by DTXChartParser
+            // Just use it directly without further path manipulation
+            await LoadBackgroundMusicAsync(backgroundAudioPath);
         }
 
         /// <summary>
