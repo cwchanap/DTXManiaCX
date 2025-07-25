@@ -15,7 +15,7 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_CountsNotesCorrectly()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
+
             var dtxContent = @"#TITLE: Test Song
 #ARTIST: Test Artist
 #BPM: 120.0
@@ -45,7 +45,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, dtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.NotNull(song);
@@ -91,7 +91,7 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_WithComplexDTXData()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
+
             var complexDtxContent = @"#TITLE: Complex Test Song
 #ARTIST: Test Artist
 #BPM: 184.0
@@ -124,7 +124,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, complexDtxContent);
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert basic metadata
                 Assert.NotNull(song);
@@ -173,7 +173,7 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_HandlesEmptyFile()
         {
             // Arrange
-            var parser = new DTXMetadataParser();
+
             var tempFile = Path.GetTempFileName();
             var dtxFile = Path.ChangeExtension(tempFile, ".dtx");
             
@@ -183,7 +183,7 @@ namespace DTXMania.Test.Song
                 await File.WriteAllTextAsync(dtxFile, "#TITLE: Empty Song\n#BPM: 120.0\n");
 
                 // Act
-                var (song, chart) = await parser.ParseSongEntitiesAsync(dtxFile);
+                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(dtxFile);
 
                 // Assert
                 Assert.NotNull(song);
