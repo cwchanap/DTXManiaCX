@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
@@ -9,6 +10,7 @@ using DTX.UI;
 using DTX.UI.Components;
 using DTX.UI.Layout;
 using DTX.Song;
+using DTX.Song.Components;
 using DTX.Input;
 
 namespace DTX.Stage
@@ -61,6 +63,10 @@ namespace DTX.Stage
         
         // Timing
         private double _elapsedTime;
+        
+        // Chart data
+        private ParsedChart _parsedChart;
+        private bool _chartLoaded = false;
         
         #endregion
 
@@ -273,6 +279,8 @@ namespace DTX.Stage
             // Activate the main panel
             _mainPanel.Activate();
             
+            // Start chart parsing asynchronously
+            _ = LoadChartAsync();
         }
 
         private void LoadFonts()
@@ -408,6 +416,29 @@ namespace DTX.Stage
             }
         }
         
+        private async Task LoadChartAsync()
+        {
+            try
+            {
+                // Get the chart file path from selected song
+                var chartPath = _selectedSong?.DatabaseChart?.FilePath;
+                if (string.IsNullOrEmpty(chartPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: No chart path available");
+                    return;
+                }
+
+                // Parse the DTX chart
+                _parsedChart = await DTXChartParser.ParseAsync(chartPath);
+                _chartLoaded = true;
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Parsed chart with {_parsedChart.TotalNotes} notes, BPM: {_parsedChart.Bpm}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to parse chart: {ex.Message}");
+                _chartLoaded = false;
+            }
+        }
 
         private string GetDifficultyName(int difficulty)
         {
@@ -783,6 +814,12 @@ namespace DTX.Stage
                 sharedData["selectedSong"] = _selectedSong;
                 sharedData["selectedDifficulty"] = _selectedDifficulty;
                 sharedData["songId"] = _songId;
+                
+                // Pass parsed chart data if available
+                if (_chartLoaded && _parsedChart != null)
+                {
+                    sharedData["parsedChart"] = _parsedChart;
+                }
             }
             
             // Transition to performance stage immediately

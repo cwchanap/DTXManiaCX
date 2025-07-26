@@ -400,21 +400,43 @@ namespace DTX.Song
         /// </summary>
         private static void FindBackgroundAudio(ParsedChart chart, Dictionary<string, string> wavDefinitions, string dtxFilePath)
         {
-            // Find the first WAV file referenced in the definitions
-            // This is typically the main background music
-            var firstWav = wavDefinitions.Values.FirstOrDefault();
-            if (!string.IsNullOrEmpty(firstWav))
+            // Find the background music WAV file
+            // Look for common background music filenames first
+            string backgroundWav = null;
+
+            // Strategy 1: Look for common background music filenames
+            var commonBgmNames = new[] { "bgm.ogg", "bgm.wav", "bgm.mp3", "background.ogg", "background.wav", "background.mp3" };
+            foreach (var bgmName in commonBgmNames)
             {
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Raw WAV path from DTX: '{firstWav}'");
+                var matchingWav = wavDefinitions.Values.FirstOrDefault(wav =>
+                    string.Equals(Path.GetFileName(wav), bgmName, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(matchingWav))
+                {
+                    backgroundWav = matchingWav;
+                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found background music by filename: '{backgroundWav}'");
+                    break;
+                }
+            }
+
+            // Strategy 2: If no common BGM name found, use the first WAV as fallback
+            if (string.IsNullOrEmpty(backgroundWav))
+            {
+                backgroundWav = wavDefinitions.Values.FirstOrDefault();
+                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Using first WAV as background music fallback: '{backgroundWav}'");
+            }
+
+            if (!string.IsNullOrEmpty(backgroundWav))
+            {
+                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Raw WAV path from DTX: '{backgroundWav}'");
                 System.Diagnostics.Debug.WriteLine($"DTXChartParser: DTX file path: '{dtxFilePath}'");
                 System.Diagnostics.Debug.WriteLine($"DTXChartParser: DTX directory: '{Path.GetDirectoryName(dtxFilePath)}'");
 
                 string resolvedPath;
 
                 // Check if the WAV path is already absolute
-                if (Path.IsPathRooted(firstWav))
+                if (Path.IsPathRooted(backgroundWav))
                 {
-                    resolvedPath = firstWav;
+                    resolvedPath = backgroundWav;
                     System.Diagnostics.Debug.WriteLine($"DTXChartParser: Using absolute path: '{resolvedPath}'");
                 }
                 else
@@ -422,17 +444,17 @@ namespace DTX.Song
                     // Try different resolution strategies
 
                     // Strategy 1: Path as-is (relative to working directory)
-                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Checking if file exists at working directory: '{firstWav}'");
-                    if (File.Exists(firstWav))
+                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Checking if file exists at working directory: '{backgroundWav}'");
+                    if (File.Exists(backgroundWav))
                     {
-                        resolvedPath = firstWav;
+                        resolvedPath = backgroundWav;
                         System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found file using working directory relative path: '{resolvedPath}'");
                     }
                     // Strategy 2: Relative to DTX file directory
                     else
                     {
                         var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
-                        var dtxRelativePath = Path.Combine(dtxDirectory, firstWav);
+                        var dtxRelativePath = Path.Combine(dtxDirectory, backgroundWav);
                         System.Diagnostics.Debug.WriteLine($"DTXChartParser: Checking if file exists at DTX relative path: '{dtxRelativePath}'");
 
                         if (File.Exists(dtxRelativePath))
@@ -443,7 +465,7 @@ namespace DTX.Song
                         else
                         {
                             // Strategy 3: Use the path as-is even if file doesn't exist (let AudioLoader handle the error)
-                            resolvedPath = firstWav;
+                            resolvedPath = backgroundWav;
                             System.Diagnostics.Debug.WriteLine($"DTXChartParser: File not found, using original path: '{resolvedPath}'");
                         }
                     }
