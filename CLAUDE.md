@@ -74,9 +74,10 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 #### 2. Stage Management System
 - **StageManager**: Orchestrates stage transitions with fade effects
 - **BaseStage**: Abstract base for all game stages
-- **Stage Types**: Startup, Title, Config, SongSelect, UITest
+- **Stage Types**: Startup, Title, Config, SongSelect, SongTransition, Performance
 - **Transition System**: Supports DTXMania-style fade transitions with easing curves
 - **Phase Management**: Implements DTXManiaNX eフェーズID patterns (Inactive, FadeIn, Normal, FadeOut)
+- **Performance Components**: Modular system for gameplay (NoteRenderer, ScoreDisplay, GaugeDisplay, ComboDisplay, etc.)
 
 #### 3. Resource Management
 - **ResourceManager**: Handles textures, fonts, sounds with caching and reference counting
@@ -107,9 +108,11 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 
 #### 7. Song Management
 - **SongManager**: Handles song discovery and metadata parsing
-- **DTXMetadataParser**: Parses DTX files for song information
+- **DTXChartParser**: Parses DTX files for song information and chart data
 - **SongListNode**: Tree structure for organizing songs
 - **Database Integration**: Entity Framework with SQLite (songs.db) for persistent song data
+- **Chart Management**: ChartManager handles parsed chart data and note processing
+- **Song Components**: SongBar, SongStatusPanel, PreviewImagePanel for UI display
 
 ### Key Design Patterns
 
@@ -163,6 +166,7 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - **Centralize Configuration**: Store layout constants, positions, sizes, and colors in dedicated UI layout classes
 - **Use TexturePath Constants**: Reference texture files through TexturePath class instead of hardcoded strings
 - **Sprite-based Rendering**: Use ManagedSpriteTexture for spritesheet-based graphics like difficulty labels and level numbers
+- **Modular Components**: Use component-based architecture for stage elements (Performance stage components as examples)
 
 ### Testing Requirements
 - Write unit tests for all new functionality
@@ -229,8 +233,10 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - `DTXMania.Game/Game1.cs` - Contains BaseGame and Game1 classes
 - `DTXMania.Game/Program.cs` - Application entry point
 - `DTXMania.Game/Lib/Stage/` - Stage management system
+- `DTXMania.Game/Lib/Stage/Performance/` - Performance stage components (NoteRenderer, ScoreDisplay, etc.)
 - `DTXMania.Game/Lib/Resources/` - Resource management including SharedFontFactory
 - `DTXMania.Game/Lib/Config/` - Configuration system
+- `DTXMania.Game/Lib/Song/` - Song management and DTX parsing
 
 ### UI Components
 - `DTXMania.Game/Lib/UI/Components/` - UI components

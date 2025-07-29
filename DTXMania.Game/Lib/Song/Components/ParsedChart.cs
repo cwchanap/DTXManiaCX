@@ -109,6 +109,12 @@ namespace DTX.Song.Components
             // Sort notes by time for efficient rendering
             Notes = Notes.OrderBy(n => n.TimeMs).ToList();
 
+            // Debug: Report parsing summary
+            var maxMeasure = Notes.Count > 0 ? Notes.Max(n => n.Bar) : 0;
+            var totalNotes = Notes.Count;
+            var lastNoteTime = Notes.Count > 0 ? Notes.Max(n => n.TimeMs) : 0;
+            System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
+
             // Add small buffer to duration for final note to ring out
             if (DurationMs > 0)
             {

@@ -83,7 +83,6 @@ namespace DTX.Stage
 
         protected override void OnActivate()
         {
-            System.Diagnostics.Debug.WriteLine("PerformanceStage: Activating");
 
             // Extract shared data from stage transition
             ExtractSharedData();
@@ -94,12 +93,10 @@ namespace DTX.Stage
             // Start async chart loading and audio preparation
             _ = InitializeGameplayAsync();
 
-            System.Diagnostics.Debug.WriteLine($"PerformanceStage: Activated with song: {_selectedSong?.DisplayTitle ?? "Unknown"}");
         }
 
         protected override void OnDeactivate()
         {
-            System.Diagnostics.Debug.WriteLine("PerformanceStage: Deactivating");
 
             // Clean up components
             CleanupComponents();
@@ -109,7 +106,8 @@ namespace DTX.Stage
         {
             // Update total time for precise GameTime tracking
             _totalTime += deltaTime;
-            
+
+
             // Create GameTime for precise timing
             _currentGameTime = new GameTime(TimeSpan.FromSeconds(_totalTime), TimeSpan.FromSeconds(deltaTime));
 
@@ -190,7 +188,6 @@ namespace DTX.Stage
                 if (_sharedData.TryGetValue("parsedChart", out var chartObj) && chartObj is ParsedChart parsedChart)
                 {
                     _parsedChart = parsedChart;
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Received parsed chart with {_parsedChart.TotalNotes} notes, BPM: {_parsedChart.Bpm}");
                 }
             }
         }
@@ -222,7 +219,6 @@ namespace DTX.Stage
             // Initialize UX components
             InitializeReadyFont();
 
-            System.Diagnostics.Debug.WriteLine("PerformanceStage: Components initialized");
         }
 
         private void CleanupComponents()
@@ -263,7 +259,6 @@ namespace DTX.Stage
             _parsedChart = null;
             _chartManager = null;
 
-            System.Diagnostics.Debug.WriteLine("PerformanceStage: Components cleaned up");
         }
 
         #endregion
@@ -278,7 +273,6 @@ namespace DTX.Stage
             // Handle ESC key to return to song selection
             if (_inputManager.IsKeyPressed((int)Keys.Escape))
             {
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: ESC pressed, returning to SongSelect");
                 ReturnToSongSelect();
             }
 
@@ -303,59 +297,54 @@ namespace DTX.Stage
             try
             {
                 _isLoading = true;
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Starting gameplay initialization...");
 
                 // Check if we have a parsed chart from shared data
                 if (_parsedChart == null)
                 {
                     // Fallback: parse chart if not provided (for backwards compatibility)
-                    var chartPath = _selectedSong?.DatabaseChart?.FilePath;
+                    // Get the correct chart for the selected difficulty
+                    var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+                    var chartPath = chart?.FilePath;
                     if (string.IsNullOrEmpty(chartPath))
                     {
-                        System.Diagnostics.Debug.WriteLine("PerformanceStage: No chart path available");
                         return;
                     }
 
-                    System.Diagnostics.Debug.WriteLine("PerformanceStage: Parsing chart (fallback)...");
                     _parsedChart = await DTXChartParser.ParseAsync(chartPath);
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Parsed chart with {_parsedChart.TotalNotes} notes, BPM: {_parsedChart.Bpm}");
                 }
 
                 // Create chart manager
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Creating ChartManager...");
-                _chartManager = new ChartManager(_parsedChart);
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: ChartManager created successfully: {_chartManager != null}");
 
-                // Set BPM in note renderer
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Setting BPM in note renderer...");
+                _chartManager = new ChartManager(_parsedChart);
+
+                // Set BPM and scroll speed in note renderer
                 _noteRenderer?.SetBpm(_parsedChart.Bpm);
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: BPM set in note renderer");
+
+                // Set scroll speed based on user preference (default 100% for now)
+                // TODO: Get scroll speed from user config
+                var scrollSpeedSetting = 100; // Default scroll speed
+                _noteRenderer?.SetScrollSpeed(scrollSpeedSetting);
 
                 // Load background audio
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Loading background audio...");
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
-                    var chartPath = _selectedSong?.DatabaseChart?.FilePath;
+                    // Use the correct chart path for the selected difficulty
+                    var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+                    var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
                     await _audioLoader.PreloadForChartAsync(chartPath, _parsedChart.BackgroundAudioPath);
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Loaded audio: {_parsedChart.BackgroundAudioPath}");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("PerformanceStage: No background audio path specified");
                 }
 
                 // Create song timer
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Creating SongTimer...");
                 _songTimer = _audioLoader.CreateSongTimer();
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: SongTimer created: {_songTimer != null}");
 
                 _isLoading = false;
                 _isReady = true;
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Gameplay initialization completed, entering ready state");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to initialize gameplay: {ex.Message}");
                 _isLoading = false;
                 // TODO: Show error message to user
             }
@@ -373,7 +362,6 @@ namespace DTX.Stage
             if (_isReady && _readyCountdown > 0)
             {
                 _readyCountdown -= deltaTime;
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Ready countdown: {_readyCountdown:F2}s (deltaTime: {deltaTime:F4}s)");
                 if (_readyCountdown <= 0)
                 {
                     StartSong();
@@ -390,17 +378,16 @@ namespace DTX.Stage
         /// </summary>
         private void StartSong()
         {
-            System.Diagnostics.Debug.WriteLine($"PerformanceStage: StartSong called, _songTimer is {(_songTimer != null ? "not null" : "null")}");
             if (_songTimer != null && _currentGameTime != null)
             {
-                // Start the song with proper GameTime for precise timing
+                // Start the song immediately - notes and audio should be synchronized
+                // The scroll system already handles note appearance timing via look-ahead
+                _songTimer.SetPosition(0.0, _currentGameTime);
                 _songTimer.Play(_currentGameTime);
                 _isReady = false;
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Song started, IsPlaying: {_songTimer.IsPlaying}");
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Cannot start song - SongTimer or GameTime is null");
             }
         }
 
@@ -418,8 +405,10 @@ namespace DTX.Stage
             // Get current song time using precise GameTime-based timing
             var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
 
-            // Get active notes
-            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, 3000.0); // 3 second look-ahead
+
+            // Get active notes using the same look-ahead time as scroll calculation
+            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
+            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
             // Draw the notes
             _noteRenderer.DrawNotes(_spriteBatch, activeNotes.ToList(), currentTimeMs);
@@ -454,11 +443,10 @@ namespace DTX.Stage
                 // Create bitmap font for ready text display
                 var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
                 _readyFont = new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Ready font initialized");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to initialize ready font: {ex.Message}");
+                // Font initialization failed, fallback will be used
                 _readyFont = null;
             }
         }
@@ -579,6 +567,47 @@ namespace DTX.Stage
             }
 
             base.Dispose(disposing);
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        /// <summary>
+        /// Gets the chart for the current difficulty level
+        /// </summary>
+        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart(SongListNode currentSong, int currentDifficulty)
+        {
+            // If no song is selected, return null
+            if (currentSong?.DatabaseSong == null)
+            {
+                return null;
+            }
+
+            // Get all charts for this song
+            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
+
+            if (allCharts == null || allCharts.Count == 0)
+            {
+                var fallbackChart = currentSong.DatabaseChart;
+                return fallbackChart; // Fallback to primary chart
+            }
+
+            // If we only have one chart, return it
+            if (allCharts.Count == 1)
+                return allCharts[0];
+
+            // For simplicity, assume drums mode and map difficulty to chart index
+            var drumCharts = allCharts.Where(chart => chart.HasDrumChart && chart.DrumLevel > 0)
+                                     .OrderBy(chart => chart.DrumLevel)
+                                     .ToList();
+
+            if (drumCharts.Count == 0)
+                return allCharts[0]; // Fallback if no drum charts
+
+            // Map difficulty index to chart (0=easiest, higher=harder)
+            int chartIndex = Math.Clamp(currentDifficulty, 0, drumCharts.Count - 1);
+            return drumCharts[chartIndex];
         }
 
         #endregion
