@@ -30,19 +30,40 @@ namespace DTX.Song
 
         /// <summary>
         /// DTX channel to lane index mapping
-        /// Channels 11-19 map to lanes 0-8
+        /// Expected lane arrangement (left to right): 1A - 18&11 - 1B&1C - 12 - 14 - 13 - 15 - 17 - 16&19
+        /// Lane indices: 0=1A, 1=18&11, 2=1B&1C, 3=12, 4=14, 5=13, 6=15, 7=17, 8=16&19
         /// </summary>
         private static readonly Dictionary<int, int> ChannelToLaneMap = new Dictionary<int, int>
         {
-            { 0x11, 0 }, // LC - Left Cymbal
-            { 0x12, 1 }, // LP - Left Pedal  
-            { 0x13, 2 }, // HH - Hi-Hat
-            { 0x14, 3 }, // SD - Snare Drum
-            { 0x15, 4 }, // BD - Bass Drum
-            { 0x16, 5 }, // HT - High Tom
-            { 0x17, 6 }, // LT - Low Tom
-            { 0x18, 7 }, // FT - Floor Tom
-            { 0x19, 8 }  // CY - Cymbal
+            // Lane 0: 1A (Splash/Crash)
+            { 0x1A, 0 },
+
+            // Lane 1: 18&11 (Floor Tom & Left Cymbal)
+            { 0x18, 1 }, // FT - Floor Tom
+            { 0x11, 1 }, // LC - Left Cymbal
+
+            // Lane 2: 1B&1C (Hi-Hat Foot & Left Crash)
+            { 0x1B, 2 }, // Hi-Hat Foot Pedal
+            { 0x1C, 2 }, // Left Crash
+
+            // Lane 3: 12 (Left Pedal)
+            { 0x12, 3 }, // LP - Left Pedal
+
+            // Lane 4: 14 (Snare Drum)
+            { 0x14, 4 }, // SD - Snare Drum
+
+            // Lane 5: 13 (Hi-Hat)
+            { 0x13, 5 }, // HH - Hi-Hat
+
+            // Lane 6: 15 (Bass Drum)
+            { 0x15, 6 }, // BD - Bass Drum
+
+            // Lane 7: 17 (Low Tom)
+            { 0x17, 7 }, // LT - Low Tom
+
+            // Lane 8: 16&19 (High Tom & Right Cymbal)
+            { 0x16, 8 }, // HT - High Tom
+            { 0x19, 8 }  // CY - Right Cymbal
         };
 
         /// <summary>
@@ -300,7 +321,7 @@ namespace DTX.Song
                     {
                         var wavId = command.Substring(4);
                         wavDefinitions[wavId] = value;
-                        System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found WAV definition {wavId} = '{value}'");
+                        // Found WAV definition
                     }
                     break;
             }
@@ -322,12 +343,19 @@ namespace DTX.Song
             if (!TryParseMeasureAndChannel(measureChannelPart, out int measure, out int channel))
                 return;
 
-            // Check if this is a drum lane channel (11-19)
+            // Check if this is a drum lane channel (11-19, 1A-1C)
             if (!ChannelToLaneMap.TryGetValue(channel, out var laneIndex))
+            {
+                // Skipping unmapped channel
                 return;
+            }
+
 
             // Parse notes from the data
+            var notesBefore = chart.Notes.Count;
             ParseNotesFromData(noteData, measure, channel, laneIndex, chart);
+            var notesAdded = chart.Notes.Count - notesBefore;
+
         }
 
         /// <summary>
@@ -357,6 +385,9 @@ namespace DTX.Song
 
                 // Calculate tick position within the measure
                 var tick = (int)((double)i / pairCount * TicksPerMeasure);
+
+                // Debug logging for tick calculation (first few notes only)
+                // Note parsing logic
 
                 // Create note
                 var note = new Note(laneIndex, measure, tick, channel, pair);
@@ -413,7 +444,7 @@ namespace DTX.Song
                 if (!string.IsNullOrEmpty(matchingWav))
                 {
                     backgroundWav = matchingWav;
-                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found background music by filename: '{backgroundWav}'");
+                    // Found background music by filename
                     break;
                 }
             }
@@ -422,14 +453,11 @@ namespace DTX.Song
             if (string.IsNullOrEmpty(backgroundWav))
             {
                 backgroundWav = wavDefinitions.Values.FirstOrDefault();
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Using first WAV as background music fallback: '{backgroundWav}'");
+                // Using first WAV as background music fallback
             }
 
             if (!string.IsNullOrEmpty(backgroundWav))
             {
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Raw WAV path from DTX: '{backgroundWav}'");
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: DTX file path: '{dtxFilePath}'");
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: DTX directory: '{Path.GetDirectoryName(dtxFilePath)}'");
 
                 string resolvedPath;
 
@@ -437,42 +465,36 @@ namespace DTX.Song
                 if (Path.IsPathRooted(backgroundWav))
                 {
                     resolvedPath = backgroundWav;
-                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Using absolute path: '{resolvedPath}'");
                 }
                 else
                 {
                     // Try different resolution strategies
 
                     // Strategy 1: Path as-is (relative to working directory)
-                    System.Diagnostics.Debug.WriteLine($"DTXChartParser: Checking if file exists at working directory: '{backgroundWav}'");
                     if (File.Exists(backgroundWav))
                     {
                         resolvedPath = backgroundWav;
-                        System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found file using working directory relative path: '{resolvedPath}'");
                     }
                     // Strategy 2: Relative to DTX file directory
                     else
                     {
                         var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
                         var dtxRelativePath = Path.Combine(dtxDirectory, backgroundWav);
-                        System.Diagnostics.Debug.WriteLine($"DTXChartParser: Checking if file exists at DTX relative path: '{dtxRelativePath}'");
 
                         if (File.Exists(dtxRelativePath))
                         {
                             resolvedPath = dtxRelativePath;
-                            System.Diagnostics.Debug.WriteLine($"DTXChartParser: Found file using DTX directory relative path: '{resolvedPath}'");
                         }
                         else
                         {
                             // Strategy 3: Use the path as-is even if file doesn't exist (let AudioLoader handle the error)
                             resolvedPath = backgroundWav;
-                            System.Diagnostics.Debug.WriteLine($"DTXChartParser: File not found, using original path: '{resolvedPath}'");
                         }
                     }
                 }
 
                 chart.BackgroundAudioPath = resolvedPath;
-                System.Diagnostics.Debug.WriteLine($"DTXChartParser: Final background audio path: '{chart.BackgroundAudioPath}'");
+                // Background audio path resolved
             }
         }
 

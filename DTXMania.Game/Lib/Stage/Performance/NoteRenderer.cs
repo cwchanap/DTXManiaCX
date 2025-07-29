@@ -21,10 +21,7 @@ namespace DTX.Stage.Performance
         /// </summary>
         private static readonly Vector2 DefaultNoteSize = new Vector2(32, 16);
 
-        /// <summary>
-        /// Pixels per beat for scrolling calculation (240 px/beat as specified)
-        /// </summary>
-        private const double PixelsPerBeat = 240.0;
+
 
         /// <summary>
         /// Grace period below judgement line before notes are dropped (20 pixels as specified)
@@ -64,7 +61,17 @@ namespace DTX.Stage.Performance
         /// <summary>
         /// Whether the renderer is ready to draw
         /// </summary>
-        public bool IsReady => !_disposed && _whiteTexture != null;
+        public bool IsReady => !_disposed && _whiteTexture != null && _scrollPixelsPerMs > 0;
+
+        /// <summary>
+        /// Current scroll speed in pixels per millisecond
+        /// </summary>
+        public double ScrollPixelsPerMs => _scrollPixelsPerMs;
+
+        /// <summary>
+        /// Current effective look-ahead time in milliseconds (for GetActiveNotes consistency)
+        /// </summary>
+        public double EffectiveLookAheadMs { get; private set; }
 
         #endregion
 
@@ -94,8 +101,9 @@ namespace DTX.Stage.Performance
                 _laneColors[i] = PerformanceUILayout.GetLaneColor(i);
             }
 
-            // Initialize scroll speed
-            SetBpm(Bpm);
+            // Initialize scroll speed with default value (will be set properly later)
+            _scrollPixelsPerMs = 0.0;
+            EffectiveLookAheadMs = 0.0;
         }
 
         #endregion
@@ -103,7 +111,35 @@ namespace DTX.Stage.Performance
         #region Public Methods
 
         /// <summary>
-        /// Sets the BPM and recalculates scroll speed
+        /// Sets the scroll speed based on look-ahead time and user preference
+        /// </summary>
+        /// <param name="scrollSpeedSetting">User scroll speed setting (100 = normal, 200 = 2x faster, 50 = 0.5x slower)</param>
+        public void SetScrollSpeed(int scrollSpeedSetting = 100)
+        {
+            if (scrollSpeedSetting <= 0)
+                throw new ArgumentException("Scroll speed must be greater than 0", nameof(scrollSpeedSetting));
+
+
+            // Base look-ahead time: 1.5 seconds for faster scrolling
+            var baseLookAheadMs = 1500.0;
+
+            // User scroll speed multiplier (100 = normal, 200 = 2x faster, 50 = 0.5x slower)
+            var scrollSpeedMultiplier = scrollSpeedSetting / 100.0;
+
+            // Effective look-ahead time (faster scroll = less look-ahead time)
+            var effectiveLookAheadMs = baseLookAheadMs / scrollSpeedMultiplier;
+            
+            // Store effective look-ahead time for consistency with GetActiveNotes
+            EffectiveLookAheadMs = effectiveLookAheadMs;
+
+            // Calculate scroll speed: distance / time
+            var scrollDistance = JudgementY; // Distance from top (Y=0) to judgement line
+            _scrollPixelsPerMs = scrollDistance / effectiveLookAheadMs;
+
+        }
+
+        /// <summary>
+        /// Sets the BPM (must be called before SetScrollSpeed for proper timing)
         /// </summary>
         /// <param name="bpm">New BPM value</param>
         public void SetBpm(double bpm)
@@ -112,9 +148,9 @@ namespace DTX.Stage.Performance
                 throw new ArgumentException("BPM must be greater than 0", nameof(bpm));
 
             Bpm = bpm;
-            // Calculate pixels per millisecond: (BPM × 240 pixels/beat) / 60000 ms/minute
-            _scrollPixelsPerMs = (bpm * PixelsPerBeat) / 60000.0;
         }
+
+
 
         /// <summary>
         /// Renders active notes on screen
@@ -153,6 +189,7 @@ namespace DTX.Stage.Performance
             var yOffset = _scrollPixelsPerMs * timeDifference;
             var noteY = JudgementY - yOffset;
 
+
             // Skip notes that have passed the drop grace period
             if (noteY > JudgementY + DropGracePeriod)
                 return;
@@ -188,9 +225,9 @@ namespace DTX.Stage.Performance
         /// </summary>
         /// <param name="notes">All notes to check</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        /// <param name="lookAheadMs">How far ahead to look for notes (default 3000ms)</param>
+        /// <param name="lookAheadMs">How far ahead to look for notes (default 1500ms)</param>
         /// <returns>Notes that should be rendered</returns>
-        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = 3000.0)
+        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = 1500.0)
         {
             if (notes == null)
                 return Enumerable.Empty<Note>();
@@ -252,7 +289,7 @@ namespace DTX.Stage.Performance
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"NoteRenderer: Failed to create white texture: {ex.Message}");
+                // White texture creation failed
             }
         }
 
