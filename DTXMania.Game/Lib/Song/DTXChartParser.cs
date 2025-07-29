@@ -343,6 +343,14 @@ namespace DTX.Song
             if (!TryParseMeasureAndChannel(measureChannelPart, out int measure, out int channel))
                 return;
 
+            // Check if this is BGM channel (01)
+            if (channel == 0x01)
+            {
+                // Parse BGM events from channel 01
+                ParseBGMEvents(noteData, measure, chart);
+                return;
+            }
+
             // Check if this is a drum lane channel (11-19, 1A-1C)
             if (!ChannelToLaneMap.TryGetValue(channel, out var laneIndex))
             {
@@ -356,6 +364,40 @@ namespace DTX.Song
             ParseNotesFromData(noteData, measure, channel, laneIndex, chart);
             var notesAdded = chart.Notes.Count - notesBefore;
 
+        }
+
+        /// <summary>
+        /// Parses BGM events from channel 01 measure data
+        /// </summary>
+        private static void ParseBGMEvents(string noteData, int measure, ParsedChart chart)
+        {
+            if (string.IsNullOrWhiteSpace(noteData))
+                return;
+
+            // DTX uses pairs of characters to represent BGM events
+            // Each pair represents one BGM event position within the measure
+            var pairCount = noteData.Length / 2;
+            if (pairCount == 0)
+                return;
+
+            for (int i = 0; i < pairCount; i++)
+            {
+                if (i * 2 + 1 >= noteData.Length)
+                    break;
+
+                var pair = noteData.Substring(i * 2, 2);
+
+                // Skip empty BGM events (00)
+                if (pair == "00" || string.IsNullOrWhiteSpace(pair))
+                    continue;
+
+                // Calculate tick position within the measure
+                var tick = (int)((double)i / pairCount * TicksPerMeasure);
+
+                // Create BGM event
+                var bgmEvent = new BGMEvent(measure, tick, pair);
+                chart.AddBGMEvent(bgmEvent);
+            }
         }
 
         /// <summary>
@@ -427,11 +469,20 @@ namespace DTX.Song
         }
 
         /// <summary>
-        /// Finds the background audio file from WAV definitions
+        /// Finds the background audio file from WAV definitions and resolves BGM event file paths
         /// </summary>
         private static void FindBackgroundAudio(ParsedChart chart, Dictionary<string, string> wavDefinitions, string dtxFilePath)
         {
-            // Find the background music WAV file
+            // Resolve BGM event file paths first
+            foreach (var bgmEvent in chart.BGMEvents)
+            {
+                if (wavDefinitions.TryGetValue(bgmEvent.WavId, out string wavPath))
+                {
+                    bgmEvent.AudioFilePath = ResolveBGMPath(wavPath, dtxFilePath);
+                }
+            }
+
+            // Find the background music WAV file for legacy compatibility
             // Look for common background music filenames first
             string backgroundWav = null;
 
@@ -449,8 +500,8 @@ namespace DTX.Song
                 }
             }
 
-            // Strategy 2: If no common BGM name found, use the first WAV as fallback
-            if (string.IsNullOrEmpty(backgroundWav))
+            // Strategy 2: If no common BGM name found and no BGM events, use the first WAV as fallback
+            if (string.IsNullOrEmpty(backgroundWav) && chart.BGMEvents.Count == 0)
             {
                 backgroundWav = wavDefinitions.Values.FirstOrDefault();
                 // Using first WAV as background music fallback
@@ -458,44 +509,41 @@ namespace DTX.Song
 
             if (!string.IsNullOrEmpty(backgroundWav))
             {
-
-                string resolvedPath;
-
-                // Check if the WAV path is already absolute
-                if (Path.IsPathRooted(backgroundWav))
-                {
-                    resolvedPath = backgroundWav;
-                }
-                else
-                {
-                    // Try different resolution strategies
-
-                    // Strategy 1: Path as-is (relative to working directory)
-                    if (File.Exists(backgroundWav))
-                    {
-                        resolvedPath = backgroundWav;
-                    }
-                    // Strategy 2: Relative to DTX file directory
-                    else
-                    {
-                        var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
-                        var dtxRelativePath = Path.Combine(dtxDirectory, backgroundWav);
-
-                        if (File.Exists(dtxRelativePath))
-                        {
-                            resolvedPath = dtxRelativePath;
-                        }
-                        else
-                        {
-                            // Strategy 3: Use the path as-is even if file doesn't exist (let AudioLoader handle the error)
-                            resolvedPath = backgroundWav;
-                        }
-                    }
-                }
-
-                chart.BackgroundAudioPath = resolvedPath;
+                chart.BackgroundAudioPath = ResolveBGMPath(backgroundWav, dtxFilePath);
                 // Background audio path resolved
             }
+        }
+
+        /// <summary>
+        /// Resolves a BGM file path relative to the DTX file location
+        /// </summary>
+        private static string ResolveBGMPath(string wavPath, string dtxFilePath)
+        {
+            // Check if the WAV path is already absolute
+            if (Path.IsPathRooted(wavPath))
+            {
+                return wavPath;
+            }
+
+            // Try different resolution strategies
+
+            // Strategy 1: Path as-is (relative to working directory)
+            if (File.Exists(wavPath))
+            {
+                return wavPath;
+            }
+
+            // Strategy 2: Relative to DTX file directory
+            var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
+            var dtxRelativePath = Path.Combine(dtxDirectory, wavPath);
+
+            if (File.Exists(dtxRelativePath))
+            {
+                return dtxRelativePath;
+            }
+
+            // Strategy 3: Use the path as-is even if file doesn't exist (let AudioLoader handle the error)
+            return wavPath;
         }
 
         /// <summary>

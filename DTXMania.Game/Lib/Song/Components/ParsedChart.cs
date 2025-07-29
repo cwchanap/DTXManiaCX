@@ -18,6 +18,12 @@ namespace DTX.Song.Components
         public List<Note> Notes { get; set; } = new List<Note>();
 
         /// <summary>
+        /// List of all BGM events in the chart, sorted by time
+        /// BGM events indicate when background music should start playing
+        /// </summary>
+        public List<BGMEvent> BGMEvents { get; set; } = new List<BGMEvent>();
+
+        /// <summary>
         /// Base BPM of the song (from #BPM header)
         /// Default is 120 if not specified
         /// </summary>
@@ -102,6 +108,27 @@ namespace DTX.Song.Components
         }
 
         /// <summary>
+        /// Adds a BGM event to the chart
+        /// </summary>
+        /// <param name="bgmEvent">BGM event to add</param>
+        public void AddBGMEvent(BGMEvent bgmEvent)
+        {
+            if (bgmEvent == null)
+                return;
+
+            // Calculate timing if not already set
+            if (bgmEvent.TimeMs == 0)
+            {
+                bgmEvent.CalculateTimeMs(Bpm);
+            }
+
+            BGMEvents.Add(bgmEvent);
+
+            // Update duration (BGM events can also affect total duration)
+            DurationMs = Math.Max(DurationMs, bgmEvent.TimeMs);
+        }
+
+        /// <summary>
         /// Finalizes the chart by sorting notes and calculating final statistics
         /// </summary>
         public void FinalizeChart()
@@ -109,11 +136,15 @@ namespace DTX.Song.Components
             // Sort notes by time for efficient rendering
             Notes = Notes.OrderBy(n => n.TimeMs).ToList();
 
+            // Sort BGM events by time for efficient playback scheduling
+            BGMEvents = BGMEvents.OrderBy(e => e.TimeMs).ToList();
+
             // Debug: Report parsing summary
             var maxMeasure = Notes.Count > 0 ? Notes.Max(n => n.Bar) : 0;
             var totalNotes = Notes.Count;
+            var totalBGMEvents = BGMEvents.Count;
             var lastNoteTime = Notes.Count > 0 ? Notes.Max(n => n.TimeMs) : 0;
-            System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
+            System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, {totalBGMEvents} BGM events, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
 
             // Add small buffer to duration for final note to ring out
             if (DurationMs > 0)
