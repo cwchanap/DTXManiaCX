@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
@@ -47,6 +48,10 @@ namespace DTX.Stage
         private AudioLoader _audioLoader;
         private SongTimer _songTimer;
         private NoteRenderer _noteRenderer;
+
+        // BGM management
+        private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
+        private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
 
         // UX components
         private BitmapFont _readyFont;
@@ -255,6 +260,14 @@ namespace DTX.Stage
             _readyFont?.Dispose();
             _readyFont = null;
 
+            // Cleanup BGM sounds
+            foreach (var sound in _bgmSounds.Values)
+            {
+                sound?.Dispose();
+            }
+            _bgmSounds.Clear();
+            _scheduledBGMEvents.Clear();
+
             // Clear chart data
             _parsedChart = null;
             _chartManager = null;
@@ -325,7 +338,7 @@ namespace DTX.Stage
                 var scrollSpeedSetting = 100; // Default scroll speed
                 _noteRenderer?.SetScrollSpeed(scrollSpeedSetting);
 
-                // Load background audio
+                // Load background audio - ALWAYS needed for SongTimer creation (master clock)
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
                     // Use the correct chart path for the selected difficulty
@@ -336,6 +349,12 @@ namespace DTX.Stage
                 else
                 {
                 }
+
+                // Load BGM sounds for all BGM events (separate from background audio)
+                await LoadBGMSoundsAsync();
+
+                // Schedule BGM events for playback
+                _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();
 
                 // Create song timer
                 _songTimer = _audioLoader.CreateSongTimer();
@@ -371,6 +390,13 @@ namespace DTX.Stage
 
             // Update note renderer
             _noteRenderer?.Update(deltaTime);
+
+            // Handle BGM event scheduling
+            if (_songTimer != null && _songTimer.IsPlaying)
+            {
+                var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+                ProcessBGMEvents(currentTimeMs);
+            }
         }
 
         /// <summary>
@@ -380,14 +406,28 @@ namespace DTX.Stage
         {
             if (_songTimer != null && _currentGameTime != null)
             {
-                // Start the song immediately - notes and audio should be synchronized
-                // The scroll system already handles note appearance timing via look-ahead
+                // Start the song timer - this provides the master clock for notes and BGM events
                 _songTimer.SetPosition(0.0, _currentGameTime);
                 _songTimer.Play(_currentGameTime);
                 _isReady = false;
+
+                // Choose playback strategy based on BGM events
+                if (_scheduledBGMEvents.Count > 0)
+                {
+                    // New approach: Use BGM events for timed playback, silence the background audio
+                    _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
+                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Using BGM events for audio ({_scheduledBGMEvents.Count} events), background audio muted");
+                }
+                else
+                {
+                    // Legacy approach: Play background audio immediately (no BGM events)
+                    _songTimer.Volume = 1.0f; // Ensure background audio is audible
+                    System.Diagnostics.Debug.WriteLine("PerformanceStage: No BGM events found, using background audio");
+                }
             }
             else
             {
+                System.Diagnostics.Debug.WriteLine("PerformanceStage: Cannot start song - no song timer available");
             }
         }
 
@@ -490,6 +530,90 @@ namespace DTX.Stage
                 _spriteBatch.Draw(whiteTexture, rectPosition, color);
 
                 whiteTexture.Dispose();
+            }
+        }
+
+        #endregion
+
+        #region BGM Management
+
+        /// <summary>
+        /// Loads all BGM sounds referenced by BGM events
+        /// </summary>
+        private async Task LoadBGMSoundsAsync()
+        {
+            if (_parsedChart?.BGMEvents == null)
+                return;
+
+            foreach (var bgmEvent in _parsedChart.BGMEvents)
+            {
+                if (string.IsNullOrEmpty(bgmEvent.AudioFilePath) || _bgmSounds.ContainsKey(bgmEvent.WavId))
+                    continue;
+
+                try
+                {
+                    if (File.Exists(bgmEvent.AudioFilePath))
+                    {
+                        var sound = new ManagedSound(bgmEvent.AudioFilePath);
+                        _bgmSounds[bgmEvent.WavId] = sound;
+                        System.Diagnostics.Debug.WriteLine($"PerformanceStage: Loaded BGM sound {bgmEvent.WavId}: {Path.GetFileName(bgmEvent.AudioFilePath)}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"PerformanceStage: BGM file not found: {bgmEvent.AudioFilePath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to load BGM {bgmEvent.WavId}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Processes BGM events that should be triggered at the current time
+        /// </summary>
+        /// <param name="currentTimeMs">Current song time in milliseconds</param>
+        private void ProcessBGMEvents(double currentTimeMs)
+        {
+            // Process BGM events that should be triggered (within a small tolerance)
+            const double timingTolerance = 50.0; // 50ms tolerance for BGM triggering
+
+            for (int i = _scheduledBGMEvents.Count - 1; i >= 0; i--)
+            {
+                var bgmEvent = _scheduledBGMEvents[i];
+
+                // Check if it's time to trigger this BGM event
+                if (currentTimeMs >= bgmEvent.TimeMs - timingTolerance)
+                {
+                    TriggerBGMEvent(bgmEvent);
+                    _scheduledBGMEvents.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Triggers a BGM event by playing its associated sound
+        /// </summary>
+        /// <param name="bgmEvent">BGM event to trigger</param>
+        private void TriggerBGMEvent(BGMEvent bgmEvent)
+        {
+            if (_bgmSounds.TryGetValue(bgmEvent.WavId, out var sound))
+            {
+                try
+                {
+                    var instance = sound.CreateInstance();
+                    instance?.Play();
+                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Triggered BGM event {bgmEvent.WavId} at {bgmEvent.TimeMs:F1}ms");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to play BGM {bgmEvent.WavId}: {ex.Message}");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"PerformanceStage: BGM sound not loaded for event {bgmEvent.WavId}");
             }
         }
 
