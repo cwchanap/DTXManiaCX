@@ -84,10 +84,10 @@ namespace DTX.Song.Components
             if (bpm <= 0)
                 throw new ArgumentException("BPM must be greater than 0", nameof(bpm));
 
-            // Formula: (((bar*192)+tick)/192) * (60000/BPM) * 4 (4 beats per measure in 4/4 time)
+            // Formula: (((bar*192)+tick)/192) * (60000/BPM) 
             var totalTicks = (Bar * 192) + Tick;
             var measures = totalTicks / 192.0;  // 192 ticks = 1 measure
-            TimeMs = measures * (60000.0 / bpm) * 4.0;  // 4 beats per measure
+            TimeMs = measures * (60000.0 / bpm);  // Time per measure at given BPM
 
         }
 
