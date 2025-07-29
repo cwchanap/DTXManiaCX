@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading.Tasks;
 using DTX.Resources;
 using DTX.Stage.Performance;
-using DTXMania.Test.Helpers;
 using DTXMania.Test.Utilities;
 using Moq;
 using Xunit;
