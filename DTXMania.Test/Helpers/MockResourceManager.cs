@@ -1,3 +1,4 @@
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTX.Resources;
 using DTX.Utilities;
@@ -39,8 +40,36 @@ namespace DTXMania.Test.Helpers
                 try
                 {
                     var texture2D = new Texture2D(_graphicsDevice, 1, 1);
-                    texture2D.SetData(new[] { Microsoft.Xna.Framework.Color.White });
+                    texture2D.SetData(new[] { Color.White });
                     var mockTexture = new ManagedTexture(_graphicsDevice, texture2D, path);
+                    _textureCache.Add(cacheKey, mockTexture);
+                    return mockTexture;
+                }
+                catch
+                {
+                    // If texture creation fails, return null
+                    return null!;
+                }
+            }
+
+            return null!;
+        }
+
+        public ITexture CreateTextureFromColor(Color color)
+        {
+            var cacheKey = $"ColorTexture_{color.R}_{color.G}_{color.B}_{color.A}";
+            
+            if (_textureCache.TryGet(cacheKey, out var cachedTexture))
+                return cachedTexture;
+
+            // Create a mock texture for testing
+            if (_graphicsDevice != null)
+            {
+                try
+                {
+                    var texture2D = new Texture2D(_graphicsDevice, 1, 1);
+                    texture2D.SetData(new[] { color });
+                    var mockTexture = new ManagedTexture(_graphicsDevice, texture2D, $"ColorTexture_{color}");
                     _textureCache.Add(cacheKey, mockTexture);
                     return mockTexture;
                 }
