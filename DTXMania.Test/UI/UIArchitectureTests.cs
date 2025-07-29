@@ -1,6 +1,7 @@
 using Moq;
 using Xunit;
 using DTX.UI;
+using DTX.UI.Components;
 using DTX.Song.Components;
 using DTX.Song;
 using Microsoft.Xna.Framework;
@@ -258,8 +259,6 @@ namespace DTXMania.Test.UI
             Assert.Equal(Color.White, label.OutlineColor);
             Assert.Equal(2, label.OutlineThickness);
         }
-
-        #endregion
 
         #endregion
 
