@@ -292,8 +292,14 @@ namespace DTX.Stage.Performance
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"NoteRenderer: Failed to create white texture: {ex.Message}");
-                _whiteTexture = null;
+                // Log the full exception details for debugging purposes.
+                // Failing to create this texture is a critical error for the renderer.
+                System.Diagnostics.Debug.WriteLine($"[CRITICAL] NoteRenderer: Failed to create white texture. Renderer will not be functional. Exception: {ex}");
+
+                // Rethrow the exception to ensure the error is not silently ignored.
+                // This prevents the Note-renderer from being instantiated in an invalid state
+                // where it would fail silently during the render loop.
+                throw new InvalidOperationException("Failed to create essential rendering resources for NoteRenderer.", ex);
             }
         }
 

@@ -14,6 +14,7 @@ namespace DTX.Stage.Performance
 
         private readonly SoundEffectInstance _soundInstance;
         private TimeSpan _startTime;
+        private DateTime _systemStartTime;
         private bool _isPlaying = false;
         private bool _disposed = false;
 
@@ -84,6 +85,7 @@ namespace DTX.Stage.Performance
                 return;
 
             _startTime = gameTime.TotalGameTime;
+            _systemStartTime = DateTime.UtcNow;
             _soundInstance.Play();
             _isPlaying = true;
         }
@@ -110,11 +112,13 @@ namespace DTX.Stage.Performance
                 return;
 
             // Adjust start time to account for pause duration
+            // Adjust start time to account for pause duration
             var pauseDuration = gameTime.TotalGameTime - _startTime - TimeSpan.FromMilliseconds(GetCurrentMs());
             _startTime += pauseDuration;
 
             _soundInstance.Resume();
             _isPlaying = true;
+            _systemStartTime = DateTime.UtcNow;
         }
 
         /// <summary>
@@ -156,7 +160,7 @@ namespace DTX.Stage.Performance
 
             // This is less precise but can be used when GameTime is not available
             // In practice, the GameTime version should be preferred
-            return DateTime.UtcNow.Subtract(DateTime.UtcNow.Subtract(TimeSpan.FromTicks(_startTime.Ticks))).TotalMilliseconds;
+            return (DateTime.UtcNow - _systemStartTime).TotalMilliseconds;
         }
 
         /// <summary>

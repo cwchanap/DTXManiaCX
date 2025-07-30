@@ -15,13 +15,13 @@ namespace DTX.Song.Components
         /// <summary>
         /// List of all notes in the chart, sorted by time
         /// </summary>
-        public List<Note> Notes { get; set; } = new List<Note>();
+        public List<Note> Notes { get; } = new List<Note>();
 
         /// <summary>
         /// List of all BGM events in the chart, sorted by time
         /// BGM events indicate when background music should start playing
         /// </summary>
-        public List<BGMEvent> BGMEvents { get; set; } = new List<BGMEvent>();
+        public List<BGMEvent> BGMEvents { get; } = new List<BGMEvent>();
 
         /// <summary>
         /// Base BPM of the song (from #BPM header)
@@ -134,10 +134,10 @@ namespace DTX.Song.Components
         public void FinalizeChart()
         {
             // Sort notes by time for efficient rendering
-            Notes = Notes.OrderBy(n => n.TimeMs).ToList();
+            Notes.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
 
             // Sort BGM events by time for efficient playback scheduling
-            BGMEvents = BGMEvents.OrderBy(e => e.TimeMs).ToList();
+            BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
 
             // Debug: Report parsing summary
             var maxMeasure = Notes.Count > 0 ? Notes.Max(n => n.Bar) : 0;
