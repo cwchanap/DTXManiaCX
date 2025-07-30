@@ -124,7 +124,7 @@ namespace DTXMania.Test.Song
             Assert.True(stats.NoteDensity > 0, "Note density should be positive");
             
             // Check that lane statistics add up to total
-            var totalLaneNotes = stats.NotesPerLane.Values.Sum();
+            var totalLaneNotes = stats.NotesPerLane.Sum();
             Assert.Equal(stats.TotalNotes, totalLaneNotes);
         }
 
