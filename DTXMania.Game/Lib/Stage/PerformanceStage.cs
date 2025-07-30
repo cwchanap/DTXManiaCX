@@ -67,6 +67,15 @@ namespace DTX.Stage
 
         #endregion
 
+        #region Constants
+
+        /// <summary>
+        /// Frequency of the ready text pulsing effect (pulses per second)
+        /// </summary>
+        private const double ReadyPulseFrequency = 2.0; // 2 pulses per second
+
+        #endregion
+
         #region Properties
 
         public override StageType Type => StageType.Performance;
@@ -479,7 +488,8 @@ namespace DTX.Stage
             else if (_isReady && _readyCountdown > 0)
             {
                 // Draw ready countdown with pulsing effect
-                var alpha = (float)(0.5 + 0.5 * Math.Sin(_readyCountdown * 0.01)); // Pulsing effect
+                // Use total time for consistent pulsing instead of countdown (which decreases)
+                var alpha = (float)(0.5 + 0.5 * Math.Sin(_totalTime * ReadyPulseFrequency * 2 * Math.PI));
                 var readyColor = Color.Yellow * alpha;
                 DrawCenteredText("READY...", readyColor);
             }
@@ -517,9 +527,8 @@ namespace DTX.Stage
             if (_readyFont?.IsLoaded == true)
             {
                 // Use bitmap font if available
-                var textWidth = text.Length * 16; // Approximate character width
-                var textHeight = 24; // Approximate character height
-                var textPosition = new Vector2(screenCenter.X - textWidth / 2, screenCenter.Y - textHeight / 2);
+                var textSize = _readyFont.MeasureText(text);
+                var textPosition = new Vector2(screenCenter.X - textSize.X / 2, screenCenter.Y - textSize.Y / 2);
 
                 _readyFont.DrawText(_spriteBatch, text, (int)textPosition.X, (int)textPosition.Y, color);
             }
