@@ -13,6 +13,7 @@ using DTX.Input;
 using DTX.Song;
 using DTX.Song.Components;
 using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Song;
 
 namespace DTX.Stage
 {
@@ -316,7 +317,7 @@ namespace DTX.Stage
                 {
                     // Fallback: parse chart if not provided (for backwards compatibility)
                     // Get the correct chart for the selected difficulty
-                    var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+                    var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath;
                     if (string.IsNullOrEmpty(chartPath))
                     {
@@ -342,7 +343,7 @@ namespace DTX.Stage
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
                     // Use the correct chart path for the selected difficulty
-                    var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+                    var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
                     await _audioLoader.PreloadForChartAsync(chartPath, _parsedChart.BackgroundAudioPath);
                 }
@@ -695,45 +696,6 @@ namespace DTX.Stage
 
         #endregion
 
-        #region Helper Methods
-
-        /// <summary>
-        /// Gets the chart for the current difficulty level
-        /// </summary>
-        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart(SongListNode currentSong, int currentDifficulty)
-        {
-            // If no song is selected, return null
-            if (currentSong?.DatabaseSong == null)
-            {
-                return null;
-            }
-
-            // Get all charts for this song
-            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
-
-            if (allCharts == null || allCharts.Count == 0)
-            {
-                var fallbackChart = currentSong.DatabaseChart;
-                return fallbackChart; // Fallback to primary chart
-            }
-
-            // If we only have one chart, return it
-            if (allCharts.Count == 1)
-                return allCharts[0];
-
-            // For simplicity, assume drums mode and map difficulty to chart index
-            var drumCharts = allCharts.Where(chart => chart.HasDrumChart && chart.DrumLevel > 0)
-                                     .OrderBy(chart => chart.DrumLevel)
-                                     .ToList();
-
-            if (drumCharts.Count == 0)
-                return allCharts[0]; // Fallback if no drum charts
-
-            // Map difficulty index to chart (0=easiest, higher=harder)
-            int chartIndex = Math.Clamp(currentDifficulty, 0, drumCharts.Count - 1);
-            return drumCharts[chartIndex];
-        }
-
-        #endregion
+        
     }
 }

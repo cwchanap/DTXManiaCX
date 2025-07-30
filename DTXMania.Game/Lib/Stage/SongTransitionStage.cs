@@ -12,6 +12,7 @@ using DTX.UI.Components;
 using DTX.UI.Layout;
 using DTX.Song;
 using DTX.Song.Components;
+using DTXMania.Game.Lib.Song;
 using DTX.Input;
 
 namespace DTX.Stage
@@ -100,7 +101,7 @@ namespace DTX.Stage
             }
 
             // Fallback to database data
-            var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+            var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
             if (chart != null)
             {
                 return (chart.Bpm, chart.DrumNoteCount + chart.GuitarNoteCount + chart.BassNoteCount, chart.Duration * 1000);
@@ -463,7 +464,7 @@ namespace DTX.Stage
             {
                 // Get the correct chart file path for the selected difficulty
                 System.Diagnostics.Debug.WriteLine($"SongTransitionStage: LoadChartAsync called for difficulty {_selectedDifficulty}");
-                var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+                var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                 var chartPath = chart?.FilePath;
                 System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Selected chart path: {chartPath}");
                 System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Chart BPM: {chart?.Bpm}, DrumLevel: {chart?.DrumLevel}");
@@ -503,7 +504,7 @@ namespace DTX.Stage
         private float GetCurrentDifficultyLevel()
         {
             // Get the chart for the current difficulty level
-            var chart = GetCurrentDifficultyChart(_selectedSong, _selectedDifficulty);
+            var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
             if (chart == null)
                 return 0;
             
@@ -514,60 +515,7 @@ namespace DTX.Stage
                    chart.BassLevel > 0 ? chart.BassLevel : 0;
         }
         
-        private DTXMania.Game.Lib.Song.Entities.SongChart GetCurrentDifficultyChart(SongListNode currentSong, int currentDifficulty)
-        {
-            // If no song is selected, return null
-            if (currentSong?.DatabaseSong == null)
-            {
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: No DatabaseSong available");
-                return null;
-            }
-
-            // Get all charts for this song
-            var allCharts = currentSong.DatabaseSong.Charts?.ToList();
-            System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Found {allCharts?.Count ?? 0} total charts for song");
-
-            if (allCharts == null || allCharts.Count == 0)
-            {
-                var fallbackChart = currentSong.DatabaseChart;
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Using fallback chart: {fallbackChart?.FilePath}");
-                return fallbackChart; // Fallback to primary chart
-            }
-
-            // If we only have one chart, return it
-            if (allCharts.Count == 1)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Only one chart available: {allCharts[0].FilePath}");
-                return allCharts[0];
-            }
-
-            // For simplicity, assume drums mode and map difficulty to chart index
-            var drumCharts = allCharts.Where(chart => chart.HasDrumChart && chart.DrumLevel > 0)
-                                     .OrderBy(chart => chart.DrumLevel)
-                                     .ToList();
-            System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Found {drumCharts.Count} drum charts");
-
-            // Debug: Show all available charts
-            for (int i = 0; i < drumCharts.Count; i++)
-            {
-                var chart = drumCharts[i];
-                var fileName = Path.GetFileName(chart.FilePath);
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Chart {i}: {fileName} (DrumLevel: {chart.DrumLevel})");
-            }
-
-            if (drumCharts.Count == 0)
-            {
-                System.Diagnostics.Debug.WriteLine("SongTransitionStage: No drum charts found, using first available chart");
-                return allCharts[0]; // Fallback if no drum charts
-            }
-
-            // Map difficulty index to chart index, clamped to available charts
-            int chartIndex = Math.Clamp(currentDifficulty, 0, drumCharts.Count - 1);
-            var selectedChart = drumCharts[chartIndex];
-            var selectedFileName = Path.GetFileName(selectedChart.FilePath);
-            System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Selected difficulty {currentDifficulty} -> chart {chartIndex} of {drumCharts.Count}: {selectedFileName} (DrumLevel: {selectedChart.DrumLevel})");
-            return selectedChart;
-        }
+        
 
         #endregion
 
