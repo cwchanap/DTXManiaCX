@@ -210,8 +210,11 @@ namespace DTX.Stage.Performance
                 (int)DefaultNoteSize.Y
             );
 
-            // Draw the note
-            spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
+            // Draw the note (only if white texture was created successfully)
+            if (_whiteTexture != null)
+            {
+                spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
+            }
 
             // Optional: Draw note value for debugging (can be removed in final version)
             #if DEBUG
@@ -289,7 +292,8 @@ namespace DTX.Stage.Performance
             }
             catch (Exception ex)
             {
-                // White texture creation failed
+                System.Diagnostics.Debug.WriteLine($"NoteRenderer: Failed to create white texture: {ex.Message}");
+                _whiteTexture = null;
             }
         }
 

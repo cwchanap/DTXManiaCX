@@ -197,9 +197,9 @@ namespace DTXMania.Test.Song
             // Assert
             // At 120 BPM: 1 measure = 2000ms, half measure = 1000ms
             // Bar 1 + half measure = 2000ms + 1000ms = 3000ms
-            // But the formula is: (((bar*192)+tick)/192) * (60000/BPM)
-            // So: (((1*192)+96)/192) * (60000/120) = (288/192) * 500 = 1.5 * 500 = 750ms
-            var expectedTime = 750.0;
+            // Formula: (((bar*192)+tick)/192) * (60000/BPM) * 4
+            // So: (((1*192)+96)/192) * (60000/120) * 4 = (288/192) * 500 * 4 = 1.5 * 500 * 4 = 3000ms
+            var expectedTime = 3000.0;
             Assert.True(Math.Abs(note.TimeMs - expectedTime) < 1.0,
                 $"Expected {expectedTime}ms, got {note.TimeMs}ms");
         }
