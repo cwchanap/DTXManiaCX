@@ -70,50 +70,6 @@ namespace DTX.Stage
         private ParsedChart _parsedChart;
         private bool _chartLoaded = false;
 
-        #endregion
-
-        #region Public Properties
-
-        /// <summary>
-        /// Gets the currently parsed chart data for UI display consistency
-        /// </summary>
-        public ParsedChart CurrentParsedChart => _parsedChart;
-
-        /// <summary>
-        /// Gets whether the chart has been successfully loaded and parsed
-        /// </summary>
-        public bool IsChartLoaded => _chartLoaded;
-
-        #endregion
-
-        #region Public Methods
-
-        /// <summary>
-        /// Gets the current chart data, prioritizing parsed data over database data
-        /// </summary>
-        /// <returns>Chart data with current BPM and note information</returns>
-        public (double bpm, int totalNotes, double durationMs) GetCurrentChartData()
-        {
-            // Prioritize parsed chart data if available
-            if (_chartLoaded && _parsedChart != null)
-            {
-                return (_parsedChart.Bpm, _parsedChart.Notes.Count, _parsedChart.DurationMs);
-            }
-
-            // Fallback to database data
-            var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
-            if (chart != null)
-            {
-                return (chart.Bpm, chart.DrumNoteCount + chart.GuitarNoteCount + chart.BassNoteCount, chart.Duration * 1000);
-            }
-
-            return (120.0, 0, 0.0); // Default values
-        }
-
-        #endregion
-
-        #region Properties
-
         public override StageType Type => StageType.SongTransition;
 
         #endregion
@@ -320,9 +276,6 @@ namespace DTX.Stage
             
             // Activate the main panel
             _mainPanel.Activate();
-            
-            // Start chart parsing asynchronously
-            _ = LoadChartAsync();
         }
 
         private void LoadFonts()
@@ -458,35 +411,6 @@ namespace DTX.Stage
             }
         }
         
-        private async Task LoadChartAsync()
-        {
-            try
-            {
-                // Get the correct chart file path for the selected difficulty
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: LoadChartAsync called for difficulty {_selectedDifficulty}");
-                var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
-                var chartPath = chart?.FilePath;
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Selected chart path: {chartPath}");
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Chart BPM: {chart?.Bpm}, DrumLevel: {chart?.DrumLevel}");
-
-                if (string.IsNullOrEmpty(chartPath))
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongTransitionStage: No chart path available for difficulty {_selectedDifficulty}");
-                    return;
-                }
-
-                // Parse the DTX chart
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Parsing chart for difficulty {_selectedDifficulty}: {chartPath}");
-                _parsedChart = await DTXChartParser.ParseAsync(chartPath);
-                _chartLoaded = true;
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Parsed chart with {_parsedChart.TotalNotes} notes, BPM: {_parsedChart.Bpm}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to parse chart: {ex.Message}");
-                _chartLoaded = false;
-            }
-        }
 
         private string GetDifficultyName(int difficulty)
         {

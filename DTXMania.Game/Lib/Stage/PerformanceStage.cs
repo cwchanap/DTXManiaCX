@@ -63,6 +63,7 @@ namespace DTX.Stage
         private double _readyCountdown = 1.0; // 1 second ready period (in seconds, not milliseconds)
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
+        private Texture2D _fallbackWhiteTexture;
 
         #endregion
 
@@ -225,6 +226,9 @@ namespace DTX.Stage
             // Initialize UX components
             InitializeReadyFont();
 
+            // Create a reusable white texture for fallback rendering
+            _fallbackWhiteTexture = new Texture2D(graphicsDevice, 1, 1);
+            _fallbackWhiteTexture.SetData(new[] { Color.White });
         }
 
         private void CleanupComponents()
@@ -260,6 +264,10 @@ namespace DTX.Stage
             // Cleanup UX components
             _readyFont?.Dispose();
             _readyFont = null;
+
+            // Cleanup fallback texture
+            _fallbackWhiteTexture?.Dispose();
+            _fallbackWhiteTexture = null;
 
             // Cleanup BGM sounds
             foreach (var sound in _bgmSounds.Values)
@@ -524,13 +532,11 @@ namespace DTX.Stage
                     rectHeight
                 );
 
-                // Create a simple white texture if not available
-                var whiteTexture = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
-                whiteTexture.SetData(new[] { Color.White });
-
-                _spriteBatch.Draw(whiteTexture, rectPosition, color);
-
-                whiteTexture.Dispose();
+                // Use the cached white texture for fallback rendering
+                if (_fallbackWhiteTexture != null)
+                {
+                    _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, color);
+                }
             }
         }
 
