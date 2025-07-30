@@ -139,7 +139,7 @@ namespace DTX.Stage.Performance
         }
 
         /// <summary>
-        /// Sets the BPM (must be called before SetScrollSpeed for proper timing)
+        /// Sets the BPM
         /// </summary>
         /// <param name="bpm">New BPM value</param>
         public void SetBpm(double bpm)

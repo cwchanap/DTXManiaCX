@@ -374,7 +374,10 @@ namespace DTX.Stage
             catch (Exception ex)
             {
                 _isLoading = false;
-                // TODO: Show error message to user
+                System.Diagnostics.Debug.WriteLine($"[CRITICAL] PerformanceStage: Failed to initialize gameplay. Exception: {ex}");
+                // Rethrowing the exception to make sure it's not silently ignored.
+                // This will prevent the stage from being in a broken state.
+                throw;
             }
         }
 
@@ -460,7 +463,7 @@ namespace DTX.Stage
             var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
             // Draw the notes
-            _noteRenderer.DrawNotes(_spriteBatch, activeNotes.ToList(), currentTimeMs);
+            _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
         }
 
         /// <summary>
