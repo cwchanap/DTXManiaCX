@@ -10,6 +10,15 @@ namespace DTX.Song.Components
     /// </summary>
     public class ParsedChart
     {
+        #region Constants
+
+        /// <summary>
+        /// Buffer time added to chart duration to allow final notes to ring out
+        /// </summary>
+        private const double DurationEndBufferMs = 500.0;
+
+        #endregion
+
         #region Properties
 
         /// <summary>
@@ -140,16 +149,18 @@ namespace DTX.Song.Components
             BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
 
             // Debug: Report parsing summary
+#if DEBUG
             var maxMeasure = Notes.Count > 0 ? Notes.Max(n => n.Bar) : 0;
             var totalNotes = Notes.Count;
             var totalBGMEvents = BGMEvents.Count;
             var lastNoteTime = Notes.Count > 0 ? Notes.Max(n => n.TimeMs) : 0;
             System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, {totalBGMEvents} BGM events, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
+#endif
 
             // Add small buffer to duration for final note to ring out
             if (DurationMs > 0)
             {
-                DurationMs += 500; // 0.5 second buffer
+                DurationMs += DurationEndBufferMs;
             }
         }
 

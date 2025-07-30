@@ -127,7 +127,13 @@ namespace DTX.Song.Components
         /// <returns>The next note, or null if no more notes</returns>
         public Note GetNextNote(double songTimeMs)
         {
-            return _notes.FirstOrDefault(note => note.TimeMs > songTimeMs);
+            if (_notes.Count == 0)
+                return null;
+
+            // Find the first note after the given time using binary search
+            var startIndex = BinarySearchStartIndex(songTimeMs + 0.001); // Add small epsilon to ensure we get notes AFTER songTimeMs
+            
+            return startIndex < _notes.Count ? _notes[startIndex] : null;
         }
 
         /// <summary>
@@ -138,7 +144,23 @@ namespace DTX.Song.Components
         /// <returns>The next note in the lane, or null if no more notes</returns>
         public Note GetNextNoteInLane(int laneIndex, double songTimeMs)
         {
-            return _notes.FirstOrDefault(note => note.LaneIndex == laneIndex && note.TimeMs > songTimeMs);
+            if (_notes.Count == 0)
+                return null;
+
+            // Find the first note after the given time using binary search
+            var startIndex = BinarySearchStartIndex(songTimeMs + 0.001); // Add small epsilon to ensure we get notes AFTER songTimeMs
+            
+            // Search forward from the start index for a note in the specified lane
+            for (int i = startIndex; i < _notes.Count; i++)
+            {
+                var note = _notes[i];
+                if (note.LaneIndex == laneIndex)
+                {
+                    return note;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -166,10 +188,13 @@ namespace DTX.Song.Components
                 Bpm = Bpm
             };
 
-            // Calculate notes per lane
-            for (int lane = 0; lane < 9; lane++)
+            // Calculate notes per lane - optimized single pass
+            foreach (var note in _notes)
             {
-                stats.NotesPerLane[lane] = _notes.Count(n => n.LaneIndex == lane);
+                if (note.LaneIndex >= 0 && note.LaneIndex < 9)
+                {
+                    stats.NotesPerLane[note.LaneIndex]++;
+                }
             }
 
             // Calculate note density (notes per second)
@@ -248,7 +273,7 @@ namespace DTX.Song.Components
         public double DurationMs { get; set; }
         public double Bpm { get; set; }
         public double NoteDensity { get; set; } // Notes per second
-        public Dictionary<int, int> NotesPerLane { get; set; } = new Dictionary<int, int>();
+        public int[] NotesPerLane { get; set; } = new int[9]; // 9 lanes (0-8)
 
         public override string ToString()
         {
