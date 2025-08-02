@@ -287,21 +287,8 @@ namespace DTX.Stage.Performance
         /// </summary>
         private BitmapFont.BitmapFontConfig CreateJudgementTextFontConfig()
         {
-            // Create a custom configuration for NotoSerifJP Bold 28 judgement text
-            // Since we need larger text for judgement display, create a custom config
-            const string judgementChars = "JUSTGREAODPOMISN";
-            
-            return new BitmapFont.BitmapFontConfig
-            {
-                DisplayableCharacters = judgementChars,
-                CharacterWidths = new[] { 28 }, // Fixed 28px width for all characters
-                CharacterHeight = 32, // Slightly taller than width for better visibility
-                SourceCharacterWidths = new[] { 28 },
-                SourceCharacterHeight = 32,
-                TexturePaths = new[] { TexturePath.ConsoleFont }, // Fallback to console font for now
-                UseVariableWidths = false,
-                CharactersPerRow = 16
-            };
+            // Use the standardized judgement text font configuration
+            return BitmapFont.CreateJudgementTextFontConfig();
         }
 
         #endregion
