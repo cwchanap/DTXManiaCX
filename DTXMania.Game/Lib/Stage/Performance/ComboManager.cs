@@ -5,7 +5,8 @@ namespace DTX.Stage.Performance
 {
     /// <summary>
     /// Manages combo tracking during gameplay.
-    /// Increments combo on successful hits, resets on Poor/Miss judgements.
+    /// Increments combo on successful hits (Just/Great/Good), resets on Poor/Miss judgements.
+    /// Tracks both current combo count and maximum combo achieved.
     /// </summary>
     public class ComboManager : IDisposable
     {
