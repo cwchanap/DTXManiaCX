@@ -414,6 +414,28 @@ namespace DTX.Resources
             };
         }
         
+        /// <summary>
+        /// Create configuration for NotoSerifJP Bold 28 judgement text font
+        /// Used for judgement text popups (JUST, GREAT, GOOD, POOR, MISS)
+        /// </summary>
+        public static BitmapFontConfig CreateJudgementTextFontConfig()
+        {
+            // Character set optimized for judgement text
+            const string judgementChars = "JUSTGREAGOODPORMISN";
+            
+            return new BitmapFontConfig
+            {
+                DisplayableCharacters = judgementChars,
+                CharacterWidths = new[] { 28 }, // Fixed 28px width for all characters (NotoSerifJP Bold 28 spec)
+                CharacterHeight = 32, // Slightly taller for better visibility
+                SourceCharacterWidths = new[] { 28 },
+                SourceCharacterHeight = 32,
+                TexturePaths = new[] { TexturePath.ConsoleFont }, // Fallback to console font until NotoSerifJP texture is available
+                UseVariableWidths = false,
+                CharactersPerRow = 16
+            };
+        }
+        
         #endregion
     }
 }
