@@ -4,8 +4,9 @@ using DTXMania.Game.Lib.Song.Entities;
 namespace DTX.Stage.Performance
 {
     /// <summary>
-    /// Manages life gauge during gameplay.
+    /// Manages the life gauge during gameplay.
     /// Adjusts life based on judgement events and tracks failure state.
+    /// Utilizes predefined life adjustment values for each judgement type.
     /// </summary>
     public class GaugeManager : IDisposable
     {

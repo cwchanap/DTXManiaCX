@@ -11,6 +11,11 @@ namespace DTX.Song.Components
         #region Properties
 
         /// <summary>
+        /// Unique identifier for this note (used for runtime state tracking)
+        /// </summary>
+        public int Id { get; set; }
+
+        /// <summary>
         /// Lane index (0-8 for the 9 NX lanes)
         /// Maps to DTX channels: 11=0, 12=1, 13=2, 14=3, 15=4, 16=5, 17=6, 18=7, 19=8
         /// </summary>
