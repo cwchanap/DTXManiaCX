@@ -142,6 +142,31 @@ namespace DTX.Stage.Performance
             return stats;
         }
 
+        /// <summary>
+        /// Gets the count of a specific judgement type
+        /// </summary>
+        /// <param name="judgementType">Type of judgement to count</param>
+        /// <returns>Count of the specified judgement type</returns>
+        public int GetJudgementCount(JudgementType judgementType)
+        {
+            int count = 0;
+            
+            foreach (var data in _noteRuntimeData.Values)
+            {
+                if (judgementType == JudgementType.Miss)
+                {
+                    if (data.Status == NoteStatus.Missed)
+                        count++;
+                }
+                else if (data.Status == NoteStatus.Hit && data.JudgementEvent?.Type == judgementType)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         #endregion
 
         #region Private Methods
