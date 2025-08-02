@@ -68,6 +68,7 @@ namespace DTX.Song.Components
 
             // Sort notes by time for efficient access
             _notes.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+            AssignNoteIds();
         }
 
         #endregion
@@ -211,6 +212,17 @@ namespace DTX.Song.Components
         #region Private Methods
 
         /// <summary>
+        /// Assign unique IDs to each note in the chart
+        /// </summary>
+        private void AssignNoteIds()
+        {
+            for (int i = 0; i < _notes.Count; i++)
+            {
+                _notes[i].Id = i;
+            }
+        }
+
+        /// <summary>
         /// Finds the starting index for searching notes at a given time
         /// Uses optimization to avoid searching from the beginning each time
         /// </summary>
@@ -237,7 +249,7 @@ namespace DTX.Song.Components
         /// <summary>
         /// Binary search to find the first note at or after the given time
         /// </summary>
-        private int BinarySearchStartIndex(double targetTime)
+        public int BinarySearchStartIndex(double targetTime)
         {
             int left = 0;
             int right = _notes.Count - 1;

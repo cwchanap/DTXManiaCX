@@ -18,9 +18,21 @@ using DTXMania.Game.Lib.Song;
 namespace DTX.Stage
 {
     /// <summary>
-    /// Performance stage for playing songs with the 9-lane GITADORA XG layout
-    /// Based on DTXManiaNX performance screen patterns
+    /// Performance stage for playing songs with the 9-lane GITADORA XG layout.
+    /// This class coordinates all gameplay components including timing, scoring, and visual feedback.
+    /// Based on DTXManiaNX performance screen patterns.
     /// </summary>
+    /// <remarks>
+    /// The PerformanceStage manages the complete gameplay experience through several phases:
+    /// 1. Initialization - Setup components and load chart data
+    /// 2. Ready countdown - Brief preparation period before song starts
+    /// 3. Active gameplay - Note scrolling, input processing, and judgement
+    /// 4. Stage completion - Results calculation and transition to next stage
+    /// 
+    /// The stage uses an event-driven architecture where JudgementManager raises
+    /// JudgementMade events that are forwarded to ScoreManager, ComboManager,
+    /// and GaugeManager for processing.
+    /// </remarks>
     public class PerformanceStage : BaseStage
     {
         #region Private Fields
@@ -49,6 +61,14 @@ namespace DTX.Stage
         private AudioLoader _audioLoader;
         private SongTimer _songTimer;
         private NoteRenderer _noteRenderer;
+        
+        // Phase 3 components - Gameplay managers
+        private JudgementManager _judgementManager;
+        private ScoreManager _scoreManager;
+        private ComboManager _comboManager;
+        private GaugeManager _gaugeManager;
+        private EffectsManager _effectsManager;
+        private JudgementTextPopupManager _judgementTextPopupManager;
 
         // BGM management
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
@@ -64,6 +84,12 @@ namespace DTX.Stage
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
         private Texture2D _fallbackWhiteTexture;
+        
+        // Stage completion state
+        private bool _stageCompleted = false;
+        private bool _inputPaused = false;
+        private PerformanceSummary _performanceSummary;
+        private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
 
         #endregion
 
@@ -151,10 +177,11 @@ namespace DTX.Stage
             if (_spriteBatch == null)
                 return;
 
-            _spriteBatch.Begin();
-
             // Draw components in proper order:
-            // Background → Lane Backgrounds → Notes → Judgement Line → UI Elements
+            // Background → Lanes → Notes → HitEffectsManager.Draw → JudgementTexts.Draw → JudgementLine → UI
+
+            // Begin standard spritebatch for most elements
+            _spriteBatch.Begin();
 
             // Draw background
             DrawBackground();
@@ -164,6 +191,22 @@ namespace DTX.Stage
 
             // Draw scrolling notes (Phase 2)
             DrawNotes();
+
+            _spriteBatch.End();
+
+            // Begin additive blend mode for effects layer
+            _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
+            
+            // Draw hit effects with additive blending
+            DrawHitEffects();
+
+            _spriteBatch.End();
+
+            // Resume standard rendering for remaining elements
+            _spriteBatch.Begin();
+
+            // Draw judgement text popups
+            DrawJudgementTexts();
 
             // Draw judgement line
             DrawJudgementLine();
@@ -231,6 +274,8 @@ namespace DTX.Stage
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
             _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
+            _effectsManager = new EffectsManager(graphicsDevice, _resourceManager);
+            _judgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
 
             // Initialize UX components
             InitializeReadyFont();
@@ -269,6 +314,10 @@ namespace DTX.Stage
             _audioLoader = null;
             _noteRenderer?.Dispose();
             _noteRenderer = null;
+            _effectsManager?.Dispose();
+            _effectsManager = null;
+            _judgementTextPopupManager?.Dispose();
+            _judgementTextPopupManager = null;
 
             // Cleanup UX components
             _readyFont?.Dispose();
@@ -286,10 +335,12 @@ namespace DTX.Stage
             _bgmSounds.Clear();
             _scheduledBGMEvents.Clear();
 
+            // Cleanup gameplay managers
+            CleanupGameplayManagers();
+
             // Clear chart data
             _parsedChart = null;
             _chartManager = null;
-
         }
 
         #endregion
@@ -345,8 +396,10 @@ namespace DTX.Stage
                 }
 
                 // Create chart manager
-
                 _chartManager = new ChartManager(_parsedChart);
+
+                // Initialize gameplay managers
+                InitializeGameplayManagers();
 
                 // Set BPM and scroll speed in note renderer
                 _noteRenderer?.SetBpm(_parsedChart.Bpm);
@@ -411,12 +464,24 @@ namespace DTX.Stage
 
             // Update note renderer
             _noteRenderer?.Update(deltaTime);
+            
+            // Update effects manager
+            _effectsManager?.Update(deltaTime);
+            
+            // Update judgement text popup manager
+            _judgementTextPopupManager?.Update(deltaTime);
 
-            // Handle BGM event scheduling
+            // Handle BGM event scheduling and gameplay managers
             if (_songTimer != null && _songTimer.IsPlaying)
             {
                 var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
                 ProcessBGMEvents(currentTimeMs);
+                
+                // Update gameplay managers with current song time
+                UpdateGameplayManagers(currentTimeMs);
+                
+                // Check for stage completion conditions
+                CheckStageCompletion(currentTimeMs);
             }
         }
 
@@ -638,6 +703,170 @@ namespace DTX.Stage
 
         #endregion
 
+        #region Phase 3 - Gameplay Managers
+
+        /// <summary>
+        /// Initializes gameplay managers and wires up event handlers
+        /// </summary>
+        private void InitializeGameplayManagers()
+        {
+            if (_chartManager == null || _inputManager == null)
+                return;
+
+            // Initialize managers
+            _judgementManager = new JudgementManager(_inputManager, _chartManager);
+            _scoreManager = new ScoreManager(_chartManager.TotalNotes);
+            _comboManager = new ComboManager();
+            _gaugeManager = new GaugeManager();
+
+            // Wire up event handlers for UI binding
+            WireUpEventHandlers();
+
+            System.Diagnostics.Debug.WriteLine($"Gameplay managers initialized for {_chartManager.TotalNotes} notes");
+        }
+
+        /// <summary>
+        /// Wires up event handlers between managers and UI components
+        /// </summary>
+        private void WireUpEventHandlers()
+        {
+            if (_judgementManager == null || _scoreManager == null || _comboManager == null || _gaugeManager == null)
+                return;
+
+            // Subscribe to judgement events and forward to all managers
+            _judgementManager.JudgementMade += OnJudgementMade;
+
+            // Subscribe to manager events for UI updates
+            _scoreManager.ScoreChanged += OnScoreChanged;
+            _comboManager.ComboChanged += OnComboChanged;
+            _gaugeManager.GaugeChanged += OnGaugeChanged;
+            _gaugeManager.Failed += OnPlayerFailed;
+        }
+
+        /// <summary>
+        /// Handles judgement events and forwards them to all managers
+        /// </summary>
+        private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
+        {
+            // Forward judgement to all managers
+            _scoreManager?.ProcessJudgement(e);
+            _comboManager?.ProcessJudgement(e);
+            _gaugeManager?.ProcessJudgement(e);
+            
+            // Spawn hit effect for successful hits (non-Miss)
+            if (e.IsHit())
+            {
+                _effectsManager?.SpawnHitEffect(e.Lane);
+                
+                // Trigger lane flash effect
+                _noteRenderer?.TriggerLaneFlash(e.Lane);
+            }
+            
+            // Spawn judgement text popup for all judgements
+            _judgementTextPopupManager?.SpawnPopup(e);
+        }
+
+        /// <summary>
+        /// Handles score changes and updates UI
+        /// </summary>
+        private void OnScoreChanged(object? sender, ScoreChangedEventArgs e)
+        {
+            // Update score display
+            if (_scoreDisplay != null)
+            {
+                _scoreDisplay.Score = e.CurrentScore;
+            }
+        }
+
+        /// <summary>
+        /// Handles combo changes and updates UI
+        /// </summary>
+        private void OnComboChanged(object? sender, ComboChangedEventArgs e)
+        {
+            // Update combo display
+            if (_comboDisplay != null)
+            {
+                _comboDisplay.Combo = e.CurrentCombo;
+            }
+        }
+
+        /// <summary>
+        /// Handles gauge changes and updates UI
+        /// </summary>
+        private void OnGaugeChanged(object? sender, GaugeChangedEventArgs e)
+        {
+            // Update gauge display
+            if (_gaugeDisplay != null)
+            {
+                _gaugeDisplay.SetValue(e.CurrentLife / 100.0f); // Convert to 0.0-1.0 range
+            }
+        }
+
+        /// <summary>
+        /// Handles player failure
+        /// </summary>
+        private void OnPlayerFailed(object? sender, FailureEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"Player failed with {e.FinalLife:F1}% life!");
+            
+            // Trigger stage completion on failure
+            if (!_stageCompleted)
+            {
+                FinalizePerformance(CompletionReason.PlayerFailed);
+            }
+        }
+
+        /// <summary>
+        /// Updates gameplay managers during active gameplay
+        /// </summary>
+        private void UpdateGameplayManagers(double currentSongTimeMs)
+        {
+            if (_judgementManager?.IsActive == true)
+            {
+                _judgementManager.Update(currentSongTimeMs);
+            }
+        }
+
+        /// <summary>
+        /// Cleans up gameplay managers
+        /// </summary>
+        private void CleanupGameplayManagers()
+        {
+            // Unsubscribe from events
+            if (_judgementManager != null)
+            {
+                _judgementManager.JudgementMade -= OnJudgementMade;
+            }
+
+            if (_scoreManager != null)
+            {
+                _scoreManager.ScoreChanged -= OnScoreChanged;
+            }
+
+            if (_comboManager != null)
+            {
+                _comboManager.ComboChanged -= OnComboChanged;
+            }
+
+            if (_gaugeManager != null)
+            {
+                _gaugeManager.GaugeChanged -= OnGaugeChanged;
+                _gaugeManager.Failed -= OnPlayerFailed;
+            }
+
+            // Dispose managers
+            _judgementManager?.Dispose();
+            _judgementManager = null;
+            _scoreManager?.Dispose();
+            _scoreManager = null;
+            _comboManager?.Dispose();
+            _comboManager = null;
+            _gaugeManager?.Dispose();
+            _gaugeManager = null;
+        }
+
+        #endregion
+
         #region Component Updates
 
         private void UpdateComponents(double deltaTime)
@@ -682,6 +911,18 @@ namespace DTX.Stage
             _judgementLineRenderer?.Draw(_spriteBatch);
         }
 
+        private void DrawHitEffects()
+        {
+            // Draw hit effects using EffectsManager
+            _effectsManager?.Draw(_spriteBatch);
+        }
+
+        private void DrawJudgementTexts()
+        {
+            // Draw judgement text popups using JudgementTextPopupManager
+            _judgementTextPopupManager?.Draw(_spriteBatch);
+        }
+
         private void DrawUIElements()
         {
             // Draw gauge display first (background element)
@@ -693,6 +934,80 @@ namespace DTX.Stage
 
             // Draw UI manager components
             _uiManager?.Draw(_spriteBatch, 0);
+        }
+
+        #endregion
+
+        #region Stage Completion
+
+        /// <summary>
+        /// Checks for stage completion based on fail or song end conditions
+        /// </summary>
+        private void CheckStageCompletion(double currentTimeMs)
+        {
+            if (_stageCompleted)
+                return;
+
+            // Check for song end
+            if (currentTimeMs >= (_parsedChart.DurationMs + SongEndBufferSeconds * 1000))
+            {
+                FinalizePerformance(CompletionReason.SongComplete);
+            }
+            
+            // Check for player failure
+            if (_gaugeManager?.HasFailed == true)
+            {
+                FinalizePerformance(CompletionReason.PlayerFailed);
+            }
+        }
+
+        /// <summary>
+        /// Finalizes the performance, pauses input, stops the song timer, and prepares the performance summary
+        /// </summary>
+        private void FinalizePerformance(CompletionReason reason)
+        {
+            // Mark the stage as completed
+            _stageCompleted = true;
+            
+            // Pause input handling
+            _inputPaused = true;
+
+            // Stop the song timer
+            _songTimer?.Stop();
+
+            // Build the performance summary
+            _performanceSummary = new PerformanceSummary
+            {
+                Score = _scoreManager?.CurrentScore ?? 0,
+                MaxCombo = _comboManager?.MaxCombo ?? 0,
+                ClearFlag = reason != CompletionReason.PlayerFailed,
+                JustCount = _judgementManager?.GetJudgementCount(JudgementType.Just) ?? 0,
+                GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
+                GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
+                PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,
+                MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
+                TotalNotes = _chartManager?.TotalNotes ?? 0,
+                FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
+                CompletionReason = reason
+            };
+
+            System.Diagnostics.Debug.WriteLine($"Performance finalized: {reason}, Score: {_performanceSummary.Score}, Clear: {_performanceSummary.ClearFlag}");
+
+            // Pass the summary to ResultStage
+            TransitionToResultStage();
+        }
+
+        /// <summary>
+        /// Handles the transition to the ResultStage
+        /// </summary>
+        private void TransitionToResultStage()
+        {
+            var sharedData = new Dictionary<string, object>
+            {
+                { "performanceSummary", _performanceSummary }
+            };
+
+            StageManager?.ChangeStage(StageType.Result, new InstantTransition(), sharedData);
         }
 
         #endregion
