@@ -14,6 +14,7 @@ using DTX.Song;
 using DTX.Song.Components;
 using DTX.Stage.Performance;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTX.Stage
 {
