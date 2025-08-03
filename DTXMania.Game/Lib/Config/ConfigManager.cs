@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using DTXMania.Game.Lib.Input;
 
 namespace DTX.Config
 {
@@ -40,7 +41,26 @@ namespace DTX.Config
             }
         }
 
-        private void ParseConfigLine(string key, string value)
+public void LoadKeyBindings(KeyBindings keyBindings)
+{
+    // Load key bindings from config data
+    foreach (var kvp in Config.KeyBindings)
+    {
+        keyBindings.BindButton(kvp.Key, kvp.Value);
+    }
+}
+
+public void SaveKeyBindings(KeyBindings keyBindings)
+{
+    // Save key bindings to config data
+    Config.KeyBindings.Clear();
+    foreach (var kvp in keyBindings.ButtonToLane)
+    {
+        Config.KeyBindings[kvp.Key] = kvp.Value;
+    }
+}
+
+private void ParseConfigLine(string key, string value)
         {
             switch (key)
             {
@@ -72,7 +92,8 @@ namespace DTX.Config
                     break;
                 case "FullScreen":
                     Config.FullScreen = value.ToLower() == "true";
-                    break;                case "VSyncWait":
+                    break;
+                case "VSyncWait":
                     Config.VSyncWait = value.ToLower() == "true";
                     break;
                     // Add more cases as needed
