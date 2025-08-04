@@ -4,7 +4,9 @@ using Microsoft.Xna.Framework.Input;
 using DTX.Stage;
 using DTX.Config;
 using DTX.Resources;
+using DTX.Input;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Input;
 using System;
 using System.Collections.Generic;
 
@@ -188,7 +190,8 @@ namespace DTX.Stage
                 MasterVolume = originalConfig.MasterVolume,
                 BGMVolume = originalConfig.BGMVolume,
                 SEVolume = originalConfig.SEVolume,
-                BufferSizeMs = originalConfig.BufferSizeMs,                ScrollSpeed = originalConfig.ScrollSpeed,
+                BufferSizeMs = originalConfig.BufferSizeMs,
+                ScrollSpeed = originalConfig.ScrollSpeed,
                 AutoPlay = originalConfig.AutoPlay
             };
 
@@ -238,7 +241,7 @@ namespace DTX.Stage
                     _workingConfig.VSyncWait = value;
                     _hasUnsavedChanges = true;
                     System.Diagnostics.Debug.WriteLine($"VSync changed to {value}");
-                }            );
+                });
 
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
@@ -257,12 +260,12 @@ namespace DTX.Stage
 
         private void HandleInput()
         {
-            // Handle ESC key - return to title stage
-            if (IsKeyPressed(Keys.Escape))
+            // Check for back action (ESC key or controller Back button) using consolidated method
+            if (_game.InputManager?.IsBackActionTriggered() == true)
             {
                 if (_hasUnsavedChanges)
                 {
-                    System.Diagnostics.Debug.WriteLine("Config: ESC pressed with unsaved changes - discarding changes");
+                    System.Diagnostics.Debug.WriteLine("Config: Back action with unsaved changes - discarding changes");
                 }
                 System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
                 ChangeStage(StageType.Title, new CrossfadeTransition(0.3));

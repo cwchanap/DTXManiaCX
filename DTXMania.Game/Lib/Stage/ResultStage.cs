@@ -7,6 +7,7 @@ using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
 using DTX.Input;
+using DTXMania.Game.Lib.Input;
 using DTX.Stage.Performance;
 
 namespace DTX.Stage
@@ -165,8 +166,9 @@ namespace DTX.Stage
             if (_inputManager == null)
                 return;
 
-            // Handle ESC or Enter key to return to song selection
-            if (_inputManager.IsKeyPressed((int)Keys.Escape) || _inputManager.IsKeyPressed((int)Keys.Enter))
+            // Check for back action (ESC key or controller Back button) using consolidated method
+            // Also handle Enter key for convenience
+            if (_inputManager.IsBackActionTriggered() || _inputManager.IsKeyPressed((int)Keys.Enter))
             {
                 ReturnToSongSelect();
             }
@@ -175,7 +177,8 @@ namespace DTX.Stage
         private void ReturnToSongSelect()
         {
             // Return to song selection stage
-            ChangeStage(StageType.SongSelect, new DTXManiaFadeTransition(0.5));
+            StageManager?.ChangeStage(StageType.SongSelect,
+                new DTXManiaFadeTransition(0.5), null);
         }
 
         #endregion
@@ -188,7 +191,7 @@ namespace DTX.Stage
             var viewport = _spriteBatch.GraphicsDevice.Viewport;
             var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
             var backgroundColor = Color.DarkBlue * 0.8f;
-            
+
             if (_whitePixel != null)
             {
                 _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
@@ -250,7 +253,7 @@ namespace DTX.Stage
                 var rectWidth = text.Length * 8;
                 var rectHeight = 20;
                 var rectPosition = new Rectangle(centerX - rectWidth / 2, currentY, rectWidth, rectHeight);
-                
+
                 if (_whitePixel != null)
                 {
                     _spriteBatch.Draw(_whitePixel, rectPosition, color);

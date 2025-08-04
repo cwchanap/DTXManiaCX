@@ -26,6 +26,9 @@ namespace DTXMania.Game.Lib.Input
         private readonly Dictionary<int, bool> _keyStates;
         private readonly Dictionary<int, bool> _previousKeyStates;
 
+        // ESC key debouncing state
+        private bool _escapeLastState = false;
+
         // Performance diagnostics
         private readonly Stopwatch _updateStopwatch;
         private double _lastUpdateTimeMs = 0.0;
@@ -294,6 +297,50 @@ namespace DTXMania.Game.Lib.Input
             var previousPressed = _previousKeyStates.TryGetValue(keyCode, out var previous) && previous;
             
             return !currentPressed && previousPressed;
+        }
+
+        /// <summary>
+        /// Check if a key was just triggered (edge-trigger)
+        /// For ESC key, uses manual debouncing to prevent repeat issues
+        /// </summary>
+        /// <param name="keyCode">Key code (cast from Keys enum)</param>
+        /// <returns>True if key was just triggered</returns>
+        public bool IsKeyTriggered(int keyCode)
+        {
+            var key = (Keys)keyCode;
+            
+            // Special handling for ESC key with manual debouncing
+            if (key == Keys.Escape)
+            {
+                var currentState = Keyboard.GetState();
+                bool currentEscapeState = currentState.IsKeyDown(Keys.Escape);
+                bool triggered = currentEscapeState && !_escapeLastState;
+                _escapeLastState = currentEscapeState;
+                return triggered;
+            }
+            
+            // For other keys, use standard edge detection
+            var currentPressed = _keyStates.TryGetValue(keyCode, out var current) && current;
+            var previousPressed = _previousKeyStates.TryGetValue(keyCode, out var previous) && previous;
+            
+            return currentPressed && !previousPressed;
+        }
+
+        /// <summary>
+        /// Consolidated method to detect "back" action from both ESC key and controller Back button
+        /// Uses proper debouncing for ESC key to prevent repeat triggers
+        /// This method should be used by all stages instead of duplicating the logic
+        /// </summary>
+        /// <returns>True if back action was triggered</returns>
+        public bool IsBackActionTriggered()
+        {
+            // Check for ESC key using debounced trigger (already handled in IsKeyTriggered)
+            bool escTriggered = IsKeyTriggered((int)Keys.Escape);
+            
+            // TODO: Add controller Back button support when gamepad input source is implemented
+            // For now, only ESC key is supported in ModularInputManager
+            
+            return escTriggered;
         }
 
         #endregion
