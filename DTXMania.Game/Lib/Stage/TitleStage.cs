@@ -1,10 +1,14 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using DTX.Stage;
+using DTX.Input;
 using DTX.Resources;
+using DTX.Stage;
+using DTX.UI;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Input;
 using System;
+using System.Collections.Generic;
 
 namespace DTX.Stage
 {
@@ -342,8 +346,8 @@ namespace DTX.Stage
 
         private void HandleInput()
         {
-            // Handle ESC key - exit game
-            if (IsKeyPressed(Keys.Escape))
+            // Check for back action (ESC key or controller Back button) using consolidated method
+            if (_game.InputManager?.IsBackActionTriggered() == true)
             {
                 _game.Exit();
                 return;
@@ -488,12 +492,12 @@ namespace DTX.Stage
         {
             return button switch
             {
-                MouseButton.Left => _currentMouseState.LeftButton == ButtonState.Pressed &&
-                                   _previousMouseState.LeftButton == ButtonState.Released,
-                MouseButton.Right => _currentMouseState.RightButton == ButtonState.Pressed &&
-                                    _previousMouseState.RightButton == ButtonState.Released,
-                MouseButton.Middle => _currentMouseState.MiddleButton == ButtonState.Pressed &&
-                                     _previousMouseState.MiddleButton == ButtonState.Released,
+                MouseButton.Left => _currentMouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed &&
+                                   _previousMouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Released,
+                MouseButton.Right => _currentMouseState.RightButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed &&
+                                    _previousMouseState.RightButton == Microsoft.Xna.Framework.Input.ButtonState.Released,
+                MouseButton.Middle => _currentMouseState.MiddleButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed &&
+                                     _previousMouseState.MiddleButton == Microsoft.Xna.Framework.Input.ButtonState.Released,
                 _ => false
             };
         }

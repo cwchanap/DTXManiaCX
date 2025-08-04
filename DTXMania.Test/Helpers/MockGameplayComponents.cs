@@ -16,6 +16,7 @@ namespace DTXMania.Test.Helpers
     {
         private readonly Dictionary<Keys, bool> _currentKeyStates = new();
         private readonly Dictionary<Keys, bool> _previousKeyStates = new();
+        private readonly Dictionary<InputCommandType, bool> _commandStates = new();
 
         public MockInputManager() : base()
         {
@@ -73,6 +74,30 @@ namespace DTXMania.Test.Helpers
             
             // Frame 3: Key release
             SetKeyPressed(key, false);
+        }
+
+        /// <summary>
+        /// Override to simulate back action using consolidated method
+        /// </summary>
+        public new bool IsBackActionTriggered()
+        {
+            return IsCommandPressed(InputCommandType.Back) || IsKeyPressed((int)Keys.Escape);
+        }
+
+        /// <summary>
+        /// Sets the current state of a command
+        /// </summary>
+        public void SetCommandPressed(InputCommandType command, bool isPressed)
+        {
+            _commandStates[command] = isPressed;
+        }
+
+        /// <summary>
+        /// Checks if a command was pressed
+        /// </summary>
+        public new bool IsCommandPressed(InputCommandType command)
+        {
+            return _commandStates.TryGetValue(command, out var isPressed) && isPressed;
         }
 
         /// <summary>

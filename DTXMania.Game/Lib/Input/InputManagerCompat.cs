@@ -70,6 +70,26 @@ namespace DTXMania.Game.Lib.Input
             return _modularInputManager?.IsKeyReleased(keyCode) ?? base.IsKeyReleased(keyCode);
         }
 
+        /// <summary>
+        /// Check if a key was just triggered (edge-trigger)
+        /// Uses the modular input manager's debounced logic
+        /// </summary>
+        public new bool IsKeyTriggered(int keyCode)
+        {
+            // Use the modular input manager's logic if available
+            return _modularInputManager?.IsKeyTriggered(keyCode) ?? base.IsKeyPressed(keyCode);
+        }
+
+        /// <summary>
+        /// Consolidated method to detect "back" action from both ESC key and controller Back button
+        /// Uses proper debouncing for ESC key to prevent repeat triggers
+        /// </summary>
+        public new bool IsBackActionTriggered()
+        {
+            // Use the modular input manager's logic if available, otherwise fallback to base
+            return _modularInputManager?.IsBackActionTriggered() ?? base.IsBackActionTriggered();
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (!_disposed && disposing)

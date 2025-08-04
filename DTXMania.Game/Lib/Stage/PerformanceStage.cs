@@ -10,6 +10,7 @@ using DTXMania.Game;
 using DTX.Resources;
 using DTX.UI;
 using DTX.Input;
+using DTXMania.Game.Lib.Input;
 using DTX.Song;
 using DTX.Song.Components;
 using DTX.Stage.Performance;
@@ -62,7 +63,7 @@ namespace DTX.Stage
         private AudioLoader _audioLoader;
         private SongTimer _songTimer;
         private NoteRenderer _noteRenderer;
-        
+
         // Phase 3 components - Gameplay managers
         private JudgementManager _judgementManager;
         private ScoreManager _scoreManager;
@@ -85,13 +86,12 @@ namespace DTX.Stage
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
         private Texture2D _fallbackWhiteTexture;
-        
+
         // Stage completion state
         private bool _stageCompleted = false;
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
-        private bool _inputManagerTypeLogged = false; // For debug output
 
         #endregion
 
@@ -198,7 +198,7 @@ namespace DTX.Stage
 
             // Begin additive blend mode for effects layer
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
-            
+
             // Draw hit effects with additive blending
             DrawHitEffects();
 
@@ -357,36 +357,46 @@ namespace DTX.Stage
                 return;
             }
 
-            // Debug input manager type (only once)
-            if (!_inputManagerTypeLogged)
+            // Check for back action (ESC key or controller Back button) using consolidated method
+            if (_inputManager.IsBackActionTriggered())
             {
-                System.Diagnostics.Debug.WriteLine($"[PerformanceStage] InputManager type: {_inputManager.GetType().Name}");
-                _inputManagerTypeLogged = true;
-            }
-
-            // Handle ESC key to return to song selection
-            if (_inputManager.IsKeyPressed((int)Keys.Escape))
-            {
+                System.Diagnostics.Debug.WriteLine("[PerformanceStage] Back action triggered - returning to song select");
                 ReturnToSongSelect();
-            }
-
-            // Debug: Test for any key press to verify input system is working
-            var testKeys = new[] { Keys.A, Keys.S, Keys.D, Keys.F, Keys.Space, Keys.J, Keys.K, Keys.L, Keys.OemSemicolon };
-            foreach (var key in testKeys)
-            {
-                if (_inputManager.IsKeyPressed((int)key))
-                {
-                    System.Diagnostics.Debug.WriteLine($"[PerformanceStage] Key detected: {key}");
-                }
             }
 
             // TODO: Handle gameplay input in later phases
         }
 
+        /// <summary>
+        /// Handles ESC key and controller Back button input during performance.
+        /// This method provides immediate exit functionality for players who want to
+        /// return to song selection without completing the current song.
+        /// 
+        /// ESC/Back button behavior:
+        /// - Immediately stops song playback and timing
+        /// - Performs comprehensive resource cleanup to prevent memory leaks
+        /// - Disposes audio components, graphics resources, and gameplay managers
+        /// - Pauses input processing to prevent further judgement handling
+        /// - Returns to song selection stage with smooth fade transition
+        /// 
+        /// Controller support:
+        /// - Supports both keyboard ESC key and gamepad/controller Back button
+        /// - Uses InputCommandType.Back for universal controller compatibility
+        /// </summary>
         private void ReturnToSongSelect()
         {
+            // 1. Stop the song timer
+            _songTimer?.Stop();
+
+            // 2. Clean up components to free resources and avoid audio leaks
+            CleanupComponents();
+
+            // 3. Pause input to block further judgement processing
+            _inputPaused = true;
+
             // Return to song selection stage
-            ChangeStage(StageType.SongSelect, new DTXManiaFadeTransition(0.5));
+            StageManager?.ChangeStage(StageType.SongSelect,
+                new DTXManiaFadeTransition(0.5), null);
         }
 
         #endregion
@@ -486,10 +496,10 @@ namespace DTX.Stage
 
             // Update note renderer
             _noteRenderer?.Update(deltaTime);
-            
+
             // Update effects manager
             _effectsManager?.Update(deltaTime);
-            
+
             // Update judgement text popup manager
             _judgementTextPopupManager?.Update(deltaTime);
 
@@ -498,10 +508,10 @@ namespace DTX.Stage
             {
                 var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
                 ProcessBGMEvents(currentTimeMs);
-                
+
                 // Update gameplay managers with current song time
                 UpdateGameplayManagers(currentTimeMs);
-                
+
                 // Check for stage completion conditions
                 CheckStageCompletion(currentTimeMs);
             }
@@ -552,7 +562,6 @@ namespace DTX.Stage
 
             // Get current song time using precise GameTime-based timing
             var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-
 
             // Get active notes using the same look-ahead time as scroll calculation
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
@@ -774,16 +783,16 @@ namespace DTX.Stage
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
             _gaugeManager?.ProcessJudgement(e);
-            
+
             // Spawn hit effect for successful hits (non-Miss)
             if (e.IsHit())
             {
                 _effectsManager?.SpawnHitEffect(e.Lane);
-                
+
                 // Trigger lane flash effect
                 _noteRenderer?.TriggerLaneFlash(e.Lane);
             }
-            
+
             // Spawn judgement text popup for all judgements
             _judgementTextPopupManager?.SpawnPopup(e);
         }
@@ -830,7 +839,7 @@ namespace DTX.Stage
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
             System.Diagnostics.Debug.WriteLine($"Player failed with {e.FinalLife:F1}% life!");
-            
+
             // Trigger stage completion on failure
             if (!_stageCompleted)
             {
@@ -975,7 +984,7 @@ namespace DTX.Stage
             {
                 FinalizePerformance(CompletionReason.SongComplete);
             }
-            
+
             // Check for player failure
             if (_gaugeManager?.HasFailed == true)
             {
@@ -990,7 +999,7 @@ namespace DTX.Stage
         {
             // Mark the stage as completed
             _stageCompleted = true;
-            
+
             // Pause input handling
             _inputPaused = true;
 
@@ -1051,6 +1060,6 @@ namespace DTX.Stage
 
         #endregion
 
-        
+
     }
 }

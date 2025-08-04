@@ -235,32 +235,43 @@ namespace DTX.Resources
             finally
             {
                 _totalLoadTime.Stop();
-                     }
-                 }
-        
-                public ITexture CreateTextureFromColor(Color color)
+            }
+        }
+
+        public ITexture CreateTextureFromColor(Color color)
+        {
+            var cacheKey = $"__Color|{color.PackedValue}";
+
+            if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
+            {
+                // Check if the cached texture is disposed
+                if (cachedTexture.IsDisposed)
                 {
-                    var cacheKey = $"__Color|{color.PackedValue}";
-        
-                    if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
-                    {
-                        cachedTexture.AddReference();
-                        return cachedTexture;
-                    }
-        
-                    var texture = new Texture2D(_graphicsDevice, 1, 1);
-                    texture.SetData(new[] { color });
-        
-                    var managedTexture = new ManagedTexture(_graphicsDevice, texture, cacheKey);
-                    managedTexture.AddReference();
-        
-                    _textureCache.TryAdd(cacheKey, managedTexture);
-        
-                    return managedTexture;
+                    // Remove the disposed texture from cache
+                    _textureCache.TryRemove(cacheKey, out _);
                 }
-         
-                 public void SetSkinPath(string skinPath)
-                 {
+                else
+                {
+                    // Texture is valid, add reference and return
+                    cachedTexture.AddReference();
+                    return cachedTexture;
+                }
+            }
+
+            // Create new texture (either no cache entry or disposed texture was removed)
+            var texture = new Texture2D(_graphicsDevice, 1, 1);
+            texture.SetData(new[] { color });
+
+            var managedTexture = new ManagedTexture(_graphicsDevice, texture, cacheKey);
+            managedTexture.AddReference();
+
+            _textureCache.TryAdd(cacheKey, managedTexture);
+
+            return managedTexture;
+        }
+
+        public void SetSkinPath(string skinPath)
+        {
             if (string.IsNullOrEmpty(skinPath))
                 throw new ArgumentException("Skin path cannot be null or empty", nameof(skinPath));
 
