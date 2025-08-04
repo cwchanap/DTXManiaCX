@@ -65,13 +65,13 @@ namespace DTX.Input
     {
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
-        
+
         // Input command mapping and processing
         private readonly Dictionary<Keys, InputCommandType> _keyMapping;
         private readonly Dictionary<Keys, KeyRepeatState> _keyRepeatStates;
         private readonly Queue<InputCommand> _inputCommandQueue;
         private double _currentTime;
-        
+
         // Key repeat configuration
         private const double INITIAL_REPEAT_DELAY = 0.2; // 200ms
         private const double FINAL_REPEAT_DELAY = 0.05;  // 50ms
@@ -82,7 +82,7 @@ namespace DTX.Input
             _keyMapping = new Dictionary<Keys, InputCommandType>();
             _keyRepeatStates = new Dictionary<Keys, KeyRepeatState>();
             _inputCommandQueue = new Queue<InputCommand>();
-            
+
             // Initialize default keyboard mapping
             InitializeDefaultKeyMapping();
         }
@@ -105,7 +105,7 @@ namespace DTX.Input
             _currentTime += deltaTime;
             _previousKeyboardState = _currentKeyboardState;
             _currentKeyboardState = Keyboard.GetState();
-            
+
             // Update key repeat states and generate input commands
             UpdateKeyRepeatStates();
         }
@@ -189,7 +189,7 @@ namespace DTX.Input
             {
                 var key = kvp.Key;
                 var commandType = kvp.Value;
-                
+
                 if (!_keyRepeatStates.ContainsKey(key))
                 {
                     _keyRepeatStates[key] = new KeyRepeatState();

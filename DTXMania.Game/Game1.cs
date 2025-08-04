@@ -1,6 +1,7 @@
 ﻿using DTX.Config;
 using DTX.Graphics;
 using DTX.Input;
+using DTXMania.Game.Lib.Input;
 using DTX.Resources;
 using DTX.Stage;
 using Microsoft.Xna.Framework;
@@ -51,8 +52,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         _graphicsManager.DeviceReset += OnGraphicsDeviceReset;
 
         // Initialize managers that are needed before base.Initialize() calls LoadContent()
+        // InputManager must be created before StageManager since stages need InputManager in their constructors
+        InputManager = new InputManagerCompat(ConfigManager);
         StageManager = new StageManager(this);
-        InputManager = new InputManager();
 
         base.Initialize();
 
@@ -83,7 +85,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     protected override void Update(GameTime gameTime)
     {
         // Handle gamepad back button (but let stages handle ESC key)
-        if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed)
+        if (GamePad.GetState(PlayerIndex.One).Buttons.Back == Microsoft.Xna.Framework.Input.ButtonState.Pressed)
             Exit();
 
         // Update input manager before stage manager updates

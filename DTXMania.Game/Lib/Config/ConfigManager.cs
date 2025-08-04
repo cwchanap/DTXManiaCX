@@ -41,26 +41,26 @@ namespace DTX.Config
             }
         }
 
-public void LoadKeyBindings(KeyBindings keyBindings)
-{
-    // Load key bindings from config data
-    foreach (var kvp in Config.KeyBindings)
-    {
-        keyBindings.BindButton(kvp.Key, kvp.Value);
-    }
-}
+        public void LoadKeyBindings(KeyBindings keyBindings)
+        {
+            // Load key bindings from config data
+            foreach (var kvp in Config.KeyBindings)
+            {
+                keyBindings.BindButton(kvp.Key, kvp.Value);
+            }
+        }
 
-public void SaveKeyBindings(KeyBindings keyBindings)
-{
-    // Save key bindings to config data
-    Config.KeyBindings.Clear();
-    foreach (var kvp in keyBindings.ButtonToLane)
-    {
-        Config.KeyBindings[kvp.Key] = kvp.Value;
-    }
-}
+        public void SaveKeyBindings(KeyBindings keyBindings)
+        {
+            // Save key bindings to config data
+            Config.KeyBindings.Clear();
+            foreach (var kvp in keyBindings.ButtonToLane)
+            {
+                Config.KeyBindings[kvp.Key] = kvp.Value;
+            }
+        }
 
-private void ParseConfigLine(string key, string value)
+        private void ParseConfigLine(string key, string value)
         {
             switch (key)
             {
@@ -117,7 +117,7 @@ private void ParseConfigLine(string key, string value)
             sb.AppendLine($"UseBoxDefSkin={Config.UseBoxDefSkin}");
             sb.AppendLine($"SystemSkinRoot={Config.SystemSkinRoot}");
             sb.AppendLine($"LastUsedSkin={Config.LastUsedSkin}");
-            sb.AppendLine();            sb.AppendLine("[Display]");
+            sb.AppendLine(); sb.AppendLine("[Display]");
             sb.AppendLine($"ScreenWidth={Config.ScreenWidth}");
             sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
             sb.AppendLine($"FullScreen={Config.FullScreen}");

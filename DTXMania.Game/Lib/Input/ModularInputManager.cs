@@ -174,21 +174,20 @@ namespace DTXMania.Game.Lib.Input
                 _previousKeyStates[kvp.Key] = kvp.Value;
             }
 
-            // Update current states from keyboard input source
+            // Get current keyboard state directly from keyboard input source
             var keyboardSource = GetKeyboardSource();
             if (keyboardSource != null)
             {
                 _keyStates.Clear();
-                foreach (var buttonState in keyboardSource.GetPressedButtons())
+                
+                // Get currently pressed keys from MonoGame
+                var currentState = Keyboard.GetState();
+                var pressedKeys = currentState.GetPressedKeys();
+                
+                // Update key states for all pressed keys
+                foreach (var key in pressedKeys)
                 {
-                    if (buttonState.Id.StartsWith("Key."))
-                    {
-                        var keyName = buttonState.Id.Substring(4);
-                        if (Enum.TryParse<Keys>(keyName, out var key))
-                        {
-                            _keyStates[(int)key] = buttonState.IsPressed;
-                        }
-                    }
+                    _keyStates[(int)key] = true;
                 }
             }
         }
