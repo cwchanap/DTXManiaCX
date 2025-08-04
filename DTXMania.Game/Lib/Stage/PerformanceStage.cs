@@ -91,6 +91,7 @@ namespace DTX.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
+        private bool _inputManagerTypeLogged = false; // For debug output
 
         #endregion
 
@@ -351,12 +352,32 @@ namespace DTX.Stage
         private void HandleInput()
         {
             if (_inputManager == null)
+            {
+                System.Diagnostics.Debug.WriteLine("[PerformanceStage] InputManager is null!");
                 return;
+            }
+
+            // Debug input manager type (only once)
+            if (!_inputManagerTypeLogged)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PerformanceStage] InputManager type: {_inputManager.GetType().Name}");
+                _inputManagerTypeLogged = true;
+            }
 
             // Handle ESC key to return to song selection
             if (_inputManager.IsKeyPressed((int)Keys.Escape))
             {
                 ReturnToSongSelect();
+            }
+
+            // Debug: Test for any key press to verify input system is working
+            var testKeys = new[] { Keys.A, Keys.S, Keys.D, Keys.F, Keys.Space, Keys.J, Keys.K, Keys.L, Keys.OemSemicolon };
+            foreach (var key in testKeys)
+            {
+                if (_inputManager.IsKeyPressed((int)key))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PerformanceStage] Key detected: {key}");
+                }
             }
 
             // TODO: Handle gameplay input in later phases
