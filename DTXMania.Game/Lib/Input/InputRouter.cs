@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace DTXMania.Game.Lib.Input
 {
@@ -71,6 +72,15 @@ namespace DTXMania.Game.Lib.Input
             {
                 OnLaneHit?.Invoke(this, new LaneHitEventArgs(lane, buttonState));
             }
+        }
+
+        /// <summary>
+        /// Gets the number of input sources registered
+        /// </summary>
+        /// <returns>Number of input sources</returns>
+        public int GetSourceCount()
+        {
+            return _inputSources.Count;
         }
 
         /// <summary>

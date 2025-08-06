@@ -135,6 +135,8 @@ namespace DTXMania.Game.Lib.Input
         /// Target: ≤1ms latency for keyboard input
         /// </summary>
         /// <param name="deltaTime">Time since last update (optional)</param>
+        private int _frameCount = 0;
+        
         public void Update(double deltaTime = 0.0)
         {
             if (_disposed) return;
@@ -144,6 +146,7 @@ namespace DTXMania.Game.Lib.Input
 
             // Update previous key states for legacy compatibility
             UpdateLegacyKeyStates();
+
 
             // Update input router (processes all input sources)
             _inputRouter.Update();

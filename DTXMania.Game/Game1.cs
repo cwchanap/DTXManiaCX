@@ -21,7 +21,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
     public IStageManager StageManager { get; protected set; }
     public IConfigManager ConfigManager { get; protected set; }
-    public InputManager InputManager { get; protected set; }
+    public InputManagerCompat InputManager { get; protected set; }
     public IGraphicsManager GraphicsManager => _graphicsManager;
 
     public BaseGame()

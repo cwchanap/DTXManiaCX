@@ -42,7 +42,7 @@ namespace DTX.Stage
         private SpriteBatch _spriteBatch;
         private ResourceManager _resourceManager;
         private UIManager _uiManager;
-        private InputManager _inputManager;
+        private InputManagerCompat _inputManager;
 
         // Stage data
         private SongListNode _selectedSong;
@@ -157,6 +157,7 @@ namespace DTX.Stage
 
             // Update input manager
             _inputManager?.Update(deltaTime);
+            
 
             // Handle input
             HandleInput();
@@ -352,15 +353,11 @@ namespace DTX.Stage
         private void HandleInput()
         {
             if (_inputManager == null)
-            {
-                System.Diagnostics.Debug.WriteLine("[PerformanceStage] InputManager is null!");
                 return;
-            }
 
             // Check for back action (ESC key or controller Back button) using consolidated method
             if (_inputManager.IsBackActionTriggered())
             {
-                System.Diagnostics.Debug.WriteLine("[PerformanceStage] Back action triggered - returning to song select");
                 ReturnToSongSelect();
             }
 

@@ -4,15 +4,16 @@ using Microsoft.Xna.Framework.Input;
 using DTX.Input;
 using DTX.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Input;
 
 namespace DTX.Stage.Performance
 {
     /// <summary>
     /// Manages hit detection, timing judgements, and note state tracking during gameplay.
-    /// Maps keyboard keys A S D F Space J K L ; → lane indices 0-8.
+    /// Subscribes to lane hit events from the modular input system.
     /// Each Update tick:
-    /// 1. Read freshly-pressed keys from InputManager.
-    /// 2. For each lane key pressed, query ChartManager for the nearest *unhit* note within ±90 ms (use BinarySearchStartIndex) and decide judgement by abs Δ.
+    /// 1. Process any pending lane hit events from the input system.
+    /// 2. For each lane hit, query ChartManager for the nearest *unhit* note within ±90 ms and decide judgement by abs Δ.
     /// 3. Mark note as Hit, emit JudgementEvent via C# event or IEventBus.
     /// Maintain per-note state (enum: Pending/Hit/Missed) inside a NoteRuntimeData dictionary keyed by Note.Id to avoid double hits.
     /// </summary>
@@ -20,24 +21,11 @@ namespace DTX.Stage.Performance
     {
         #region Private Fields
 
-        private readonly InputManager _inputManager;
+        private readonly InputManagerCompat _inputManager;
         private readonly ChartManager _chartManager;
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
+        private readonly List<int> _pendingLaneHits;
         private bool _disposed = false;
-
-        // Keyboard mapping for 9-lane drum layout: A S D F Space J K L ; → lane indices 0-8
-        private readonly Keys[] _laneKeys = new Keys[]
-        {
-            Keys.A,         // Lane 0 - LC (Left Cymbal)
-            Keys.S,         // Lane 1 - LP (Left Pedal)
-            Keys.D,         // Lane 2 - HH (Hi-Hat)
-            Keys.F,         // Lane 3 - SD (Snare Drum)
-            Keys.Space,     // Lane 4 - BD (Bass Drum)
-            Keys.J,         // Lane 5 - HT (High Tom)
-            Keys.K,         // Lane 6 - LT (Low Tom)
-            Keys.L,         // Lane 7 - FT (Floor Tom)
-            Keys.OemSemicolon // Lane 8 - CY (Right Cymbal)
-        };
 
         // Timing window for hit detection (±90ms as specified)
         private const double HitDetectionWindowMs = 90.0;
@@ -67,16 +55,21 @@ namespace DTX.Stage.Performance
         /// <summary>
         /// Creates a new JudgementManager
         /// </summary>
-        /// <param name="inputManager">Input manager for reading keyboard state</param>
+        /// <param name="inputManager">Input manager for receiving lane hit events</param>
         /// <param name="chartManager">Chart manager containing note data</param>
         public JudgementManager(InputManager inputManager, ChartManager chartManager)
         {
-            _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
+            _inputManager = (inputManager as InputManagerCompat) ?? throw new ArgumentException("JudgementManager requires InputManagerCompat for lane hit events", nameof(inputManager));
             _chartManager = chartManager ?? throw new ArgumentNullException(nameof(chartManager));
             _noteRuntimeData = new Dictionary<int, NoteRuntimeData>();
+            _pendingLaneHits = new List<int>();
+
+            // Subscribe to lane hit events from the modular input system
+            _inputManager.ModularInputManager.OnLaneHit += OnLaneHit;
 
             // Initialize note runtime data for all notes in the chart
             InitializeNoteRuntimeData();
+            
         }
 
         #endregion
@@ -92,8 +85,8 @@ namespace DTX.Stage.Performance
             if (!IsActive || _disposed)
                 return;
 
-            // Process keyboard input for hit detection
-            ProcessKeyboardInput(currentSongTimeMs);
+            // Process pending lane hit events from the input system
+            ProcessPendingLaneHits(currentSongTimeMs);
 
             // Check for missed notes (timeout scanner)
             ProcessMissedNotes(currentSongTimeMs);
@@ -190,21 +183,32 @@ namespace DTX.Stage.Performance
         }
 
         /// <summary>
-        /// Processes keyboard input for hit detection
+        /// Handles lane hit events from the modular input system
+        /// </summary>
+        /// <param name="sender">Event sender</param>
+        /// <param name="args">Lane hit event arguments</param>
+        private void OnLaneHit(object? sender, LaneHitEventArgs args)
+        {
+            // Add lane hit to pending list for processing in next Update
+            lock (_pendingLaneHits)
+            {
+                _pendingLaneHits.Add(args.Lane);
+            }
+        }
+
+        /// <summary>
+        /// Processes pending lane hit events
         /// </summary>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        private void ProcessKeyboardInput(double currentSongTimeMs)
+        private void ProcessPendingLaneHits(double currentSongTimeMs)
         {
-            // Check each lane key for fresh presses
-            for (int laneIndex = 0; laneIndex < _laneKeys.Length; laneIndex++)
+            lock (_pendingLaneHits)
             {
-                var key = _laneKeys[laneIndex];
-                
-                // Only process freshly pressed keys (not held)
-                if (_inputManager.IsKeyPressed((int)key))
+                foreach (int laneIndex in _pendingLaneHits)
                 {
                     ProcessLaneInput(laneIndex, currentSongTimeMs);
                 }
+                _pendingLaneHits.Clear();
             }
         }
 
@@ -238,7 +242,6 @@ namespace DTX.Stage.Performance
                 // Raise judgement event
                 JudgementMade?.Invoke(this, judgementEvent);
 
-                System.Diagnostics.Debug.WriteLine($"Hit detected: {judgementEvent}");
             }
         }
 
@@ -340,6 +343,13 @@ namespace DTX.Stage.Performance
             if (!_disposed && disposing)
             {
                 IsActive = false;
+                
+                // Unsubscribe from lane hit events
+                if (_inputManager?.ModularInputManager != null)
+                {
+                    _inputManager.ModularInputManager.OnLaneHit -= OnLaneHit;
+                }
+                
                 _noteRuntimeData.Clear();
                 _disposed = true;
             }
