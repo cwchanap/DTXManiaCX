@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework.Input;
 
@@ -46,6 +47,7 @@ namespace DTXMania.Game.Lib.Input
             ButtonToLane["Key.K"] = 6;         // LT (Low Tom)
             ButtonToLane["Key.L"] = 7;         // FT (Floor Tom)
             ButtonToLane["Key.OemSemicolon"] = 8; // CY (Right Cymbal)
+            
         }
 
         /// <summary>
