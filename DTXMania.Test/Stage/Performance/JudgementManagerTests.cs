@@ -153,15 +153,15 @@ namespace DTXMania.Test.Stage.Performance
             // Test that all keyboard keys map to correct lane indices
             var expectedMapping = new[]
             {
-                (Keys.A, 0),         // LC
-                (Keys.S, 1),         // LP
-                (Keys.D, 2),         // HH
-                (Keys.F, 3),         // SD
-                (Keys.Space, 4),     // BD
-                (Keys.J, 5),         // HT
-                (Keys.K, 6),         // LT
-                (Keys.L, 7),         // FT
-                (Keys.OemSemicolon, 8) // CY
+                (Keys.A, 0),         // Splash/Crash
+                (Keys.S, 1),         // Floor Tom/Left Cymbal
+                (Keys.D, 2),         // Hi-Hat Foot/Left Crash
+                (Keys.G, 3),         // Left Pedal
+                (Keys.F, 4),         // Snare Drum
+                (Keys.J, 5),         // Hi-Hat
+                (Keys.Space, 6),     // Bass Drum
+                (Keys.K, 7),         // High Tom
+                (Keys.L, 8)          // Low Tom/Right Cymbal
             };
 
             var inputManager = new MockInputManager();

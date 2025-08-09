@@ -44,9 +44,17 @@ namespace DTX.Config
         public void LoadKeyBindings(KeyBindings keyBindings)
         {
             // Load key bindings from config data
+            System.Diagnostics.Debug.WriteLine($"[ConfigManager] LoadKeyBindings() called with {Config.KeyBindings.Count} config entries");
+            
             foreach (var kvp in Config.KeyBindings)
             {
+                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Overriding binding: {kvp.Key} → Lane {kvp.Value}");
                 keyBindings.BindButton(kvp.Key, kvp.Value);
+            }
+            
+            if (Config.KeyBindings.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[ConfigManager] No key bindings in config, keeping defaults");
             }
         }
 
@@ -96,7 +104,14 @@ namespace DTX.Config
                 case "VSyncWait":
                     Config.VSyncWait = value.ToLower() == "true";
                     break;
-                    // Add more cases as needed
+                // Handle key bindings from config file
+                default:
+                    if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
+                    {
+                        Config.KeyBindings[key] = lane;
+                        System.Diagnostics.Debug.WriteLine($"[ConfigManager] Loaded key binding from config: {key} → Lane {lane}");
+                    }
+                    break;
             }
         }
 
@@ -117,11 +132,24 @@ namespace DTX.Config
             sb.AppendLine($"UseBoxDefSkin={Config.UseBoxDefSkin}");
             sb.AppendLine($"SystemSkinRoot={Config.SystemSkinRoot}");
             sb.AppendLine($"LastUsedSkin={Config.LastUsedSkin}");
-            sb.AppendLine(); sb.AppendLine("[Display]");
+            sb.AppendLine();
+            
+            sb.AppendLine("[Display]");
             sb.AppendLine($"ScreenWidth={Config.ScreenWidth}");
             sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
             sb.AppendLine($"FullScreen={Config.FullScreen}");
             sb.AppendLine($"VSyncWait={Config.VSyncWait}");
+            
+            // Save key bindings to config file
+            if (Config.KeyBindings.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("[KeyBindings]");
+                foreach (var kvp in Config.KeyBindings)
+                {
+                    sb.AppendLine($"{kvp.Key}={kvp.Value}");
+                }
+            }
 
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
         }
