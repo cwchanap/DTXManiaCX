@@ -849,6 +849,33 @@ namespace DTX.Stage
         /// </summary>
         private void UpdateGameplayManagers(double currentSongTimeMs)
         {
+            // DEBUG: Log song timing occasionally with extensive detail
+            if ((int)currentSongTimeMs % 1000 < 50) // Log roughly every second
+            {
+                var allNotes = _chartManager?.AllNotes;
+                if (allNotes != null && allNotes.Count > 0)
+                {
+                    var firstNote = allNotes.FirstOrDefault();
+                    var firstNonZeroNote = allNotes.Where(n => n.TimeMs > 0).OrderBy(n => n.TimeMs).FirstOrDefault();
+                    var firstLane3Note = allNotes.Where(n => n.LaneIndex == 3).OrderBy(n => n.TimeMs).FirstOrDefault();
+                    var totalNotesAtZero = allNotes.Where(n => n.TimeMs == 0).Count();
+                    
+                    System.Diagnostics.Debug.WriteLine($"[PerformanceStage] Song time: {currentSongTimeMs:F1}ms");
+                    System.Diagnostics.Debug.WriteLine($"  Total notes: {allNotes.Count}, Notes at time 0: {totalNotesAtZero}");
+                    System.Diagnostics.Debug.WriteLine($"  First note (any): {firstNote?.ToString() ?? "null"}");
+                    System.Diagnostics.Debug.WriteLine($"  First note (time > 0): {firstNonZeroNote?.ToString() ?? "null"}");
+                    System.Diagnostics.Debug.WriteLine($"  First lane 3 note: {firstLane3Note?.ToString() ?? "null"}");
+                    
+                    // Show the first few notes with their timings
+                    var firstFiveNotes = allNotes.Take(5).ToList();
+                    for (int i = 0; i < firstFiveNotes.Count; i++)
+                    {
+                        var note = firstFiveNotes[i];
+                        System.Diagnostics.Debug.WriteLine($"  Note {i}: {note}");
+                    }
+                }
+            }
+            
             if (_judgementManager?.IsActive == true)
             {
                 _judgementManager.Update(currentSongTimeMs);

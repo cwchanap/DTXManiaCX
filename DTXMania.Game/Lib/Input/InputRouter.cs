@@ -68,9 +68,20 @@ namespace DTXMania.Game.Lib.Input
         private void ProcessButtonState(ButtonState buttonState)
         {
             var lane = _keyBindings.GetLane(buttonState.Id);
+            
+            // DEBUG: Log button processing
+            System.Diagnostics.Debug.WriteLine($"[InputRouter] Processing ButtonId {buttonState.Id}, IsPressed={buttonState.IsPressed}, Lane={lane}");
+            
             if (lane >= 0)
             {
+                // DEBUG: Log lane hit event dispatch
+                System.Diagnostics.Debug.WriteLine($"[InputRouter] Dispatching lane hit event: Lane {lane}, ButtonId {buttonState.Id}");
                 OnLaneHit?.Invoke(this, new LaneHitEventArgs(lane, buttonState));
+            }
+            else
+            {
+                // DEBUG: Log unmapped keys
+                System.Diagnostics.Debug.WriteLine($"[InputRouter] ButtonId {buttonState.Id} not mapped to any lane (ignored)");
             }
         }
 

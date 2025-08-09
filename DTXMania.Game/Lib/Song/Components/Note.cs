@@ -17,7 +17,7 @@ namespace DTX.Song.Components
 
         /// <summary>
         /// Lane index (0-8 for the 9 NX lanes)
-        /// Maps to DTX channels: 11=0, 12=1, 13=2, 14=3, 15=4, 16=5, 17=6, 18=7, 19=8
+        /// Maps to DTX channels: 0x11=0 (LC), 0x12=1 (LP), 0x13=2 (HH), 0x14=3 (SD), 0x15=4 (BD), 0x16=5 (HT), 0x17=6 (LT), 0x18=7 (FT), 0x19=8 (CY)
         /// </summary>
         public int LaneIndex { get; set; }
 
