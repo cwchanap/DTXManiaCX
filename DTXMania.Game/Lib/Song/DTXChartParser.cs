@@ -30,8 +30,7 @@ namespace DTX.Song
 
         /// <summary>
         /// DTX channel to lane index mapping
-        /// Expected lane arrangement (left to right): 1A - 18&11 - 1B&1C - 12 - 14 - 13 - 15 - 17 - 16&19
-        /// Lane indices: 0=1A, 1=18&11, 2=1B&1C, 3=12, 4=14, 5=13, 6=15, 7=17, 8=16&19
+        /// Original mapping that maintains UI display order
         /// </summary>
         private static readonly Dictionary<int, int> ChannelToLaneMap = new Dictionary<int, int>
         {
@@ -58,12 +57,12 @@ namespace DTX.Song
             // Lane 6: 15 (Bass Drum)
             { 0x15, 6 }, // BD - Bass Drum
 
-            // Lane 7: 17 (Low Tom)
-            { 0x17, 7 }, // LT - Low Tom
+            // Lane 7: 16 (High Tom)
+            { 0x16, 7 }, // HT - High Tom
 
-            // Lane 8: 16&19 (High Tom & Right Cymbal)
-            { 0x16, 8 }, // HT - High Tom
-            { 0x19, 8 }  // CY - Right Cymbal
+            // Lane 8: 17&19 (Low Tom & Right Cymbal)
+            { 0x17, 8 }, // LT - Low Tom
+            { 0x19, 8 }, // CY - Right Cymbal
         };
 
         /// <summary>
@@ -426,10 +425,17 @@ namespace DTX.Song
                     continue;
 
                 // Calculate tick position within the measure
+                // Fixed: Use i (pair index) and pairCount for proper positioning
                 var tick = (int)((double)i / pairCount * TicksPerMeasure);
 
-                // Debug logging for tick calculation (first few notes only)
-                // Note parsing logic
+                // Debug logging for timing validation
+#if DEBUG
+                if (chart.Notes.Count < 10) // Only log first 10 notes
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"DTX Parse: Measure {measure}, Channel {channel:X2}, Pair {i}/{pairCount}, Tick {tick}, Value '{pair}'");
+                }
+#endif
 
                 // Create note
                 var note = new Note(laneIndex, measure, tick, channel, pair);
