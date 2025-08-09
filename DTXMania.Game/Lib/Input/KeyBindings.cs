@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework.Input;
 
@@ -38,17 +37,17 @@ namespace DTXMania.Game.Lib.Input
         {
             ButtonToLane.Clear();
 
-            // Default keyboard bindings aligned with parser mapping
+            // Default keyboard bindings aligned with actual working behavior
             // Lane 0: 1A (Splash/Crash)
             ButtonToLane["Key.A"] = 0;         // Splash/Crash
             // Lane 1: 18&11 (Floor Tom & Left Cymbal)
-            ButtonToLane["Key.S"] = 1;         // Floor Tom & Left Cymbal
+            ButtonToLane["Key.F"] = 1;         // Floor Tom & Left Cymbal
             // Lane 2: 1B&1C (Hi-Hat Foot & Left Crash)
             ButtonToLane["Key.D"] = 2;         // Hi-Hat Foot & Left Crash
             // Lane 3: 12 (Left Pedal)
             ButtonToLane["Key.G"] = 3;         // Left Pedal
-            // Lane 4: 14 (Snare Drum) - F key for snare
-            ButtonToLane["Key.F"] = 4;         // Snare Drum
+            // Lane 4: 14 (Snare Drum) - S key for snare (working behavior)
+            ButtonToLane["Key.S"] = 4;         // Snare Drum
             // Lane 5: 13 (Hi-Hat)
             ButtonToLane["Key.J"] = 5;         // Hi-Hat
             // Lane 6: 15 (Bass Drum)
@@ -57,7 +56,6 @@ namespace DTXMania.Game.Lib.Input
             ButtonToLane["Key.K"] = 7;         // High Tom
             // Lane 8: 17&19 (Low Tom & Right Cymbal)
             ButtonToLane["Key.L"] = 8; // Low Tom & Right Cymbal
-            
         }
 
         /// <summary>
@@ -67,12 +65,7 @@ namespace DTXMania.Game.Lib.Input
         /// <returns>Lane index (0-8) or -1 if not bound</returns>
         public int GetLane(string buttonId)
         {
-            var result = ButtonToLane.TryGetValue(buttonId, out var lane) ? lane : -1;
-            
-            // DEBUG: Log lane mapping lookups
-            System.Diagnostics.Debug.WriteLine($"[KeyBindings] GetLane(\"{buttonId}\") -> {result} {(result >= 0 ? $"({GetLaneName(result)})" : "(unmapped)")}");
-            
-            return result;
+            return ButtonToLane.TryGetValue(buttonId, out var lane) ? lane : -1;
         }
 
         /// <summary>

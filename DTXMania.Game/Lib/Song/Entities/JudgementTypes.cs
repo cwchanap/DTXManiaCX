@@ -279,53 +279,54 @@ namespace DTXMania.Game.Lib.Song.Entities
     /// <summary>
     /// Enum for input lanes, mapping to specific DTX channels.
     /// Based on DTXMania 9-lane layout (channels 11-19) for drum gameplay.
+    /// Updated to match DTXChartParser channel-to-lane mapping.
     /// </summary>
     public enum InputLane
     {
         /// <summary>
-        /// Left Cymbal (DTX Channel 11, Lane Index 0)
+        /// Splash/Crash (DTX Channel 1A, Lane Index 0)
         /// </summary>
-        LC = 11,
+        Splash = 0x1A,
         
         /// <summary>
-        /// Left Pedal (DTX Channel 12, Lane Index 1)
+        /// Floor Tom & Left Cymbal (DTX Channels 18&11, Lane Index 1)
         /// </summary>
-        LP = 12,
+        FloorTomLeftCymbal = 0x18, // Use Floor Tom as primary for enum value
         
         /// <summary>
-        /// Hi-Hat (DTX Channel 13, Lane Index 2)
+        /// Hi-Hat Foot & Left Crash (DTX Channels 1B&1C, Lane Index 2)
         /// </summary>
-        HH = 13,
+        HiHatFootLeftCrash = 0x1B, // Use Hi-Hat Foot as primary for enum value
         
         /// <summary>
-        /// Snare Drum (DTX Channel 14, Lane Index 3)
+        /// Left Pedal (DTX Channel 12, Lane Index 3)
         /// </summary>
-        SD = 14,
+        LeftPedal = 0x12,
         
         /// <summary>
-        /// Bass Drum (DTX Channel 15, Lane Index 4)
+        /// Snare Drum (DTX Channel 14, Lane Index 4)
         /// </summary>
-        BD = 15,
+        SnareDrum = 0x14,
         
         /// <summary>
-        /// High Tom (DTX Channel 16, Lane Index 5)
+        /// Hi-Hat (DTX Channel 13, Lane Index 5)
         /// </summary>
-        HT = 16,
+        HiHat = 0x13,
         
         /// <summary>
-        /// Low Tom (DTX Channel 17, Lane Index 6)
+        /// Bass Drum (DTX Channel 15, Lane Index 6)
         /// </summary>
-        LT = 17,
+        BassDrum = 0x15,
         
         /// <summary>
-        /// Floor Tom (DTX Channel 18, Lane Index 7)
+        /// High Tom (DTX Channel 16, Lane Index 7)
         /// </summary>
-        FT = 18,
+        HighTom = 0x16,
         
         /// <summary>
-        /// Right Cymbal (DTX Channel 19, Lane Index 8)
+        /// Low Tom & Right Cymbal (DTX Channels 17&19, Lane Index 8)
         /// </summary>
-        CY = 19
+        LowTomRightCymbal = 0x17 // Use Low Tom as primary for enum value
     }
     
     /// <summary>
@@ -336,39 +337,70 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Converts DTX channel number to InputLane enum
         /// </summary>
-        /// <param name="channel">DTX channel number (11-19)</param>
+        /// <param name="channel">DTX channel number</param>
         /// <returns>Corresponding InputLane, or null if invalid</returns>
         public static InputLane? FromChannel(int channel)
         {
-            if (channel >= 11 && channel <= 19)
+            return channel switch
             {
-                return (InputLane)channel;
-            }
-            return null;
+                0x1A => InputLane.Splash,
+                0x18 => InputLane.FloorTomLeftCymbal,
+                0x11 => InputLane.FloorTomLeftCymbal, // Same lane as Floor Tom
+                0x1B => InputLane.HiHatFootLeftCrash,
+                0x1C => InputLane.HiHatFootLeftCrash, // Same lane as Hi-Hat Foot
+                0x12 => InputLane.LeftPedal,
+                0x14 => InputLane.SnareDrum,
+                0x13 => InputLane.HiHat,
+                0x15 => InputLane.BassDrum,
+                0x16 => InputLane.HighTom,
+                0x17 => InputLane.LowTomRightCymbal,
+                0x19 => InputLane.LowTomRightCymbal, // Same lane as Low Tom
+                _ => null
+            };
         }
         
         /// <summary>
-        /// Converts InputLane to lane index (0-8)
+        /// Converts InputLane to lane index (0-8) using DTXChartParser mapping
         /// </summary>
         /// <param name="lane">InputLane enum value</param>
         /// <returns>Lane index (0-8)</returns>
         public static int ToLaneIndex(this InputLane lane)
         {
-            return (int)lane - 11;
+            return lane switch
+            {
+                InputLane.Splash => 0,                  // 1A → Lane 0
+                InputLane.FloorTomLeftCymbal => 1,       // 18&11 → Lane 1
+                InputLane.HiHatFootLeftCrash => 2,       // 1B&1C → Lane 2
+                InputLane.LeftPedal => 3,                // 12 → Lane 3
+                InputLane.SnareDrum => 4,                // 14 → Lane 4
+                InputLane.HiHat => 5,                    // 13 → Lane 5
+                InputLane.BassDrum => 6,                 // 15 → Lane 6
+                InputLane.HighTom => 7,                  // 16 → Lane 7
+                InputLane.LowTomRightCymbal => 8,        // 17&19 → Lane 8
+                _ => -1
+            };
         }
         
         /// <summary>
-        /// Converts lane index (0-8) to InputLane
+        /// Converts lane index (0-8) to InputLane using DTXChartParser mapping
         /// </summary>
         /// <param name="laneIndex">Lane index (0-8)</param>
         /// <returns>Corresponding InputLane, or null if invalid</returns>
         public static InputLane? FromLaneIndex(int laneIndex)
         {
-            if (laneIndex >= 0 && laneIndex <= 8)
+            return laneIndex switch
             {
-                return (InputLane)(laneIndex + 11);
-            }
-            return null;
+                0 => InputLane.Splash,                  // Lane 0 → 1A
+                1 => InputLane.FloorTomLeftCymbal,       // Lane 1 → 18&11
+                2 => InputLane.HiHatFootLeftCrash,       // Lane 2 → 1B&1C
+                3 => InputLane.LeftPedal,                // Lane 3 → 12
+                4 => InputLane.SnareDrum,                // Lane 4 → 14
+                5 => InputLane.HiHat,                    // Lane 5 → 13
+                6 => InputLane.BassDrum,                 // Lane 6 → 15
+                7 => InputLane.HighTom,                  // Lane 7 → 16
+                8 => InputLane.LowTomRightCymbal,        // Lane 8 → 17&19
+                _ => null
+            };
         }
         
         /// <summary>
@@ -380,15 +412,15 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             return lane switch
             {
-                InputLane.LC => "Left Cymbal",
-                InputLane.LP => "Left Pedal",
-                InputLane.HH => "Hi-Hat",
-                InputLane.SD => "Snare Drum",
-                InputLane.BD => "Bass Drum",
-                InputLane.HT => "High Tom",
-                InputLane.LT => "Low Tom",
-                InputLane.FT => "Floor Tom",
-                InputLane.CY => "Right Cymbal",
+                InputLane.Splash => "Splash/Crash",
+                InputLane.FloorTomLeftCymbal => "Floor Tom/Left Cymbal",
+                InputLane.HiHatFootLeftCrash => "Hi-Hat Foot/Left Crash",
+                InputLane.LeftPedal => "Left Pedal",
+                InputLane.SnareDrum => "Snare Drum",
+                InputLane.HiHat => "Hi-Hat",
+                InputLane.BassDrum => "Bass Drum",
+                InputLane.HighTom => "High Tom",
+                InputLane.LowTomRightCymbal => "Low Tom/Right Cymbal",
                 _ => "Unknown"
             };
         }

@@ -45,11 +45,11 @@ namespace DTXMania.Test.Input
             Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A"));
             Assert.Equal(1, _inputManager.KeyBindings.GetLane("Key.S"));
             Assert.Equal(2, _inputManager.KeyBindings.GetLane("Key.D"));
-            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.F"));
-            Assert.Equal(4, _inputManager.KeyBindings.GetLane("Key.Space"));
-            Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.J"));
-            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.K"));
-            Assert.Equal(7, _inputManager.KeyBindings.GetLane("Key.L"));
+            Assert.Equal(4, _inputManager.KeyBindings.GetLane("Key.F"));     // F -> Snare Drum (lane 4)
+            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space")); // Space -> Bass Drum (lane 6)
+        Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.J"));
+            Assert.Equal(7, _inputManager.KeyBindings.GetLane("Key.K"));
+            Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.L"));
             Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.OemSemicolon"));
         }
 
@@ -156,12 +156,12 @@ namespace DTXMania.Test.Input
         [InlineData("Key.A", 0)]
         [InlineData("Key.S", 1)]
         [InlineData("Key.D", 2)]
-        [InlineData("Key.F", 3)]
-        [InlineData("Key.Space", 4)]
-        [InlineData("Key.J", 5)]
-        [InlineData("Key.K", 6)]
-        [InlineData("Key.L", 7)]
-        [InlineData("Key.OemSemicolon", 8)]
+        [InlineData("Key.G", 3)]  // Left Pedal
+        [InlineData("Key.F", 4)]  // Snare Drum
+        [InlineData("Key.J", 5)]  // Hi-Hat
+        [InlineData("Key.Space", 6)] // Bass Drum
+        [InlineData("Key.K", 7)]  // High Tom
+        [InlineData("Key.L", 8)]  // Low Tom/Right Cymbal
         public void GetLane_DefaultBindings_ReturnsCorrectLane(string buttonId, int expectedLane)
         {
             // Act
@@ -192,7 +192,7 @@ namespace DTXMania.Test.Input
         public void MultipleButtonsToSameLane_AllWork()
         {
             // Arrange
-            var lane = 4; // Bass drum
+            var lane = 6; // Bass drum (now lane 6)
 
             // Act
             _inputManager.KeyBindings.BindButton("Key.B", lane);
@@ -251,15 +251,15 @@ namespace DTXMania.Test.Input
         }
 
         [Theory]
-        [InlineData(0, "LC (Left Cymbal)")]
-        [InlineData(1, "LP (Left Pedal)")]
-        [InlineData(2, "HH (Hi-Hat)")]
-        [InlineData(3, "SD (Snare Drum)")]
-        [InlineData(4, "BD (Bass Drum)")]
-        [InlineData(5, "HT (High Tom)")]
-        [InlineData(6, "LT (Low Tom)")]
-        [InlineData(7, "FT (Floor Tom)")]
-        [InlineData(8, "CY (Right Cymbal)")]
+        [InlineData(0, "Splash/Crash")]
+        [InlineData(1, "Floor Tom/Left Cymbal")]
+        [InlineData(2, "Hi-Hat Foot/Left Crash")]
+        [InlineData(3, "Left Pedal")]
+        [InlineData(4, "Snare Drum")]
+        [InlineData(5, "Hi-Hat")]
+        [InlineData(6, "Bass Drum")]
+        [InlineData(7, "High Tom")]
+        [InlineData(8, "Low Tom/Right Cymbal")]
         public void GetLaneName_ValidLanes_ReturnsCorrectNames(int lane, string expectedName)
         {
             // Act
@@ -291,7 +291,7 @@ namespace DTXMania.Test.Input
         public void LaneHitEventArgs_ValidParameters_CreatesCorrectly()
         {
             // Arrange
-            var lane = 3;
+            var lane = 4; // F key now maps to lane 4 (Snare Drum)
             var buttonState = new ButtonState("Key.F", true, 1.0f);
 
             // Act

@@ -260,6 +260,23 @@ namespace DTXMania.Game.Lib.Input
             SaveKeyBindings();
             Debug.WriteLine("[ModularInputManager] Key bindings reset to defaults");
         }
+        
+        /// <summary>
+        /// Forces a complete reset of key bindings, clearing any saved overrides
+        /// </summary>
+        public void ForceResetKeyBindings()
+        {
+            // Clear the config completely
+            _configManager.Config.KeyBindings.Clear();
+            
+            // Reload defaults
+            _keyBindings.ButtonToLane.Clear();
+            _keyBindings.LoadDefaultBindings();
+            
+            // Save the new defaults
+            SaveKeyBindings();
+            Debug.WriteLine("[ModularInputManager] Key bindings force reset to defaults");
+        }
 
         #endregion
 
@@ -355,8 +372,18 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void OnKeyBindingsChanged(object? sender, EventArgs e)
         {
-            // Auto-save bindings when they change
-            SaveKeyBindings();
+            // DEBUG: Temporarily disable auto-save to isolate the issue
+            System.Diagnostics.Debug.WriteLine("[ModularInputManager] Key bindings changed - AUTO-SAVE DISABLED FOR DEBUGGING");
+            
+            // Show current state after change
+            System.Diagnostics.Debug.WriteLine("[ModularInputManager] Current key bindings after change:");
+            foreach (var kvp in _keyBindings.ButtonToLane)
+            {
+                System.Diagnostics.Debug.WriteLine($"  {kvp.Key} → Lane {kvp.Value}");
+            }
+            
+            // Auto-save bindings when they change - COMMENTED OUT FOR DEBUGGING
+            // SaveKeyBindings();
             OnBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 
