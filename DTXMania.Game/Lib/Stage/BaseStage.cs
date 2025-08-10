@@ -51,13 +51,10 @@ namespace DTX.Stage
 
         public virtual void Activate(Dictionary<string, object> sharedData)
         {
-            if (_currentPhase != StagePhase.Inactive)
-            {
-                System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Already active, skipping activation");
-                return;
-            }
-
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Activating stage");
+        if (_currentPhase != StagePhase.Inactive)
+        {
+            return;
+        }
 
             // Store shared data
             _sharedData = sharedData ?? new Dictionary<string, object>();
@@ -66,19 +63,18 @@ namespace DTX.Stage
             _isFirstUpdate = true;
             _currentPhase = StagePhase.FadeIn;
 
+
             // Perform stage-specific activation
             OnActivate();
         }
 
         public virtual void Deactivate()
         {
-            if (_currentPhase == StagePhase.Inactive)
-            {
-                System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Already inactive, skipping deactivation");
-                return;
-            }
+        if (_currentPhase == StagePhase.Inactive)
+        {
+            return;
+        }
 
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Deactivating stage");
 
             // Perform stage-specific deactivation
             OnDeactivate();
@@ -93,6 +89,7 @@ namespace DTX.Stage
         {
             if (_currentPhase == StagePhase.Inactive)
                 return;
+
 
             // Handle first update
             if (_isFirstUpdate)
@@ -113,26 +110,26 @@ namespace DTX.Stage
             if (_currentPhase == StagePhase.Inactive)
                 return;
 
+
             OnDraw(deltaTime);
         }
 
         public virtual void OnTransitionIn(IStageTransition transition)
         {
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Transition in started");
+            
             _currentPhase = StagePhase.FadeIn;
             OnTransitionInStarted(transition);
         }
 
         public virtual void OnTransitionOut(IStageTransition transition)
         {
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Transition out started");
+            
             _currentPhase = StagePhase.FadeOut;
             OnTransitionOutStarted(transition);
         }
 
         public virtual void OnTransitionComplete()
         {
-            System.Diagnostics.Debug.WriteLine($"{GetType().Name}: Transition completed");
             _currentPhase = StagePhase.Normal;
             OnTransitionCompleted();
         }
@@ -180,6 +177,7 @@ namespace DTX.Stage
         /// Called when a transition completes
         /// </summary>
         protected virtual void OnTransitionCompleted() { }
+
 
         #endregion
 
@@ -279,15 +277,15 @@ namespace DTX.Stage
             {
                 if (disposing)
                 {
-                    // Deactivate if still active
-                    if (_currentPhase != StagePhase.Inactive)
-                    {
-                        Deactivate();
-                    }
+            // Deactivate if still active
+            if (_currentPhase != StagePhase.Inactive)
+            {
+                Deactivate();
+            }
 
-                    // Clear shared data
-                    _sharedData?.Clear();
-                    _sharedData = null;
+            // Clear shared data
+            _sharedData?.Clear();
+            _sharedData = null;
                 }
                 _disposed = true;
             }

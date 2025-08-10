@@ -188,6 +188,23 @@ namespace DTX.Stage
 
         #endregion
 
+        #region BaseStage Overrides
+
+        /// <summary>
+        /// Override DumpState to provide SongTransitionStage-specific state information
+        /// </summary>
+        protected override void DumpState()
+        {
+            // Call base implementation first
+            base.DumpState();
+            
+            // Add stage-specific state information
+            System.Diagnostics.Debug.WriteLine($"[STATE_DUMP] {GetType().Name}: SongTitle='{_songTitle ?? "null"}', Artist='{_artistName ?? "null"}', Difficulty='{_difficultyName ?? "null"}'");
+            System.Diagnostics.Debug.WriteLine($"[STATE_DUMP] {GetType().Name}: ChartLoaded={_chartLoaded}, ElapsedTime={_elapsedTime:F2}s, SongId={_songId}");
+        }
+
+        #endregion
+
         #region Initialization
 
         private void LoadBackground()

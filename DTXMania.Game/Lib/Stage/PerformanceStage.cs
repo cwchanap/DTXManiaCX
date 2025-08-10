@@ -290,6 +290,15 @@ namespace DTX.Stage
 
         private void CleanupComponents()
         {
+
+            // Reset state variables to initial values for proper reactivation
+            _isLoading = true; // Initial state is loading
+            _isReady = false; // Initial state is not ready
+            _stageCompleted = false; // Initial state is not completed
+            _inputPaused = false; // Initial state is input enabled
+            _totalTime = 0.0; // Reset total time
+            _readyCountdown = 1.0; // Reset ready countdown
+
             // Cleanup background renderer
             _backgroundRenderer?.Dispose();
             _backgroundRenderer = null;
@@ -344,6 +353,7 @@ namespace DTX.Stage
             // Clear chart data
             _parsedChart = null;
             _chartManager = null;
+
         }
 
         #endregion
@@ -417,9 +427,7 @@ namespace DTX.Stage
                     var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath;
                     if (string.IsNullOrEmpty(chartPath))
-                    {
                         return;
-                    }
 
                     _parsedChart = await DTXChartParser.ParseAsync(chartPath);
                 }
@@ -446,9 +454,6 @@ namespace DTX.Stage
                     var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
                     await _audioLoader.PreloadForChartAsync(chartPath, _parsedChart.BackgroundAudioPath);
                 }
-                else
-                {
-                }
 
                 // Load BGM sounds for all BGM events (separate from background audio)
                 await LoadBGMSoundsAsync();
@@ -465,7 +470,6 @@ namespace DTX.Stage
             catch (Exception ex)
             {
                 _isLoading = false;
-                System.Diagnostics.Debug.WriteLine($"[CRITICAL] PerformanceStage: Failed to initialize gameplay. Exception: {ex}");
                 // Rethrowing the exception to make sure it's not silently ignored.
                 // This will prevent the stage from being in a broken state.
                 throw;
@@ -504,6 +508,7 @@ namespace DTX.Stage
             if (_songTimer != null && _songTimer.IsPlaying)
             {
                 var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+                
                 ProcessBGMEvents(currentTimeMs);
 
                 // Update gameplay managers with current song time
@@ -531,18 +536,12 @@ namespace DTX.Stage
                 {
                     // New approach: Use BGM events for timed playback, silence the background audio
                     _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Using BGM events for audio ({_scheduledBGMEvents.Count} events), background audio muted");
                 }
                 else
                 {
                     // Legacy approach: Play background audio immediately (no BGM events)
                     _songTimer.Volume = 1.0f; // Ensure background audio is audible
-                    System.Diagnostics.Debug.WriteLine("PerformanceStage: No BGM events found, using background audio");
                 }
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("PerformanceStage: Cannot start song - no song timer available");
             }
         }
 
@@ -668,16 +667,11 @@ namespace DTX.Stage
                     {
                         var sound = new ManagedSound(bgmEvent.AudioFilePath);
                         _bgmSounds[bgmEvent.WavId] = sound;
-                        System.Diagnostics.Debug.WriteLine($"PerformanceStage: Loaded BGM sound {bgmEvent.WavId}: {Path.GetFileName(bgmEvent.AudioFilePath)}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"PerformanceStage: BGM file not found: {bgmEvent.AudioFilePath}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to load BGM {bgmEvent.WavId}: {ex.Message}");
+                    // BGM loading failed, continue with other sounds
                 }
             }
         }
@@ -716,16 +710,11 @@ namespace DTX.Stage
                 {
                     var instance = sound.CreateInstance();
                     instance?.Play();
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Triggered BGM event {bgmEvent.WavId} at {bgmEvent.TimeMs:F1}ms");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PerformanceStage: Failed to play BGM {bgmEvent.WavId}: {ex.Message}");
+                    // BGM playback failed, continue with game
                 }
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"PerformanceStage: BGM sound not loaded for event {bgmEvent.WavId}");
             }
         }
 
@@ -750,7 +739,6 @@ namespace DTX.Stage
             // Wire up event handlers for UI binding
             WireUpEventHandlers();
 
-            System.Diagnostics.Debug.WriteLine($"Gameplay managers initialized for {_chartManager.TotalNotes} notes");
         }
 
         /// <summary>
@@ -835,7 +823,6 @@ namespace DTX.Stage
         /// </summary>
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"Player failed with {e.FinalLife:F1}% life!");
 
             // Trigger stage completion on failure
             if (!_stageCompleted)
@@ -849,33 +836,6 @@ namespace DTX.Stage
         /// </summary>
         private void UpdateGameplayManagers(double currentSongTimeMs)
         {
-            // DEBUG: Log song timing occasionally with extensive detail
-            if ((int)currentSongTimeMs % 1000 < 50) // Log roughly every second
-            {
-                var allNotes = _chartManager?.AllNotes;
-                if (allNotes != null && allNotes.Count > 0)
-                {
-                    var firstNote = allNotes.FirstOrDefault();
-                    var firstNonZeroNote = allNotes.Where(n => n.TimeMs > 0).OrderBy(n => n.TimeMs).FirstOrDefault();
-                    var firstLane3Note = allNotes.Where(n => n.LaneIndex == 3).OrderBy(n => n.TimeMs).FirstOrDefault();
-                    var totalNotesAtZero = allNotes.Where(n => n.TimeMs == 0).Count();
-                    
-                    System.Diagnostics.Debug.WriteLine($"[PerformanceStage] Song time: {currentSongTimeMs:F1}ms");
-                    System.Diagnostics.Debug.WriteLine($"  Total notes: {allNotes.Count}, Notes at time 0: {totalNotesAtZero}");
-                    System.Diagnostics.Debug.WriteLine($"  First note (any): {firstNote?.ToString() ?? "null"}");
-                    System.Diagnostics.Debug.WriteLine($"  First note (time > 0): {firstNonZeroNote?.ToString() ?? "null"}");
-                    System.Diagnostics.Debug.WriteLine($"  First lane 3 note: {firstLane3Note?.ToString() ?? "null"}");
-                    
-                    // Show the first few notes with their timings
-                    var firstFiveNotes = allNotes.Take(5).ToList();
-                    for (int i = 0; i < firstFiveNotes.Count; i++)
-                    {
-                        var note = firstFiveNotes[i];
-                        System.Diagnostics.Debug.WriteLine($"  Note {i}: {note}");
-                    }
-                }
-            }
-            
             if (_judgementManager?.IsActive == true)
             {
                 _judgementManager.Update(currentSongTimeMs);
@@ -1046,7 +1006,6 @@ namespace DTX.Stage
                 CompletionReason = reason
             };
 
-            System.Diagnostics.Debug.WriteLine($"Performance finalized: {reason}, Score: {_performanceSummary.Score}, Clear: {_performanceSummary.ClearFlag}");
 
             // Pass the summary to ResultStage
             TransitionToResultStage();
@@ -1066,7 +1025,6 @@ namespace DTX.Stage
         }
 
         #endregion
-
 
 
         #region Disposal
