@@ -11,6 +11,7 @@ using DTX.Stage;
 using DTXMania.Game;
 using DTXMania.Test.Helpers;
 using DTX.Song;
+using DTX.Song.Components;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Input;
 
@@ -126,16 +127,14 @@ namespace DTXMania.Test.Stage.Performance
 
         private ParsedChart CreateMinimalParsedChart()
         {
-            return new ParsedChart
+            var chart = new ParsedChart
             {
-                Title = "Test Chart",
-                Artist = "Test Artist",
                 Bpm = 120.0,
                 DurationMs = 60000,
-                Notes = new List<Note>(),
-                BGMEvents = new List<BGMEvent>(),
-                BackgroundAudioPath = "test.wav"
+                BackgroundAudioPath = "test.wav",
+                FilePath = "test.dtx"
             };
+            return chart;
         }
 
         private void SimulateGameplayStateChanges(PerformanceStage stage)
@@ -186,7 +185,8 @@ namespace DTXMania.Test.Stage.Performance
     /// </summary>
     public class MockInputManagerSimple : InputManagerCompat
     {
-        public override bool IsBackActionTriggered() => false;
-        public override void Update(double deltaTime) { }
+        public MockInputManagerSimple() : base(new DTX.Config.ConfigManager()) { }
+        public new bool IsBackActionTriggered() => false;
+        public new void Update(double deltaTime) { }
     }
 }
