@@ -164,6 +164,10 @@ namespace DTX.Stage.Performance
                     _backgroundTexture?.Dispose();
                     _backgroundTexture = null;
                     _whiteTexture?.Dispose();
+                    
+                    // Reset state variables to initial values for proper reactivation
+                    _isLoading = false;
+                    _loadingFailed = false;
                 }
 
                 _disposed = true;

@@ -82,13 +82,22 @@ namespace DTX.Stage
             }
 
             var previousStageType = _currentStage?.Type;
-            System.Diagnostics.Debug.WriteLine($"StageManager: Starting transition from {previousStageType} to {stageType}");
-
+            
             // Store transition information
             _targetStageType = stageType;
             _pendingSharedData = sharedData;
             _currentTransition = transition ?? new InstantTransition();
             _isTransitioning = true;
+
+            // DEBUG: Detailed transition audit information
+            var transitionTypeName = _currentTransition.GetType().Name;
+            var fadeOutAlpha = _currentTransition.GetFadeOutAlpha();
+            var fadeInAlpha = _currentTransition.GetFadeInAlpha();
+            var sharedDataStatus = sharedData == null ? "null" : (sharedData.Count == 0 ? "empty" : $"contains {sharedData.Count} keys: [{string.Join(", ", sharedData.Keys)}]");
+            
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] ChangeStage: {previousStageType ?? StageType.Startup} -> {stageType}");
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Transition: {transitionTypeName} (Duration: {_currentTransition.Duration:F3}s, FadeOut: {fadeOutAlpha:F3}, FadeIn: {fadeInAlpha:F3})");
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] SharedData: {sharedDataStatus}");
 
             // Start transition
             _currentTransition.Start();
@@ -149,7 +158,16 @@ namespace DTX.Stage
             if (!_isTransitioning)
                 return;
 
-            System.Diagnostics.Debug.WriteLine($"StageManager: Completing transition to {_targetStageType}");
+            // DEBUG: Detailed completion audit
+            var previousStageType = _previousStage?.Type ?? _currentStage?.Type;
+            var transitionTypeName = _currentTransition?.GetType().Name ?? "Unknown";
+            var finalFadeOutAlpha = _currentTransition?.GetFadeOutAlpha() ?? 0.0f;
+            var finalFadeInAlpha = _currentTransition?.GetFadeInAlpha() ?? 1.0f;
+            var sharedDataStatus = _pendingSharedData == null ? "null" : (_pendingSharedData.Count == 0 ? "empty" : $"contains {_pendingSharedData.Count} keys: [{string.Join(", ", _pendingSharedData.Keys)}]");
+
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] CompleteTransition: {previousStageType} -> {_targetStageType}");
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Final transition alphas - FadeOut: {finalFadeOutAlpha:F3}, FadeIn: {finalFadeInAlpha:F3}");
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Passing SharedData: {sharedDataStatus}");
 
             // Store previous stage for cleanup
             _previousStage = _currentStage;
@@ -157,6 +175,7 @@ namespace DTX.Stage
             // Deactivate previous stage
             if (_previousStage != null)
             {
+                System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Deactivating previous stage: {_previousStage.Type}");
                 _previousStage.Deactivate();
             }
 
@@ -164,6 +183,7 @@ namespace DTX.Stage
             if (_stages.TryGetValue(_targetStageType, out var newStage))
             {
                 _currentStage = newStage;
+                System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Activating new stage: {_targetStageType}");
                 _currentStage.Activate(_pendingSharedData);
                 _currentStage.OnTransitionIn(_currentTransition);
                 _currentStage.OnTransitionComplete();
@@ -175,7 +195,7 @@ namespace DTX.Stage
             _pendingSharedData = null;
             _previousStage = null;
 
-            System.Diagnostics.Debug.WriteLine($"StageManager: Transition to {_targetStageType} completed");
+            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Transition to {_targetStageType} completed - stage is now active");
         }
 
         private void DrawTransition(double deltaTime)
@@ -213,16 +233,34 @@ namespace DTX.Stage
             {
                 if (disposing)
                 {
+                    // DEBUG: Audit stage manager disposal
+                    var currentStageType = _currentStage?.Type;
+                    var isCurrentlyTransitioning = _isTransitioning;
+                    var currentTransitionType = _currentTransition?.GetType().Name;
+                    
+                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] StageManager.Dispose: CurrentStage={currentStageType}, IsTransitioning={isCurrentlyTransitioning}, Transition={currentTransitionType}");
+                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Disposing {_stages.Count} total stages");
+
                     // Deactivate current stage before disposal
-                    _currentStage?.Deactivate();
-                    _currentStage = null;
+                    if (_currentStage != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Deactivating current stage before disposal: {_currentStage.Type}");
+                        _currentStage.Deactivate();
+                        _currentStage = null;
+                    }
 
                     // Dispose all stages
                     foreach (var stage in _stages.Values)
                     {
-                        stage?.Dispose();
+                        if (stage != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Disposing stage: {stage.Type}");
+                            stage.Dispose();
+                        }
                     }
                     _stages.Clear();
+                    
+                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] StageManager disposal completed");
                 }
                 _disposed = true;
             }

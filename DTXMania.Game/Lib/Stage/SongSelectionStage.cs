@@ -558,6 +558,7 @@ namespace DTX.Stage
 
         private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
+            
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
 
@@ -701,8 +702,6 @@ namespace DTX.Stage
         {
             if (songNode == null || songNode.Type != NodeType.Score)
                 return;
-            
-            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: SelectSong called for {songNode.DisplayTitle}");
             
             // Create shared data to pass song information to the transition stage
             var sharedData = new Dictionary<string, object>
@@ -1062,11 +1061,9 @@ namespace DTX.Stage
             {
                 // Load DTXMania-style cursor move sound (same as TitleStage)
                 _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded cursor move sound");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load cursor move sound: {ex.Message}");
                 _cursorMoveSound = null;
             }
             
@@ -1074,24 +1071,16 @@ namespace DTX.Stage
             {
                 // Load now loading sound for song selection
                 _gameStartSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Successfully loaded now loading sound");
-                if (_gameStartSound == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: WARNING - gameStartSound is null after loading");
-                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load now loading sound, trying fallback: {ex.Message}");
                 try
                 {
                     // Fallback to decide sound if Now loading.ogg doesn't work
                     _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: Loaded fallback sound (Decide.ogg)");
                 }
                 catch (Exception fallbackEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load fallback sound: {fallbackEx.Message}");
                     _gameStartSound = null;
                 }
             }
@@ -1155,15 +1144,15 @@ namespace DTX.Stage
                 // Apply volume fade
                 if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
                 {
-                    try
-                    {
-                        float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
-                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error setting BGM fade out volume: {ex.Message}");
-                    }
+                try
+                {
+                    float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
+                    _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
+                }
+                catch (Exception ex)
+                {
+                    // BGM fade failed, continue
+                }
                 }
             }
 
@@ -1180,15 +1169,15 @@ namespace DTX.Stage
                 // Apply volume fade
                 if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
                 {
-                    try
-                    {
-                        float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
-                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error setting BGM fade in volume: {ex.Message}");
-                    }
+                try
+                {
+                    float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
+                    _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
+                }
+                catch (Exception ex)
+                {
+                    // BGM fade failed, continue
+                }
                 }
             }
         }
@@ -1216,26 +1205,9 @@ namespace DTX.Stage
                 // Convert to absolute path to avoid ResourceManager's skin-based path resolution
                 string absolutePreviewPath = Path.GetFullPath(previewPath);
                 
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Attempting to load preview sound: {previewPath}");
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Absolute preview path: {absolutePreviewPath}");
-
                 if (File.Exists(absolutePreviewPath))
                 {
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound file exists, loading: {absolutePreviewPath}");
-                    string extension = Path.GetExtension(absolutePreviewPath).ToLowerInvariant();
-                    
-                    if (TryLoadPreviewSoundFile(absolutePreviewPath))
-                    {
-                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound loaded successfully: {absolutePreviewPath}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound loading failed: {absolutePreviewPath}");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Preview sound file does not exist: {absolutePreviewPath}");
+                    TryLoadPreviewSoundFile(absolutePreviewPath);
                 }
             }
             catch (Exception)
@@ -1363,7 +1335,7 @@ namespace DTX.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to play cursor move sound: {ex.Message}");
+                // Cursor sound failed, continue
             }
         }
         
@@ -1374,20 +1346,11 @@ namespace DTX.Stage
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: PlayGameStartSound called");
-                if (_gameStartSound == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongSelectionStage: WARNING - gameStartSound is null, cannot play");
-                    return;
-                }
-                
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Playing now loading sound at 90% volume");
-                _gameStartSound.Play(0.9f); // Play at 90% volume (same as TitleStage)
-                System.Diagnostics.Debug.WriteLine("SongSelectionStage: Now loading sound play command executed");
+                _gameStartSound?.Play(0.9f); // Play at 90% volume (same as TitleStage)
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to play game start sound: {ex.Message}");
+                // Game start sound failed, continue
             }
         }
 

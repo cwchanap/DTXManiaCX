@@ -40,8 +40,10 @@ namespace DTX.Stage.Performance
             get => _soundInstance?.Volume ?? 0f;
             set
             {
-                if (_soundInstance != null)
-                    _soundInstance.Volume = MathHelper.Clamp(value, 0f, 1f);
+            if (_soundInstance != null)
+            {
+                _soundInstance.Volume = MathHelper.Clamp(value, 0f, 1f);
+            }
             }
         }
 
@@ -68,7 +70,7 @@ namespace DTX.Stage.Performance
         /// <param name="soundInstance">The sound instance to wrap</param>
         public SongTimer(SoundEffectInstance soundInstance)
         {
-            _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
+        _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
         }
 
         #endregion
@@ -81,13 +83,13 @@ namespace DTX.Stage.Performance
         /// <param name="gameTime">Current game time for precise timing</param>
         public void Play(GameTime gameTime)
         {
-            if (_disposed || _soundInstance == null)
-                return;
+        if (_disposed || _soundInstance == null)
+            return;
 
-            _startTime = gameTime.TotalGameTime;
-            _systemStartTime = DateTime.UtcNow;
-            _soundInstance.Play();
-            _isPlaying = true;
+        _startTime = gameTime.TotalGameTime;
+        _systemStartTime = DateTime.UtcNow;
+        _soundInstance.Play();
+        _isPlaying = true;
         }
 
         /// <summary>
@@ -126,11 +128,11 @@ namespace DTX.Stage.Performance
         /// </summary>
         public void Stop()
         {
-            if (_disposed || _soundInstance == null)
-                return;
+        if (_disposed || _soundInstance == null)
+            return;
 
-            _soundInstance.Stop();
-            _isPlaying = false;
+        _soundInstance.Stop();
+        _isPlaying = false;
         }
 
         /// <summary>
@@ -170,13 +172,13 @@ namespace DTX.Stage.Performance
         /// <param name="gameTime">Current game time for timing adjustment</param>
         public void SetPosition(double positionMs, GameTime gameTime)
         {
-            if (_disposed || _soundInstance == null)
-                return;
+        if (_disposed || _soundInstance == null)
+            return;
 
-            // Note: XNA/MonoGame SoundEffectInstance doesn't support seeking
-            // This method is provided for future compatibility
-            // For now, we adjust the start time to simulate the position
-            _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(positionMs);
+        // Note: XNA/MonoGame SoundEffectInstance doesn't support seeking
+        // This method is provided for future compatibility
+        // For now, we adjust the start time to simulate the position
+        _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(positionMs);
         }
 
         /// <summary>
