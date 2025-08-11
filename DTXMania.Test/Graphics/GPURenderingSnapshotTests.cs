@@ -115,7 +115,7 @@ namespace DTXMania.Test.Graphics
                     _graphicsDevice.SetRenderTarget(null);
 
                     // Save snapshot
-                    var testName = $"SolidColor_{testColor.Name}";
+                    var testName = $"SolidColor_{testColor.ToString()}";
                     var snapshotPath = await SaveRenderTargetSnapshot(renderTarget, testName);
 
                     // Assert - Verify color accuracy
@@ -125,13 +125,13 @@ namespace DTXMania.Test.Graphics
                     // Allow small tolerance for GPU precision
                     const int tolerance = 2;
                     Assert.True(Math.Abs(centerPixel.R - testColor.R) <= tolerance, 
-                        $"Red channel mismatch for {testColor.Name}: expected {testColor.R}, got {centerPixel.R}");
+                        $"Red channel mismatch for {testColor}: expected {testColor.R}, got {centerPixel.R}");
                     Assert.True(Math.Abs(centerPixel.G - testColor.G) <= tolerance, 
-                        $"Green channel mismatch for {testColor.Name}: expected {testColor.G}, got {centerPixel.G}");
+                        $"Green channel mismatch for {testColor}: expected {testColor.G}, got {centerPixel.G}");
                     Assert.True(Math.Abs(centerPixel.B - testColor.B) <= tolerance, 
-                        $"Blue channel mismatch for {testColor.Name}: expected {testColor.B}, got {centerPixel.B}");
+                        $"Blue channel mismatch for {testColor}: expected {testColor.B}, got {centerPixel.B}");
 
-                    _output.WriteLine($"✓ Color {testColor.Name} rendered correctly - {Path.GetFileName(snapshotPath)}");
+                    _output.WriteLine($"✓ Color {testColor} rendered correctly - {Path.GetFileName(snapshotPath)}");
                 }
             }
             finally
