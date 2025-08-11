@@ -56,9 +56,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="inputManager">Input manager for receiving lane hit events</param>
         /// <param name="chartManager">Chart manager containing note data</param>
-        public JudgementManager(InputManager inputManager, ChartManager chartManager)
+        public JudgementManager(InputManagerCompat inputManager, ChartManager chartManager)
         {
-            _inputManager = (inputManager as InputManagerCompat) ?? throw new ArgumentException("JudgementManager requires InputManagerCompat for lane hit events", nameof(inputManager));
+            _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
             _chartManager = chartManager ?? throw new ArgumentNullException(nameof(chartManager));
             _noteRuntimeData = new Dictionary<int, NoteRuntimeData>();
             _pendingLaneHits = new List<int>();
@@ -310,6 +310,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             for (int i = startIndex; i < _chartManager.AllNotes.Count; i++)
             {
                 var note = _chartManager.AllNotes[i];
+                
+                // Early break: if note is too far in future, stop scanning since notes are time-sorted
+                if (note.TimeMs - currentSongTimeMs > HitDetectionWindowMs)
+                {
+#if DEBUG
+                    System.Diagnostics.Debug.WriteLine($"[JudgementManager]   EARLY BREAK: Note {note.Id} at {note.TimeMs:F2}ms is {note.TimeMs - currentSongTimeMs:F2}ms beyond current time (> {HitDetectionWindowMs}ms window)");
+#endif
+                    break;
+                }
+                
                 if (note.LaneIndex != laneIndex)
                     continue;
 

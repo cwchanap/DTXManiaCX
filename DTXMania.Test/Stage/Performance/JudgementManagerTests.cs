@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
@@ -19,7 +20,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Constructor_ValidInputs_InitializesCorrectly()
         {
             // Arrange
-            var inputManager = new InputManager();
+            var inputManager = new MockInputManagerCompat();
             var chartManager = CreateTestChartManager();
 
             // Act
@@ -44,7 +45,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Constructor_NullChartManager_ThrowsArgumentNullException()
         {
             // Arrange
-            var inputManager = new InputManager();
+            var inputManager = new MockInputManagerCompat();
 
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new JudgementManager(inputManager, null));
