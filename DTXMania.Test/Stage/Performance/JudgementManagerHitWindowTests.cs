@@ -40,7 +40,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_VariousTimings_ReturnsCorrectJudgement(double deltaMs, JudgementType expectedJudgement)
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0); // Note at 1000ms
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -65,7 +65,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_ExactlyAtJustWindow_ReturnsJust()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -87,7 +87,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_ExactlyAtGreatWindow_ReturnsGreat()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -109,7 +109,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_BeyondDetectionWindow_NoHit()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -129,7 +129,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_WithinDetectionAndWithinGood_ReturnsGood()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -151,7 +151,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_MultipleNotesInWindow_HitsNearest()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateMultipleNotesChartManager();
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -173,7 +173,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_EarlyHitNegativeDelta_CorrectJudgement()
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
@@ -203,7 +203,7 @@ namespace DTXMania.Test.Stage.Performance
         public void HitWindowBoundaries_EdgeCases_CorrectJudgements(double deltaMs, JudgementType expectedJudgement)
         {
             // Arrange
-            var mockInputManager = new MockInputManager();
+            var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSingleNoteChartManager(1000.0);
             var judgementManager = new JudgementManager(mockInputManager, chartManager);
 

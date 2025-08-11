@@ -10,7 +10,7 @@ namespace DTXMania.Game.Lib.Graphics
     /// </summary>
     public class GraphicsManager : IGraphicsManager, IDisposable
     {
-        private readonly Game _game;
+        private readonly Microsoft.Xna.Framework.Game _game;
         private readonly GraphicsDeviceManager _deviceManager;
         private GraphicsSettings _currentSettings;
         private RenderTargetManager _renderTargetManager;
@@ -29,7 +29,7 @@ namespace DTXMania.Game.Lib.Graphics
         /// </summary>
         public RenderTargetManager RenderTargetManager => _renderTargetManager;
 
-        public GraphicsManager(Game game, GraphicsDeviceManager deviceManager)
+        public GraphicsManager(Microsoft.Xna.Framework.Game game, GraphicsDeviceManager deviceManager)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
             _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));

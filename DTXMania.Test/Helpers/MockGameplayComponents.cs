@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
@@ -124,6 +125,89 @@ namespace DTXMania.Test.Helpers
         /// Override to use injected state instead of actual keyboard
         /// </summary>
         public new bool IsKeyReleased(int keyCode)
+        {
+            var key = (Keys)keyCode;
+            var currentPressed = _currentKeyStates.TryGetValue(key, out var isPressed) && isPressed;
+            var prevPressed = _previousKeyStates.TryGetValue(key, out var wasPrevPressed) && wasPrevPressed;
+            return !currentPressed && prevPressed;
+        }
+    }
+
+    /// <summary>
+    /// Mock InputManagerCompat for testing that provides complete control over input simulation.
+    /// Inherits from InputManagerCompat while allowing state injection for testing purposes.
+    /// </summary>
+    public class MockInputManagerCompat : InputManagerCompat
+    {
+        private readonly Dictionary<Keys, bool> _currentKeyStates = new();
+        private readonly Dictionary<Keys, bool> _previousKeyStates = new();
+        
+        public MockInputManagerCompat() : base(new ConfigManager())
+        {
+        }
+
+        /// <summary>
+        /// Sets the current state of a key
+        /// </summary>
+        public void SetKeyState(Keys key, bool isPressed)
+        {
+            _previousKeyStates[key] = _currentKeyStates.TryGetValue(key, out var prevState) && prevState;
+            _currentKeyStates[key] = isPressed;
+        }
+
+        /// <summary>
+        /// Simulates a key press (transition from not pressed to pressed)
+        /// </summary>
+        public void SetKeyPressed(Keys key, bool isPressed)
+        {
+            if (isPressed)
+            {
+                _previousKeyStates[key] = false;
+                _currentKeyStates[key] = true;
+            }
+            else
+            {
+                _previousKeyStates[key] = _currentKeyStates.TryGetValue(key, out var prevState) && prevState;
+                _currentKeyStates[key] = false;
+            }
+        }
+
+        /// <summary>
+        /// Updates key states to simulate frame-to-frame progression
+        /// </summary>
+        public void UpdateKeyStates()
+        {
+            _previousKeyStates.Clear();
+            foreach (var kvp in _currentKeyStates)
+            {
+                _previousKeyStates[kvp.Key] = kvp.Value;
+            }
+        }
+
+        /// <summary>
+        /// Simulates triggering a lane hit event for testing
+        /// </summary>
+        public void TriggerLaneHit(int lane)
+        {
+            var hitArgs = new LaneHitEventArgs(lane, new ButtonHit { Id = $"MockButton{lane}", Velocity = 1.0f, Time = 0.0 });
+            ModularInputManager.OnLaneHit?.Invoke(this, hitArgs);
+        }
+
+        public override bool IsKeyDown(int keyCode)
+        {
+            var key = (Keys)keyCode;
+            return _currentKeyStates.TryGetValue(key, out var isPressed) && isPressed;
+        }
+
+        public override bool IsKeyPressed(int keyCode)
+        {
+            var key = (Keys)keyCode;
+            var currentPressed = _currentKeyStates.TryGetValue(key, out var isPressed) && isPressed;
+            var prevPressed = _previousKeyStates.TryGetValue(key, out var wasPrevPressed) && wasPrevPressed;
+            return currentPressed && !prevPressed;
+        }
+
+        public override bool IsKeyReleased(int keyCode)
         {
             var key = (Keys)keyCode;
             var currentPressed = _currentKeyStates.TryGetValue(key, out var isPressed) && isPressed;
