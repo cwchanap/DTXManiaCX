@@ -83,7 +83,7 @@ namespace DTXMania.Game.Lib.Stage
         private ISound _previewSound;
         private SoundEffectInstance _previewSoundInstance;
         private ISound _backgroundMusic; // Reference to BGM
-        private SoundEffectInstance _backgroundMusicInstance;
+        private ISoundInstance _backgroundMusicInstance;
         
         // Navigation sound functionality (same as TitleStage)
         private ISound _cursorMoveSound;
@@ -1400,7 +1400,7 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Set the background music instance for volume control during preview
         /// </summary>
-        public void SetBackgroundMusic(ISound backgroundMusic, SoundEffectInstance backgroundMusicInstance)
+        public void SetBackgroundMusic(ISound backgroundMusic, ISoundInstance backgroundMusicInstance)
         {
             _backgroundMusic = backgroundMusic;
             _backgroundMusicInstance = backgroundMusicInstance;

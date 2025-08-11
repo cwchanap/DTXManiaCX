@@ -17,15 +17,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _currentScore;
         private bool _disposed = false;
 
-        // Score multipliers for each judgement type
-        private readonly double[] _scoreMultipliers = new double[]
-        {
-            1.0, // Just
-            0.9, // Great
-            0.5, // Good
-            0.0, // Poor
-            0.0  // Miss
-        };
 
         #endregion
 
@@ -130,11 +121,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <returns>Score multiplier (0.0 to 1.0)</returns>
         public double GetScoreMultiplier(JudgementType judgementType)
         {
-            int index = (int)judgementType;
-            if (index >= 0 && index < _scoreMultipliers.Length)
-                return _scoreMultipliers[index];
-            
-            return 0.0; // Default for unknown types
+            return GetScoreMultiplierStatic(judgementType);
+        }
+
+        /// <summary>
+        /// Gets the score multiplier for a specific judgement type (static version)
+        /// </summary>
+        /// <param name="judgementType">Judgement type</param>
+        /// <returns>Score multiplier (0.0 to 1.0)</returns>
+        public static double GetScoreMultiplierStatic(JudgementType judgementType)
+        {
+            return judgementType switch
+            {
+                JudgementType.Just => 1.0,
+                JudgementType.Great => 0.9,
+                JudgementType.Good => 0.5,
+                JudgementType.Poor => 0.0,
+                JudgementType.Miss => 0.0,
+                _ => 0.0 // Default for unknown types
+            };
         }
 
         /// <summary>

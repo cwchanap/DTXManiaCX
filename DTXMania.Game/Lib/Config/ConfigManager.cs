@@ -108,8 +108,15 @@ namespace DTXMania.Game.Lib.Config
                 default:
                     if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
                     {
-                        Config.KeyBindings[key] = lane;
-                        System.Diagnostics.Debug.WriteLine($"[ConfigManager] Loaded key binding from config: {key} → Lane {lane}");
+                        if (lane >= 0 && lane <= 8)
+                        {
+                            Config.KeyBindings[key] = lane;
+                            System.Diagnostics.Debug.WriteLine($"[ConfigManager] Loaded key binding from config: {key} → Lane {lane}");
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ConfigManager] WARNING: Ignoring invalid lane binding {key} → {lane} (valid range: 0-8)");
+                        }
                     }
                     break;
             }
