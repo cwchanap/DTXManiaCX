@@ -12,7 +12,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Subscribes to lane hit events from the modular input system.
     /// Each Update tick:
     /// 1. Process any pending lane hit events from the input system.
-    /// 2. For each lane hit, query ChartManager for the nearest *unhit* note within ±90 ms and decide judgement by abs Δ.
+    /// 2. For each lane hit, query ChartManager for the nearest *unhit* note within ±150 ms and decide judgement by abs Δ.
     /// 3. Mark note as Hit, emit JudgementEvent via C# event or IEventBus.
     /// Maintain per-note state (enum: Pending/Hit/Missed) inside a NoteRuntimeData dictionary keyed by Note.Id to avoid double hits.
     /// </summary>
@@ -26,8 +26,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly List<int> _pendingLaneHits;
         private bool _disposed = false;
 
-        // Timing window for hit detection (±90ms as specified)
-        private const double HitDetectionWindowMs = 90.0;
+        // Timing window for hit detection (±150ms to cover Poor judgement range)
+        private const double HitDetectionWindowMs = 150.0;
 
         #endregion
 

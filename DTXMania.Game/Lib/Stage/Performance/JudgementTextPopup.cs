@@ -269,16 +269,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <returns>Color for the judgement</returns>
         private Color GetJudgementColor(string text)
         {
-            foreach (var kvp in JudgementTexts)
+            return text switch
             {
-                if (kvp.Value == text && JudgementColors.TryGetValue(kvp.Key, out var color))
-                {
-                    return color;
-                }
-            }
-
-            // Default to white if not found
-            return Color.White;
+                "JUST" => Color.Yellow,
+                "GREAT" => Color.LightGreen,
+                "GOOD" => Color.LightBlue,
+                "POOR" => Color.Orange,
+                "MISS" => Color.Red,
+                _ => Color.White
+            };
         }
 
         /// <summary>

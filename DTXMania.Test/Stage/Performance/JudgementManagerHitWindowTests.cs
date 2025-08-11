@@ -118,15 +118,15 @@ namespace DTXMania.Test.Stage.Performance
 
             mockInputManager.SetKeyPressed(Keys.A, true);
 
-            // Act - Hit beyond detection window (±90ms as per JudgementManager spec)
-            judgementManager.Update(1091.0);
+            // Act - Hit beyond detection window (±150ms as per JudgementManager spec)
+            judgementManager.Update(1151.0);
 
             // Assert - No hit should be registered
             Assert.Null(capturedEvent);
         }
 
         [Fact]
-        public void HitWindowBoundaries_WithinDetectionButBeyondPoor_ReturnsMiss()
+        public void HitWindowBoundaries_WithinDetectionAndWithinGood_ReturnsGood()
         {
             // Arrange
             var mockInputManager = new MockInputManager();
@@ -138,13 +138,12 @@ namespace DTXMania.Test.Stage.Performance
 
             mockInputManager.SetKeyPressed(Keys.A, true);
 
-            // Act - Hit within detection window (90ms) but beyond Poor threshold (150ms)
-            // This should not generate a hit since it's beyond detection window
+            // Act - Hit within detection window (150ms) and within Good threshold (≤100ms)
             judgementManager.Update(1089.0); // 89ms late, within detection window
 
             // Assert
             Assert.NotNull(capturedEvent);
-            Assert.Equal(JudgementType.Poor, capturedEvent.Type);
+            Assert.Equal(JudgementType.Good, capturedEvent.Type);
             Assert.Equal(89.0, capturedEvent.DeltaMs, 0.1);
         }
 
@@ -232,7 +231,7 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Calculate tick position for the given time
-            // At 120 BPM: 96 ticks = 500ms, so ticks = (timeMs / 500) * 96
+            // At 120 BPM: 96 ticks = 500ms, so tick = (timeMs / 500.0) * 96
             int tickPosition = (int)((noteTimeMs / 500.0) * 96);
 
             parsedChart.AddNote(new Note(0, 0, tickPosition, 0x11, "01")); // Lane 0
@@ -249,8 +248,9 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Add two notes 50ms apart in the same lane
-            parsedChart.AddNote(new Note(0, 0, 96, 0x11, "01"));      // At 1000ms
-            parsedChart.AddNote(new Note(1, 0, 106, 0x11, "01"));     // At 1050ms
+            // At 120 BPM: 96 ticks = 500ms, so tick = (timeMs / 500.0) * 96
+            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 500.0) * 96), 0x11, "01"));      // At 1000ms
+            parsedChart.AddNote(new Note(1, 0, (int)((1050.0 / 500.0) * 96), 0x11, "01"));     // At 1050ms
             
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);

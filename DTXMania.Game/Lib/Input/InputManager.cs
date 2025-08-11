@@ -72,8 +72,6 @@ namespace DTXMania.Game.Lib.Input
         private readonly Queue<InputCommand> _inputCommandQueue;
         private double _currentTime;
 
-        // ESC key debouncing state
-        private bool _escapeLastState = false;
 
         // Key repeat configuration
         private const double INITIAL_REPEAT_DELAY = 0.2; // 200ms
@@ -173,40 +171,23 @@ namespace DTXMania.Game.Lib.Input
 
         /// <summary>
         /// Check if a key was just triggered (edge-trigger)
-        /// For ESC key, uses manual debouncing to prevent repeat issues
+        /// Uses standard edge detection for all keys
         /// </summary>
         public bool IsKeyTriggered(int keyCode)
         {
             var key = (Keys)keyCode;
-            
-            // Special handling for ESC key with manual debouncing
-            if (key == Keys.Escape)
-            {
-                bool currentEscapeState = _currentKeyboardState.IsKeyDown(Keys.Escape);
-                bool triggered = currentEscapeState && !_escapeLastState;
-                _escapeLastState = currentEscapeState;
-                return triggered;
-            }
-            
-            // For other keys, use standard edge detection
             return _currentKeyboardState.IsKeyDown(key) &&
                    !_previousKeyboardState.IsKeyDown(key);
         }
 
         /// <summary>
-        /// Consolidated method to detect "back" action from both ESC key and controller Back button
-        /// Uses proper debouncing for ESC key to prevent repeat triggers
+        /// Consolidated method to detect "back" action from keyboard mapping only
+        /// Uses edge detection for all keys mapped to InputCommandType.Back
         /// This method should be used by all stages instead of duplicating the logic
         /// </summary>
         public bool IsBackActionTriggered()
         {
-            // Check for controller Back button (edge-triggered via IsCommandPressed)
-            bool backCommandPressed = IsCommandPressed(InputCommandType.Back);
-            
-            // Check for ESC key using debounced trigger (already handled in IsKeyTriggered)
-            bool escTriggered = IsKeyTriggered((int)Keys.Escape);
-            
-            return backCommandPressed || escTriggered;
+            return IsCommandPressed(InputCommandType.Back);
         }
 
         public bool IsKeyDown(int keyCode)
