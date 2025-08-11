@@ -1,4 +1,4 @@
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance

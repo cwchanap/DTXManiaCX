@@ -1,4 +1,4 @@
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using System;
 using System.IO;
 using Xunit;

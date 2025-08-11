@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using Xunit;
 using Moq;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Test.Resources
 {

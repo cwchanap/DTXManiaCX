@@ -6,7 +6,7 @@ using NVorbis;
 using FFMpegCore;
 using FFMpegCore.Pipes;
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Managed sound implementation with reference counting

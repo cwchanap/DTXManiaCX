@@ -1,6 +1,6 @@
 using System;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// Represents a single note in a DTX chart

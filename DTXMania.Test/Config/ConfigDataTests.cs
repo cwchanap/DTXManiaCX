@@ -1,4 +1,4 @@
-using DTX.Config;
+using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Test.Config;
 

@@ -4,10 +4,10 @@ using Microsoft.Xna.Framework.Graphics;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using DTX.Resources;
-using DTX.Stage;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// High-performance Effects Manager with object pooling for stress testing

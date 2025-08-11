@@ -2,9 +2,9 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Background renderer component for PerformanceStage

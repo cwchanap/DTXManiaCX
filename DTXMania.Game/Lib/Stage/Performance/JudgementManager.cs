@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework.Input;
-using DTX.Input;
-using DTX.Song.Components;
-using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Manages hit detection, timing judgements, and note state tracking during gameplay.
@@ -189,8 +188,10 @@ namespace DTX.Stage.Performance
         /// <param name="args">Lane hit event arguments</param>
         private void OnLaneHit(object? sender, LaneHitEventArgs args)
         {
+#if DEBUG
             // DEBUG: Log lane hit event received
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] Lane hit received: Lane {args.Lane}, ButtonId {args.Button.Id}, IsPressed {args.Button.IsPressed}");
+#endif
             
             // Add lane hit to pending list for processing in next Update
             lock (_pendingLaneHits)
@@ -222,8 +223,10 @@ namespace DTX.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         private void ProcessLaneInput(int laneIndex, double currentSongTimeMs)
         {
+#if DEBUG
             // DEBUG: Log processing attempt
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] Processing lane {laneIndex} input at time {currentSongTimeMs:F2}ms");
+#endif
             
             // Find the nearest unhit note in this lane within the hit detection window
             var nearestNote = FindNearestUnhitNote(laneIndex, currentSongTimeMs);
@@ -233,8 +236,10 @@ namespace DTX.Stage.Performance
                 var deltaMs = currentSongTimeMs - nearestNote.Note.TimeMs;
                 var judgementType = TimingConstants.GetJudgementType(deltaMs);
 
+#if DEBUG
                 // DEBUG: Log hit detection success
                 System.Diagnostics.Debug.WriteLine($"[JudgementManager] HIT - Lane {laneIndex}, Note {nearestNote.NoteId}, ΔT={deltaMs:F2}ms, Judgement={judgementType}");
+#endif
 
                 // Create judgement event
                 var judgementEvent = new JudgementEvent(
@@ -253,8 +258,10 @@ namespace DTX.Stage.Performance
             }
             else
             {
+#if DEBUG
                 // DEBUG: Log miss (no note found)
                 System.Diagnostics.Debug.WriteLine($"[JudgementManager] MISS - Lane {laneIndex}, no unhit note found within ±{HitDetectionWindowMs}ms window at time {currentSongTimeMs:F2}ms");
+#endif
             }
         }
 
@@ -276,10 +283,13 @@ namespace DTX.Stage.Performance
             var searchTime = currentSongTimeMs - HitDetectionWindowMs;
             var startIndex = _chartManager.BinarySearchStartIndex(searchTime);
             
+#if DEBUG
             // DEBUG: Log search parameters and binary search result
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] FindNearestUnhitNote: Lane {laneIndex}, Time {currentSongTimeMs:F2}ms, SearchTime {searchTime:F2}ms, StartIndex {startIndex}, Window ±{HitDetectionWindowMs}ms");
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] Total notes in chart: {_chartManager.AllNotes.Count}");
+#endif
             
+#if DEBUG
             // DEBUG: Show first few notes overall to verify they exist
             for (int debugI = 0; debugI < Math.Min(10, _chartManager.AllNotes.Count); debugI++)
             {
@@ -294,6 +304,7 @@ namespace DTX.Stage.Performance
                 var marker = debugI == startIndex ? " <-- START INDEX" : "";
                 System.Diagnostics.Debug.WriteLine($"[JudgementManager] Around StartIndex Note {debugI}: {debugNote.ToString()} at {debugNote.TimeMs:F2}ms, Lane={debugNote.LaneIndex}{marker}");
             }
+#endif
 
             // Search forward from the start index for the nearest unhit note in this lane
             for (int i = startIndex; i < _chartManager.AllNotes.Count; i++)
@@ -305,11 +316,13 @@ namespace DTX.Stage.Performance
                 notesInLane++;
                 var noteData = _noteRuntimeData[note.Id];
 
+#if DEBUG
                 // DEBUG: Log every note in the lane for debugging
                 if (notesInLane <= 5) // Only log first 5 notes to avoid spam
                 {
                     System.Diagnostics.Debug.WriteLine($"[JudgementManager]   Note {note.Id} at {note.TimeMs:F2}ms: Status={noteData.Status}, Lane={note.LaneIndex}");
                 }
+#endif
 
                 if (noteData.Status != NoteStatus.Pending)
                 {
@@ -319,37 +332,47 @@ namespace DTX.Stage.Performance
                 pendingNotesInLane++;
                 var timeDifference = Math.Abs(currentSongTimeMs - note.TimeMs);
 
+#if DEBUG
                 // DEBUG: Show timing calculation for first few notes
                 if (pendingNotesInLane <= 3)
                 {
                     System.Diagnostics.Debug.WriteLine($"[JudgementManager]   Pending note {note.Id}: Time={note.TimeMs:F2}ms, Current={currentSongTimeMs:F2}ms, TimeDiff={timeDifference:F2}ms, Window={HitDetectionWindowMs}ms");
                 }
+#endif
 
                 if (timeDifference > HitDetectionWindowMs)
                 {
+#if DEBUG
                     // DEBUG: Show why notes are rejected for first few
                     if (pendingNotesInLane <= 3)
                     {
                         System.Diagnostics.Debug.WriteLine($"[JudgementManager]   --> REJECTED: TimeDiff {timeDifference:F2}ms > {HitDetectionWindowMs}ms");
                     }
+#endif
                     continue;
                 }
 
                 candidatesFound++;
+#if DEBUG
                 // DEBUG: Log candidate notes only
                 System.Diagnostics.Debug.WriteLine($"[JudgementManager]   CANDIDATE: Note {note.Id} at {note.TimeMs:F2}ms: TimeDiff={timeDifference:F2}ms");
+#endif
 
                 if (timeDifference < nearestDistance)
                 {
                     nearestDistance = timeDifference;
                     nearestNote = noteData;
+#if DEBUG
                     // DEBUG: Log when a new nearest note is found
                     System.Diagnostics.Debug.WriteLine($"[JudgementManager]   --> NEW NEAREST: Note {note.Id}, Distance={timeDifference:F2}ms");
+#endif
                 }
             }
 
+#if DEBUG
             // DEBUG: Log search results summary
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] Search complete: {notesInLane} total notes in lane, {pendingNotesInLane} pending, {candidatesFound} candidates, nearest={(nearestNote != null ? $"Note {nearestNote.NoteId} (Δ{nearestDistance:F2}ms)" : "none")}");
+#endif
 
             return nearestNote;
         }
@@ -389,7 +412,9 @@ namespace DTX.Stage.Performance
                     // Raise judgement event
                     JudgementMade?.Invoke(this, missEvent);
 
+#if DEBUG
                     System.Diagnostics.Debug.WriteLine($"Note missed: {missEvent}");
+#endif
                 }
             }
         }

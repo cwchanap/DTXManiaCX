@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using DTX.Config;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using Microsoft.Xna.Framework.Input;
 using Xunit;

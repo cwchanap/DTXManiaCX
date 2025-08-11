@@ -1,9 +1,9 @@
-﻿using DTX.Config;
-using DTX.Graphics;
-using DTX.Input;
+﻿using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
-using DTX.Resources;
-using DTX.Stage;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;

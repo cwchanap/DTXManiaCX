@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Stage manager interface with transition support

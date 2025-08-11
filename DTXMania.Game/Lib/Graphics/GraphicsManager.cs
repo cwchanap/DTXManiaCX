@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Linq;
 
-namespace DTX.Graphics
+namespace DTXMania.Game.Lib.Graphics
 {
     /// <summary>
     /// Manages graphics device settings and state

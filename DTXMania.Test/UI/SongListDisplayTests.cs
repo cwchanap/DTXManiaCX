@@ -1,7 +1,7 @@
 using Xunit;
-using DTX.Song.Components;
-using DTX.Song;
-using DTX.Resources;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;

@@ -1,6 +1,6 @@
 using System;
-using DTX.Config;
-using DTX.Input;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
 
 namespace DTXMania.Game.Lib.Input
 {

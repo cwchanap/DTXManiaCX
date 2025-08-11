@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-namespace DTX.Utilities
+namespace DTXMania.Game.Lib.Utilities
 {
     /// <summary>
     /// Centralized path and directory validation utilities

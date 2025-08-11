@@ -1,9 +1,9 @@
 using Xunit;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Song.Components;
-using DTX.Song;
-using DTX.Resources;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Entities;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;

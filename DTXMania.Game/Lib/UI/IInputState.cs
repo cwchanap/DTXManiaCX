@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using System.Collections.Generic;
 
-namespace DTX.UI
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
     /// Interface for input state management

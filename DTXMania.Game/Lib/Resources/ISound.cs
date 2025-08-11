@@ -1,7 +1,7 @@
 using Microsoft.Xna.Framework.Audio;
 using System;
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Sound abstraction interface for DTXManiaCX

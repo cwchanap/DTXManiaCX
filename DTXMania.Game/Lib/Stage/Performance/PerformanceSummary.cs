@@ -1,7 +1,7 @@
 using System;
 using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Data Transfer Object containing performance results for passing to ResultStage.

@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Xunit;
-using DTX.Song;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 

@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Test.Song
 {

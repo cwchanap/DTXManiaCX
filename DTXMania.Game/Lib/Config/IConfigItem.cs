@@ -1,6 +1,6 @@
 using System;
 
-namespace DTX.Config
+namespace DTXMania.Game.Lib.Config
 {
     /// <summary>
     /// Interface for configuration items that can be displayed and edited in the config screen

@@ -1,16 +1,16 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using DTX.Input;
-using DTX.Resources;
-using DTX.Stage;
-using DTX.UI;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
 using System;
 using System.Collections.Generic;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Title stage implementation based on DTXManiaNX CStageTitle

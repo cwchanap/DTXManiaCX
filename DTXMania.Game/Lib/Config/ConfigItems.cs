@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 
-namespace DTX.Config
+namespace DTXMania.Game.Lib.Config
 {
     /// <summary>
     /// Base class for configuration items

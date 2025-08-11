@@ -1,5 +1,5 @@
 using System.Linq;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework;
 using Xunit;

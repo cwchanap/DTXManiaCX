@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using DTXMania.Game;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Abstract base class for all stages implementing common functionality

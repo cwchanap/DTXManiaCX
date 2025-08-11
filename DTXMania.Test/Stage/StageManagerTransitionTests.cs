@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using Xunit;
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using Microsoft.Xna.Framework;
-using DTX.Input;
+using DTXMania.Game.Lib.Input;
 
 namespace DTXMania.Test.Stage
 {

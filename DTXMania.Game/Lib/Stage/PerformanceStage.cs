@@ -7,17 +7,17 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
-using DTX.Resources;
-using DTX.UI;
-using DTX.Input;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
-using DTX.Song;
-using DTX.Song.Components;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Performance stage for playing songs with the 9-lane GITADORA XG layout.

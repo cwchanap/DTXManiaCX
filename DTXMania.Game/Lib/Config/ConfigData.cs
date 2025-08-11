@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace DTX.Config
+namespace DTXMania.Game.Lib.Config
 {
     public class ConfigData
     {

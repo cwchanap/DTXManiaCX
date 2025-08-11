@@ -1,4 +1,4 @@
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using System;

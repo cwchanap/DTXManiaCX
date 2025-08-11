@@ -6,16 +6,16 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
-using DTX.Resources;
-using DTX.UI;
-using DTX.UI.Components;
-using DTX.UI.Layout;
-using DTX.Song;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
-using DTX.Input;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Input;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Song transition stage that displays song information before transitioning to performance

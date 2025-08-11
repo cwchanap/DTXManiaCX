@@ -1,15 +1,15 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI;
-using DTX.UI.Layout;
-using DTX.Song;
-using DTX.Input;
-using DTX.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// DTXManiaNX-compatible song list display with smooth scrolling and 13-item window

@@ -1,9 +1,9 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Stage;
-using DTX.Resources;
-using DTX.Song;
-using DTX.Config;
+using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
@@ -11,7 +11,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Startup stage implementation based on DTXManiaNX CStageStartup

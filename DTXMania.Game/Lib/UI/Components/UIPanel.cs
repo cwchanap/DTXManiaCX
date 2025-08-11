@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 
-namespace DTX.UI.Components
+namespace DTXMania.Game.Lib.UI.Components
 {
     /// <summary>
     /// Panel UI component - container with background and border rendering

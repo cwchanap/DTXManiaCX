@@ -1,8 +1,8 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using DTX.Resources;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Utilities;
 using Moq;
 using Xunit;

@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song.Components;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Renders scrolling notes for the 9-lane GITADORA XG layout

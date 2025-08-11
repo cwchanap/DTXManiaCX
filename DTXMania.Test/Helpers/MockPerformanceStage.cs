@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Song.Components;
-using DTX.Stage.Performance;
-using DTX.Resources;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Test.Helpers
 {

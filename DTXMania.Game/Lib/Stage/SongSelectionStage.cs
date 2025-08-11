@@ -10,16 +10,16 @@ using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
-using DTX.Resources;
-using DTX.UI;
-using DTX.Song.Components;
-using DTX.UI.Components;
-using DTX.UI.Layout;
-using DTX.Song;
-using DTX.Input;
-using DTX.Config;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Config;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Song selection stage implementation based on DTXManiaNX CStage選曲

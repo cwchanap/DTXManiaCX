@@ -1,4 +1,4 @@
-namespace DTX.Config
+namespace DTXMania.Game.Lib.Config
 {
     public interface IConfigManager
     {

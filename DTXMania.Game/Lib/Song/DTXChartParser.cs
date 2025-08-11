@@ -6,10 +6,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTX.Song
+namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// DTX chart parser for gameplay note data and metadata

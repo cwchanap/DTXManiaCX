@@ -1,6 +1,6 @@
 using Microsoft.Xna.Framework;
 
-namespace DTX.UI.Layout
+namespace DTXMania.Game.Lib.UI.Layout
 {
     /// <summary>
     /// Centralized layout configuration for Song Selection UI components

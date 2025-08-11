@@ -1,4 +1,4 @@
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
@@ -9,9 +9,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
 using DTXMania.Test.Helpers;
-using DTX.Resources;
-using DTX.Config;
-using DTX.Song;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Test.Stage
 {

@@ -1,6 +1,6 @@
-using DTX.Config;
+using DTXMania.Game.Lib.Config;
 
-namespace DTX.Graphics
+namespace DTXMania.Game.Lib.Graphics
 {
     /// <summary>
     /// Extension methods for graphics management
