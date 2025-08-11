@@ -2,10 +2,10 @@ using System;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI;
-using DTX.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.Resources;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// DTXManiaNX-compatible preview image panel for displaying album art and preview videos

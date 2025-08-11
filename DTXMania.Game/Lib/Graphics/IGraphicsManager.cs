@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 
-namespace DTX.Graphics
+namespace DTXMania.Game.Lib.Graphics
 {
     /// <summary>
     /// Interface for managing graphics device settings and state

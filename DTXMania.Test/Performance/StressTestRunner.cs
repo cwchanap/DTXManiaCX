@@ -8,10 +8,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Xunit;
 using Xunit.Abstractions;
-using DTX.Song;
-using DTX.Song.Components;
-using DTX.Stage;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.Helpers;
 

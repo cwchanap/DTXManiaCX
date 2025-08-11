@@ -13,7 +13,7 @@ using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 #nullable enable
 
-namespace DTX.Song
+namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// Song database management and enumeration (Singleton)

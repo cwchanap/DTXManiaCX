@@ -1,17 +1,17 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using DTX.Stage;
-using DTX.Config;
-using DTX.Resources;
-using DTX.Input;
+using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
 using System;
 using System.Collections.Generic;
 
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Configuration stage with basic settings management

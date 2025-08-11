@@ -1,7 +1,7 @@
 
 using System;
 using System.Linq;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Game.Lib.Song
 {

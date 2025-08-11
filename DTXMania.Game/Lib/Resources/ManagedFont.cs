@@ -7,11 +7,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using DTX.Utilities;
+using DTXMania.Game.Lib.Utilities;
 using XnaColor = Microsoft.Xna.Framework.Color;
 using XnaRectangle = Microsoft.Xna.Framework.Rectangle;
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Managed font implementation with reference counting

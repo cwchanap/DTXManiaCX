@@ -2,7 +2,7 @@ using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Judgement line renderer component for PerformanceStage

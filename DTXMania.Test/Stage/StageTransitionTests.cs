@@ -1,6 +1,6 @@
 using System;
 using Xunit;
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Test.Stage
 {

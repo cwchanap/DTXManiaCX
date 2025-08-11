@@ -1,8 +1,8 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Xunit;
-using DTX.Song.Components;
-using DTX.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song;
 using System.Collections.Generic;
 using System.Linq;
 

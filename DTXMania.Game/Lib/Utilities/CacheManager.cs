@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace DTX.Utilities
+namespace DTXMania.Game.Lib.Utilities
 {
     /// <summary>
     /// Generic cache management interface for consolidating redundant cache operations

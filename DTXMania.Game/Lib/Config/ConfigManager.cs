@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using DTXMania.Game.Lib.Input;
 
-namespace DTX.Config
+namespace DTXMania.Game.Lib.Config
 {
     public class ConfigManager : IConfigManager
     {

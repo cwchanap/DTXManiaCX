@@ -1,4 +1,4 @@
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;

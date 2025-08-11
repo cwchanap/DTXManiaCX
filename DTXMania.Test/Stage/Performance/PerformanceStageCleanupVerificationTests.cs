@@ -7,11 +7,11 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Xunit;
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using DTXMania.Test.Helpers;
-using DTX.Song;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Input;
 

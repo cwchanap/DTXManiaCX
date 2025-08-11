@@ -1,13 +1,13 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI;
-using DTX.UI.Layout;
-using DTX.Resources;
-using DTX.Utilities;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Utilities;
 using System;
 using System.IO;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// Song bar texture generation and caching system

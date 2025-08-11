@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
 
-namespace DTX.Graphics
+namespace DTXMania.Game.Lib.Graphics
 {
     /// <summary>
     /// Manages render targets and handles automatic recreation on device reset

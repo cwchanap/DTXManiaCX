@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
 
-namespace DTX.UI
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
     /// Central manager for the UI system

@@ -8,7 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Core resource manager implementation for DTXManiaCX

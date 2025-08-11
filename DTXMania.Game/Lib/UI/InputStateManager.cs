@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework.Input;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace DTX.UI
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
     /// Manages input state tracking for UI system

@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
-using DTX.Utilities;
+using DTXMania.Game.Lib.Utilities;
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Skin information metadata

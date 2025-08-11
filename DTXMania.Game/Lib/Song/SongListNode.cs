@@ -9,7 +9,7 @@ using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongChart = DTXMania.Game.Lib.Song.Entities.SongChart;
 
-namespace DTX.Song
+namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// Node types for song list hierarchy

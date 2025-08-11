@@ -1,11 +1,11 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song.Components;
 using System;
 using System.Collections.Generic;
 
-namespace DTX.UI
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
     /// Generates default graphics when skin textures are missing

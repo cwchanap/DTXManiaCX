@@ -1,7 +1,7 @@
-using DTX.Config;
-using DTX.Graphics;
-using DTX.UI;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.Song.Components;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;

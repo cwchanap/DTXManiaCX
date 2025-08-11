@@ -1,6 +1,6 @@
-using DTX.Config;
-using DTX.Stage;
-using DTX.Input;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Input;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
 

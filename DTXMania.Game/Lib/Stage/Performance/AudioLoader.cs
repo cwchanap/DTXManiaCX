@@ -1,10 +1,10 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework.Audio;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Handles loading and managing background music for gameplay

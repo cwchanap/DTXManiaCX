@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework.Input;
-using DTX.Config;
+using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Game.Lib.Input
 {
@@ -372,18 +372,8 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void OnKeyBindingsChanged(object? sender, EventArgs e)
         {
-            // DEBUG: Temporarily disable auto-save to isolate the issue
-            System.Diagnostics.Debug.WriteLine("[ModularInputManager] Key bindings changed - AUTO-SAVE DISABLED FOR DEBUGGING");
-            
-            // Show current state after change
-            System.Diagnostics.Debug.WriteLine("[ModularInputManager] Current key bindings after change:");
-            foreach (var kvp in _keyBindings.ButtonToLane)
-            {
-                System.Diagnostics.Debug.WriteLine($"  {kvp.Key} → Lane {kvp.Value}");
-            }
-            
-            // Auto-save bindings when they change - COMMENTED OUT FOR DEBUGGING
-            // SaveKeyBindings();
+            // Auto-save bindings when they change
+            SaveKeyBindings();
             OnBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 

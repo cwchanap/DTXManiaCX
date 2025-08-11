@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Individual judgement text popup that displays and animates

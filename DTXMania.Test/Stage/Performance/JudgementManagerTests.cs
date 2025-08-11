@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
-using DTX.Input;
-using DTX.Song.Components;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework.Input;
 using Xunit;

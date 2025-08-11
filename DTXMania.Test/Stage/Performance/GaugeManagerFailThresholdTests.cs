@@ -1,5 +1,5 @@
 using System;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 

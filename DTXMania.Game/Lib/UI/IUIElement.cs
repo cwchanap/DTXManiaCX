@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 
-namespace DTX.UI
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
     /// Core interface for all UI elements in DTXMania

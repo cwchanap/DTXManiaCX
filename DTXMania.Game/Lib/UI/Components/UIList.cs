@@ -5,7 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace DTX.UI.Components
+namespace DTXMania.Game.Lib.UI.Components
 {
     /// <summary>
     /// Scrollable list UI component with item selection and keyboard navigation

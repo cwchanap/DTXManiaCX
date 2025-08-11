@@ -1,7 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
-using DTX.Utilities;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Utilities;
 using System;
 using System.Collections.Generic;
 

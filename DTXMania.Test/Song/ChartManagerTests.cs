@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Song.Components;
 using Xunit;
 
 namespace DTXMania.Test.Song

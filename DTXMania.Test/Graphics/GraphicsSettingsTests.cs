@@ -1,4 +1,4 @@
-using DTX.Graphics;
+using DTXMania.Game.Lib.Graphics;
 
 namespace DTXMania.Test.Graphics;
 

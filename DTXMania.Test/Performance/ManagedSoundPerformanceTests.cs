@@ -1,4 +1,4 @@
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.Utilities;
 using System;
 using System.Diagnostics;

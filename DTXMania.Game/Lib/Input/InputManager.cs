@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 
-namespace DTX.Input
+namespace DTXMania.Game.Lib.Input
 {
     /// <summary>
     /// Input command types for game navigation

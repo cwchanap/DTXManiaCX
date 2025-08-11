@@ -1,9 +1,9 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 
-namespace DTX.UI.Components
+namespace DTXMania.Game.Lib.UI.Components
 {
     /// <summary>
     /// Enhanced button UI component with full state management

@@ -1,5 +1,5 @@
 using Xunit;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;

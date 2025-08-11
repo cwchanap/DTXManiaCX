@@ -1,8 +1,8 @@
 using Xunit;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Stage.Performance;
-using DTX.Resources;
+using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using Moq;
 using System;

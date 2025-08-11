@@ -1,4 +1,4 @@
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Centralized constants for DTXMania application

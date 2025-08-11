@@ -1,8 +1,8 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI;
-using DTX.UI.Layout;
-using DTX.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Resources;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,7 +10,7 @@ using System.Linq;
 // Type alias for SongScore to use the EF Core entity
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// DTXManiaNX-compatible status panel for displaying detailed song information

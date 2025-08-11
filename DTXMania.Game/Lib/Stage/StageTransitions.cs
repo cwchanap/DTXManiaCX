@@ -1,6 +1,6 @@
 using System;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Base class for stage transitions with common functionality

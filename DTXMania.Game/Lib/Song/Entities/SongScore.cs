@@ -1,6 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Game.Lib.Song.Entities
 {

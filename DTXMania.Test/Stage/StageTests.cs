@@ -1,5 +1,5 @@
 using Xunit;
-using DTX.Stage;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;

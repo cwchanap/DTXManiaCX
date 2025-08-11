@@ -2,9 +2,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 
-namespace DTX.Stage.Performance
+namespace DTXMania.Game.Lib.Stage.Performance
 {
     public class EffectsManager
     {

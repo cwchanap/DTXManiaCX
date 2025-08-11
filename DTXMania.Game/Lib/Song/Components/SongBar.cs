@@ -1,11 +1,11 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.UI;
-using DTX.UI.Layout;
-using DTX.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Resources;
 using System;
 
-namespace DTX.Song.Components
+namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
     /// Individual song bar component for DTXManiaNX-style song list display

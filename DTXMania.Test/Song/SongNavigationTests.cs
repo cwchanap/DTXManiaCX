@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 

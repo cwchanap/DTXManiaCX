@@ -1,5 +1,5 @@
 using System;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 using Xunit;
 using DTXMania.Game.Lib.Song.Entities;
 

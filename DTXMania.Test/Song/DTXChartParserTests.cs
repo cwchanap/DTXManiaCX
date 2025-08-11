@@ -2,8 +2,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using DTX.Song;
-using DTX.Song.Components;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 

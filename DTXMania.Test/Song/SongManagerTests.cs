@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using DTX.Song;
+using DTXMania.Game.Lib.Song;
 using Xunit;
 using DTXMania.Game.Lib.Song.Entities;
 

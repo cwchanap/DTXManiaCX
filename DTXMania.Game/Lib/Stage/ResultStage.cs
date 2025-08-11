@@ -4,13 +4,13 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
-using DTX.Resources;
-using DTX.UI;
-using DTX.Input;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
-using DTX.Stage.Performance;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Stage.Performance;
 
-namespace DTX.Stage
+namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Result stage for displaying performance results after song completion

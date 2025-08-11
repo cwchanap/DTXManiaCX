@@ -1,12 +1,12 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using DTX.Resources;
+using DTXMania.Game.Lib.Resources;
 using System;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("DTXMania.Test")]
 
-namespace DTX.Resources
+namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
     /// Generic bitmap font renderer supporting different character sets and configurations
