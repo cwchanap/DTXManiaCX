@@ -180,12 +180,13 @@ namespace DTXMania.Game.Lib.Input
                 _previousKeyStates[kvp.Key] = kvp.Value;
             }
 
+            // Always clear current key states to prevent stale keys
+            _keyStates.Clear();
+
             // Get current keyboard state directly from keyboard input source
             var keyboardSource = GetKeyboardSource();
             if (keyboardSource != null)
             {
-                _keyStates.Clear();
-                
                 // Get currently pressed keys from MonoGame
                 var currentState = Keyboard.GetState();
                 var pressedKeys = currentState.GetPressedKeys();
@@ -243,7 +244,7 @@ namespace DTXMania.Game.Lib.Input
         public void ReloadKeyBindings()
         {
             // Clear existing bindings
-            _keyBindings.ButtonToLane.Clear();
+            _keyBindings.ClearAllBindings();
             
             // Load from config
             _configManager.LoadKeyBindings(_keyBindings);
@@ -270,7 +271,6 @@ namespace DTXMania.Game.Lib.Input
             _configManager.Config.KeyBindings.Clear();
             
             // Reload defaults
-            _keyBindings.ButtonToLane.Clear();
             _keyBindings.LoadDefaultBindings();
             
             // Save the new defaults

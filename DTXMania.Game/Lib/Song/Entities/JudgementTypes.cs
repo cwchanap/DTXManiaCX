@@ -76,6 +76,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public JudgementEvent()
         {
+            Type = JudgementType.Miss;
             Timestamp = DateTime.UtcNow;
         }
         

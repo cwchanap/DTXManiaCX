@@ -16,15 +16,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private bool _hasFailed;
         private bool _disposed = false;
 
-        // Life adjustment values for each judgement type (as percentages)
-        private readonly float[] _lifeAdjustments = new float[]
-        {
-            +2.0f,  // Just: +2%
-            +1.5f,  // Great: +1.5%
-            +1.0f,  // Good: +1%
-            -1.5f,  // Poor: -1.5%
-            -3.0f   // Miss: -3%
-        };
 
         #endregion
 
@@ -161,11 +152,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <returns>Life adjustment in percentage points</returns>
         public float GetLifeAdjustment(JudgementType judgementType)
         {
-            int index = (int)judgementType;
-            if (index >= 0 && index < _lifeAdjustments.Length)
-                return _lifeAdjustments[index];
-            
-            return 0.0f; // Default for unknown types
+            return judgementType switch
+            {
+                JudgementType.Just => +2.0f,   // Just: +2%
+                JudgementType.Great => +1.5f,  // Great: +1.5%
+                JudgementType.Good => +1.0f,   // Good: +1%
+                JudgementType.Poor => -1.5f,   // Poor: -1.5%
+                JudgementType.Miss => -3.0f,   // Miss: -3%
+                _ => 0.0f // Default for unknown types
+            };
         }
 
         /// <summary>
