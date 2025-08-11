@@ -12,11 +12,16 @@ namespace DTXMania.Game.Lib.Input
     public class KeyBindings
     {
         /// <summary>
-        /// Maps button IDs to lane indices
+        /// Private backing field for button-to-lane mappings
+        /// </summary>
+        private readonly Dictionary<string, int> _buttonToLane;
+
+        /// <summary>
+        /// Maps button IDs to lane indices (read-only)
         /// Key: Button ID (e.g., "Key.A", "MIDI.36", "Pad.A")
         /// Value: Lane index (0-8)
         /// </summary>
-        public Dictionary<string, int> ButtonToLane { get; set; }
+        public IReadOnlyDictionary<string, int> ButtonToLane => _buttonToLane;
 
         /// <summary>
         /// Event raised when bindings are changed
@@ -25,7 +30,7 @@ namespace DTXMania.Game.Lib.Input
 
         public KeyBindings()
         {
-            ButtonToLane = new Dictionary<string, int>();
+            _buttonToLane = new Dictionary<string, int>();
             LoadDefaultBindings();
         }
 
@@ -35,27 +40,27 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void LoadDefaultBindings()
         {
-            ButtonToLane.Clear();
+            _buttonToLane.Clear();
 
             // Default keyboard bindings aligned with actual working behavior
             // Lane 0: 1A (Splash/Crash)
-            ButtonToLane["Key.A"] = 0;         // Splash/Crash
+            _buttonToLane["Key.A"] = 0;         // Splash/Crash
             // Lane 1: 18&11 (Floor Tom & Left Cymbal)
-            ButtonToLane["Key.F"] = 1;         // Floor Tom & Left Cymbal
+            _buttonToLane["Key.F"] = 1;         // Floor Tom & Left Cymbal
             // Lane 2: 1B&1C (Hi-Hat Foot & Left Crash)
-            ButtonToLane["Key.D"] = 2;         // Hi-Hat Foot & Left Crash
+            _buttonToLane["Key.D"] = 2;         // Hi-Hat Foot & Left Crash
             // Lane 3: 12 (Left Pedal)
-            ButtonToLane["Key.G"] = 3;         // Left Pedal
+            _buttonToLane["Key.G"] = 3;         // Left Pedal
             // Lane 4: 14 (Snare Drum) - S key for snare (working behavior)
-            ButtonToLane["Key.S"] = 4;         // Snare Drum
+            _buttonToLane["Key.S"] = 4;         // Snare Drum
             // Lane 5: 13 (Hi-Hat)
-            ButtonToLane["Key.J"] = 5;         // Hi-Hat
+            _buttonToLane["Key.J"] = 5;         // Hi-Hat
             // Lane 6: 15 (Bass Drum)
-            ButtonToLane["Key.Space"] = 6;     // Bass Drum
+            _buttonToLane["Key.Space"] = 6;     // Bass Drum
             // Lane 7: 16 (High Tom)
-            ButtonToLane["Key.K"] = 7;         // High Tom
+            _buttonToLane["Key.K"] = 7;         // High Tom
             // Lane 8: 17&19 (Low Tom & Right Cymbal)
-            ButtonToLane["Key.L"] = 8; // Low Tom & Right Cymbal
+            _buttonToLane["Key.L"] = 8; // Low Tom & Right Cymbal
         }
 
         /// <summary>
@@ -88,7 +93,7 @@ namespace DTXMania.Game.Lib.Input
             if (lane < 0 || lane > 8)
                 throw new ArgumentOutOfRangeException(nameof(lane), "Lane must be between 0 and 8");
 
-            ButtonToLane[buttonId] = lane;
+            _buttonToLane[buttonId] = lane;
             OnBindingsChanged();
         }
 
@@ -98,7 +103,7 @@ namespace DTXMania.Game.Lib.Input
         /// <param name="buttonId">Button ID to unbind</param>
         public void UnbindButton(string buttonId)
         {
-            if (ButtonToLane.Remove(buttonId))
+            if (_buttonToLane.Remove(buttonId))
             {
                 OnBindingsChanged();
             }
@@ -113,7 +118,7 @@ namespace DTXMania.Game.Lib.Input
             var buttonsToRemove = GetButtonsForLane(lane).ToList();
             foreach (var buttonId in buttonsToRemove)
             {
-                ButtonToLane.Remove(buttonId);
+                _buttonToLane.Remove(buttonId);
             }
 
             if (buttonsToRemove.Count > 0)
@@ -127,7 +132,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void ClearAllBindings()
         {
-            ButtonToLane.Clear();
+            _buttonToLane.Clear();
             OnBindingsChanged();
         }
 

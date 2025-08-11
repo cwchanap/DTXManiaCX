@@ -23,7 +23,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly InputManagerCompat _inputManager;
         private readonly ChartManager _chartManager;
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
-        private readonly List<int> _pendingLaneHits;
+        private readonly List<LaneHitEventArgs> _pendingLaneHits;
         private bool _disposed = false;
 
         // Timing window for hit detection (±150ms to cover Poor judgement range)
@@ -61,7 +61,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
             _chartManager = chartManager ?? throw new ArgumentNullException(nameof(chartManager));
             _noteRuntimeData = new Dictionary<int, NoteRuntimeData>();
-            _pendingLaneHits = new List<int>();
+            _pendingLaneHits = new List<LaneHitEventArgs>();
 
             // Subscribe to lane hit events from the modular input system
             _inputManager.ModularInputManager.OnLaneHit += OnLaneHit;
@@ -193,10 +193,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             System.Diagnostics.Debug.WriteLine($"[JudgementManager] Lane hit received: Lane {args.Lane}, ButtonId {args.Button.Id}, IsPressed {args.Button.IsPressed}");
 #endif
             
-            // Add lane hit to pending list for processing in next Update
+            // Add lane hit event to pending list for processing in next Update
             lock (_pendingLaneHits)
             {
-                _pendingLaneHits.Add(args.Lane);
+                _pendingLaneHits.Add(args);
             }
         }
 
@@ -208,24 +208,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             lock (_pendingLaneHits)
             {
-                foreach (int laneIndex in _pendingLaneHits)
+                foreach (LaneHitEventArgs laneHitEvent in _pendingLaneHits)
                 {
-                    ProcessLaneInput(laneIndex, currentSongTimeMs);
+                    ProcessLaneInput(laneHitEvent, currentSongTimeMs);
                 }
                 _pendingLaneHits.Clear();
             }
         }
 
         /// <summary>
-        /// Processes input for a specific lane
+        /// Processes input for a specific lane using full event data
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneHitEvent">Lane hit event containing lane, button state, and timestamp</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        private void ProcessLaneInput(int laneIndex, double currentSongTimeMs)
+        private void ProcessLaneInput(LaneHitEventArgs laneHitEvent, double currentSongTimeMs)
         {
+            var laneIndex = laneHitEvent.Lane;
+            var buttonVelocity = laneHitEvent.Button.Velocity;
+            var eventTimestamp = laneHitEvent.Timestamp;
+            
 #if DEBUG
-            // DEBUG: Log processing attempt
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Processing lane {laneIndex} input at time {currentSongTimeMs:F2}ms");
+            // DEBUG: Log processing attempt with velocity info
+            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Processing lane {laneIndex} input at time {currentSongTimeMs:F2}ms (velocity: {buttonVelocity:F2}, timestamp: {eventTimestamp:HH:mm:ss.fff})");
 #endif
             
             // Find the nearest unhit note in this lane within the hit detection window
@@ -237,17 +241,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var judgementType = TimingConstants.GetJudgementType(deltaMs);
 
 #if DEBUG
-                // DEBUG: Log hit detection success
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager] HIT - Lane {laneIndex}, Note {nearestNote.NoteId}, ΔT={deltaMs:F2}ms, Judgement={judgementType}");
+                // DEBUG: Log hit detection success with velocity
+                System.Diagnostics.Debug.WriteLine($"[JudgementManager] HIT - Lane {laneIndex}, Note {nearestNote.NoteId}, ΔT={deltaMs:F2}ms, Judgement={judgementType}, Velocity={buttonVelocity:F2}");
 #endif
 
-                // Create judgement event
+                // Create judgement event with enhanced data
                 var judgementEvent = new JudgementEvent(
                     nearestNote.NoteId,
                     laneIndex,
                     deltaMs,
                     judgementType
-                );
+                )
+                {
+                    Timestamp = eventTimestamp
+                };
 
                 // Mark note as hit and store judgement
                 nearestNote.Status = NoteStatus.Hit;
@@ -263,6 +270,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 System.Diagnostics.Debug.WriteLine($"[JudgementManager] MISS - Lane {laneIndex}, no unhit note found within ±{HitDetectionWindowMs}ms window at time {currentSongTimeMs:F2}ms");
 #endif
             }
+        }
+        
+        /// <summary>
+        /// Processes input for a specific lane (legacy overload)
+        /// </summary>
+        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        private void ProcessLaneInput(int laneIndex, double currentSongTimeMs)
+        {
+            // Create a synthetic event for backwards compatibility
+            var syntheticButton = new DTXMania.Game.Lib.Input.ButtonState($"Lane{laneIndex}", true, 1.0f);
+            var syntheticEvent = new LaneHitEventArgs(laneIndex, syntheticButton);
+            ProcessLaneInput(syntheticEvent, currentSongTimeMs);
         }
 
         /// <summary>
