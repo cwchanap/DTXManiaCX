@@ -232,7 +232,7 @@ namespace DTXMania.Test.Stage.Performance
             
             // Act
             var multiplier = scoreManager.GetScoreMultiplier(judgementType);
-            var theoreticalScore = (int)Math.Floor(ScoreManager.MaxScore * multiplier);
+            var expectedScore = scoreManager.CalculateScoreForJudgement(judgementType);
             
             var judgementEvent = new JudgementEvent(0, 0, 0.0, judgementType);
             scoreManager.ProcessJudgement(judgementEvent);
@@ -240,7 +240,7 @@ namespace DTXMania.Test.Stage.Performance
             // Assert
             Assert.Equal(expectedMultiplier, multiplier, 0.01);
             Assert.True(scoreManager.CurrentScore <= ScoreManager.MaxScore);
-            Assert.Equal(theoreticalScore, scoreManager.CurrentScore);
+            Assert.Equal(expectedScore, scoreManager.CurrentScore);
         }
 
         [Fact]

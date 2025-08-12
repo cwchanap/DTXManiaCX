@@ -79,16 +79,43 @@ namespace DTXMania.Test.Stage.Performance
         {
             // Arrange
             var popup = new JudgementTextPopup("GOOD", Vector2.Zero);
-            var deltaTime = 0.7; // 700ms (longer than 0.6s duration)
 
-            // Act
+            // Act - Use single large step approach
+            var deltaTime = 0.7; // 700ms (longer than 0.6s duration)
             var stillActive = popup.Update(deltaTime);
 
-            // Assert
+            // Assert - Use tolerance-based assertions to avoid floating-point brittleness
             Assert.False(stillActive);
-            Assert.Equal(0f, popup.Alpha);
-            Assert.Equal(30f, popup.YOffset); // Should reach full rise distance
+            Assert.True(Math.Abs(popup.Alpha - 0f) < 1e-6f, $"Expected Alpha ~= 0, but was {popup.Alpha}");
+            Assert.True(Math.Abs(popup.YOffset - 30f) < 1e-3f, $"Expected YOffset ~= 30, but was {popup.YOffset}");
             Assert.False(popup.IsActive);
+        }
+
+        [Fact]
+        public void JudgementTextPopup_Update_CompletesAfterDuration_SteppedApproach()
+        {
+            // Alternative approach: Step through animation until completion
+            // Arrange
+            var popup = new JudgementTextPopup("GOOD", Vector2.Zero);
+            const double smallTimeStep = 0.01; // 10ms steps
+            bool stillActive = true;
+
+            // Act - Step through animation until completion
+            double totalTime = 0;
+            const double maxTime = 1.0; // Safety limit to prevent infinite loops
+            
+            while (stillActive && totalTime < maxTime)
+            {
+                stillActive = popup.Update(smallTimeStep);
+                totalTime += smallTimeStep;
+            }
+
+            // Assert - Now we can safely assert exact final values
+            Assert.False(stillActive);
+            Assert.Equal(0f, popup.Alpha); // Safe to use exact equality after deterministic completion
+            Assert.Equal(30f, popup.YOffset); // Safe to use exact equality after deterministic completion  
+            Assert.False(popup.IsActive);
+            Assert.True(totalTime >= 0.6, $"Animation should take at least 0.6s, but completed in {totalTime:F3}s");
         }
 
         [Fact]

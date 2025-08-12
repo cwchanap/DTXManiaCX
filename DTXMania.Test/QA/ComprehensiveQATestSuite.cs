@@ -56,8 +56,8 @@ namespace DTXMania.Test.QA
                 // Phase 1: Create comprehensive test chart
                 _output.WriteLine("Phase 1: Creating test chart...");
                 var testChart = CreateComprehensiveTestChart(noteCount: 500);
-                var scoreManager = new ScoreManager(testChart.Count);
-                var gaugeManager = new GaugeManager(startingLife: 50.0f);
+                using var scoreManager = new ScoreManager(testChart.Count);
+                using var gaugeManager = new GaugeManager(startingLife: 50.0f);
 
                 testResults.ChartNoteCount = testChart.Count;
                 testResults.InitialLife = gaugeManager.CurrentLife;
@@ -109,8 +109,8 @@ namespace DTXMania.Test.QA
                 // Phase 1: Setup variance test
                 _output.WriteLine("Phase 1: Setting up variance test...");
                 var testChart = CreateComprehensiveTestChart(noteCount: 300);
-                var scoreManager = new ScoreManager(testChart.Count);
-                var gaugeManager = new GaugeManager();
+                using var scoreManager = new ScoreManager(testChart.Count);
+                using var gaugeManager = new GaugeManager();
                 var random = new Random(12345); // Fixed seed for reproducibility
 
                 testResults.ChartNoteCount = testChart.Count;
@@ -554,7 +554,7 @@ namespace DTXMania.Test.QA
             _output.WriteLine("  Running perfect play with simultaneous rendering...");
             
             var testChart = CreateComprehensiveTestChart(100);
-            var scoreManager = new ScoreManager(testChart.Count);
+            using var scoreManager = new ScoreManager(testChart.Count);
             
             // Simulate perfect play while doing rendering operations
             var renderTarget = new RenderTarget2D(_graphicsService.GraphicsDevice, 400, 300);
@@ -589,7 +589,7 @@ namespace DTXMania.Test.QA
             
             // Combined variance and rendering stress test
             var testChart = CreateComprehensiveTestChart(50);
-            var scoreManager = new ScoreManager(testChart.Count);
+            using var scoreManager = new ScoreManager(testChart.Count);
             var random = new Random(999);
 
             var renderTargets = new List<RenderTarget2D>();
@@ -629,7 +629,7 @@ namespace DTXMania.Test.QA
             
             // Test with very large chart
             var largeChart = CreateComprehensiveTestChart(1000);
-            var scoreManager = new ScoreManager(largeChart.Count);
+            using var scoreManager = new ScoreManager(largeChart.Count);
             var stopwatch = Stopwatch.StartNew();
 
             // Process all notes as fast as possible
@@ -718,7 +718,7 @@ namespace DTXMania.Test.QA
             foreach (var variance in extremeVariances)
             {
                 var testChart = CreateComprehensiveTestChart(20);
-                var scoreManager = new ScoreManager(testChart.Count);
+                using var scoreManager = new ScoreManager(testChart.Count);
                 var random = new Random(42);
                 
                 try

@@ -20,7 +20,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly InputManagerCompat _inputManager;
+        private readonly IInputManagerCompat _inputManager;
         private readonly ChartManager _chartManager;
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
         private readonly List<LaneHitEventArgs> _pendingLaneHits;
@@ -56,7 +56,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="inputManager">Input manager for receiving lane hit events</param>
         /// <param name="chartManager">Chart manager containing note data</param>
-        public JudgementManager(InputManagerCompat inputManager, ChartManager chartManager)
+        public JudgementManager(IInputManagerCompat inputManager, ChartManager chartManager)
         {
             _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
             _chartManager = chartManager ?? throw new ArgumentNullException(nameof(chartManager));
