@@ -23,6 +23,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     public IConfigManager ConfigManager { get; protected set; }
     public InputManagerCompat InputManager { get; protected set; }
     public IGraphicsManager GraphicsManager => _graphicsManager;
+    public IResourceManager ResourceManager { get; protected set; }
 
     public BaseGame()
     {
@@ -75,6 +76,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     protected override void LoadContent()
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
+
+        // Initialize shared resource manager
+        ResourceManager = ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
 
         // Initialize font factory after content is loaded
         ManagedFont.InitializeFontFactory(Content);
@@ -225,6 +229,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
                 _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
                 _graphicsManager.Dispose();
             }
+
+            // Dispose resource manager
+            ResourceManager?.Dispose();
 
             // Dispose other resources
             _spriteBatch?.Dispose();

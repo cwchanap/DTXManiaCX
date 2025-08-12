@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly ResourceManager _resourceManager;
+        private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private Texture2D _whiteTexture;
         private readonly Vector2 _position;
@@ -74,7 +74,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public GaugeDisplay(ResourceManager resourceManager, GraphicsDevice graphicsDevice)
+        public GaugeDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));

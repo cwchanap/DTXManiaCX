@@ -137,7 +137,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize graphics resources
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(_game.GraphicsDevice);
+            _resourceManager = _game.ResourceManager;
 
             // Create white pixel for drawing
             _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
@@ -341,7 +341,7 @@ namespace DTXMania.Game.Lib.Stage
                 Size = SongSelectionUILayout.UILabels.Title.Size,
                 TextColor = Color.White,
                 HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
+                HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
             };
 
             // Create breadcrumb label
@@ -351,7 +351,7 @@ namespace DTXMania.Game.Lib.Stage
                 Size = SongSelectionUILayout.UILabels.Breadcrumb.Size,
                 TextColor = Color.Yellow,
                 HasShadow = true,
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Left
+                HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
             };
 
             // Create DTXManiaNX-style song list display

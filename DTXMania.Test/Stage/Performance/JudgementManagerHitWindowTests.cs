@@ -47,11 +47,12 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            // Simulate key press
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
-            // Act - Hit at note time + deltaMs
+            // Act - Trigger lane hit at note time + deltaMs
             double hitTime = 1000.0 + deltaMs;
+            
+            // Trigger a hit on lane 0 (Keys.A maps to lane 0)
+            mockInputManager.TriggerLaneHit(0);
+            
             judgementManager.Update(hitTime);
 
             // Assert

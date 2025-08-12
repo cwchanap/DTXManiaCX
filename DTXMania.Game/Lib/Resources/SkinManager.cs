@@ -180,7 +180,7 @@ namespace DTXMania.Game.Lib.Resources
          /// <returns>True if valid skin</returns>
         public static bool ValidateSkinPath(string skinPath)
         {
-            return DTX.Utilities.PathValidator.IsValidSkinPath(skinPath);
+            return PathValidator.IsValidSkinPath(skinPath);
         }
 
         #endregion

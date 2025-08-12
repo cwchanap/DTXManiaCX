@@ -19,6 +19,8 @@ namespace DTXMania.Test.Helpers
         private readonly Dictionary<Keys, bool> _previousKeyStates = new();
         private readonly Dictionary<InputCommandType, bool> _commandStates = new();
 
+        public event EventHandler<LaneHitEventArgs>? OnLaneHit;
+
         public MockInputManager() : base()
         {
         }
@@ -141,6 +143,8 @@ namespace DTXMania.Test.Helpers
     {
         private readonly Dictionary<Keys, bool> _currentKeyStates = new();
         private readonly Dictionary<Keys, bool> _previousKeyStates = new();
+
+        public event EventHandler<LaneHitEventArgs>? OnLaneHit;
         
         public MockInputManagerCompat() : base(new ConfigManager())
         {
@@ -185,12 +189,35 @@ namespace DTXMania.Test.Helpers
         }
 
         /// <summary>
+        /// Simulates triggering a lane hit event for testing by using the key mapping
+        /// </summary>
+        public void TriggerLaneHitFromKey(Keys key)
+        {
+            // Get the lane for this key using the ModularInputManager's KeyBindings
+            int lane = ModularInputManager.KeyBindings.GetLane(key.ToString());
+            if (lane >= 0)
+            {
+                var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"Key.{key}", true, 1.0f);
+                var hitArgs = new LaneHitEventArgs(lane, buttonState);
+                // Fire the event through the real ModularInputManager
+                ModularInputManager.GetType()
+                    .GetMethod("OnInputRouterLaneHit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+                    .Invoke(ModularInputManager, new object[] { this, hitArgs });
+            }
+        }
+
+        /// <summary>
         /// Simulates triggering a lane hit event for testing
         /// </summary>
         public void TriggerLaneHit(int lane)
         {
-            var hitArgs = new LaneHitEventArgs(lane, new ButtonHit { Id = $"MockButton{lane}", Velocity = 1.0f, Time = 0.0 });
-            ModularInputManager.OnLaneHit?.Invoke(this, hitArgs);
+            var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"MockButton{lane}", true, 1.0f);
+            var hitArgs = new LaneHitEventArgs(lane, buttonState);
+            
+            // Use reflection to trigger the OnLaneHit event on ModularInputManager
+            var eventField = ModularInputManager.GetType().GetField("OnLaneHit");
+            var eventDelegate = eventField?.GetValue(ModularInputManager) as EventHandler<LaneHitEventArgs>;
+            eventDelegate?.Invoke(this, hitArgs);
         }
 
         public override bool IsKeyDown(int keyCode)

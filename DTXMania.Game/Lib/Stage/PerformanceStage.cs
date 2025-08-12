@@ -40,7 +40,7 @@ namespace DTXMania.Game.Lib.Stage
         #region Private Fields
 
         private SpriteBatch _spriteBatch;
-        private ResourceManager _resourceManager;
+        private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
 
@@ -116,7 +116,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Initialize core systems
             _spriteBatch = new SpriteBatch(game.GraphicsDevice);
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(game.GraphicsDevice);
+            _resourceManager = game.ResourceManager;
             _uiManager = new UIManager();
             _inputManager = game.InputManager;
         }

@@ -204,15 +204,15 @@ namespace DTXMania.Test.UI
             // Arrange & Act
             var label = new UILabel("Test Label")
             {
-                HorizontalAlignment = DTX.UI.Components.TextAlignment.Center,
-                VerticalAlignment = DTX.UI.Components.TextAlignment.Bottom,
+                HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Center,
+                VerticalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Bottom,
                 TextColor = Color.Yellow
             };
 
             // Assert
             Assert.Equal("Test Label", label.Text);
-            Assert.Equal(DTX.UI.Components.TextAlignment.Center, label.HorizontalAlignment);
-            Assert.Equal(DTX.UI.Components.TextAlignment.Bottom, label.VerticalAlignment);
+            Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Center, label.HorizontalAlignment);
+            Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Bottom, label.VerticalAlignment);
             Assert.Equal(Color.Yellow, label.TextColor);
         }
 

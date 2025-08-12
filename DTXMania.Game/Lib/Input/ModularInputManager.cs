@@ -246,7 +246,10 @@ namespace DTXMania.Game.Lib.Input
             // Clear existing bindings
             _keyBindings.ClearAllBindings();
             
-            // Load from config
+            // Load defaults first
+            _keyBindings.LoadDefaultBindings();
+            
+            // Load from config (overrides defaults)
             _configManager.LoadKeyBindings(_keyBindings);
             
             Debug.WriteLine("[ModularInputManager] Key bindings reloaded from configuration");

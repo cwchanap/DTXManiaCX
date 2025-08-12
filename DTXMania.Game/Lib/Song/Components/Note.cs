@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Unique identifier for this note (used for runtime state tracking)
         /// </summary>
-        public int Id { get; set; }
+        public int Id { get; internal set; }
 
         /// <summary>
         /// Lane index (0-8 for the 9 NX lanes)

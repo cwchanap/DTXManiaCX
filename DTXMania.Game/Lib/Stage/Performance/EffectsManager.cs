@@ -15,14 +15,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private const int FrameHeight = 32;
         private const double FrameDuration = 1.0 / 60.0; // 60 fps animation
 
-        public EffectsManager(GraphicsDevice graphicsDevice, ResourceManager resourceManager)
+        public EffectsManager(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
         {
+            if (graphicsDevice == null)
+                throw new ArgumentNullException(nameof(graphicsDevice));
+            if (resourceManager == null)
+                throw new ArgumentNullException(nameof(resourceManager));
+
             _activeEffects = new List<EffectInstance>();
             _effectsEnabled = false;
             
             try
             {
                 var texture = resourceManager.LoadTexture("Graphics/hit_fx.png");
+                
+                if (texture?.Texture == null)
+                    throw new ArgumentException("Failed to load hit effect texture - texture is null", nameof(resourceManager));
                 _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, "Graphics/hit_fx.png", FrameWidth, FrameHeight);
                 
                 // Validate the texture has valid sprites

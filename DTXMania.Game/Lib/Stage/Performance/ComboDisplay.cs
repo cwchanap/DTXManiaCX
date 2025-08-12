@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly ResourceManager _resourceManager;
+        private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private ManagedFont _comboFont;
         private ManagedFont _labelFont;
@@ -98,7 +98,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public ComboDisplay(ResourceManager resourceManager, GraphicsDevice graphicsDevice)
+        public ComboDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));

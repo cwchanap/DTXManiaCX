@@ -7,10 +7,11 @@ namespace DTXMania.Game.Lib.Input
     /// Routes inputs from all input sources to lane hit events
     /// Handles input state and dispatches events for lane hits
     /// </summary>
-    public class InputRouter
+    public class InputRouter : IDisposable
     {
         private readonly List<IInputSource> _inputSources;
         private readonly KeyBindings _keyBindings;
+        private bool _disposed;
 
         /// <summary>
         /// Raised when a lane is hit
@@ -29,6 +30,7 @@ namespace DTXMania.Game.Lib.Input
         /// <param name="source">Input source to add</param>
         public void AddInputSource(IInputSource source)
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(InputRouter));
             _inputSources.Add(source);
         }
 
@@ -37,6 +39,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void Initialize()
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(InputRouter));
             foreach (var source in _inputSources)
             {
                 source.Initialize();
@@ -48,6 +51,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void Update()
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(InputRouter));
             foreach (var source in _inputSources)
             {
                 foreach (var buttonState in source.Update())
@@ -80,6 +84,7 @@ namespace DTXMania.Game.Lib.Input
         /// <returns>Number of input sources</returns>
         public int GetSourceCount()
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(InputRouter));
             return _inputSources.Count;
         }
 
@@ -88,10 +93,34 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void Dispose()
         {
-            foreach (var source in _inputSources)
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Protected implementation of Dispose pattern
+        /// </summary>
+        /// <param name="disposing">True if disposing managed resources</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            if (disposing)
             {
-                source.Dispose();
+                // Dispose input sources that implement IDisposable
+                foreach (var source in _inputSources)
+                {
+                    if (source is IDisposable disposableSource)
+                    {
+                        disposableSource.Dispose();
+                    }
+                }
+
+                // Clear event handlers
+                OnLaneHit = null;
             }
+
+            _disposed = true;
         }
     }
 }
