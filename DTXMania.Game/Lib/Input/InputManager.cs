@@ -61,7 +61,7 @@ namespace DTXMania.Game.Lib.Input
         }
     }
 
-    public class InputManager : IDisposable
+    public class InputManager : IInputManager
     {
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
@@ -154,6 +154,15 @@ namespace DTXMania.Game.Lib.Input
             var commands = new Queue<InputCommand>(_inputCommandQueue);
             _inputCommandQueue.Clear();
             return commands;
+        }
+
+        /// <summary>
+        /// Gets the next input command from the queue, if any
+        /// </summary>
+        /// <returns>The next input command, or null if none available</returns>
+        public InputCommand? GetNextCommand()
+        {
+            return _inputCommandQueue.Count > 0 ? _inputCommandQueue.Dequeue() : null;
         }
 
         /// <summary>

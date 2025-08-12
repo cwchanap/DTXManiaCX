@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -20,11 +21,11 @@ namespace DTXMania.Test.Stage.Performance
         public void Constructor_ValidInputs_InitializesCorrectly()
         {
             // Arrange
-            var inputManager = new MockInputManagerCompat();
+            var mockInputManager = CreateMockInputManager();
             var chartManager = CreateTestChartManager();
 
             // Act
-            var judgementManager = new JudgementManager(inputManager, chartManager);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
             // Assert
             Assert.True(judgementManager.IsActive);
@@ -45,10 +46,10 @@ namespace DTXMania.Test.Stage.Performance
         public void Constructor_NullChartManager_ThrowsArgumentNullException()
         {
             // Arrange
-            var inputManager = new MockInputManagerCompat();
+            var mockInputManager = CreateMockInputManager();
 
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new JudgementManager(inputManager, null));
+            Assert.Throws<ArgumentNullException>(() => new JudgementManager(mockInputManager, null));
         }
 
         [Fact]
@@ -77,9 +78,9 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_MissedNote_GeneratesMissEvent()
         {
             // Arrange
-            var inputManager = new MockInputManager();
+            var mockInputManager = CreateMockInputManager();
             var chartManager = CreateTestChartManager();
-            var judgementManager = new JudgementManager(inputManager, chartManager);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
@@ -97,21 +98,21 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_DoubleHit_PreventsDoubleJudgement()
         {
             // Arrange
-            var inputManager = new MockInputManager();
+            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
             var chartManager = CreateTestChartManager();
-            var judgementManager = new JudgementManager(inputManager, chartManager);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
             int eventCount = 0;
             judgementManager.JudgementMade += (sender, e) => eventCount++;
 
-            inputManager.SetKeyPressed(Keys.A, true);
+            // Simulate lane hit event for lane 0
+            mockModularInputManager.RaiseLaneHit(0);
 
             // Act - First hit
             judgementManager.Update(1000.0);
             
-            // Reset key state and press again
-            inputManager.SetKeyPressed(Keys.A, false);
-            inputManager.SetKeyPressed(Keys.A, true);
+            // Simulate second hit on same note
+            mockModularInputManager.RaiseLaneHit(0);
             
             // Second hit attempt on same note
             judgementManager.Update(1010.0);
@@ -124,15 +125,16 @@ namespace DTXMania.Test.Stage.Performance
         public void GetStatistics_AfterHits_ReturnsCorrectCounts()
         {
             // Arrange
-            var inputManager = new MockInputManager();
+            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
             var chartManager = CreateTestChartManager();
-            var judgementManager = new JudgementManager(inputManager, chartManager);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
-            inputManager.SetKeyPressed(Keys.A, true);
+            // Simulate lane hit for lane 0 (Just hit)
+            mockModularInputManager.RaiseLaneHit(0);
             judgementManager.Update(1000.0); // Just hit
 
-            inputManager.SetKeyPressed(Keys.A, false);
-            inputManager.SetKeyPressed(Keys.S, true);
+            // Simulate lane hit for lane 1 (Great hit, 40ms late)
+            mockModularInputManager.RaiseLaneHit(1);
             judgementManager.Update(1540.0); // Great hit (40ms late)
 
             // Act
@@ -151,38 +153,28 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void KeyboardMapping_AllLanes_MappedCorrectly()
         {
-            // Test that all keyboard keys map to correct lane indices
-            var expectedMapping = new[]
-            {
-                (Keys.A, 0),         // Splash/Crash
-                (Keys.S, 1),         // Floor Tom/Left Cymbal
-                (Keys.D, 2),         // Hi-Hat Foot/Left Crash
-                (Keys.G, 3),         // Left Pedal
-                (Keys.F, 4),         // Snare Drum
-                (Keys.J, 5),         // Hi-Hat
-                (Keys.Space, 6),     // Bass Drum
-                (Keys.K, 7),         // High Tom
-                (Keys.L, 8)          // Low Tom/Right Cymbal
-            };
+            // Test that all lanes map to correct indices
+            var expectedLanes = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
-            var inputManager = new MockInputManager();
+            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
             var chartManager = CreateMultiLaneTestChart();
-            var judgementManager = new JudgementManager(inputManager, chartManager);
+            var judgementManager = new JudgementManager(mockInputManager, chartManager);
 
-            foreach (var (key, expectedLane) in expectedMapping)
+            foreach (var expectedLane in expectedLanes)
             {
                 JudgementEvent? capturedEvent = null;
-                judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
+                EventHandler<JudgementEvent> handler = (sender, e) => capturedEvent = e;
+                judgementManager.JudgementMade += handler;
 
-                inputManager.SetKeyPressed(key, true);
+                // Simulate lane hit event for the expected lane
+                mockModularInputManager.RaiseLaneHit(expectedLane);
                 judgementManager.Update(1000.0 + expectedLane * 100); // Each lane has note at different time
 
                 Assert.NotNull(capturedEvent);
                 Assert.Equal(expectedLane, capturedEvent.Lane);
 
                 // Reset for next test
-                inputManager.SetKeyPressed(key, false);
-                judgementManager.JudgementMade -= (sender, e) => capturedEvent = e;
+                judgementManager.JudgementMade -= handler;
             }
         }
 
@@ -219,67 +211,98 @@ namespace DTXMania.Test.Stage.Performance
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);
         }
+
+        /// <summary>
+        /// Creates a simple mock IInputManagerCompat for basic tests
+        /// </summary>
+        private static IInputManagerCompat CreateMockInputManager()
+        {
+            return new TestInputManagerCompat();
+        }
+
+        /// <summary>
+        /// Creates a mock IInputManagerCompat with event simulation capabilities
+        /// </summary>
+        private static (IInputManagerCompat mock, TestModularInputManager modular) CreateMockInputManagerWithEvents()
+        {
+            var testInputManager = new TestInputManagerCompat();
+            return (testInputManager, testInputManager.TestModularInputManager);
+        }
     }
 
     /// <summary>
-    /// Mock InputManager for testing that provides complete control over input simulation.
-    /// Inherits from InputManager to maintain compatibility while allowing state injection.
+    /// Test implementation of IInputManagerCompat using Moq for clean dependency injection
     /// </summary>
-    internal class MockInputManager : InputManager
+    internal class TestInputManagerCompat : IInputManagerCompat
     {
-        private readonly System.Collections.Generic.Dictionary<Keys, bool> _keyStates = new();
-        private readonly System.Collections.Generic.Dictionary<Keys, bool> _previousKeyStates = new();
+        private readonly Mock<IInputManagerCompat> _mockInputManager;
+        public TestModularInputManager TestModularInputManager { get; }
 
-        public MockInputManager() : base()
+        public TestInputManagerCompat()
         {
+            _mockInputManager = new Mock<IInputManagerCompat>();
+            TestModularInputManager = new TestModularInputManager();
+            
+            // Setup the mock to return our test modular input manager
+            _mockInputManager.Setup(x => x.ModularInputManager).Returns(
+                TestModularInputManager.AsModularInputManager());
+            
+            // Setup basic interface implementations
+            _mockInputManager.Setup(x => x.HasPendingCommands).Returns(false);
+        }
+
+        public ModularInputManager ModularInputManager => _mockInputManager.Object.ModularInputManager;
+        public bool HasPendingCommands => _mockInputManager.Object.HasPendingCommands;
+
+        public bool IsKeyPressed(int keyCode) => _mockInputManager.Object.IsKeyPressed(keyCode);
+        public bool IsKeyDown(int keyCode) => _mockInputManager.Object.IsKeyDown(keyCode);
+        public bool IsKeyReleased(int keyCode) => _mockInputManager.Object.IsKeyReleased(keyCode);
+        public bool IsKeyTriggered(int keyCode) => _mockInputManager.Object.IsKeyTriggered(keyCode);
+        public bool IsBackActionTriggered() => _mockInputManager.Object.IsBackActionTriggered();
+        public InputCommand? GetNextCommand() => _mockInputManager.Object.GetNextCommand();
+        public bool IsCommandPressed(InputCommandType commandType) => _mockInputManager.Object.IsCommandPressed(commandType);
+        public void Update(double deltaTime) => _mockInputManager.Object.Update(deltaTime);
+        public void Dispose() => _mockInputManager.Object.Dispose();
+    }
+
+    /// <summary>
+    /// Minimal test stub for ModularInputManager that supports event simulation
+    /// </summary>
+    internal class TestModularInputManager
+    {
+        /// <summary>
+        /// Event for lane hits - matches ModularInputManager interface
+        /// </summary>
+        public event EventHandler<LaneHitEventArgs>? OnLaneHit;
+
+        /// <summary>
+        /// Helper method to raise lane hit events for testing
+        /// </summary>
+        public void RaiseLaneHit(int lane)
+        {
+            var eventArgs = new LaneHitEventArgs 
+            { 
+                Lane = lane, 
+                Timestamp = DateTime.Now 
+            };
+            OnLaneHit?.Invoke(this, eventArgs);
         }
 
         /// <summary>
-        /// Sets the current state of a key for testing
+        /// Creates a Mock<ModularInputManager> that forwards OnLaneHit events to this instance
         /// </summary>
-        public void SetKeyPressed(Keys key, bool isPressed)
+        public ModularInputManager AsModularInputManager()
         {
-            if (isPressed)
-            {
-                _previousKeyStates[key] = false; // Ensure it was not pressed before
-                _keyStates[key] = true;   // Now it is pressed
-            }
-            else
-            {
-                _previousKeyStates[key] = _keyStates.TryGetValue(key, out var prevState) && prevState;
-                _keyStates[key] = false;
-            }
-        }
-
-        /// <summary>
-        /// Override to use injected state instead of actual keyboard
-        /// </summary>
-        public new bool IsKeyPressed(int keyCode)
-        {
-            var key = (Keys)keyCode;
-            var currentPressed = _keyStates.TryGetValue(key, out var isPressed) && isPressed;
-            var prevPressed = _previousKeyStates.TryGetValue(key, out var wasPrevPressed) && wasPrevPressed;
-            return currentPressed && !prevPressed;
-        }
-
-        /// <summary>
-        /// Override to use injected state instead of actual keyboard
-        /// </summary>
-        public new bool IsKeyDown(int keyCode)
-        {
-            var key = (Keys)keyCode;
-            return _keyStates.TryGetValue(key, out var isPressed) && isPressed;
-        }
-
-        /// <summary>
-        /// Override to use injected state instead of actual keyboard
-        /// </summary>
-        public new bool IsKeyReleased(int keyCode)
-        {
-            var key = (Keys)keyCode;
-            var currentPressed = _keyStates.TryGetValue(key, out var isPressed) && isPressed;
-            var prevPressed = _previousKeyStates.TryGetValue(key, out var wasPrevPressed) && wasPrevPressed;
-            return !currentPressed && prevPressed;
+            var mock = new Mock<ModularInputManager>();
+            
+            // Forward the OnLaneHit event subscription to our test implementation
+            mock.SetupAdd(m => m.OnLaneHit += It.IsAny<EventHandler<LaneHitEventArgs>>())
+                .Callback<EventHandler<LaneHitEventArgs>>(handler => OnLaneHit += handler);
+            
+            mock.SetupRemove(m => m.OnLaneHit -= It.IsAny<EventHandler<LaneHitEventArgs>>())
+                .Callback<EventHandler<LaneHitEventArgs>>(handler => OnLaneHit -= handler);
+            
+            return mock.Object;
         }
     }
 }

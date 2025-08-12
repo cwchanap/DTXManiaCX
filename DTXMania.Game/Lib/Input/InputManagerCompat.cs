@@ -8,7 +8,7 @@ namespace DTXMania.Game.Lib.Input
     /// Compatibility wrapper that makes ModularInputManager work as a drop-in replacement
     /// for the existing InputManager while providing the new functionality
     /// </summary>
-    public class InputManagerCompat : InputManager
+    public class InputManagerCompat : InputManager, IInputManagerCompat
     {
         private readonly ModularInputManager _modularInputManager;
         private bool _disposed = false;
