@@ -377,15 +377,13 @@ namespace DTXMania.Test.Stage.Performance
 
             for (int i = 0; i < totalNotes; i++)
             {
-                var note = new Note
-                {
-                    Id = i,
-                    LaneIndex = i % 9, // Cycle through all 9 lanes
-                    Bar = i / 8, // Distribute across bars
-                    Tick = (i % 8) * 24, // Distribute ticks within bars
-                    Channel = 11 + (i % 9), // DTX channels 11-19
-                    Value = "01"
-                };
+                var note = new Note(
+                    laneIndex: i % 9, // Cycle through all 9 lanes
+                    bar: i / 8, // Distribute across bars
+                    tick: (i % 8) * 24, // Distribute ticks within bars
+                    channel: 11 + (i % 9), // DTX channels 11-19
+                    value: "01"
+                );
 
                 // Calculate timing
                 note.CalculateTimeMs(bpm);

@@ -122,7 +122,7 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel.SetData(new[] { Color.White });
 
             // Initialize ResourceManager using factory
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(graphicsDevice);
+            _resourceManager = _game.ResourceManager;
 
             // Initialize bitmap font for text rendering
             var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();

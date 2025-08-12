@@ -154,7 +154,7 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel.SetData(new[] { Color.White });
 
             // Initialize ResourceManager
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(graphicsDevice);
+            _resourceManager = _game.ResourceManager;
 
             // Initialize bitmap font for DTXMania-style text rendering
             try

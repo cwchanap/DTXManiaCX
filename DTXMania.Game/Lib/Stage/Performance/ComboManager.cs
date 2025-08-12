@@ -193,6 +193,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (!_disposed && disposing)
             {
+                // Clear all event subscribers to prevent memory leaks
+                ComboChanged = null;
+                MaxComboChanged = null;
+                
                 _disposed = true;
             }
         }

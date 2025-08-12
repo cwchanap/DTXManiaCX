@@ -280,11 +280,8 @@ namespace DTXMania.Test.Stage.Performance
         /// </summary>
         public void RaiseLaneHit(int lane)
         {
-            var eventArgs = new LaneHitEventArgs 
-            { 
-                Lane = lane, 
-                Timestamp = DateTime.Now 
-            };
+            var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"TestButton{lane}", true, 1.0f);
+            var eventArgs = new LaneHitEventArgs(lane, buttonState);
             OnLaneHit?.Invoke(this, eventArgs);
         }
 

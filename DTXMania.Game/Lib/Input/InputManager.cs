@@ -101,7 +101,7 @@ namespace DTXMania.Game.Lib.Input
             _keyMapping[Keys.Escape] = InputCommandType.Back;
         }
 
-        public void Update(double deltaTime = 0)
+        public virtual void Update(double deltaTime = 0)
         {
             _currentTime += deltaTime;
             _previousKeyboardState = _currentKeyboardState;
@@ -171,7 +171,7 @@ namespace DTXMania.Game.Lib.Input
         public bool HasPendingCommands => _inputCommandQueue.Count > 0;
 
         // Legacy methods for backward compatibility
-        public bool IsKeyPressed(int keyCode)
+        public virtual bool IsKeyPressed(int keyCode)
         {
             var key = (Keys)keyCode;
             return _currentKeyboardState.IsKeyDown(key) &&
@@ -182,7 +182,7 @@ namespace DTXMania.Game.Lib.Input
         /// Check if a key was just triggered (edge-trigger)
         /// Uses standard edge detection for all keys
         /// </summary>
-        public bool IsKeyTriggered(int keyCode)
+        public virtual bool IsKeyTriggered(int keyCode)
         {
             var key = (Keys)keyCode;
             return _currentKeyboardState.IsKeyDown(key) &&
@@ -194,17 +194,17 @@ namespace DTXMania.Game.Lib.Input
         /// Uses edge detection for all keys mapped to InputCommandType.Back
         /// This method should be used by all stages instead of duplicating the logic
         /// </summary>
-        public bool IsBackActionTriggered()
+        public virtual bool IsBackActionTriggered()
         {
             return IsCommandPressed(InputCommandType.Back);
         }
 
-        public bool IsKeyDown(int keyCode)
+        public virtual bool IsKeyDown(int keyCode)
         {
             return _currentKeyboardState.IsKeyDown((Keys)keyCode);
         }
 
-        public bool IsKeyReleased(int keyCode)
+        public virtual bool IsKeyReleased(int keyCode)
         {
             var key = (Keys)keyCode;
             return !_currentKeyboardState.IsKeyDown(key) &&

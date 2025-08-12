@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly ResourceManager _resourceManager;
+        private readonly IResourceManager _resourceManager;
         private ITexture _backgroundTexture;
         private bool _isLoading = false;
         private bool _loadingFailed = false;
@@ -44,7 +44,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public BackgroundRenderer(ResourceManager resourceManager)
+        public BackgroundRenderer(IResourceManager resourceManager)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
         }

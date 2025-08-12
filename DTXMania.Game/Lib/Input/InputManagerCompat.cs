@@ -38,7 +38,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public ModularInputManager ModularInputManager => _modularInputManager;
 
-        public new void Update(double deltaTime)
+        public override void Update(double deltaTime)
         {
             // Update the modular input manager
             _modularInputManager?.Update(deltaTime);
@@ -47,7 +47,7 @@ namespace DTXMania.Game.Lib.Input
             base.Update(deltaTime);
         }
 
-        public new bool IsKeyPressed(int keyCode)
+        public override bool IsKeyPressed(int keyCode)
         {
             // Use the modular input manager's logic
             var result = _modularInputManager?.IsKeyPressed(keyCode) ?? base.IsKeyPressed(keyCode);
@@ -58,13 +58,13 @@ namespace DTXMania.Game.Lib.Input
             return result;
         }
 
-        public new bool IsKeyDown(int keyCode)
+        public override bool IsKeyDown(int keyCode)
         {
             // Use the modular input manager's logic
             return _modularInputManager?.IsKeyDown(keyCode) ?? base.IsKeyDown(keyCode);
         }
 
-        public new bool IsKeyReleased(int keyCode)
+        public override bool IsKeyReleased(int keyCode)
         {
             // Use the modular input manager's logic
             return _modularInputManager?.IsKeyReleased(keyCode) ?? base.IsKeyReleased(keyCode);
@@ -74,7 +74,7 @@ namespace DTXMania.Game.Lib.Input
         /// Check if a key was just triggered (edge-trigger)
         /// Uses the modular input manager's debounced logic
         /// </summary>
-        public new bool IsKeyTriggered(int keyCode)
+        public override bool IsKeyTriggered(int keyCode)
         {
             // Use the modular input manager's logic if available
             return _modularInputManager?.IsKeyTriggered(keyCode) ?? base.IsKeyPressed(keyCode);
@@ -84,7 +84,7 @@ namespace DTXMania.Game.Lib.Input
         /// Consolidated method to detect "back" action from both ESC key and controller Back button
         /// Uses proper debouncing for ESC key to prevent repeat triggers
         /// </summary>
-        public new bool IsBackActionTriggered()
+        public override bool IsBackActionTriggered()
         {
             // Use the modular input manager's logic if available, otherwise fallback to base
             return _modularInputManager?.IsBackActionTriggered() ?? base.IsBackActionTriggered();

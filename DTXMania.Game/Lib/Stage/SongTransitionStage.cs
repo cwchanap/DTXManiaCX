@@ -110,7 +110,7 @@ namespace DTXMania.Game.Lib.Stage
             
             // Initialize graphics resources
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(_game.GraphicsDevice);
+            _resourceManager = _game.ResourceManager;
             
             // Ensure InputManager is available (recreate if disposed)
             if (_inputManager == null)
@@ -252,7 +252,7 @@ namespace DTXMania.Game.Lib.Stage
                 Position = Vector2.Zero,
                 Size = new Vector2(_game.GraphicsDevice.Viewport.Width, _game.GraphicsDevice.Viewport.Height),
                 BackgroundColor = Color.DarkBlue * 0.8f, // More visible background
-                LayoutMode = DTX.UI.Components.PanelLayoutMode.Manual
+                LayoutMode = PanelLayoutMode.Manual
             };
             
             // Get song information from SongManager if available

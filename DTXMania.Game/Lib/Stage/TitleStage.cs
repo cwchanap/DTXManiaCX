@@ -89,7 +89,7 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel.SetData(new[] { Color.White });
 
             // Initialize ResourceManager using factory
-            _resourceManager = ResourceManagerFactory.CreateResourceManager(graphicsDevice);
+            _resourceManager = _game.ResourceManager;
 
             // Load background texture (DTXManiaNX uses 2_background.jpg)
             LoadBackgroundTexture();

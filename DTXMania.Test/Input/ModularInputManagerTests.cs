@@ -42,15 +42,16 @@ namespace DTXMania.Test.Input
         public void KeyBindings_DefaultBindings_AreLoadedCorrectly()
         {
             // Assert default keyboard bindings
-            Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A"));
-            Assert.Equal(1, _inputManager.KeyBindings.GetLane("Key.S"));
-            Assert.Equal(2, _inputManager.KeyBindings.GetLane("Key.D"));
-            Assert.Equal(4, _inputManager.KeyBindings.GetLane("Key.F"));     // F -> Snare Drum (lane 4)
+            Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A"));     // A -> Splash/Crash (lane 0)
+            Assert.Equal(1, _inputManager.KeyBindings.GetLane("Key.F"));     // F -> Floor Tom & Left Cymbal (lane 1)
+            Assert.Equal(2, _inputManager.KeyBindings.GetLane("Key.D"));     // D -> Hi-Hat Foot & Left Crash (lane 2)
+            Assert.Equal(4, _inputManager.KeyBindings.GetLane("Key.S"));     // S -> Snare Drum (lane 4)
             Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space")); // Space -> Bass Drum (lane 6)
-        Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.J"));
-            Assert.Equal(7, _inputManager.KeyBindings.GetLane("Key.K"));
-            Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.L"));
-            Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.OemSemicolon"));
+            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.G"));     // G -> Left Pedal (lane 3)
+            Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.J"));     // J -> Hi-Hat (lane 5)
+            Assert.Equal(7, _inputManager.KeyBindings.GetLane("Key.K"));     // K -> High Tom (lane 7)
+            Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.L"));     // L -> Low Tom & Right Cymbal (lane 8)
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.OemSemicolon")); // Not bound
         }
 
         [Fact]
@@ -149,11 +150,11 @@ namespace DTXMania.Test.Input
         }
 
         [Theory]
-        [InlineData("Key.A", 0)]
-        [InlineData("Key.S", 1)]
-        [InlineData("Key.D", 2)]
+        [InlineData("Key.A", 0)]  // Splash/Crash
+        [InlineData("Key.F", 1)]  // Floor Tom & Left Cymbal
+        [InlineData("Key.D", 2)]  // Hi-Hat Foot & Left Crash
         [InlineData("Key.G", 3)]  // Left Pedal
-        [InlineData("Key.F", 4)]  // Snare Drum
+        [InlineData("Key.S", 4)]  // Snare Drum
         [InlineData("Key.J", 5)]  // Hi-Hat
         [InlineData("Key.Space", 6)] // Bass Drum
         [InlineData("Key.K", 7)]  // High Tom
