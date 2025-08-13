@@ -160,8 +160,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (disposing)
                 {
-                    // Dispose managed resources
-                    _backgroundTexture?.Dispose();
+                    // Dispose managed resources - using reference counting for managed textures
+                    _backgroundTexture?.RemoveReference();
                     _backgroundTexture = null;
                     _whiteTexture?.Dispose();
                     

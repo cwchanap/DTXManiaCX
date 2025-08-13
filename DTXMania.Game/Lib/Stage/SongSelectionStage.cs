@@ -228,10 +228,10 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager?.Dispose();
             _inputManager = null;
 
-            // Clean up DTXManiaNX background graphics (Phase 3)
-            _backgroundTexture?.Dispose();
-            _headerPanelTexture?.Dispose();
-            _footerPanelTexture?.Dispose();
+            // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
+            _backgroundTexture?.RemoveReference();
+            _headerPanelTexture?.RemoveReference();
+            _footerPanelTexture?.RemoveReference();
 
             // Clean up preview sound resources
             StopCurrentPreview();

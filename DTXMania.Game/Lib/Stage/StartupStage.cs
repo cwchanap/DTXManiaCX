@@ -246,8 +246,8 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
 
-                // Cleanup MonoGame resources
-                _backgroundTexture?.Dispose();
+                // Cleanup MonoGame resources - using reference counting for managed textures
+                _backgroundTexture?.RemoveReference();
                 _bitmapFont?.Dispose();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();

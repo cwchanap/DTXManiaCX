@@ -155,16 +155,16 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch?.Dispose();
             _spriteBatch = null;
             
-            // Clean up background texture
-            _backgroundTexture?.Dispose();
+            // Clean up background texture (using reference counting)
+            _backgroundTexture?.RemoveReference();
             _backgroundTexture = null;
             
-            // Clean up preview texture
-            _previewTexture?.Dispose();
+            // Clean up preview texture (using reference counting)
+            _previewTexture?.RemoveReference();
             _previewTexture = null;
             
-            // Clean up difficulty sprite
-            _difficultySprite?.Dispose();
+            // Clean up difficulty sprite (using reference counting)
+            _difficultySprite?.RemoveReference();
             _difficultySprite = null;
             
             // Clean up level number font
