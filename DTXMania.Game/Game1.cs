@@ -52,12 +52,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         _graphicsManager.DeviceLost += OnGraphicsDeviceLost;
         _graphicsManager.DeviceReset += OnGraphicsDeviceReset;
 
-        // Initialize managers that are needed before base.Initialize() calls LoadContent()
+        base.Initialize();
+
+        // Initialize managers that are needed after base.Initialize() calls LoadContent()
         // InputManager must be created before StageManager since stages need InputManager in their constructors
         InputManager = new InputManagerCompat(ConfigManager);
-        StageManager = new StageManager(this);
-
-        base.Initialize();
 
         // Initialize graphics manager after base initialization
         _graphicsManager.Initialize();
@@ -82,6 +81,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
         // Initialize font factory after content is loaded
         ManagedFont.InitializeFontFactory(Content);
+
+        // Initialize StageManager after ResourceManager is available
+        StageManager = new StageManager(this);
 
         StageManager?.ChangeStage(StageType.Startup);
     }

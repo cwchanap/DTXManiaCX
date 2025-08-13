@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Game.Lib.UI.Layout
 {
@@ -174,7 +175,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int GradientLineSpacing = 8; // Line spacing for gradient fallback
             public static Color GradientTopColor => Color.DarkBlue;
             public static Color GradientBottomColor => Color.Black;
-            public static string DefaultBackgroundPath => "Graphics/5_background.jpg";
+            public static string DefaultBackgroundPath => TexturePath.SongTransitionBackground;
         }
         
         #endregion

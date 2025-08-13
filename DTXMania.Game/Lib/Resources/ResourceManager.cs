@@ -72,9 +72,18 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
             {
-                Interlocked.Increment(ref _cacheHits);
-                cachedTexture.AddReference();
-                return cachedTexture;
+                // Check if the cached texture is disposed
+                if (cachedTexture.IsDisposed)
+                {
+                    _textureCache.TryRemove(cacheKey, out _);
+                    // Continue to load a new texture
+                }
+                else
+                {
+                    Interlocked.Increment(ref _cacheHits);
+                    cachedTexture.AddReference();
+                    return cachedTexture;
+                }
             }
 
             Interlocked.Increment(ref _cacheMisses);
@@ -189,9 +198,18 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_soundCache.TryGetValue(cacheKey, out var cachedSound))
             {
-                Interlocked.Increment(ref _cacheHits);
-                cachedSound.AddReference();
-                return cachedSound;
+                // Check if the cached sound is disposed
+                if (cachedSound.IsDisposed)
+                {
+                    _soundCache.TryRemove(cacheKey, out _);
+                    // Continue to load a new sound
+                }
+                else
+                {
+                    Interlocked.Increment(ref _cacheHits);
+                    cachedSound.AddReference();
+                    return cachedSound;
+                }
             }
 
             Interlocked.Increment(ref _cacheMisses);

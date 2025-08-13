@@ -206,9 +206,9 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Title Stage resources");
 
-                // Cleanup MonoGame resources
-                _backgroundTexture?.Dispose();
-                _menuTexture?.Dispose();
+                // Cleanup MonoGame resources - using reference counting for managed textures
+                _backgroundTexture?.RemoveReference();
+                _menuTexture?.RemoveReference();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
                 _resourceManager?.Dispose();
