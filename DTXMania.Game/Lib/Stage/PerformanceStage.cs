@@ -982,7 +982,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void CheckStageCompletion(double currentTimeMs)
         {
-            if (_stageCompleted)
+            if (_stageCompleted || _parsedChart == null)
                 return;
 
             // Check for song end

@@ -52,6 +52,7 @@ namespace DTXMania.Game.Lib.Stage
                 StageType.SongSelect => new SongSelectionStage(_game),
                 StageType.SongTransition => new SongTransitionStage(_game),
                 StageType.Performance => new PerformanceStage(_game),
+                StageType.Result => new ResultStage(_game),
                 _ => throw new ArgumentException($"Unknown stage type: {stageType}")
             };
 
