@@ -66,6 +66,12 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize UI components
             InitializeComponents();
 
+            // Clear any pending input commands to prevent auto-transition
+            if (_inputManager != null)
+            {
+                _inputManager.GetInputCommands(); // This clears the queue
+            }
+
             System.Diagnostics.Debug.WriteLine($"ResultStage activated with performance summary: {_performanceSummary}");
         }
 
@@ -166,11 +172,23 @@ namespace DTXMania.Game.Lib.Stage
             if (_inputManager == null)
                 return;
 
-            // Check for back action (ESC key or controller Back button) using consolidated method
-            // Also handle Enter key for convenience
-            if (_inputManager.IsBackActionTriggered() || _inputManager.IsKeyPressed((int)Keys.Enter))
+            // Process queued input commands from InputManager
+            var commands = _inputManager.GetInputCommands();
+            while (commands.Count > 0)
             {
-                ReturnToSongSelect();
+                var command = commands.Dequeue();
+                ExecuteInputCommand(command);
+            }
+        }
+
+        private void ExecuteInputCommand(InputCommand command)
+        {
+            switch (command.Type)
+            {
+                case InputCommandType.Activate:
+                case InputCommandType.Back:
+                    ReturnToSongSelect();
+                    break;
             }
         }
 
