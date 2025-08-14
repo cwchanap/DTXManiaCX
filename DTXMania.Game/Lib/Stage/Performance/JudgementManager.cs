@@ -188,10 +188,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="args">Lane hit event arguments</param>
         private void OnLaneHit(object? sender, LaneHitEventArgs args)
         {
-#if DEBUG
-            // DEBUG: Log lane hit event received
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Lane hit received: Lane {args.Lane}, ButtonId {args.Button.Id}, IsPressed {args.Button.IsPressed}");
-#endif
+            // Only process events when active
+            if (!IsActive || _disposed)
+                return;
             
             // Add lane hit event to pending list for processing in next Update
             lock (_pendingLaneHits)

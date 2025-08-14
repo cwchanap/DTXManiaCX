@@ -371,7 +371,15 @@ namespace DTXMania.Game.Lib.Stage
                 ReturnToSongSelect();
             }
 
-            // TODO: Handle gameplay input in later phases
+
+            // Only process gameplay input when song is actively playing (not during loading or ready countdown)
+            if (_songTimer?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
+            {
+                // Input manager is already being updated in OnUpdate(), 
+                // so we don't need to do anything special here.
+                // The ModularInputManager will automatically trigger lane hit events
+                // which the JudgementManager is subscribed to.
+            }
         }
 
         /// <summary>
@@ -395,10 +403,16 @@ namespace DTXMania.Game.Lib.Stage
             // 1. Stop the song timer
             _songTimer?.Stop();
 
-            // 2. Clean up components to free resources and avoid audio leaks
+            // 2. Deactivate judgement manager to stop processing input
+            if (_judgementManager != null)
+            {
+                _judgementManager.IsActive = false;
+            }
+
+            // 3. Clean up components to free resources and avoid audio leaks
             CleanupComponents();
 
-            // 3. Pause input to block further judgement processing
+            // 4. Pause input to block further judgement processing
             _inputPaused = true;
 
             // Return to song selection stage
@@ -530,6 +544,12 @@ namespace DTXMania.Game.Lib.Stage
                 _songTimer.SetPosition(0.0, _currentGameTime);
                 _songTimer.Play(_currentGameTime);
                 _isReady = false;
+
+                // Activate the judgement manager now that the song is playing
+                if (_judgementManager != null)
+                {
+                    _judgementManager.IsActive = true;
+                }
 
                 // Choose playback strategy based on BGM events
                 if (_scheduledBGMEvents.Count > 0)
@@ -732,13 +752,15 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize managers
             _judgementManager = new JudgementManager(_inputManager, _chartManager);
+            // Start with judgement manager inactive - it will be activated when song starts
+            _judgementManager.IsActive = false;
+            
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager();
 
             // Wire up event handlers for UI binding
             WireUpEventHandlers();
-
         }
 
         /// <summary>
@@ -984,8 +1006,12 @@ namespace DTXMania.Game.Lib.Stage
             // Mark the stage as completed
             _stageCompleted = true;
 
-            // Pause input handling
+            // Pause input handling and deactivate judgement manager
             _inputPaused = true;
+            if (_judgementManager != null)
+            {
+                _judgementManager.IsActive = false;
+            }
 
             // Stop the song timer
             _songTimer?.Stop();

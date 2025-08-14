@@ -30,25 +30,35 @@ namespace DTXMania.Game.Lib.Stage
         {
             _game = game;
             _stages = new Dictionary<StageType, IStage>();
-            InitializeStages();
-        }        private void InitializeStages()
+            // Don't initialize stages immediately - use lazy initialization
+        }
+
+        /// <summary>
+        /// Gets or creates a stage for the specified type (lazy initialization)
+        /// </summary>
+        private IStage GetOrCreateStage(StageType stageType)
         {
-            // Initialize all available stages and set stage manager reference
-            var stages = new Dictionary<StageType, IStage>
+            if (_stages.TryGetValue(stageType, out var existingStage))
             {
-                [StageType.Startup] = new StartupStage(_game),
-                [StageType.Title] = new TitleStage(_game),
-                [StageType.Config] = new ConfigStage(_game),
-                [StageType.SongSelect] = new SongSelectionStage(_game),
-                [StageType.SongTransition] = new SongTransitionStage(_game),
-                [StageType.Performance] = new PerformanceStage(_game)
+                return existingStage;
+            }
+
+            // Create stage on demand
+            IStage stage = stageType switch
+            {
+                StageType.Startup => new StartupStage(_game),
+                StageType.Title => new TitleStage(_game),
+                StageType.Config => new ConfigStage(_game),
+                StageType.SongSelect => new SongSelectionStage(_game),
+                StageType.SongTransition => new SongTransitionStage(_game),
+                StageType.Performance => new PerformanceStage(_game),
+                _ => throw new ArgumentException($"Unknown stage type: {stageType}")
             };
 
-            foreach (var kvp in stages)
-            {
-                kvp.Value.StageManager = this;
-                _stages[kvp.Key] = kvp.Value;
-            }
+            stage.StageManager = this;
+            _stages[stageType] = stage;
+
+            return stage;
         }
 
         public void ChangeStage(StageType stageType)
@@ -75,7 +85,8 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            if (!_stages.TryGetValue(stageType, out var targetStage))
+            var targetStage = GetOrCreateStage(stageType);
+            if (targetStage == null)
             {
                 System.Diagnostics.Debug.WriteLine($"StageManager: Stage {stageType} not found");
                 return;
@@ -180,7 +191,8 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Activate new stage
-            if (_stages.TryGetValue(_targetStageType, out var newStage))
+            var newStage = GetOrCreateStage(_targetStageType);
+            if (newStage != null)
             {
                 _currentStage = newStage;
                 System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Activating new stage: {_targetStageType}");
