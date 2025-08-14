@@ -117,11 +117,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // Text display strings for judgement types
         private static readonly Dictionary<JudgementType, string> JudgementTexts = new Dictionary<JudgementType, string>
         {
-            { JudgementType.Just, "JUST" },
-            { JudgementType.Great, "GREAT" },
-            { JudgementType.Good, "GOOD" },
-            { JudgementType.Poor, "POOR" },
-            { JudgementType.Miss, "MISS" }
+            { JudgementType.Just, "Perfect" },
+            { JudgementType.Great, "Great" },
+            { JudgementType.Good, "Good" },
+            { JudgementType.Poor, "OK" },
+            { JudgementType.Miss, "Miss" }
         };
 
         #endregion
@@ -173,8 +173,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 var popup = new JudgementTextPopup(text, lanePosition);
                 _activePopups.Add(popup);
-
-                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: Spawned '{text}' popup at lane {judgementEvent.Lane} ({lanePosition.X}, {lanePosition.Y})");
             }
         }
 
@@ -271,11 +269,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return text switch
             {
-                "JUST" => Color.Yellow,
-                "GREAT" => Color.LightGreen,
-                "GOOD" => Color.LightBlue,
-                "POOR" => Color.Orange,
-                "MISS" => Color.Red,
+                "Perfect" => Color.Yellow,
+                "Great" => Color.LightGreen,
+                "Good" => Color.LightBlue,
+                "OK" => Color.Orange,
+                "Miss" => Color.Red,
                 _ => Color.White
             };
         }

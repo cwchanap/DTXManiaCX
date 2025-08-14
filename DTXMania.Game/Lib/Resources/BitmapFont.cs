@@ -420,19 +420,21 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public static BitmapFontConfig CreateJudgementTextFontConfig()
         {
-            // Character set optimized for judgement text
-            const string judgementChars = "JUSTGREAGOODPORMISN";
+            // Use the console font configuration which has all necessary characters for judgment text
+            // This ensures compatibility with the existing console font texture layout
+            var consoleFontConfig = CreateConsoleFontConfig();
             
+            // Override some properties for better judgment text visibility
             return new BitmapFontConfig
             {
-                DisplayableCharacters = judgementChars,
-                CharacterWidths = new[] { 28 }, // Fixed 28px width for all characters (NotoSerifJP Bold 28 spec)
-                CharacterHeight = 32, // Slightly taller for better visibility
-                SourceCharacterWidths = new[] { 28 },
-                SourceCharacterHeight = 32,
-                TexturePaths = new[] { TexturePath.ConsoleFont }, // Fallback to console font until NotoSerifJP texture is available
-                UseVariableWidths = false,
-                CharactersPerRow = 16
+                DisplayableCharacters = consoleFontConfig.DisplayableCharacters, // Use full console font character set
+                CharacterWidths = new[] { 12 }, // Slightly wider than default console font (8px) for better visibility
+                CharacterHeight = 18, // Slightly taller than default console font (16px) for better visibility
+                SourceCharacterWidths = consoleFontConfig.SourceCharacterWidths, // Use console font source widths
+                SourceCharacterHeight = consoleFontConfig.SourceCharacterHeight, // Use console font source height
+                TexturePaths = consoleFontConfig.TexturePaths, // Use console font textures
+                UseVariableWidths = consoleFontConfig.UseVariableWidths,
+                CharactersPerRow = consoleFontConfig.CharactersPerRow
             };
         }
         
