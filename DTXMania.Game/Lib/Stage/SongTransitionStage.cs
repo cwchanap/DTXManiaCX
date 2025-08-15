@@ -137,49 +137,84 @@ namespace DTXMania.Game.Lib.Stage
             // Reset timing and start in normal phase (no fade)
             _elapsedTime = 0;
             _currentPhase = StagePhase.Normal;
+            
         }
 
         public override void Deactivate()
         {
+            
             // Clean up UI
-            _uiManager?.Dispose();
-            _uiManager = null;
+            if (_uiManager != null)
+            {
+                _uiManager?.Dispose();
+                _uiManager = null;
+            }
             
             // Clean up input manager
-            _inputManager?.Dispose();
-            _inputManager = null;
+            if (_inputManager != null)
+            {
+                _inputManager?.Dispose();
+                _inputManager = null;
+            }
             
             // Clean up graphics resources
-            _whitePixel?.Dispose();
-            _whitePixel = null;
-            _spriteBatch?.Dispose();
-            _spriteBatch = null;
+            if (_whitePixel != null)
+            {
+                _whitePixel?.Dispose();
+                _whitePixel = null;
+            }
+            if (_spriteBatch != null)
+            {
+                _spriteBatch?.Dispose();
+                _spriteBatch = null;
+            }
             
             // Clean up background texture (using reference counting)
-            _backgroundTexture?.RemoveReference();
-            _backgroundTexture = null;
+            if (_backgroundTexture != null)
+            {
+                _backgroundTexture?.RemoveReference();
+                _backgroundTexture = null;
+            }
             
             // Clean up preview texture (using reference counting)
-            _previewTexture?.RemoveReference();
-            _previewTexture = null;
+            if (_previewTexture != null)
+            {
+                _previewTexture?.RemoveReference();
+                _previewTexture = null;
+            }
             
             // Clean up difficulty sprite (using reference counting)
-            _difficultySprite?.RemoveReference();
-            _difficultySprite = null;
+            if (_difficultySprite != null)
+            {
+                _difficultySprite?.RemoveReference();
+                _difficultySprite = null;
+            }
             
             // Clean up level number font
-            _levelNumberFont?.Dispose();
-            _levelNumberFont = null;
+            if (_levelNumberFont != null)
+            {
+                _levelNumberFont?.Dispose();
+                _levelNumberFont = null;
+            }
             
             // Clean up fonts
-            _titleFont?.Dispose();
-            _titleFont = null;
-            _artistFont?.Dispose();
-            _artistFont = null;
+            if (_titleFont != null)
+            {
+                _titleFont?.RemoveReference();
+                _titleFont = null;
+            }
+            if (_artistFont != null)
+            {
+                _artistFont?.RemoveReference();
+                _artistFont = null;
+            }
             
             // Clean up sounds
-            _nowLoadingSound?.Dispose();
-            _nowLoadingSound = null;
+            if (_nowLoadingSound != null)
+            {
+                _nowLoadingSound?.RemoveReference();
+                _nowLoadingSound = null;
+            }
             
             _currentPhase = StagePhase.Inactive;
             
@@ -195,8 +230,19 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                // Clean up existing background texture first
+                if (_backgroundTexture != null)
+                {
+                    _backgroundTexture.RemoveReference();
+                    _backgroundTexture = null;
+                }
+                
                 // Try to load a background texture using layout constants
                 _backgroundTexture = _resourceManager.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath);
+                if (_backgroundTexture != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Background texture loaded successfully");
+                }
             }
             catch (Exception ex)
             {
@@ -209,6 +255,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                // Clean up existing sound first
+                if (_nowLoadingSound != null)
+                {
+                    _nowLoadingSound.RemoveReference();
+                    _nowLoadingSound = null;
+                }
+                
                 // Load now loading sound for song selection
                 _nowLoadingSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
             }
@@ -281,34 +334,58 @@ namespace DTXMania.Game.Lib.Stage
 
         private void LoadFonts()
         {
+            
             try
             {
+                // Clean up existing title font first
+                if (_titleFont != null)
+                {
+                    _titleFont.RemoveReference();
+                    _titleFont = null;
+                }
+                
                 // Load title font using layout configuration
                 _titleFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title font: {ex.Message}");
+                // Title font load failed, continue without it
             }
             
             try
             {
+                // Clean up existing artist font first
+                if (_artistFont != null)
+                {
+                    _artistFont.RemoveReference();
+                    _artistFont = null;
+                }
+                
                 // Load artist font using layout configuration
                 _artistFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist font: {ex.Message}");
+                // Artist font load failed, continue without it
             }
         }
         
         private void LoadPreviewImage()
         {
+            
             try
             {
+                // Clean up existing preview texture first
+                if (_previewTexture != null)
+                {
+                    _previewTexture.RemoveReference();
+                    _previewTexture = null;
+                }
+                
                 // Try to load preview image from song data - use PreviewImage field for images, not PreviewFile (which is for audio)
                 if (_selectedSong?.DatabaseChart?.PreviewImage != null)
                 {
+                    
                     // Get the chart directory and combine with relative preview image path
                     string chartPath = _selectedSong.DatabaseChart.FilePath;
                     string chartDirectory = System.IO.Path.GetDirectoryName(chartPath);
@@ -320,12 +397,17 @@ namespace DTXMania.Game.Lib.Stage
                     if (System.IO.File.Exists(absolutePreviewImagePath))
                     {
                         _previewTexture = _resourceManager.LoadTexture(absolutePreviewImagePath);
+                        if (_previewTexture != null)
+                        {
+                            return; // Successfully loaded, exit early
+                        }
                     }
                 }
                 
                 // Try fallback preview image if primary not found
                 if (_previewTexture == null && _selectedSong != null)
                 {
+                    
                     // Look for common preview file names in song directory
                     var songDir = _selectedSong.DirectoryPath ?? 
                                  (_selectedSong.DatabaseChart?.FilePath != null ? 
@@ -339,7 +421,10 @@ namespace DTXMania.Game.Lib.Stage
                             if (System.IO.File.Exists(fallbackPath))
                             {
                                 _previewTexture = _resourceManager.LoadTexture(fallbackPath);
-                                break;
+                                if (_previewTexture != null)
+                                {
+                                    return; // Successfully loaded, exit early
+                                }
                             }
                         }
                     }
@@ -352,15 +437,15 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         _previewTexture = _resourceManager.LoadTexture("Graphics/5_preimage default.png");
                     }
-                    catch (Exception fallbackEx)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load default preview image: {fallbackEx.Message}");
+                        // Default preview load failed, continue without preview
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load preview image: {ex.Message}");
+                // Preview image loading failed, continue without preview
             }
         }
 
@@ -368,6 +453,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                // Clean up existing difficulty sprite first
+                if (_difficultySprite != null)
+                {
+                    _difficultySprite.RemoveReference();
+                    _difficultySprite = null;
+                }
+                
                 // Load the base texture through ResourceManager first
                 var baseTexture = _resourceManager.LoadTexture(TexturePath.DifficultySprite);
                 if (baseTexture != null && baseTexture.Texture != null)
@@ -380,6 +472,15 @@ namespace DTXMania.Game.Lib.Stage
                         SongTransitionUILayout.DifficultySprite.SpriteWidth,
                         SongTransitionUILayout.DifficultySprite.SpriteHeight
                     );
+                    
+                    if (_difficultySprite != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("SongTransitionStage: Difficulty sprite loaded successfully");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Base texture for difficulty sprite is null");
                 }
             }
             catch (Exception ex)
@@ -392,6 +493,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                // Clean up existing level number font first
+                if (_levelNumberFont != null)
+                {
+                    _levelNumberFont.Dispose();
+                    _levelNumberFont = null;
+                }
+                
                 // Load level number bitmap font using the same configuration as SongStatusPanel
                 var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
                 _levelNumberFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, levelNumberConfig);
@@ -562,9 +670,9 @@ namespace DTXMania.Game.Lib.Stage
                 
                 // Note: Difficulty is now drawn as sprite in DrawDifficultySprite method
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw text: {ex.Message}");
+                // Text drawing failed, continue without text
             }
         }
         
@@ -644,6 +752,7 @@ namespace DTXMania.Game.Lib.Stage
             
             try
             {
+                
                 // Use SongTransitionUILayout constants for positioning and rotation
                 var position = SongTransitionUILayout.PreviewImage.Position;
                 var size = SongTransitionUILayout.PreviewImage.Size;
@@ -669,9 +778,9 @@ namespace DTXMania.Game.Lib.Stage
                 
                 _previewTexture.Draw(_spriteBatch, drawPosition, finalScale, rotation, Vector2.Zero);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw preview image: {ex.Message}");
+                // Preview image drawing failed, continue without preview
             }
         }
 

@@ -155,9 +155,18 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_fontCache.TryGetValue(cacheKey, out var cachedFont))
             {
-                Interlocked.Increment(ref _cacheHits);
-                cachedFont.AddReference();
-                return cachedFont;
+                // Check if the cached font is disposed
+                if (cachedFont.IsDisposed)
+                {
+                    _fontCache.TryRemove(cacheKey, out _);
+                    // Continue to load a new font
+                }
+                else
+                {
+                    Interlocked.Increment(ref _cacheHits);
+                    cachedFont.AddReference();
+                    return cachedFont;
+                }
             }
 
             Interlocked.Increment(ref _cacheMisses);
