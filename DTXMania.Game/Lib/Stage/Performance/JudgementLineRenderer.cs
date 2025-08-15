@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -18,7 +19,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         // Judgement line properties
         private Color _lineColor = Color.White;
-        private int _lineThickness = 2;
+        private int _lineThickness = 2; // From PerformanceUILayout.JudgementLine.DefaultThickness
         private float _alpha = 1.0f;
 
         #endregion

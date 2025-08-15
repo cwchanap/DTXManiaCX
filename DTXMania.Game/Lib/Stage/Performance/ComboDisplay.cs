@@ -2,6 +2,7 @@ using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -23,8 +24,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private string _comboText = "0";
         private string _labelText = "COMBO";
         private Color _textColor = Color.White;
-        private Color _shadowColor = new Color(0, 0, 0, 128);
-        private Vector2 _shadowOffset = new Vector2(2, 2);
+        private Color _shadowColor = new Color(0, 0, 0, 128); // From PerformanceUILayout.ComboDisplay.ShadowColor
+        private Vector2 _shadowOffset = new Vector2(2, 2); // From PerformanceUILayout.ComboDisplay.ShadowOffset
         private bool _disposed = false;
         private bool _visible = false;
 
@@ -32,8 +33,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private float _scale = 1.0f;
         private float _targetScale = 1.0f;
         private float _scaleVelocity = 0.0f;
-        private const float ScaleDamping = 0.2f;
-        private const float ComboHitScale = 1.5f;
+        private const float ScaleDamping = 0.2f; // From PerformanceUILayout.Animation.ScaleDamping
+        private const float ComboHitScale = 1.5f; // From PerformanceUILayout.Effects.ComboHitScale
 
         #endregion
 
