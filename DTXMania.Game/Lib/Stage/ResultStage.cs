@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Stage.Performance;
 
 namespace DTXMania.Game.Lib.Stage
@@ -208,7 +209,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw a simple background
             var viewport = _spriteBatch.GraphicsDevice.Viewport;
             var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-            var backgroundColor = Color.DarkBlue * 0.8f;
+            var backgroundColor = ResultUILayout.Background.BackgroundColor;
 
             if (_whitePixel != null)
             {
@@ -223,34 +224,34 @@ namespace DTXMania.Game.Lib.Stage
 
             var viewport = _spriteBatch.GraphicsDevice.Viewport;
             var centerX = viewport.Width / 2;
-            var startY = 100;
-            var lineHeight = 40;
+            var startY = ResultUILayout.ResultDisplay.StartY;
+            var lineHeight = ResultUILayout.ResultDisplay.LineHeight;
             var currentY = startY;
 
             // Draw performance results
-            DrawResultLine("PERFORMANCE RESULTS", centerX, ref currentY, Color.Yellow, lineHeight);
-            currentY += lineHeight / 2; // Extra space
+            DrawResultLine("PERFORMANCE RESULTS", centerX, ref currentY, ResultUILayout.ResultDisplay.TitleColor, lineHeight);
+            currentY += ResultUILayout.ResultDisplay.ExtraSpacing; // Extra space
 
             var clearText = _performanceSummary.ClearFlag ? "CLEARED" : "FAILED";
-            var clearColor = _performanceSummary.ClearFlag ? Color.Green : Color.Red;
+            var clearColor = _performanceSummary.ClearFlag ? ResultUILayout.ResultDisplay.ClearedColor : ResultUILayout.ResultDisplay.FailedColor;
             DrawResultLine(clearText, centerX, ref currentY, clearColor, lineHeight);
 
-            DrawResultLine($"Score: {_performanceSummary.Score:N0}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Max Combo: {_performanceSummary.MaxCombo}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Accuracy: {_performanceSummary.Accuracy:F1}%", centerX, ref currentY, Color.White, lineHeight);
+            DrawResultLine($"Score: {_performanceSummary.Score:N0}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Max Combo: {_performanceSummary.MaxCombo}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Accuracy: {_performanceSummary.Accuracy:F1}%", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
 
-            currentY += lineHeight / 2; // Extra space
+            currentY += ResultUILayout.ResultDisplay.ExtraSpacing; // Extra space
 
-            DrawResultLine("JUDGEMENT BREAKDOWN", centerX, ref currentY, Color.Cyan, lineHeight);
-            DrawResultLine($"Just: {_performanceSummary.JustCount}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Great: {_performanceSummary.GreatCount}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Good: {_performanceSummary.GoodCount}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Poor: {_performanceSummary.PoorCount}", centerX, ref currentY, Color.White, lineHeight);
-            DrawResultLine($"Miss: {_performanceSummary.MissCount}", centerX, ref currentY, Color.White, lineHeight);
+            DrawResultLine("JUDGEMENT BREAKDOWN", centerX, ref currentY, ResultUILayout.ResultDisplay.SectionHeaderColor, lineHeight);
+            DrawResultLine($"Just: {_performanceSummary.JustCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Great: {_performanceSummary.GreatCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Good: {_performanceSummary.GoodCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Poor: {_performanceSummary.PoorCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Miss: {_performanceSummary.MissCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
 
             currentY += lineHeight; // Extra space
 
-            DrawResultLine("Press ESC or ENTER to continue", centerX, ref currentY, Color.Gray, lineHeight);
+            DrawResultLine("Press ESC or ENTER to continue", centerX, ref currentY, ResultUILayout.ResultDisplay.InstructionTextColor, lineHeight);
         }
 
         private void DrawResultLine(string text, int centerX, ref int currentY, Color color, int lineHeight)
@@ -268,8 +269,8 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Fallback: draw colored rectangle as placeholder
-                var rectWidth = text.Length * 8;
-                var rectHeight = 20;
+                var rectWidth = text.Length * ResultUILayout.FallbackText.CharacterWidth;
+                var rectHeight = ResultUILayout.FallbackText.RectHeight;
                 var rectPosition = new Rectangle(centerX - rectWidth / 2, currentY, rectWidth, rectHeight);
 
                 if (_whitePixel != null)
