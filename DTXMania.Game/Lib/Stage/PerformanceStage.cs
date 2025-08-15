@@ -11,6 +11,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -82,7 +83,7 @@ namespace DTXMania.Game.Lib.Stage
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
-        private double _readyCountdown = 1.0; // 1 second ready period (in seconds, not milliseconds)
+        private double _readyCountdown = 1.0; // 1 second ready period
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
         private Texture2D _fallbackWhiteTexture;
@@ -97,10 +98,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constants
 
-        /// <summary>
-        /// Frequency of the ready text pulsing effect (pulses per second)
-        /// </summary>
-        private const double ReadyPulseFrequency = 2.0; // 2 pulses per second
 
         #endregion
 
@@ -455,7 +452,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Set BPM and scroll speed in note renderer
                 _noteRenderer?.SetBpm(_parsedChart.Bpm);
 
-                // Set scroll speed based on user preference (default 100% for now)
+                // Set scroll speed based on user preference
                 // TODO: Get scroll speed from user config
                 var scrollSpeedSetting = 100; // Default scroll speed
                 _noteRenderer?.SetScrollSpeed(scrollSpeedSetting);
@@ -601,7 +598,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Draw ready countdown with pulsing effect
                 // Use total time for consistent pulsing instead of countdown (which decreases)
-                var alpha = (float)(0.5 + 0.5 * Math.Sin(_totalTime * ReadyPulseFrequency * 2 * Math.PI));
+                var alpha = (float)(0.5 + 0.5 * Math.Sin(_totalTime * 2.0 * 2 * Math.PI));
                 var readyColor = Color.Yellow * alpha;
                 DrawCenteredText("READY...", readyColor);
             }
