@@ -2,6 +2,7 @@ using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -20,13 +21,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _currentScore = 0;
         private string _scoreText = "0000000";
         private Color _textColor = Color.White;
-        private Color _shadowColor = new Color(0, 0, 0, 128);
-        private Vector2 _shadowOffset = new Vector2(2, 2);
+        private Color _shadowColor = new Color(0, 0, 0, 128); // From PerformanceUILayout.Visual.StandardShadowColor
+        private Vector2 _shadowOffset = new Vector2(2, 2); // From PerformanceUILayout.ScoreDisplay.ShadowOffset
         private bool _disposed = false;
 
         // Score formatting
         private const string ScoreFormat = "0000000";
-        private const int MaxScore = 9999999;
+        private const int MaxScore = 9999999; // From PerformanceUILayout.ScoreDisplay.MaxScore
 
         #endregion
 
