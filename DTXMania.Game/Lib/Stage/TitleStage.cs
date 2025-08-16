@@ -349,7 +349,11 @@ namespace DTXMania.Game.Lib.Stage
             // Check for back action (ESC key or controller Back button) using consolidated method
             if (_game.InputManager?.IsBackActionTriggered() == true)
             {
-                _game.Exit();
+                if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                {
+                    baseGame.MarkStageTransition();
+                    _game.Exit();
+                }
                 return;
             }
 
@@ -425,9 +429,15 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine($"Selected menu item: {_menuItems[_currentMenuIndex]}");
 
+            // Check global debounce for all menu selections
+            if (_game is BaseGame baseGame && !baseGame.CanPerformStageTransition())
+                return;
+
             switch (_currentMenuIndex)
             {
                 case 0: // GAME START
+                    if (_game is BaseGame baseGameStart)
+                        baseGameStart.MarkStageTransition();
                     PlayGameStartSound();
                     System.Diagnostics.Debug.WriteLine("Starting game - transitioning to Song Selection Stage");
                     // Use DTXMania-style fade transition for game start
@@ -435,6 +445,8 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case 1: // CONFIG
+                    if (_game is BaseGame baseGameConfig)
+                        baseGameConfig.MarkStageTransition();
                     PlaySelectSound();
                     System.Diagnostics.Debug.WriteLine("Opening config - transitioning to Config Stage");
                     // Use crossfade transition for config
@@ -442,6 +454,8 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case 2: // EXIT
+                    if (_game is BaseGame baseGameExit)
+                        baseGameExit.MarkStageTransition();
                     PlaySelectSound();
                     System.Diagnostics.Debug.WriteLine("Exiting game");
                     _game.Exit();

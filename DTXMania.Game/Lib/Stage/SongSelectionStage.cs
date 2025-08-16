@@ -73,6 +73,8 @@ namespace DTXMania.Game.Lib.Stage
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
         private double _phaseStartTime;        // Performance optimization: Input debouncing
         private double _lastNavigationTime = 0;
+        
+        // Note: Using global stage transition debouncing from BaseGame
 
         // Constants for DTXMania-style display - using values from SongSelectionUILayout
         private const int VISIBLE_SONGS = SongSelectionUILayout.SongBars.VisibleItems;
@@ -703,6 +705,12 @@ namespace DTXMania.Game.Lib.Stage
             if (songNode == null || songNode.Type != NodeType.Score)
                 return;
             
+            // Debounce stage transitions to prevent accidental double selections
+            if (!(_game is BaseGame baseGame) || !baseGame.CanPerformStageTransition())
+                return;
+            
+            baseGame.MarkStageTransition();
+            
             // Create shared data to pass song information to the transition stage
             var sharedData = new Dictionary<string, object>
             {
@@ -899,17 +907,22 @@ namespace DTXMania.Game.Lib.Stage
                 case InputCommandType.Back:
                     if (_isInStatusPanel)
                     {
-                        // Exit status panel mode
+                        // Exit status panel mode - no debounce needed for navigation
                         _isInStatusPanel = false;
                     }
                     else if (_navigationStack.Count > 0)
                     {
+                        // Navigate back in folder structure - no debounce needed for navigation
                         NavigateBack();
                     }
                     else
                     {
-                        // Return to title stage
-                        StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
+                        // Return to title stage - debounce only for stage transitions
+                        if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                        {
+                            baseGame.MarkStageTransition();
+                            StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
+                        }
                     }
                     break;
             }

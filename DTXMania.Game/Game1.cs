@@ -24,6 +24,27 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     public InputManagerCompat InputManager { get; protected set; }
     public IGraphicsManager GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; }
+    
+    // Global stage transition debouncing
+    private double _totalGameTime = 0.0;
+    private double _lastStageTransitionTime = 0.0;
+    private const double GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY = 0.5; // 500ms debounce
+    
+    /// <summary>
+    /// Checks if enough time has passed since the last stage transition to allow a new one
+    /// </summary>
+    public bool CanPerformStageTransition()
+    {
+        return _totalGameTime - _lastStageTransitionTime >= GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY;
+    }
+    
+    /// <summary>
+    /// Marks that a stage transition is occurring, updating the debounce timer
+    /// </summary>
+    public void MarkStageTransition()
+    {
+        _lastStageTransitionTime = _totalGameTime;
+    }
 
     public BaseGame()
     {
@@ -90,6 +111,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
     protected override void Update(GameTime gameTime)
     {
+        // Update total game time for global debouncing
+        _totalGameTime += gameTime.ElapsedGameTime.TotalSeconds;
+        
         // Handle gamepad back button (but let stages handle ESC key)
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == Microsoft.Xna.Framework.Input.ButtonState.Pressed)
             Exit();

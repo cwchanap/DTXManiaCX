@@ -24,9 +24,9 @@ namespace DTXMania.Game.Lib.Resources
         public const string SongSelectionBackground = "Graphics/5_background.jpg";
 
         /// <summary>
-        /// Song transition stage background texture (same as song selection)
+        /// Song transition stage background texture
         /// </summary>
-        public const string SongTransitionBackground = "Graphics/5_background.jpg";
+        public const string SongTransitionBackground = "Graphics/6_background.jpg";
 
         /// <summary>
         /// Performance stage background texture
