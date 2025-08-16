@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -17,6 +20,10 @@ namespace DTXMania.Game.Lib.Stage
         protected bool _disposed = false;
         protected bool _isFirstUpdate = true;
         protected Dictionary<string, object> _sharedData;
+
+        // Background system
+        private ITexture _stageBackgroundTexture;
+        private bool _backgroundLoadAttempted = false;
 
         #endregion
 
@@ -64,6 +71,9 @@ namespace DTXMania.Game.Lib.Stage
             _currentPhase = StagePhase.FadeIn;
 
 
+            // Load stage background
+            LoadStageBackground();
+
             // Perform stage-specific activation
             OnActivate();
         }
@@ -78,6 +88,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Perform stage-specific deactivation
             OnDeactivate();
+
+            // Cleanup background
+            CleanupStageBackground();
 
             // Reset state
             _currentPhase = StagePhase.Inactive;
@@ -236,6 +249,99 @@ namespace DTXMania.Game.Lib.Stage
         {
             StageManager?.ChangeStage(stageType, transition ?? new InstantTransition(), sharedData);
         }
+
+        #endregion
+
+        #region Background Management
+
+        /// <summary>
+        /// Gets the background texture path for this stage type
+        /// Override to provide custom background texture path
+        /// </summary>
+        protected virtual string GetBackgroundTexturePath()
+        {
+            return Type switch
+            {
+                StageType.Startup => TexturePath.StartupBackground,
+                StageType.Title => TexturePath.TitleBackground,
+                StageType.SongSelect => TexturePath.SongSelectionBackground,
+                StageType.SongTransition => TexturePath.SongTransitionBackground,
+                StageType.Performance => TexturePath.PerformanceBackground,
+                StageType.Result => TexturePath.ResultBackground,
+                _ => null
+            };
+        }
+
+        /// <summary>
+        /// Load the background texture for this stage
+        /// </summary>
+        private void LoadStageBackground()
+        {
+            if (_backgroundLoadAttempted)
+                return;
+
+            _backgroundLoadAttempted = true;
+
+            try
+            {
+                var texturePath = GetBackgroundTexturePath();
+                if (!string.IsNullOrEmpty(texturePath))
+                {
+                    _stageBackgroundTexture = _game.ResourceManager.LoadTexture(texturePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"BaseStage: Failed to load background for {Type}: {ex.Message}");
+                _stageBackgroundTexture = null;
+            }
+        }
+
+        /// <summary>
+        /// Cleanup the background texture
+        /// </summary>
+        private void CleanupStageBackground()
+        {
+            _stageBackgroundTexture?.RemoveReference();
+            _stageBackgroundTexture = null;
+            _backgroundLoadAttempted = false;
+        }
+
+        /// <summary>
+        /// Draw the stage background
+        /// Call this in your OnDraw implementation before drawing other content
+        /// </summary>
+        protected void DrawStageBackground(SpriteBatch spriteBatch)
+        {
+            DrawStageBackground(spriteBatch, Vector2.Zero);
+        }
+
+        /// <summary>
+        /// Draw the stage background at a specific position
+        /// </summary>
+        protected void DrawStageBackground(SpriteBatch spriteBatch, Vector2 position)
+        {
+            if (_stageBackgroundTexture != null)
+            {
+                _stageBackgroundTexture.Draw(spriteBatch, position);
+            }
+        }
+
+        /// <summary>
+        /// Draw the stage background with custom parameters
+        /// </summary>
+        protected void DrawStageBackground(SpriteBatch spriteBatch, Rectangle destinationRectangle)
+        {
+            if (_stageBackgroundTexture != null)
+            {
+                spriteBatch.Draw(_stageBackgroundTexture.Texture, destinationRectangle, Color.White);
+            }
+        }
+
+        /// <summary>
+        /// Check if the background texture is loaded and ready
+        /// </summary>
+        protected bool IsBackgroundReady => _stageBackgroundTexture != null;
 
         #endregion
 

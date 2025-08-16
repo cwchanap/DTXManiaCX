@@ -33,6 +33,11 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public const string PerformanceBackground = "Graphics/7_background.jpg";
 
+        /// <summary>
+        /// Result stage background texture
+        /// </summary>
+        public const string ResultBackground = "Graphics/8_background.jpg";
+
         #endregion
         
         #region UI Panel Textures
@@ -138,6 +143,7 @@ namespace DTXMania.Game.Lib.Resources
                 SongSelectionBackground,
                 SongTransitionBackground,
                 PerformanceBackground,
+                ResultBackground,
                 TitleMenu,
                 SongSelectionHeaderPanel,
                 SongSelectionFooterPanel,
@@ -167,7 +173,8 @@ namespace DTXMania.Game.Lib.Resources
                 TitleBackground,
                 SongSelectionBackground,
                 SongTransitionBackground,
-                PerformanceBackground
+                PerformanceBackground,
+                ResultBackground
             };
         }
         
