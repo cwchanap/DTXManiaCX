@@ -34,8 +34,7 @@ namespace DTXMania.Game.Lib.Stage
         private BitmapFont _bitmapFont;
         private Texture2D _whitePixel;
 
-        // DTXManiaNX Background Graphics (Phase 3)
-        private ITexture _backgroundTexture;
+        // DTXManiaNX Background Graphics (Phase 3) - Main background now handled by BaseStage
         private ITexture _headerPanelTexture;
         private ITexture _footerPanelTexture;        // Song management
         private List<SongListNode> _currentSongList;
@@ -179,7 +178,7 @@ namespace DTXMania.Game.Lib.Stage
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
                 }
             }            // Load DTXManiaNX background graphics (Phase 3)
-            LoadBackgroundGraphics();
+            LoadUIGraphics();
 
             // Load navigation sound (same as TitleStage)
             LoadNavigationSound();
@@ -231,7 +230,6 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager = null;
 
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
-            _backgroundTexture?.RemoveReference();
             _headerPanelTexture?.RemoveReference();
             _footerPanelTexture?.RemoveReference();
 
@@ -288,12 +286,11 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Background Graphics Loading (Phase 3)
 
-        private void LoadBackgroundGraphics()
+        private void LoadUIGraphics()
         {
             try
             {
-                // Load DTXManiaNX song selection background graphics
-                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionBackground);
+                // Main background is now loaded by BaseStage
             }
             catch (Exception ex)
             {
@@ -978,19 +975,16 @@ namespace DTXMania.Game.Lib.Stage
             var viewport = _game.GraphicsDevice.Viewport;
 
             // Draw DTXManiaNX authentic background graphics (Phase 3)
-            DrawDTXManiaNXBackground(viewport);
+            DrawStageBackground(_spriteBatch);
+            DrawDTXManiaNXUIGraphics(viewport);
         }
 
-        private void DrawDTXManiaNXBackground(Viewport viewport)
+        private void DrawDTXManiaNXUIGraphics(Viewport viewport)
         {
-            // Draw main background (5_background.jpg)
-            if (_backgroundTexture != null)
+            // Main background is now drawn by BaseStage
+            // Draw fallback gradient if no background texture loaded
+            if (!IsBackgroundReady)
             {
-                _backgroundTexture.Draw(_spriteBatch, Vector2.Zero);
-            }
-            else
-            {
-                // Fallback to gradient if background texture failed to load
                 DrawGradientBackground(viewport);
             }
 

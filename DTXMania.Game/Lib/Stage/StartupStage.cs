@@ -41,7 +41,6 @@ namespace DTXMania.Game.Lib.Stage
         private double _elapsedTime;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
-        private ITexture _backgroundTexture;
         private IResourceManager _resourceManager;
         private BitmapFont _bitmapFont;
 
@@ -129,7 +128,6 @@ namespace DTXMania.Game.Lib.Stage
             _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager, consoleFontConfig);
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
-            LoadBackgroundTexture();
 
             // Initialize state
             _elapsedTime = 0;
@@ -171,7 +169,16 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
 
             // Draw background
-            DrawBackground();
+            DrawStageBackground(_spriteBatch);
+            
+            // Draw fallback if no background loaded
+            if (!IsBackgroundReady && _whitePixel != null)
+            {
+                var viewport = _game.GraphicsDevice.Viewport;
+                _spriteBatch.Draw(_whitePixel,
+                    new Rectangle(0, 0, viewport.Width, viewport.Height),
+                    new Color(16, 16, 32));
+            }
 
             // Draw version info (DTXMania pattern)
             DrawVersionInfo();
@@ -247,13 +254,11 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource = null;
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
-                _backgroundTexture?.RemoveReference();
                 _bitmapFont?.Dispose();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
                 _resourceManager?.Dispose();
 
-                _backgroundTexture = null;
                 _bitmapFont = null;
                 _whitePixel = null;
                 _spriteBatch = null;
@@ -270,7 +275,6 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Use ResourceManager to load background texture with proper skin path resolution
-                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.StartupBackground);
                 System.Diagnostics.Debug.WriteLine("Loaded startup background using ResourceManager");
             }
             catch (Exception ex)
@@ -685,24 +689,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void DrawBackground()
-        {
-            if (_backgroundTexture != null)
-            {
-                var viewport = _game.GraphicsDevice.Viewport;
-                _spriteBatch.Draw(_backgroundTexture.Texture,
-                    new Rectangle(0, 0, viewport.Width, viewport.Height),
-                    Color.White);
-            }
-            else if (_whitePixel != null)
-            {
-                // Fallback: draw solid dark background
-                var viewport = _game.GraphicsDevice.Viewport;
-                _spriteBatch.Draw(_whitePixel,
-                    new Rectangle(0, 0, viewport.Width, viewport.Height),
-                    new Color(16, 16, 32));
-            }
-        }
+        // Background drawing is now handled by BaseStage
 
         private void DrawVersionInfo()
         {

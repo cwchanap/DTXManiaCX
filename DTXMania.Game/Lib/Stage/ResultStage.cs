@@ -33,6 +33,7 @@ namespace DTXMania.Game.Lib.Stage
         private BitmapFont _resultFont;
         private Texture2D _whitePixel;
 
+
         // State
         private double _elapsedTime = 0.0;
         
@@ -212,14 +213,21 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawBackground()
         {
-            // Draw a simple background
             var viewport = _spriteBatch.GraphicsDevice.Viewport;
-            var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-            var backgroundColor = ResultUILayout.Background.BackgroundColor;
 
-            if (_whitePixel != null)
+            // Draw DTXManiaNX authentic background graphics (8_background.jpg)
+            DrawStageBackground(_spriteBatch);
+            
+            // Draw fallback if no background loaded
+            if (!IsBackgroundReady)
             {
-                _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
+                var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+                var backgroundColor = ResultUILayout.Background.BackgroundColor;
+
+                if (_whitePixel != null)
+                {
+                    _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
+                }
             }
         }
 
