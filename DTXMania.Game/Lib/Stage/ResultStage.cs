@@ -35,6 +35,8 @@ namespace DTXMania.Game.Lib.Stage
 
         // State
         private double _elapsedTime = 0.0;
+        
+        // Note: Using global stage transition debouncing from BaseGame
 
         #endregion
 
@@ -188,7 +190,11 @@ namespace DTXMania.Game.Lib.Stage
             {
                 case InputCommandType.Activate:
                 case InputCommandType.Back:
-                    ReturnToSongSelect();
+                    if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                    {
+                        baseGame.MarkStageTransition();
+                        ReturnToSongSelect();
+                    }
                     break;
             }
         }

@@ -93,6 +93,8 @@ namespace DTXMania.Game.Lib.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
+        
+        // Note: Using global stage transition debouncing from BaseGame
 
         #endregion
 
@@ -362,10 +364,14 @@ namespace DTXMania.Game.Lib.Stage
             if (_inputManager == null)
                 return;
 
-            // Check for back action (ESC key or controller Back button) using consolidated method
+            // Check for back action (ESC key or controller Back button) using consolidated method with debounce
             if (_inputManager.IsBackActionTriggered())
             {
-                ReturnToSongSelect();
+                if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                {
+                    baseGame.MarkStageTransition();
+                    ReturnToSongSelect();
+                }
             }
 
 
@@ -1039,6 +1045,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void TransitionToResultStage()
         {
+            // No debounce needed here since this is an automatic transition based on game completion
             var sharedData = new Dictionary<string, object>
             {
                 { "performanceSummary", _performanceSummary }

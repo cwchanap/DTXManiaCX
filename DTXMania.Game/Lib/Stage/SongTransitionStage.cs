@@ -69,6 +69,8 @@ namespace DTXMania.Game.Lib.Stage
         // Chart data
         private ParsedChart _parsedChart;
         private bool _chartLoaded = false;
+        
+        // Note: Using global stage transition debouncing from BaseGame
 
         public override StageType Type => StageType.SongTransition;
 
@@ -570,10 +572,14 @@ namespace DTXMania.Game.Lib.Stage
             // Update UI
             _uiManager?.Update(deltaTime);
             
-            // Auto transition after delay (only if user hasn't pressed anything)
+            // Auto transition after delay (only if user hasn't pressed anything and debounce allows)
             if (_elapsedTime >= SongTransitionUILayout.Timing.AutoTransitionDelay && _currentPhase == StagePhase.Normal)
             {
-                TransitionToPerformance();
+                if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                {
+                    baseGame.MarkStageTransition();
+                    TransitionToPerformance();
+                }
             }
             
             // Update phase
@@ -827,11 +833,19 @@ namespace DTXMania.Game.Lib.Stage
             switch (command.Type)
             {
                 case InputCommandType.Activate:
-                    TransitionToPerformance();
+                    if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                    {
+                        baseGame.MarkStageTransition();
+                        TransitionToPerformance();
+                    }
                     break;
                     
                 case InputCommandType.Back:
-                    TransitionBackToSongSelect();
+                    if (_game is BaseGame baseGameBack && baseGameBack.CanPerformStageTransition())
+                    {
+                        baseGameBack.MarkStageTransition();
+                        TransitionBackToSongSelect();
+                    }
                     break;
             }
         }
