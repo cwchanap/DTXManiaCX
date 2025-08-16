@@ -66,7 +66,7 @@ namespace DTXMania.Test.UI
             var songBar = new SongBar();
 
             Assert.NotNull(songBar);
-            Assert.Equal(new Vector2(600, 32), songBar.Size);
+            Assert.Equal(new Vector2(DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.SongBars.BarWidth, DTXMania.Game.Lib.UI.DTXManiaVisualTheme.Layout.SongBarHeight), songBar.Size);
             Assert.False(songBar.IsSelected);
             Assert.False(songBar.IsCenter);
             Assert.Equal(0, songBar.CurrentDifficulty);

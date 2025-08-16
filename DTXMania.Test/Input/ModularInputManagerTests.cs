@@ -86,15 +86,23 @@ namespace DTXMania.Test.Input
         public void ReloadKeyBindings_AfterModification_RestoresFromConfig()
         {
             // Arrange
-            _configManager.Config.KeyBindings["Key.Q"] = 5;
-            _inputManager.KeyBindings.BindButton("Key.W", 3); // Local change
+            // First, save a binding to config through the proper method
+            _inputManager.KeyBindings.BindButton("Key.Q", 5);
+            _inputManager.SaveKeyBindings(); // This should save Key.Q=5 to config
+            
+            // Then make a local change that shouldn't be saved
+            _inputManager.KeyBindings.BindButton("Key.W", 3); // Local change only
+            
+            // Verify the pre-conditions
+            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should be bound locally
+            Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q")); // Should be bound locally
 
             // Act
-            _inputManager.ReloadKeyBindings();
+            _inputManager.ReloadKeyBindings(); // Should restore from config
 
             // Assert
-            Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q"));
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.W")); // Should be gone
+            Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q")); // Should be restored from config
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.W")); // Should be gone (not in config)
         }
 
         [Fact]
