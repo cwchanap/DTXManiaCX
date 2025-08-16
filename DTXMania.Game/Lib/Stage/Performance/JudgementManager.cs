@@ -26,8 +26,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly List<LaneHitEventArgs> _pendingLaneHits;
         private bool _disposed = false;
 
-        // Timing window for hit detection (±150ms to cover Poor judgement range)
-        private const double HitDetectionWindowMs = 150.0;
+        // Timing window for hit detection (±200ms to cover Miss threshold range)
+        private const double HitDetectionWindowMs = 200.0;
 
         #endregion
 

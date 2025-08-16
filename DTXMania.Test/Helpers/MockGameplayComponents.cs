@@ -214,10 +214,10 @@ namespace DTXMania.Test.Helpers
             var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"MockButton{lane}", true, 1.0f);
             var hitArgs = new LaneHitEventArgs(lane, buttonState);
             
-            // Use reflection to trigger the OnLaneHit event on ModularInputManager
-            var eventField = ModularInputManager.GetType().GetField("OnLaneHit");
-            var eventDelegate = eventField?.GetValue(ModularInputManager) as EventHandler<LaneHitEventArgs>;
-            eventDelegate?.Invoke(this, hitArgs);
+            // Use reflection to call the private OnInputRouterLaneHit method
+            var methodInfo = ModularInputManager.GetType().GetMethod("OnInputRouterLaneHit", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            methodInfo?.Invoke(ModularInputManager, new object[] { this, hitArgs });
         }
 
         public override bool IsKeyDown(int keyCode)

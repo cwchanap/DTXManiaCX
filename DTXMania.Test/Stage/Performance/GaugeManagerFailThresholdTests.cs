@@ -105,49 +105,45 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(5.0f, false)]   // Well above threshold
         public void GaugeManager_VariousLifeValues_CorrectFailureState(float lifeValue, bool shouldFail)
         {
+            // Test approach: Start with a safe life value, then bring it to the exact target life value
+            // through a single event, and check if failure is triggered correctly
+            
+            float startingLife;
+            JudgementEvent triggerEvent;
+            
+            if (shouldFail)
+            {
+                // For values that should trigger failure:
+                // Start slightly above the target and use an event that brings us to/below the target
+                startingLife = lifeValue + 1.5f; // Start 1.5% above target
+                triggerEvent = new JudgementEvent(0, 0, 120.0, JudgementType.Poor); // -1.5% life
+            }
+            else
+            {
+                // For values that should NOT trigger failure:
+                // Start slightly below target and use an event that brings us to/above the target
+                startingLife = Math.Max(1.0f, lifeValue - 1.0f); // Start 1% below target (min 1%)
+                triggerEvent = new JudgementEvent(0, 0, 50.0, JudgementType.Good); // +1% life
+            }
+            
             // Arrange
-            var gaugeManager = new GaugeManager(100.0f); // Start with full life
+            var gaugeManager = new GaugeManager(startingLife);
             
             bool failureTriggered = false;
             gaugeManager.Failed += (sender, e) => failureTriggered = true;
 
-            // Manually set life to test value by calculating required damage
-            float targetLife = lifeValue;
-            float damageNeeded = 100.0f - targetLife;
-            
-            // Apply damage through Miss events (-3% each)
-            while (gaugeManager.CurrentLife > targetLife + 3.0f)
-            {
-                var missEvent = new JudgementEvent(0, 0, 200.0, JudgementType.Miss);
-                gaugeManager.ProcessJudgement(missEvent);
-            }
-            
-            // Fine-tune with Poor events (-1.5% each) if needed
-            while (gaugeManager.CurrentLife > targetLife + 1.5f)
-            {
-                var poorEvent = new JudgementEvent(0, 0, 120.0, JudgementType.Poor);
-                gaugeManager.ProcessJudgement(poorEvent);
-            }
-
-            // Reset failure trigger flag since we may have triggered it during setup
-            failureTriggered = false;
-            
-            // Act - One more small damage to reach exact target if needed
-            if (Math.Abs(gaugeManager.CurrentLife - targetLife) > 0.1f)
-            {
-                var finalPoorEvent = new JudgementEvent(0, 0, 120.0, JudgementType.Poor);
-                gaugeManager.ProcessJudgement(finalPoorEvent);
-            }
+            // Act - Process the event that should bring us to the target life value
+            gaugeManager.ProcessJudgement(triggerEvent);
 
             // Assert
             if (shouldFail)
             {
-                Assert.True(gaugeManager.HasFailed);
+                Assert.True(gaugeManager.HasFailed, $"Expected failure at life value {lifeValue}");
                 Assert.True(gaugeManager.CurrentLife < GaugeManager.FailureThreshold);
             }
             else
             {
-                Assert.False(gaugeManager.HasFailed);
+                Assert.False(gaugeManager.HasFailed, $"Did not expect failure at life value {lifeValue}");
                 Assert.True(gaugeManager.CurrentLife >= GaugeManager.FailureThreshold);
             }
         }
