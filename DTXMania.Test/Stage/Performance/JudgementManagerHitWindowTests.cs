@@ -119,8 +119,9 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1251.0); // 251ms late, beyond ±200ms detection window
 
-            // Assert - No hit should be registered
-            Assert.Null(capturedEvent);
+            // Assert - Note should be auto-marked as Miss due to being beyond hit window
+            Assert.NotNull(capturedEvent);
+            Assert.Equal(JudgementType.Miss, capturedEvent.Type);
         }
 
         [Fact]
