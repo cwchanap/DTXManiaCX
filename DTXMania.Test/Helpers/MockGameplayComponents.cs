@@ -214,10 +214,39 @@ namespace DTXMania.Test.Helpers
             var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"MockButton{lane}", true, 1.0f);
             var hitArgs = new LaneHitEventArgs(lane, buttonState);
             
-            // Use reflection to call the private OnInputRouterLaneHit method
-            var methodInfo = ModularInputManager.GetType().GetMethod("OnInputRouterLaneHit", 
+            // Simple approach: Manually invoke the OnLaneHit event from ModularInputManager
+            // This simulates what InputRouter would do when it detects input
+            
+            // Get the OnLaneHit event field using reflection
+            // Note: C# compiler generates a private field for public events named with the event name
+            var eventInfo = typeof(ModularInputManager).GetEvent("OnLaneHit");
+            var fieldInfo = typeof(ModularInputManager).GetField("OnLaneHit", 
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            methodInfo?.Invoke(ModularInputManager, new object[] { this, hitArgs });
+            
+            if (fieldInfo != null)
+            {
+                var eventDelegate = (EventHandler<LaneHitEventArgs>)fieldInfo.GetValue(ModularInputManager);
+                if (eventDelegate != null)
+                {
+                    eventDelegate.Invoke(this, hitArgs);
+                    System.Diagnostics.Debug.WriteLine($"[MockInputManagerCompat] Successfully triggered lane {lane} hit event");
+                    return;
+                }
+            }
+            
+            // Fallback: Try to find and invoke the OnInputRouterLaneHit method
+            var onInputRouterLaneHitMethod = typeof(ModularInputManager)
+                .GetMethod("OnInputRouterLaneHit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                
+            if (onInputRouterLaneHitMethod != null)
+            {
+                onInputRouterLaneHitMethod.Invoke(ModularInputManager, new object[] { this, hitArgs });
+                System.Diagnostics.Debug.WriteLine($"[MockInputManagerCompat] Triggered lane {lane} hit using OnInputRouterLaneHit method");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[MockInputManagerCompat] FAILED to trigger lane hit event for lane {lane}");
+            }
         }
 
         public override bool IsKeyDown(int keyCode)

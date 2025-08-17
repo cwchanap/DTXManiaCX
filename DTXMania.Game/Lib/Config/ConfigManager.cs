@@ -46,10 +46,18 @@ namespace DTXMania.Game.Lib.Config
             // Load key bindings from config data
             System.Diagnostics.Debug.WriteLine($"[ConfigManager] LoadKeyBindings() called with {Config.KeyBindings.Count} config entries");
             
+            // Debug: List all entries in config
             foreach (var kvp in Config.KeyBindings)
             {
-                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Overriding binding: {kvp.Key} → Lane {kvp.Value}");
+                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Config contains: {kvp.Key} → {kvp.Value}");
+            }
+            
+            foreach (var kvp in Config.KeyBindings)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Applying binding: {kvp.Key} → Lane {kvp.Value}");
+                Console.WriteLine($"[ConfigManager DEBUG] About to call BindButton({kvp.Key}, {kvp.Value})");
                 keyBindings.BindButton(kvp.Key, kvp.Value);
+                Console.WriteLine($"[ConfigManager DEBUG] After BindButton, GetLane({kvp.Key}) = {keyBindings.GetLane(kvp.Key)}");
             }
             
             if (Config.KeyBindings.Count == 0)
@@ -61,11 +69,27 @@ namespace DTXMania.Game.Lib.Config
         public void SaveKeyBindings(KeyBindings keyBindings)
         {
             // Save key bindings to config data
+            System.Diagnostics.Debug.WriteLine($"[ConfigManager] SaveKeyBindings() called, saving {keyBindings.ButtonToLane.Count} bindings");
+            
+            // Create a temporary set of default bindings to compare against
+            var defaultBindings = new DTXMania.Game.Lib.Input.KeyBindings();
+            defaultBindings.LoadDefaultBindings();
+            
             Config.KeyBindings.Clear();
             foreach (var kvp in keyBindings.ButtonToLane)
             {
-                Config.KeyBindings[kvp.Key] = kvp.Value;
+                // Only save non-default bindings to config
+                if (!defaultBindings.ButtonToLane.TryGetValue(kvp.Key, out int defaultValue) || defaultValue != kvp.Value)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ConfigManager] Saving custom binding: {kvp.Key} → {kvp.Value}");
+                    Config.KeyBindings[kvp.Key] = kvp.Value;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ConfigManager] Skipping default binding: {kvp.Key} → {kvp.Value}");
+                }
             }
+            System.Diagnostics.Debug.WriteLine($"[ConfigManager] Config now has {Config.KeyBindings.Count} custom entries");
         }
 
         private void ParseConfigLine(string key, string value)

@@ -243,14 +243,49 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void ReloadKeyBindings()
         {
-            // Clear existing bindings
-            _keyBindings.ClearAllBindings();
+#if DEBUG
+            System.Diagnostics.Debug.WriteLine("[ModularInputManager] ReloadKeyBindings() method called");
+#endif
+            // Temporarily disable auto-save to prevent clearing config during reload
+            _keyBindings.BindingsChanged -= OnKeyBindingsChanged;
             
-            // Load defaults first
-            _keyBindings.LoadDefaultBindings();
-            
-            // Load from config (overrides defaults)
-            _configManager.LoadKeyBindings(_keyBindings);
+            try
+            {
+#if DEBUG
+                // Debug: Check config before clearing
+                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Config has {_configManager.Config.KeyBindings.Count} entries before clearing");
+                foreach (var kvp in _configManager.Config.KeyBindings)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Config entry: {kvp.Key} → {kvp.Value}");
+                }
+#endif
+                
+                // Clear existing bindings
+                _keyBindings.ClearAllBindings();
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Cleared all bindings, now has {_keyBindings.ButtonToLane.Count} entries");
+#endif
+                
+                // Load defaults first
+                _keyBindings.LoadDefaultBindings();
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Loaded defaults, now has {_keyBindings.ButtonToLane.Count} entries");
+#endif
+                
+                // Load from config (overrides defaults)
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] About to call LoadKeyBindings with config having {_configManager.Config.KeyBindings.Count} entries");
+#endif
+                _configManager.LoadKeyBindings(_keyBindings);
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] After LoadKeyBindings, bindings has {_keyBindings.ButtonToLane.Count} entries");
+#endif
+            }
+            finally
+            {
+                // Re-enable auto-save
+                _keyBindings.BindingsChanged += OnKeyBindingsChanged;
+            }
             
             Debug.WriteLine("[ModularInputManager] Key bindings reloaded from configuration");
         }
