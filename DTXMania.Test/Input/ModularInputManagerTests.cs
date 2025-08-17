@@ -86,16 +86,19 @@ namespace DTXMania.Test.Input
         public void ReloadKeyBindings_AfterModification_RestoresFromConfig()
         {
             // Arrange
-            // First, save a binding to config through the proper method
+            // First, make a binding change (auto-save will persist it)
             _inputManager.KeyBindings.BindButton("Key.Q", 5);
-            _inputManager.SaveKeyBindings(); // This should save Key.Q=5 to config
             
-            // Verify the binding was saved to config
+            // Verify the binding was auto-saved to config
             Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.Q"));
             Assert.Equal(5, _configManager.Config.KeyBindings["Key.Q"]);
             
-            // Then make a local change that shouldn't be saved
-            _inputManager.KeyBindings.BindButton("Key.W", 3); // Local change only
+            // Then make another change (also auto-saved due to auto-save behavior)
+            _inputManager.KeyBindings.BindButton("Key.W", 3);
+            
+            // Verify both bindings are now in config due to auto-save
+            Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.W"));
+            Assert.Equal(3, _configManager.Config.KeyBindings["Key.W"]);
             
             // Verify the pre-conditions
             Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should be bound locally
@@ -104,9 +107,9 @@ namespace DTXMania.Test.Input
             // Act
             _inputManager.ReloadKeyBindings(); // Should restore from config
 
-            // Assert
+            // Assert - Both bindings should be restored since auto-save persisted them
             Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q")); // Should be restored from config
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.W")); // Should be gone (not in config)
+            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should also be restored (auto-saved)
         }
 
         [Fact]
