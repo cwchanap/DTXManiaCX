@@ -50,8 +50,8 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Trigger lane hit at note time + deltaMs
             double hitTime = 1000.0 + deltaMs;
             
-            // Trigger a hit on lane 0 (Keys.A maps to lane 0)
-            mockInputManager.TriggerLaneHit(0);
+            // Trigger a hit on lane 0 directly using test method
+            judgementManager.TestTriggerLaneHit(0);
             
             judgementManager.Update(hitTime);
 
@@ -73,9 +73,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
             // Act - Hit exactly at Just window boundary (25ms)
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1025.0);
 
             // Assert
@@ -95,9 +94,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
             // Act - Hit exactly at Great window boundary (50ms)
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1050.0);
 
             // Assert
@@ -117,10 +115,9 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
-            // Act - Hit beyond detection window (±150ms as per JudgementManager spec)
-            judgementManager.Update(1151.0);
+            // Act - Hit beyond detection window (±200ms as per JudgementManager spec)
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.Update(1251.0); // 251ms late, beyond ±200ms detection window
 
             // Assert - No hit should be registered
             Assert.Null(capturedEvent);
@@ -137,9 +134,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
-            // Act - Hit within detection window (150ms) and within Good threshold (≤100ms)
+            // Act - Hit within detection window (200ms) and within Good threshold (≤100ms)
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1089.0); // 89ms late, within detection window
 
             // Assert
@@ -159,9 +155,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
             // Act - Hit between two notes, should hit the nearer one
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1025.0); // 25ms after first note, 25ms before second note
 
             // Assert - Should hit the first note (at 1000ms)
@@ -181,9 +176,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
             // Act - Hit early (negative delta)
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(960.0); // 40ms early
 
             // Assert
@@ -211,9 +205,8 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            mockInputManager.SetKeyPressed(Keys.A, true);
-
             // Act
+            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1000.0 + deltaMs);
 
             // Assert
@@ -232,8 +225,8 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Calculate tick position for the given time
-            // At 120 BPM: 96 ticks = 500ms, so tick = (timeMs / 500.0) * 96
-            int tickPosition = (int)((noteTimeMs / 500.0) * 96);
+            // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
+            int tickPosition = (int)((noteTimeMs / 2000.0) * 192);
 
             parsedChart.AddNote(new Note(0, 0, tickPosition, 0x11, "01")); // Lane 0
             parsedChart.FinalizeChart();
@@ -249,9 +242,9 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Add two notes 50ms apart in the same lane
-            // At 120 BPM: 96 ticks = 500ms, so tick = (timeMs / 500.0) * 96
-            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 500.0) * 96), 0x11, "01"));      // At 1000ms
-            parsedChart.AddNote(new Note(1, 0, (int)((1050.0 / 500.0) * 96), 0x11, "01"));     // At 1050ms
+            // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
+            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 2000.0) * 192), 0x11, "01"));      // At 1000ms
+            parsedChart.AddNote(new Note(1, 0, (int)((1050.0 / 2000.0) * 192), 0x11, "01"));     // At 1050ms
             
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);

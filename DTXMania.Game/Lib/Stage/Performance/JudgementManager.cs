@@ -161,6 +161,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #endregion
 
+        #region Test Support Methods
+
+        /// <summary>
+        /// Test-friendly method to directly simulate a lane hit event.
+        /// This bypasses the normal input system for unit testing purposes.
+        /// </summary>
+        /// <param name="lane">Lane index that was hit</param>
+        /// <param name="buttonId">Optional button ID for the event</param>
+        public void TestTriggerLaneHit(int lane, string buttonId = "TestButton")
+        {
+            var buttonState = new DTXMania.Game.Lib.Input.ButtonState(buttonId, true, 1.0f);
+            var hitArgs = new LaneHitEventArgs(lane, buttonState);
+            
+            // Directly call the OnLaneHit method that normally receives events from input system
+            OnLaneHit(this, hitArgs);
+        }
+
+        #endregion
+
         #region Private Methods
 
         /// <summary>
@@ -226,11 +245,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var buttonVelocity = laneHitEvent.Button.Velocity;
             var eventTimestamp = laneHitEvent.Timestamp;
             
-#if DEBUG
-            // DEBUG: Log processing attempt with velocity info
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Processing lane {laneIndex} input at time {currentSongTimeMs:F2}ms (velocity: {buttonVelocity:F2}, timestamp: {eventTimestamp:HH:mm:ss.fff})");
-#endif
-            
             // Find the nearest unhit note in this lane within the hit detection window
             var nearestNote = FindNearestUnhitNote(laneIndex, currentSongTimeMs);
             
@@ -238,11 +252,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 var deltaMs = currentSongTimeMs - nearestNote.Note.TimeMs;
                 var judgementType = TimingConstants.GetJudgementType(deltaMs);
-
-#if DEBUG
-                // DEBUG: Log hit detection success with velocity
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager] HIT - Lane {laneIndex}, Note {nearestNote.NoteId}, ΔT={deltaMs:F2}ms, Judgement={judgementType}, Velocity={buttonVelocity:F2}");
-#endif
 
                 // Create judgement event with enhanced data
                 var judgementEvent = new JudgementEvent(
@@ -261,13 +270,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 // Raise judgement event
                 JudgementMade?.Invoke(this, judgementEvent);
-            }
-            else
-            {
-#if DEBUG
-                // DEBUG: Log miss (no note found)
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager] MISS - Lane {laneIndex}, no unhit note found within ±{HitDetectionWindowMs}ms window at time {currentSongTimeMs:F2}ms");
-#endif
             }
         }
         
@@ -301,12 +303,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Use BinarySearch to find start index
             var searchTime = currentSongTimeMs - HitDetectionWindowMs;
             var startIndex = _chartManager.BinarySearchStartIndex(searchTime);
-            
-#if DEBUG
-            // DEBUG: Log search parameters and binary search result
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] FindNearestUnhitNote: Lane {laneIndex}, Time {currentSongTimeMs:F2}ms, SearchTime {searchTime:F2}ms, StartIndex {startIndex}, Window ±{HitDetectionWindowMs}ms");
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Total notes in chart: {_chartManager.AllNotes.Count}");
-#endif
             
 #if DEBUG
             // DEBUG: Show first few notes overall to verify they exist

@@ -28,7 +28,7 @@ namespace DTXMania.Game.Lib.Stage
 
         public StageManager(BaseGame game)
         {
-            _game = game;
+            _game = game ?? throw new ArgumentNullException(nameof(game));
             _stages = new Dictionary<StageType, IStage>();
             // Don't initialize stages immediately - use lazy initialization
         }

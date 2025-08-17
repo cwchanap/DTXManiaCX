@@ -90,6 +90,10 @@ namespace DTXMania.Test.Input
             _inputManager.KeyBindings.BindButton("Key.Q", 5);
             _inputManager.SaveKeyBindings(); // This should save Key.Q=5 to config
             
+            // Verify the binding was saved to config
+            Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.Q"));
+            Assert.Equal(5, _configManager.Config.KeyBindings["Key.Q"]);
+            
             // Then make a local change that shouldn't be saved
             _inputManager.KeyBindings.BindButton("Key.W", 3); // Local change only
             
