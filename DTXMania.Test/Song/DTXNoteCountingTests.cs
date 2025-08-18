@@ -59,9 +59,11 @@ namespace DTXMania.Test.Song
                 Assert.Equal(0, chart.GuitarNoteCount); // Should be 0 for drum-only charts
                 Assert.Equal(0, chart.BassNoteCount);   // Should be 0 for drum-only charts
                 
+#if DEBUG
                 // Log actual counts for debugging
                 System.Console.WriteLine($"Note counts - Drums: {chart.DrumNoteCount}, Guitar: {chart.GuitarNoteCount}, Bass: {chart.BassNoteCount}");
                 System.Console.WriteLine($"Duration: {chart.Duration:F2} seconds, BPM: {chart.Bpm}");
+#endif
                 
                 // Expected: DTX parser counts pairs of characters as notes
                 // Line 1 (#00111): "01010101010101010101010101010101" = 16 pairs = 16 notes
@@ -139,9 +141,11 @@ namespace DTXMania.Test.Song
                 Assert.Equal(0, chart.GuitarNoteCount); // Should be 0 for drum-only charts
                 Assert.Equal(0, chart.BassNoteCount);   // Should be 0 for drum-only charts
                 
+#if DEBUG
                 // Log actual counts for debugging
                 System.Console.WriteLine($"Complex DTX Note counts - Drums: {chart.DrumNoteCount}, Guitar: {chart.GuitarNoteCount}, Bass: {chart.BassNoteCount}");
                 System.Console.WriteLine($"Duration: {chart.Duration:F2} seconds, BPM: {chart.Bpm}");
+#endif
                 
                 // Expected: DTX parser counts pairs of characters as notes
                 // All lines have full measure data (32 characters = 16 pairs each)

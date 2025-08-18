@@ -126,8 +126,10 @@ namespace DTXMania.Test.Song
                 var discoveredCount = _songManager.DiscoveredScoreCount;
                 var rootSongs = _songManager.RootSongs;
                 
+#if DEBUG
                 // Debug output
                 System.Console.WriteLine($"DatabaseScoreCount: {dbScoreCount}, DiscoveredScoreCount: {discoveredCount}, RootSongs: {rootSongs.Count}");
+#endif
                 
                 Assert.True(dbScoreCount > 0, $"DatabaseScoreCount was {dbScoreCount}, DiscoveredScoreCount was {discoveredCount}");
                 Assert.NotEmpty(rootSongs);

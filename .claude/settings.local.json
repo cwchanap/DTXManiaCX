@@ -10,7 +10,8 @@
       "Bash(sqlite3:*)",
       "Bash(ls:*)",
       "Bash(dotnet clean:*)",
-      "Bash(mgcb:*)"
+      "Bash(mgcb:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

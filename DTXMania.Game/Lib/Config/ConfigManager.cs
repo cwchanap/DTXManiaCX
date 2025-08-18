@@ -18,7 +18,7 @@ namespace DTXMania.Game.Lib.Config
         {
             if (!File.Exists(filePath))
             {
-                Console.WriteLine($"Config file not found. Creating default config at {filePath}");
+                System.Diagnostics.Debug.WriteLine($"Config file not found. Creating default config at {filePath}");
                 SaveConfig(filePath); // Create default config
                 return;
             }
@@ -55,9 +55,9 @@ namespace DTXMania.Game.Lib.Config
             foreach (var kvp in Config.KeyBindings)
             {
                 System.Diagnostics.Debug.WriteLine($"[ConfigManager] Applying binding: {kvp.Key} → Lane {kvp.Value}");
-                Console.WriteLine($"[ConfigManager DEBUG] About to call BindButton({kvp.Key}, {kvp.Value})");
+                System.Diagnostics.Debug.WriteLine($"[ConfigManager DEBUG] About to call BindButton({kvp.Key}, {kvp.Value})");
                 keyBindings.BindButton(kvp.Key, kvp.Value);
-                Console.WriteLine($"[ConfigManager DEBUG] After BindButton, GetLane({kvp.Key}) = {keyBindings.GetLane(kvp.Key)}");
+                System.Diagnostics.Debug.WriteLine($"[ConfigManager DEBUG] After BindButton, GetLane({kvp.Key}) = {keyBindings.GetLane(kvp.Key)}");
             }
             
             if (Config.KeyBindings.Count == 0)

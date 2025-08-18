@@ -25,6 +25,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
         private readonly List<LaneHitEventArgs> _pendingLaneHits;
         private bool _disposed = false;
+        
+        // Miss detection optimization: Track the next note index to check for misses
+        private int _missDetectionIndex = 0;
 
         // Timing window for hit detection (±200ms to cover Miss threshold range)
         private const double HitDetectionWindowMs = 200.0;
@@ -43,7 +46,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Properties
 
         /// <summary>
-        /// Whether the judgement manager is currently processing input
+        /// Whether the judgement manager is currently processing input.
+        /// Note: Miss detection always runs regardless of this setting to ensure notes don't get stuck.
         /// </summary>
         public bool IsActive { get; set; } = true;
 
@@ -81,14 +85,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         public void Update(double currentSongTimeMs)
         {
-            if (!IsActive || _disposed)
+            if (_disposed)
                 return;
 
-            // Process pending lane hit events from the input system
-            ProcessPendingLaneHits(currentSongTimeMs);
+            // Process pending lane hit events from the input system (only when active)
+            if (IsActive)
+            {
+                ProcessPendingLaneHits(currentSongTimeMs);
+            }
 
-            // Check for missed notes (timeout scanner)
-            ProcessMissedNotes(currentSongTimeMs);
+            // Check for missed notes (timeout scanner) - only when active
+            // During ready countdown (IsActive = false), notes should not be marked as missed
+            if (IsActive)
+            {
+                ProcessMissedNotes(currentSongTimeMs);
+            }
         }
 
         /// <summary>
@@ -188,6 +199,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void InitializeNoteRuntimeData()
         {
             var allNotes = _chartManager.AllNotes;
+            
             foreach (var note in allNotes)
             {
                 _noteRuntimeData[note.Id] = new NoteRuntimeData
@@ -303,23 +315,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Use BinarySearch to find start index
             var searchTime = currentSongTimeMs - HitDetectionWindowMs;
             var startIndex = _chartManager.BinarySearchStartIndex(searchTime);
-            
-#if DEBUG
-            // DEBUG: Show first few notes overall to verify they exist
-            for (int debugI = 0; debugI < Math.Min(10, _chartManager.AllNotes.Count); debugI++)
-            {
-                var debugNote = _chartManager.AllNotes[debugI];
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager] Chart Note {debugI}: {debugNote.ToString()} at {debugNote.TimeMs:F2}ms, Lane={debugNote.LaneIndex}");
-            }
-            
-            // DEBUG: Show notes around start index
-            for (int debugI = Math.Max(0, startIndex - 2); debugI < Math.Min(_chartManager.AllNotes.Count, startIndex + 5); debugI++)
-            {
-                var debugNote = _chartManager.AllNotes[debugI];
-                var marker = debugI == startIndex ? " <-- START INDEX" : "";
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager] Around StartIndex Note {debugI}: {debugNote.ToString()} at {debugNote.TimeMs:F2}ms, Lane={debugNote.LaneIndex}{marker}");
-            }
-#endif
 
             // Search forward from the start index for the nearest unhit note in this lane
             for (int i = startIndex; i < _chartManager.AllNotes.Count; i++)
@@ -329,9 +324,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // Early break: if note is too far in future, stop scanning since notes are time-sorted
                 if (note.TimeMs - currentSongTimeMs > HitDetectionWindowMs)
                 {
-#if DEBUG
-                    System.Diagnostics.Debug.WriteLine($"[JudgementManager]   EARLY BREAK: Note {note.Id} at {note.TimeMs:F2}ms is {note.TimeMs - currentSongTimeMs:F2}ms beyond current time (> {HitDetectionWindowMs}ms window)");
-#endif
                     break;
                 }
                 
@@ -341,14 +333,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 notesInLane++;
                 var noteData = _noteRuntimeData[note.Id];
 
-#if DEBUG
-                // DEBUG: Log every note in the lane for debugging
-                if (notesInLane <= 5) // Only log first 5 notes to avoid spam
-                {
-                    System.Diagnostics.Debug.WriteLine($"[JudgementManager]   Note {note.Id} at {note.TimeMs:F2}ms: Status={noteData.Status}, Lane={note.LaneIndex}");
-                }
-#endif
-
                 if (noteData.Status != NoteStatus.Pending)
                 {
                     continue;
@@ -357,71 +341,73 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 pendingNotesInLane++;
                 var timeDifference = Math.Abs(currentSongTimeMs - note.TimeMs);
 
-#if DEBUG
-                // DEBUG: Show timing calculation for first few notes
-                if (pendingNotesInLane <= 3)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[JudgementManager]   Pending note {note.Id}: Time={note.TimeMs:F2}ms, Current={currentSongTimeMs:F2}ms, TimeDiff={timeDifference:F2}ms, Window={HitDetectionWindowMs}ms");
-                }
-#endif
-
                 if (timeDifference > HitDetectionWindowMs)
                 {
-#if DEBUG
-                    // DEBUG: Show why notes are rejected for first few
-                    if (pendingNotesInLane <= 3)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[JudgementManager]   --> REJECTED: TimeDiff {timeDifference:F2}ms > {HitDetectionWindowMs}ms");
-                    }
-#endif
                     continue;
                 }
 
                 candidatesFound++;
-#if DEBUG
-                // DEBUG: Log candidate notes only
-                System.Diagnostics.Debug.WriteLine($"[JudgementManager]   CANDIDATE: Note {note.Id} at {note.TimeMs:F2}ms: TimeDiff={timeDifference:F2}ms");
-#endif
 
                 if (timeDifference < nearestDistance)
                 {
                     nearestDistance = timeDifference;
                     nearestNote = noteData;
-#if DEBUG
-                    // DEBUG: Log when a new nearest note is found
-                    System.Diagnostics.Debug.WriteLine($"[JudgementManager]   --> NEW NEAREST: Note {note.Id}, Distance={timeDifference:F2}ms");
-#endif
                 }
             }
-
-#if DEBUG
-            // DEBUG: Log search results summary
-            System.Diagnostics.Debug.WriteLine($"[JudgementManager] Search complete: {notesInLane} total notes in lane, {pendingNotesInLane} pending, {candidatesFound} candidates, nearest={(nearestNote != null ? $"Note {nearestNote.NoteId} (Δ{nearestDistance:F2}ms)" : "none")}");
-#endif
 
             return nearestNote;
         }
 
         /// <summary>
-        /// Processes missed notes (timeout scanner)
+        /// Processes missed notes (timeout scanner) using time-indexed optimization.
+        /// Uses _missDetectionIndex to track progress and avoid scanning all notes every frame.
         /// </summary>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         private void ProcessMissedNotes(double currentSongTimeMs)
         {
-            foreach (var noteData in _noteRuntimeData.Values)
+            var allNotes = _chartManager.AllNotes;
+            int processedThisFrame = 0;
+
+            // Start from the last known position and scan forward
+            while (_missDetectionIndex < allNotes.Count)
             {
-                // Skip if note is already processed
+                var note = allNotes[_missDetectionIndex];
+                
+                // Safety check: ensure runtime data exists for this note
+                if (!_noteRuntimeData.TryGetValue(note.Id, out var noteData))
+                {
+                    // Create missing runtime data on-demand to prevent crash
+                    noteData = new NoteRuntimeData
+                    {
+                        NoteId = note.Id,
+                        Note = note,
+                        Status = NoteStatus.Pending,
+                        JudgementEvent = null
+                    };
+                    _noteRuntimeData[note.Id] = noteData;
+                }
+                
+                // Calculate time difference to check if note is missed
+                var timeSinceNote = currentSongTimeMs - note.TimeMs;
+                
+                if (timeSinceNote < 0)
+                {
+                    // Note is in the future, can't be missed yet
+                    // Since notes are time-sorted, all subsequent notes will also be in the future
+                    break;
+                }
+                
+                // If note is already processed, just advance the index
                 if (noteData.Status != NoteStatus.Pending)
+                {
+                    _missDetectionIndex++;
+                    processedThisFrame++;
                     continue;
+                }
 
                 // Check if note has passed the miss threshold
-                // Note: Only mark as missed if current time is BEYOND the note's time + hit window
-                // This means the note should have been hit already but wasn't
-                var timeSinceNote = currentSongTimeMs - noteData.Note.TimeMs;
-                
                 // Only mark as missed if we're past the note time AND beyond the hit window
-                // This prevents premature marking of future notes as missed
-                if (noteData.Note.TimeMs <= currentSongTimeMs && timeSinceNote > HitDetectionWindowMs)
+                if (timeSinceNote > HitDetectionWindowMs)
                 {
                     // Mark as missed and create miss judgement event
                     var missEvent = new JudgementEvent(
@@ -436,10 +422,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                     // Raise judgement event
                     JudgementMade?.Invoke(this, missEvent);
-
-#if DEBUG
-                    System.Diagnostics.Debug.WriteLine($"Note missed: {missEvent}");
-#endif
+                    
+                    // Advance the index only when note is missed (fully processed)
+                    _missDetectionIndex++;
+                    processedThisFrame++;
+                }
+                else
+                {
+                    // Note is not yet missable, don't advance the index
+                    // We'll check this note again in future updates
+                    break;
+                }
+                
+                // Limit processing per frame to avoid frame drops with large charts
+                if (processedThisFrame >= 100)
+                {
+                    break;
                 }
             }
         }
