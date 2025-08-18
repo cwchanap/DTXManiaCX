@@ -86,6 +86,7 @@ namespace DTXMania.Game.Lib.Stage
         private double _readyCountdown = 1.0; // 1 second ready period
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
+        private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
         private Texture2D _fallbackWhiteTexture;
 
         // Stage completion state
@@ -150,6 +151,8 @@ namespace DTXMania.Game.Lib.Stage
             // Update total time for precise GameTime tracking
             _totalTime += deltaTime;
 
+            // Track elapsed time since stage activation for miss detection
+            _stageElapsedTime += deltaTime;
 
             // Create GameTime for precise timing
             _currentGameTime = new GameTime(TimeSpan.FromSeconds(_totalTime), TimeSpan.FromSeconds(deltaTime));
@@ -296,6 +299,7 @@ namespace DTXMania.Game.Lib.Stage
             _stageCompleted = false; // Initial state is not completed
             _inputPaused = false; // Initial state is input enabled
             _totalTime = 0.0; // Reset total time
+            _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
             _readyCountdown = 1.0; // Reset ready countdown
 
             // Cleanup background renderer
@@ -498,8 +502,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdateGameplay(double deltaTime)
         {
+// Reduced logging for performance
+
             if (_isLoading)
+            {
                 return;
+            }
 
             // Handle ready countdown
             if (_isReady && _readyCountdown > 0)
@@ -509,6 +517,9 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     StartSong();
                 }
+                // During ready countdown, don't run miss detection yet
+                // Notes should only be missed after the song officially starts
+                // The countdown time is preparation time, not song time
                 return;
             }
 
@@ -524,13 +535,15 @@ namespace DTXMania.Game.Lib.Stage
             // Handle BGM event scheduling and gameplay managers
             if (_songTimer != null && _songTimer.IsPlaying)
             {
+                // Only run timing logic when the song is actually playing
                 var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
                 
+                // Process BGM events during song playback
                 ProcessBGMEvents(currentTimeMs);
-
-                // Update gameplay managers with current song time
+                
+                // Update gameplay managers with actual song time
                 UpdateGameplayManagers(currentTimeMs);
-
+                
                 // Check for stage completion conditions
                 CheckStageCompletion(currentTimeMs);
             }
@@ -861,10 +874,9 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdateGameplayManagers(double currentSongTimeMs)
         {
-            if (_judgementManager?.IsActive == true)
-            {
-                _judgementManager.Update(currentSongTimeMs);
-            }
+            // Always update judgement manager to ensure miss detection runs
+            // Input processing is controlled by IsActive flag internally
+            _judgementManager?.Update(currentSongTimeMs);
         }
 
         /// <summary>

@@ -1015,7 +1015,10 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTXChartParser] Error parsing measure line '{line}': {ex.Message}");
+            }
             return null;
         }
 
@@ -1046,7 +1049,10 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTXChartParser] Error parsing channel from line '{line}': {ex.Message}");
+            }
             return null;
         }
 
