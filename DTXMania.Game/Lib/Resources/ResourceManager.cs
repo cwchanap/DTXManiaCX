@@ -80,9 +80,16 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 else
                 {
-                    Interlocked.Increment(ref _cacheHits);
-                    cachedTexture.AddReference();
-                    return cachedTexture;
+                    try
+                    {
+                        cachedTexture.AddReference();
+                        Interlocked.Increment(ref _cacheHits);
+                        return cachedTexture;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _textureCache.TryRemove(cacheKey, out _);
+                    }
                 }
             }
 
@@ -163,9 +170,16 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 else
                 {
-                    Interlocked.Increment(ref _cacheHits);
-                    cachedFont.AddReference();
-                    return cachedFont;
+                    try
+                    {
+                        cachedFont.AddReference();
+                        Interlocked.Increment(ref _cacheHits);
+                        return cachedFont;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _fontCache.TryRemove(cacheKey, out _);
+                    }
                 }
             }
 
@@ -215,9 +229,16 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 else
                 {
-                    Interlocked.Increment(ref _cacheHits);
-                    cachedSound.AddReference();
-                    return cachedSound;
+                    try
+                    {
+                        cachedSound.AddReference();
+                        Interlocked.Increment(ref _cacheHits);
+                        return cachedSound;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _soundCache.TryRemove(cacheKey, out _);
+                    }
                 }
             }
 
@@ -279,9 +300,16 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 else
                 {
-                    // Texture is valid, add reference and return
-                    cachedTexture.AddReference();
-                    return cachedTexture;
+                    try
+                    {
+                        cachedTexture.AddReference();
+                        Interlocked.Increment(ref _cacheHits);
+                        return cachedTexture;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _textureCache.TryRemove(cacheKey, out _);
+                    }
                 }
             }
 

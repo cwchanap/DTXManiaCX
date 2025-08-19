@@ -617,7 +617,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Draw ready countdown with pulsing effect
                 // Use total time for consistent pulsing instead of countdown (which decreases)
-                var alpha = (float)(0.5 + 0.5 * Math.Sin(_totalTime * 2.0 * 2 * Math.PI));
+                var alpha = (float)(0.5 + 0.5 * Math.Sin(_totalTime * DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.ReadyPulseFrequency * 2 * Math.PI));
                 var readyColor = Color.Yellow * alpha;
                 DrawCenteredText("READY...", readyColor);
             }

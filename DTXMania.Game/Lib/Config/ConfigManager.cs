@@ -18,7 +18,6 @@ namespace DTXMania.Game.Lib.Config
         {
             if (!File.Exists(filePath))
             {
-                System.Diagnostics.Debug.WriteLine($"Config file not found. Creating default config at {filePath}");
                 SaveConfig(filePath); // Create default config
                 return;
             }
@@ -44,33 +43,15 @@ namespace DTXMania.Game.Lib.Config
         public void LoadKeyBindings(KeyBindings keyBindings)
         {
             // Load key bindings from config data
-            System.Diagnostics.Debug.WriteLine($"[ConfigManager] LoadKeyBindings() called with {Config.KeyBindings.Count} config entries");
-            
-            // Debug: List all entries in config
             foreach (var kvp in Config.KeyBindings)
             {
-                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Config contains: {kvp.Key} → {kvp.Value}");
-            }
-            
-            foreach (var kvp in Config.KeyBindings)
-            {
-                System.Diagnostics.Debug.WriteLine($"[ConfigManager] Applying binding: {kvp.Key} → Lane {kvp.Value}");
-                System.Diagnostics.Debug.WriteLine($"[ConfigManager DEBUG] About to call BindButton({kvp.Key}, {kvp.Value})");
                 keyBindings.BindButton(kvp.Key, kvp.Value);
-                System.Diagnostics.Debug.WriteLine($"[ConfigManager DEBUG] After BindButton, GetLane({kvp.Key}) = {keyBindings.GetLane(kvp.Key)}");
-            }
-            
-            if (Config.KeyBindings.Count == 0)
-            {
-                System.Diagnostics.Debug.WriteLine("[ConfigManager] No key bindings in config, keeping defaults");
             }
         }
 
         public void SaveKeyBindings(KeyBindings keyBindings)
         {
             // Save key bindings to config data
-            System.Diagnostics.Debug.WriteLine($"[ConfigManager] SaveKeyBindings() called, saving {keyBindings.ButtonToLane.Count} bindings");
-            
             // Create a temporary set of default bindings to compare against
             var defaultBindings = new DTXMania.Game.Lib.Input.KeyBindings();
             defaultBindings.LoadDefaultBindings();
@@ -81,15 +62,9 @@ namespace DTXMania.Game.Lib.Config
                 // Only save non-default bindings to config
                 if (!defaultBindings.ButtonToLane.TryGetValue(kvp.Key, out int defaultValue) || defaultValue != kvp.Value)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ConfigManager] Saving custom binding: {kvp.Key} → {kvp.Value}");
                     Config.KeyBindings[kvp.Key] = kvp.Value;
                 }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ConfigManager] Skipping default binding: {kvp.Key} → {kvp.Value}");
-                }
             }
-            System.Diagnostics.Debug.WriteLine($"[ConfigManager] Config now has {Config.KeyBindings.Count} custom entries");
         }
 
         private void ParseConfigLine(string key, string value)
@@ -135,11 +110,6 @@ namespace DTXMania.Game.Lib.Config
                         if (lane >= 0 && lane <= 8)
                         {
                             Config.KeyBindings[key] = lane;
-                            System.Diagnostics.Debug.WriteLine($"[ConfigManager] Loaded key binding from config: {key} → Lane {lane}");
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[ConfigManager] WARNING: Ignoring invalid lane binding {key} → {lane} (valid range: 0-8)");
                         }
                     }
                     break;

@@ -241,14 +241,9 @@ namespace DTXMania.Game.Lib.Stage
                 
                 // Try to load a background texture using layout constants
                 _backgroundTexture = _resourceManager.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath);
-                if (_backgroundTexture != null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Background texture loaded successfully");
-                }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load background: {ex.Message}");
                 // Continue without background - we'll use fallback
             }
         }
@@ -290,9 +285,9 @@ namespace DTXMania.Game.Lib.Stage
                 
                 _nowLoadingSound.Play(0.9f); // Play at 90% volume
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to play now loading sound: {ex.Message}");
+                // Continue without sound
             }
         }
 
@@ -475,19 +470,11 @@ namespace DTXMania.Game.Lib.Stage
                         SongTransitionUILayout.DifficultySprite.SpriteHeight
                     );
                     
-                    if (_difficultySprite != null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("SongTransitionStage: Difficulty sprite loaded successfully");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Base texture for difficulty sprite is null");
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load difficulty sprite: {ex.Message}");
+                // Continue without difficulty sprite
             }
         }
 
@@ -506,18 +493,10 @@ namespace DTXMania.Game.Lib.Stage
                 var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
                 _levelNumberFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, levelNumberConfig);
                 
-                if (_levelNumberFont != null && _levelNumberFont.IsLoaded)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Level number bitmap font loaded successfully");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("SongTransitionStage: Level number bitmap font creation failed");
-                }
+                // Font loaded or creation failed
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load level number bitmap font: {ex.Message}");
                 _levelNumberFont = null;
             }
         }
@@ -697,9 +676,9 @@ namespace DTXMania.Game.Lib.Stage
                 
                 _spriteBatch.Draw(_whitePixel, rectangle, greyColor);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty background: {ex.Message}");
+                // Continue without difficulty background
             }
         }
         
@@ -717,9 +696,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw the difficulty sprite at the specified position
                 _difficultySprite.DrawSprite(_spriteBatch, spriteIndex, position);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty sprite: {ex.Message}");
+                // Continue without difficulty sprite
             }
         }
         
@@ -745,9 +724,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw the level number using bitmap font
                 _levelNumberFont.DrawText(_spriteBatch, levelText, (int)position.X, (int)position.Y, textColor);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to draw difficulty level number: {ex.Message}");
+                // Continue without level number
             }
         }
         
@@ -841,9 +820,9 @@ namespace DTXMania.Game.Lib.Stage
                     break;
                     
                 case InputCommandType.Back:
-                    if (_game is BaseGame baseGameBack && baseGameBack.CanPerformStageTransition())
+                    if (_game is BaseGame bg && bg.CanPerformStageTransition())
                     {
-                        baseGameBack.MarkStageTransition();
+                        bg.MarkStageTransition();
                         TransitionBackToSongSelect();
                     }
                     break;

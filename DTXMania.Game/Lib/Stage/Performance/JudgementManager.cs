@@ -94,12 +94,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 ProcessPendingLaneHits(currentSongTimeMs);
             }
 
-            // Check for missed notes (timeout scanner) - only when active
-            // During ready countdown (IsActive = false), notes should not be marked as missed
-            if (IsActive)
-            {
-                ProcessMissedNotes(currentSongTimeMs);
-            }
+            // Check for missed notes (timeout scanner) - always run regardless of IsActive
+            // Miss detection must run even during ready countdown to prevent notes getting stuck
+            ProcessMissedNotes(currentSongTimeMs);
         }
 
         /// <summary>
