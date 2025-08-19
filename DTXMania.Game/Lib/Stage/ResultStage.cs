@@ -177,11 +177,10 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             // Process queued input commands from InputManager
-            var commands = _inputManager.GetInputCommands();
-            while (commands.Count > 0)
+            InputCommand? command;
+            while ((command = _inputManager.GetNextCommand()) != null)
             {
-                var command = commands.Dequeue();
-                ExecuteInputCommand(command);
+                ExecuteInputCommand(command.Value);
             }
         }
 

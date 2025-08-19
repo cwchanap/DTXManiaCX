@@ -227,7 +227,7 @@ namespace DTXMania.Test.Stage.Performance
 
             // Calculate tick position for the given time
             // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
-            int tickPosition = (int)((noteTimeMs / 2000.0) * 192);
+            int tickPosition = (int)Math.Round((noteTimeMs / 2000.0) * 192, MidpointRounding.AwayFromZero);
 
             parsedChart.AddNote(new Note(0, 0, tickPosition, 0x11, "01")); // Lane 0
             parsedChart.FinalizeChart();
@@ -245,7 +245,7 @@ namespace DTXMania.Test.Stage.Performance
             // Add two notes 50ms apart in the same lane
             // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
             parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 2000.0) * 192), 0x11, "01"));      // At 1000ms
-            parsedChart.AddNote(new Note(1, 0, (int)((1050.0 / 2000.0) * 192), 0x11, "01"));     // At 1050ms
+            parsedChart.AddNote(new Note(0, 0, (int)((1050.0 / 2000.0) * 192), 0x11, "01"));     // At 1050ms
             
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);

@@ -124,7 +124,6 @@ namespace DTXMania.Game.Lib.Input
             _inputSources.Add(source);
             _inputRouter.AddInputSource(source);
             source.Initialize();
-            Debug.WriteLine($"[ModularInputManager] Added input source: {source.Name}");
         }
 
         #endregion
@@ -165,7 +164,7 @@ namespace DTXMania.Game.Lib.Input
             // Performance warning if update takes too long
             if (_lastUpdateTimeMs > 1.0) // Target: ≤1ms
             {
-                Debug.WriteLine($"[ModularInputManager] Update took {_lastUpdateTimeMs:F2}ms (target: ≤1ms)");
+                // Update took longer than target
             }
         }
 
@@ -222,7 +221,6 @@ namespace DTXMania.Game.Lib.Input
         {
             // TODO: Phase 2 - Scan for MIDI devices
             // TODO: Phase 3 - Scan for gamepad devices
-            Debug.WriteLine("[ModularInputManager] Device scan completed");
         }
 
         #endregion
@@ -236,7 +234,6 @@ namespace DTXMania.Game.Lib.Input
         public void SaveKeyBindings()
         {
             _configManager.SaveKeyBindings(_keyBindings);
-            Debug.WriteLine("[ModularInputManager] Key bindings saved to configuration");
         }
 
         /// <summary>
@@ -244,51 +241,25 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void ReloadKeyBindings()
         {
-#if DEBUG
-            System.Diagnostics.Debug.WriteLine("[ModularInputManager] ReloadKeyBindings() method called");
-#endif
             // Temporarily disable auto-save to prevent clearing config during reload
             _keyBindings.BindingsChanged -= OnKeyBindingsChanged;
             
             try
             {
-#if DEBUG
-                // Debug: Check config before clearing
-                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Config has {_configManager.Config.KeyBindings.Count} entries before clearing");
-                foreach (var kvp in _configManager.Config.KeyBindings)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Config entry: {kvp.Key} → {kvp.Value}");
-                }
-#endif
-                
                 // Clear existing bindings
                 _keyBindings.ClearAllBindings();
-#if DEBUG
-                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Cleared all bindings, now has {_keyBindings.ButtonToLane.Count} entries");
-#endif
                 
                 // Load defaults first
                 _keyBindings.LoadDefaultBindings();
-#if DEBUG
-                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] Loaded defaults, now has {_keyBindings.ButtonToLane.Count} entries");
-#endif
                 
                 // Load from config (overrides defaults)
-#if DEBUG
-                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] About to call LoadKeyBindings with config having {_configManager.Config.KeyBindings.Count} entries");
-#endif
                 _configManager.LoadKeyBindings(_keyBindings);
-#if DEBUG
-                System.Diagnostics.Debug.WriteLine($"[ModularInputManager] After LoadKeyBindings, bindings has {_keyBindings.ButtonToLane.Count} entries");
-#endif
             }
             finally
             {
                 // Re-enable auto-save
                 _keyBindings.BindingsChanged += OnKeyBindingsChanged;
             }
-            
-            Debug.WriteLine("[ModularInputManager] Key bindings reloaded from configuration");
         }
 
         /// <summary>
@@ -298,7 +269,6 @@ namespace DTXMania.Game.Lib.Input
         {
             _keyBindings.LoadDefaultBindings();
             SaveKeyBindings();
-            Debug.WriteLine("[ModularInputManager] Key bindings reset to defaults");
         }
         
         /// <summary>
@@ -314,7 +284,6 @@ namespace DTXMania.Game.Lib.Input
             
             // Save the new defaults
             SaveKeyBindings();
-            Debug.WriteLine("[ModularInputManager] Key bindings force reset to defaults");
         }
 
         #endregion

@@ -44,7 +44,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, missEvent.NoteRef); // First note
             Assert.Equal(0, missEvent.Lane); // Lane 0
             // Delta should be 300ms (1300 - 1000)
-            Assert.Equal(300.0, missEvent.DeltaMs, 1.0);
+            Assert.InRange(missEvent.DeltaMs, 299.0, 301.0);
         }
 
         [Fact]

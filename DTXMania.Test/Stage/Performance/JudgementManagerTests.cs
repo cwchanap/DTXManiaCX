@@ -201,11 +201,11 @@ namespace DTXMania.Test.Stage.Performance
                 Bpm = 120.0
             };
 
-            // Add one note per lane at different times (every 100ms = 19.2 ticks at 120 BPM)
+            // Add one note per lane at different times (every ~198ms = 19 ticks at 120 BPM)
             for (int lane = 0; lane < 9; lane++)
             {
                 int channel = 0x11 + lane;
-                int tick = 96 + lane * 19; // ~100ms intervals at 120 BPM (19.2 ticks ≈ 100ms)
+                int tick = 96 + lane * 19; // ~198ms intervals at 120 BPM (19 ticks * 2000ms/192ticks ≈ 198ms)
                 parsedChart.AddNote(new Note(lane, 0, tick, channel, "01"));
             }
 

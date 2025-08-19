@@ -257,7 +257,6 @@ namespace DTXMania.Game.Lib.Stage
                 _bitmapFont?.Dispose();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
-                _resourceManager?.Dispose();
 
                 _bitmapFont = null;
                 _whitePixel = null;

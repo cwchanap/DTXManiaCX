@@ -31,7 +31,7 @@ namespace DTXMania.Test.Stage.Performance
             _output.WriteLine($"After timing calculation: TimeMs = {note.TimeMs}");
             
             // 48 ticks = 48/192 = 0.25 measures = 0.25 * (60000/120) * 4 = 0.25 * 500 * 4 = 500ms
-            Assert.Equal(500.0, note.TimeMs, 1.0);
+            Assert.Equal(500.0, note.TimeMs, 1);
         }
 
         [Fact]
@@ -64,7 +64,7 @@ namespace DTXMania.Test.Stage.Performance
             }
             
             Assert.Equal(1, chartManager.AllNotes.Count);
-            Assert.Equal(500.0, chartManager.AllNotes[0].TimeMs, 1.0);
+            Assert.Equal(500.0, chartManager.AllNotes[0].TimeMs, 1);
         }
 
         [Fact]
