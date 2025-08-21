@@ -80,6 +80,28 @@ namespace DTXMania.Game.Lib.Stage
         // UX components
         private BitmapFont _readyFont;
 
+        // Performance UI Assets
+        private ITexture _backgroundTexture;
+        private ITexture _shutterTexture; // Single shutter texture
+        private ITexture _laneBgTexture;
+        private ITexture _laneDividerTexture;
+        private ITexture _laneFlashTexture;
+        private ITexture _judgementLineTexture;
+        private ITexture _gaugeBaseTexture;
+        private ITexture _gaugeFillTexture;
+        private ITexture _progressBaseTexture;
+        private ITexture _progressFillTexture;
+        private ITexture _comboDigitsTexture;
+        private ITexture _scoreDigitsTexture;
+        private ITexture _pauseOverlayTexture;
+        private ITexture _dangerOverlayTexture;
+        
+        // Judgement text textures (using sprite sheets)
+        private ITexture _judgeStringsTexture;
+        
+        // Timing indicator textures (using sprite sheet)
+        private ITexture _lagNumbersTexture;
+
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
@@ -88,6 +110,12 @@ namespace DTXMania.Game.Lib.Stage
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
         private Texture2D _fallbackWhiteTexture;
+        
+        // UI state tracking
+        private bool _isPaused = false;
+        private bool _isDanger = false;
+        private float _currentGaugeValue = 0.5f; // 0.0 to 1.0
+        private float _currentProgressValue = 0.0f; // 0.0 to 1.0
 
         // Stage completion state
         private bool _stageCompleted = false;
@@ -284,6 +312,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize UX components
             InitializeReadyFont();
+            
+            // Load performance UI assets
+            LoadPerformanceUIAssets();
 
             // Create a reusable white texture for fallback rendering
             _fallbackWhiteTexture = new Texture2D(graphicsDevice, 1, 1);
@@ -337,6 +368,9 @@ namespace DTXMania.Game.Lib.Stage
             // Cleanup UX components
             _readyFont?.Dispose();
             _readyFont = null;
+            
+            // Cleanup performance UI assets
+            CleanupPerformanceUIAssets();
 
             // Cleanup fallback texture
             _fallbackWhiteTexture?.Dispose();
@@ -544,6 +578,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Update gameplay managers with actual song time
                 UpdateGameplayManagers(currentTimeMs);
                 
+                // Update song progress
+                UpdateSongProgress(currentTimeMs);
+                
                 // Check for stage completion conditions
                 CheckStageCompletion(currentTimeMs);
             }
@@ -639,6 +676,126 @@ namespace DTXMania.Game.Lib.Stage
                 // Font initialization failed, fallback will be used
                 _readyFont = null;
             }
+        }
+        
+        /// <summary>
+        /// Loads all performance UI assets (7_* files)
+        /// </summary>
+        private void LoadPerformanceUIAssets()
+        {
+            try
+            {
+                // Load background texture
+                _backgroundTexture = TryLoadTexture(PerformanceUILayout.Background.AssetPath);
+                
+                // Load shutter textures (now separate top and bottom)
+                _shutterTexture = TryLoadTexture(PerformanceUILayout.Shutters.TopShutterAssetPath);
+                // Note: Bottom shutter would be loaded separately if needed
+                
+                // Load lane textures
+                _laneBgTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneBackgroundAssetPath);
+                _laneDividerTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneDividerAssetPath);
+                _laneFlashTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneFlashAssetPath);
+                
+                // Load judgement line
+                _judgementLineTexture = TryLoadTexture(PerformanceUILayout.JudgementLineAssets.AssetPath);
+                
+                // Load gauge textures
+                _gaugeBaseTexture = TryLoadTexture(PerformanceUILayout.LifeGaugeAssets.BackgroundAssetPath);
+                _gaugeFillTexture = TryLoadTexture(PerformanceUILayout.LifeGaugeAssets.FillAssetPath);
+                
+                // Load progress bar textures
+                _progressBaseTexture = TryLoadTexture(PerformanceUILayout.SongProgressAssets.BackgroundAssetPath);
+                _progressFillTexture = TryLoadTexture(PerformanceUILayout.SongProgressAssets.FillAssetPath);
+                
+                // Load digit textures
+                _comboDigitsTexture = TryLoadTexture(PerformanceUILayout.ComboDigitsAssets.AssetPath);
+                _scoreDigitsTexture = TryLoadTexture(PerformanceUILayout.ScoreDigitsAssets.AssetPath);
+                
+                // Load judgement text sprite sheet
+                _judgeStringsTexture = TryLoadTexture(PerformanceUILayout.JudgementTextAssets.JudgeStringsAssetPath);
+                
+                // Load timing indicator sprite sheet
+                _lagNumbersTexture = TryLoadTexture(PerformanceUILayout.TimingIndicatorAssets.LagNumbersAssetPath);
+                
+                // Load overlay textures
+                _pauseOverlayTexture = TryLoadTexture(PerformanceUILayout.OverlayAssets.PauseOverlayAssetPath);
+                _dangerOverlayTexture = TryLoadTexture(PerformanceUILayout.OverlayAssets.DangerOverlayAssetPath);
+            }
+            catch (Exception ex)
+            {
+                // Asset loading failed, will use fallback rendering
+            }
+        }
+        
+        /// <summary>
+        /// Safely tries to load a texture, returning null on failure
+        /// </summary>
+        private ITexture TryLoadTexture(string path)
+        {
+            try
+            {
+                return _resourceManager?.LoadTexture(path);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// Cleans up all performance UI assets
+        /// </summary>
+        private void CleanupPerformanceUIAssets()
+        {
+            // Clean up textures using reference counting
+            _backgroundTexture?.RemoveReference();
+            _backgroundTexture = null;
+            
+            _shutterTexture?.RemoveReference();
+            _shutterTexture = null;
+            
+            _laneBgTexture?.RemoveReference();
+            _laneBgTexture = null;
+            
+            _laneDividerTexture?.RemoveReference();
+            _laneDividerTexture = null;
+            
+            _laneFlashTexture?.RemoveReference();
+            _laneFlashTexture = null;
+            
+            _judgementLineTexture?.RemoveReference();
+            _judgementLineTexture = null;
+            
+            _gaugeBaseTexture?.RemoveReference();
+            _gaugeBaseTexture = null;
+            
+            _gaugeFillTexture?.RemoveReference();
+            _gaugeFillTexture = null;
+            
+            _progressBaseTexture?.RemoveReference();
+            _progressBaseTexture = null;
+            
+            _progressFillTexture?.RemoveReference();
+            _progressFillTexture = null;
+            
+            _comboDigitsTexture?.RemoveReference();
+            _comboDigitsTexture = null;
+            
+            _scoreDigitsTexture?.RemoveReference();
+            _scoreDigitsTexture = null;
+            
+            _judgeStringsTexture?.RemoveReference();
+            _judgeStringsTexture = null;
+            
+            _lagNumbersTexture?.RemoveReference();
+            _lagNumbersTexture = null;
+            
+            _pauseOverlayTexture?.RemoveReference();
+            _pauseOverlayTexture = null;
+            
+            _dangerOverlayTexture?.RemoveReference();
+            _dangerOverlayTexture = null;
         }
 
         /// <summary>
@@ -774,6 +931,12 @@ namespace DTXMania.Game.Lib.Stage
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager();
+            
+            // Initialize UI state values
+            _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
+            _currentProgressValue = 0.0f;
+            _isPaused = false;
+            _isDanger = false;
 
             // Wire up event handlers for UI binding
             WireUpEventHandlers();
@@ -854,6 +1017,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _gaugeDisplay.SetValue(e.CurrentLife / 100.0f); // Convert to 0.0-1.0 range
             }
+            
+            // Update our internal gauge value for asset rendering
+            _currentGaugeValue = e.CurrentLife / 100.0f;
+            
+            // Update danger state based on gauge level
+            _isDanger = _currentGaugeValue < PerformanceUILayout.GaugeSettings.DangerThreshold / 100.0f;
         }
 
         /// <summary>
@@ -877,6 +1046,17 @@ namespace DTXMania.Game.Lib.Stage
             // Always update judgement manager to ensure miss detection runs
             // Input processing is controlled by IsActive flag internally
             _judgementManager?.Update(currentSongTimeMs);
+        }
+        
+        /// <summary>
+        /// Updates song progress value for progress bar rendering
+        /// </summary>
+        private void UpdateSongProgress(double currentSongTimeMs)
+        {
+            if (_parsedChart != null && _parsedChart.DurationMs > 0)
+            {
+                _currentProgressValue = (float)Math.Clamp(currentSongTimeMs / _parsedChart.DurationMs, 0.0, 1.0);
+            }
         }
 
         /// <summary>
@@ -944,23 +1124,64 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawBackground()
         {
-            // Draw background using BackgroundRenderer
-            var viewport = _spriteBatch.GraphicsDevice.Viewport;
-            var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-
-            _backgroundRenderer?.Draw(_spriteBatch, backgroundRect);
+            if (_backgroundTexture != null)
+            {
+                // Draw performance background (7_background.jpg)
+                var backgroundRect = PerformanceUILayout.Background.Bounds;
+                _backgroundTexture.Draw(_spriteBatch, backgroundRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+            else
+            {
+                // Fallback to BackgroundRenderer
+                var viewport = _spriteBatch.GraphicsDevice.Viewport;
+                var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+                _backgroundRenderer?.Draw(_spriteBatch, backgroundRect);
+            }
         }
 
         private void DrawLaneBackgrounds()
         {
-            // Draw lane backgrounds using LaneBackgroundRenderer
-            _laneBackgroundRenderer?.Draw(_spriteBatch);
+            if (_laneBgTexture != null)
+            {
+                // Draw lane background (7_lane_bg.png)
+                var laneRect = PerformanceUILayout.LaneArea.LaneBackground;
+                _laneBgTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+            }
+            else
+            {
+                // Fallback to LaneBackgroundRenderer
+                _laneBackgroundRenderer?.Draw(_spriteBatch);
+            }
+            
+            // Draw lane divider overlay if available
+            if (_laneDividerTexture != null)
+            {
+                var laneRect = PerformanceUILayout.LaneArea.LaneDivider;
+                _laneDividerTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+            }
+            
+            // Draw lane flash overlay if available (could be animated based on hits)
+            if (_laneFlashTexture != null)
+            {
+                var laneRect = PerformanceUILayout.LaneArea.LaneFlash;
+                // You might want to control the alpha based on lane hit state
+                _laneFlashTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+            }
         }
 
         private void DrawJudgementLine()
         {
-            // Draw judgement line using JudgementLineRenderer
-            _judgementLineRenderer?.Draw(_spriteBatch);
+            if (_judgementLineTexture != null)
+            {
+                // Draw judgement line (7_judge_line.png)
+                var lineRect = PerformanceUILayout.JudgementLineAssets.Bounds;
+                _judgementLineTexture.Draw(_spriteBatch, new Vector2(lineRect.X, lineRect.Y));
+            }
+            else
+            {
+                // Fallback to JudgementLineRenderer
+                _judgementLineRenderer?.Draw(_spriteBatch);
+            }
         }
 
         private void DrawHitEffects()
@@ -977,15 +1198,102 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawUIElements()
         {
-            // Draw gauge display first (background element)
+            // Draw shutters first (overlay elements)
+            DrawShutters();
+            
+            // Draw gauge elements
+            DrawGaugeElements();
+            
+            // Draw progress bar
+            DrawProgressBar();
+            
+            // Draw existing UI components as fallback
             _gaugeDisplay?.Draw(_spriteBatch);
-
-            // Draw score and combo displays
             _scoreDisplay?.Draw(_spriteBatch);
             _comboDisplay?.Draw(_spriteBatch);
-
-            // Draw UI manager components
             _uiManager?.Draw(_spriteBatch, 0);
+            
+            // Draw overlays last (topmost)
+            DrawOverlays();
+        }
+        
+        /// <summary>
+        /// Draws top and bottom shutters using single texture with source rectangles
+        /// </summary>
+        private void DrawShutters()
+        {
+            if (_shutterTexture != null)
+            {
+                // Draw top shutter (using single texture)
+                var topRect = PerformanceUILayout.Shutters.TopShutter;
+                _shutterTexture.Draw(_spriteBatch, topRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                
+                // Note: Bottom shutter would need separate texture load and draw if implemented
+            }
+        }
+        
+        /// <summary>
+        /// Draws life gauge with base and fill
+        /// </summary>
+        private void DrawGaugeElements()
+        {
+            if (_gaugeBaseTexture != null)
+            {
+                var gaugeRect = PerformanceUILayout.LifeGaugeAssets.Background;
+                _gaugeBaseTexture.Draw(_spriteBatch, new Vector2(gaugeRect.X, gaugeRect.Y));
+            }
+            
+            if (_gaugeFillTexture != null && _currentGaugeValue > 0)
+            {
+                var fillRect = PerformanceUILayout.LifeGaugeAssets.Fill;
+                var fillWidth = (int)(fillRect.Width * _currentGaugeValue);
+                var sourceRect = new Rectangle(0, 0, fillWidth, fillRect.Height);
+                var destRect = new Rectangle(fillRect.X, fillRect.Y, fillWidth, fillRect.Height);
+                
+                _gaugeFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+        }
+        
+        /// <summary>
+        /// Draws song progress bar with base and fill
+        /// </summary>
+        private void DrawProgressBar()
+        {
+            if (_progressBaseTexture != null)
+            {
+                var progressRect = PerformanceUILayout.SongProgressAssets.Background;
+                _progressBaseTexture.Draw(_spriteBatch, new Vector2(progressRect.X, progressRect.Y));
+            }
+            
+            if (_progressFillTexture != null && _currentProgressValue > 0)
+            {
+                var fillRect = PerformanceUILayout.SongProgressAssets.Fill;
+                var fillWidth = (int)(fillRect.Width * _currentProgressValue);
+                var sourceRect = new Rectangle(0, 0, fillWidth, fillRect.Height);
+                var destRect = new Rectangle(fillRect.X, fillRect.Y, fillWidth, fillRect.Height);
+                
+                _progressFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+        }
+        
+        /// <summary>
+        /// Draws pause and danger overlays when appropriate
+        /// </summary>
+        private void DrawOverlays()
+        {
+            if (_isPaused && _pauseOverlayTexture != null)
+            {
+                var pauseRect = PerformanceUILayout.OverlayAssets.PauseOverlay;
+                _pauseOverlayTexture.Draw(_spriteBatch, new Vector2(pauseRect.X, pauseRect.Y));
+            }
+            
+            if (_isDanger && _dangerOverlayTexture != null)
+            {
+                var dangerRect = PerformanceUILayout.OverlayAssets.DangerOverlay;
+                // Apply some transparency and maybe a pulsing effect
+                var alpha = 0.3f + 0.2f * (float)Math.Sin(_totalTime * 4.0);
+                _dangerOverlayTexture.Draw(_spriteBatch, dangerRect, null, Color.White * alpha, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
         }
 
         #endregion
