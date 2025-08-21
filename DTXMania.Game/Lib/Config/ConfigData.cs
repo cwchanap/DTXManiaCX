@@ -30,5 +30,6 @@ namespace DTXMania.Game.Lib.Config
         // Game settings
         public int ScrollSpeed { get; set; } = 100;
         public bool AutoPlay { get; set; } = false;
+        public bool NoFail { get; set; } = false;
     }
 }

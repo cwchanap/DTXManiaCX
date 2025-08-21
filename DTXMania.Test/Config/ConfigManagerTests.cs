@@ -218,4 +218,64 @@ ScreenHeight=720
                 File.Delete(tempFile);
         }
     }
+
+    [Theory]
+    [InlineData("NoFail=true", true)]
+    [InlineData("NoFail=True", true)]
+    [InlineData("NoFail=false", false)]
+    [InlineData("NoFail=False", false)]
+    [InlineData("NoFail=invalid", false)] // Should default to false for invalid input
+    public void ConfigManager_ParseNoFail_ShouldHandleVariousInputs(string line, bool expectedNoFail)
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempDir = Path.GetTempPath();
+        var tempFile = Path.Combine(tempDir, $"Test_NoFail_{Guid.NewGuid()}.ini");
+
+        var iniContent = $@"[Game]
+{line}
+";
+
+        try
+        {
+            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Equal(expectedNoFail, manager.Config.NoFail);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SaveConfig_ShouldIncludeNoFailSetting()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        manager.Config.NoFail = true;
+        var tempDir = Path.GetTempPath();
+        var tempFile = Path.Combine(tempDir, $"Test_NoFail_Save_{Guid.NewGuid()}.ini");
+
+        try
+        {
+            // Act
+            manager.SaveConfig(tempFile);
+
+            // Assert
+            var content = File.ReadAllText(tempFile, Encoding.UTF8);
+            Assert.Contains("NoFail=True", content);
+            Assert.Contains("[Game]", content);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
 }
