@@ -1030,12 +1030,18 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
-
-            // Trigger stage completion on failure
-            if (!_stageCompleted)
+            // Check if NoFail is enabled in config
+            bool noFailEnabled = _game?.ConfigManager?.Config?.NoFail ?? false;
+            
+            if (!noFailEnabled)
             {
-                FinalizePerformance(CompletionReason.PlayerFailed);
+                // Trigger stage completion on failure only if NoFail is disabled
+                if (!_stageCompleted)
+                {
+                    FinalizePerformance(CompletionReason.PlayerFailed);
+                }
             }
+            // If NoFail is enabled, do nothing - let the player continue playing
         }
 
         /// <summary>
@@ -1314,8 +1320,9 @@ namespace DTXMania.Game.Lib.Stage
                 FinalizePerformance(CompletionReason.SongComplete);
             }
 
-            // Check for player failure
-            if (_gaugeManager?.HasFailed == true)
+            // Check for player failure (only if NoFail is disabled)
+            bool noFailEnabled = _game?.ConfigManager?.Config?.NoFail ?? false;
+            if (!noFailEnabled && _gaugeManager?.HasFailed == true)
             {
                 FinalizePerformance(CompletionReason.PlayerFailed);
             }

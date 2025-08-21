@@ -192,7 +192,8 @@ namespace DTXMania.Game.Lib.Stage
                 SEVolume = originalConfig.SEVolume,
                 BufferSizeMs = originalConfig.BufferSizeMs,
                 ScrollSpeed = originalConfig.ScrollSpeed,
-                AutoPlay = originalConfig.AutoPlay
+                AutoPlay = originalConfig.AutoPlay,
+                NoFail = originalConfig.NoFail
             };
 
             _hasUnsavedChanges = false;
@@ -243,9 +244,21 @@ namespace DTXMania.Game.Lib.Stage
                     System.Diagnostics.Debug.WriteLine($"VSync changed to {value}");
                 });
 
+            // NoFail toggle
+            var noFailItem = new ToggleConfigItem(
+                "No Fail",
+                () => _workingConfig.NoFail,
+                value =>
+                {
+                    _workingConfig.NoFail = value;
+                    _hasUnsavedChanges = true;
+                    System.Diagnostics.Debug.WriteLine($"NoFail changed to {value}");
+                });
+
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
             _configItems.Add(vsyncItem);
+            _configItems.Add(noFailItem);
 
             // Select first item
             if (_configItems.Count > 0)
@@ -356,6 +369,7 @@ namespace DTXMania.Game.Lib.Stage
             config.ScreenHeight = _workingConfig.ScreenHeight;
             config.FullScreen = _workingConfig.FullScreen;
             config.VSyncWait = _workingConfig.VSyncWait;
+            config.NoFail = _workingConfig.NoFail;
 
             // Save to file
             try

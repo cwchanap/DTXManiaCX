@@ -103,6 +103,16 @@ namespace DTXMania.Game.Lib.Config
                 case "VSyncWait":
                     Config.VSyncWait = value.ToLower() == "true";
                     break;
+                case "ScrollSpeed":
+                    if (int.TryParse(value, out var scrollSpeed))
+                        Config.ScrollSpeed = scrollSpeed;
+                    break;
+                case "AutoPlay":
+                    Config.AutoPlay = value.ToLower() == "true";
+                    break;
+                case "NoFail":
+                    Config.NoFail = value.ToLower() == "true";
+                    break;
                 // Handle key bindings from config file
                 default:
                     if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
@@ -140,6 +150,12 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
             sb.AppendLine($"FullScreen={Config.FullScreen}");
             sb.AppendLine($"VSyncWait={Config.VSyncWait}");
+            sb.AppendLine();
+            
+            sb.AppendLine("[Game]");
+            sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
+            sb.AppendLine($"AutoPlay={Config.AutoPlay}");
+            sb.AppendLine($"NoFail={Config.NoFail}");
             
             // Save key bindings to config file
             if (Config.KeyBindings.Count > 0)
