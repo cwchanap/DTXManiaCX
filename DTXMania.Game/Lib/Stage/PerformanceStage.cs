@@ -123,6 +123,10 @@ namespace DTXMania.Game.Lib.Stage
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
         
+        // Autoplay functionality
+        private bool _autoPlayEnabled = false;
+        private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
+        
         // Note: Using global stage transition debouncing from BaseGame
 
         #endregion
@@ -158,6 +162,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Extract shared data from stage transition
             ExtractSharedData();
+
+            // Initialize autoplay setting from config
+            InitializeAutoPlay();
 
             // Initialize UI components
             InitializeComponents();
@@ -284,6 +291,13 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        private void InitializeAutoPlay()
+        {
+            // Get autoplay setting from config
+            _autoPlayEnabled = _game?.ConfigManager?.Config?.AutoPlay ?? false;
+            _autoPlayNoteIndex = 0;
+        }
+
         private void InitializeComponents()
         {
             // Initialize background renderer
@@ -332,6 +346,7 @@ namespace DTXMania.Game.Lib.Stage
             _totalTime = 0.0; // Reset total time
             _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
             _readyCountdown = 1.0; // Reset ready countdown
+            _autoPlayNoteIndex = 0; // Reset autoplay note index
 
             // Cleanup background renderer
             _backgroundRenderer?.Dispose();
@@ -1049,6 +1064,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdateGameplayManagers(double currentSongTimeMs)
         {
+            // Process autoplay if enabled
+            if (_autoPlayEnabled)
+            {
+                ProcessAutoPlay(currentSongTimeMs);
+            }
+
             // Always update judgement manager to ensure miss detection runs
             // Input processing is controlled by IsActive flag internally
             _judgementManager?.Update(currentSongTimeMs);
@@ -1062,6 +1083,49 @@ namespace DTXMania.Game.Lib.Stage
             if (_parsedChart != null && _parsedChart.DurationMs > 0)
             {
                 _currentProgressValue = (float)Math.Clamp(currentSongTimeMs / _parsedChart.DurationMs, 0.0, 1.0);
+            }
+        }
+
+        /// <summary>
+        /// Processes autoplay functionality by automatically hitting notes at perfect timing
+        /// </summary>
+        private void ProcessAutoPlay(double currentSongTimeMs)
+        {
+            if (_chartManager == null || _judgementManager == null)
+                return;
+
+            var allNotes = _chartManager.AllNotes;
+            
+            // Process notes that should be auto-hit at current time
+            while (_autoPlayNoteIndex < allNotes.Count)
+            {
+                var note = allNotes[_autoPlayNoteIndex];
+                
+                // Check if this note should be hit now (allow small timing window for perfect hits)
+                var timeDifference = currentSongTimeMs - note.TimeMs;
+                
+                if (timeDifference >= -1.0 && timeDifference <= 1.0) // Perfect timing window (±1ms)
+                {
+                    // Check if note is still pending (not already hit or missed)
+                    var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
+                    if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
+                    {
+                        // Auto-hit the note using the JudgementManager's test method
+                        _judgementManager.TestTriggerLaneHit(note.LaneIndex, "AutoPlay");
+                    }
+                    
+                    _autoPlayNoteIndex++;
+                }
+                else if (timeDifference > 1.0)
+                {
+                    // This note is too far in the past, skip it
+                    _autoPlayNoteIndex++;
+                }
+                else
+                {
+                    // This note is in the future, stop processing
+                    break;
+                }
             }
         }
 

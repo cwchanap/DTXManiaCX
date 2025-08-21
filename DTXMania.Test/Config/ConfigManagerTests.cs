@@ -278,4 +278,63 @@ ScreenHeight=720
                 File.Delete(tempFile);
         }
     }
+
+    [Theory]
+    [InlineData("AutoPlay=true", true)]
+    [InlineData("AutoPlay=True", true)]
+    [InlineData("AutoPlay=false", false)]
+    [InlineData("AutoPlay=False", false)]
+    [InlineData("AutoPlay=invalid", false)] // Should default to false for invalid input
+    public void ConfigManager_ParseAutoPlay_ShouldHandleVariousInputs(string line, bool expectedAutoPlay)
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempDir = Path.GetTempPath();
+        var tempFile = Path.Combine(tempDir, $"Test_AutoPlay_{Guid.NewGuid()}.ini");
+
+        var iniContent = $@"[Game]
+{line}
+";
+
+        try
+        {
+            // Act
+            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Equal(expectedAutoPlay, manager.Config.AutoPlay);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SaveConfig_ShouldIncludeAutoPlaySetting()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        manager.Config.AutoPlay = true;
+        var tempDir = Path.GetTempPath();
+        var tempFile = Path.Combine(tempDir, $"Test_AutoPlay_Save_{Guid.NewGuid()}.ini");
+
+        try
+        {
+            // Act
+            manager.SaveConfig(tempFile);
+
+            // Assert
+            var content = File.ReadAllText(tempFile, Encoding.UTF8);
+            Assert.Contains("AutoPlay=True", content);
+            Assert.Contains("[Game]", content);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
 }
