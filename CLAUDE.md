@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DTXManiaCX is a port of the original DTXMania to .NET 8 using MonoGame. The original DTXMania was written in C# and used the DirectX API. This port is being done using MonoGame for cross-platform compatibility.
 
+The project uses .NET 8.0 and MonoGame 3.8.* with platform-specific frameworks:
+- **Windows**: MonoGame.Framework.WindowsDX 
+- **Mac**: MonoGame.Framework.DesktopGL
+
 **Note**: DTXManiaNX is the legacy codebase under the root project - avoid modifying it directly.
 
 ## Development Commands
@@ -25,6 +29,9 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-build --verbosity normal
 
 # Run specific test class
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerTests"
+
+# Run tests by category (Performance, Stage, Resources, etc.)
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "TestCategory=Performance"
 
 # Run with coverage
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
@@ -72,12 +79,19 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 - Implements render target system for consistent resolution
 
 #### 2. Stage Management System
-- **StageManager**: Orchestrates stage transitions with fade effects
+- **StageManager**: Orchestrates stage transitions with fade effects and lazy initialization
 - **BaseStage**: Abstract base for all game stages
-- **Stage Types**: Startup, Title, Config, SongSelect, SongTransition, Performance
+- **Stage Types**: Startup, Title, Config, SongSelect, SongTransition, Performance, Result
 - **Transition System**: Supports DTXMania-style fade transitions with easing curves
 - **Phase Management**: Implements DTXManiaNX eフェーズID patterns (Inactive, FadeIn, Normal, FadeOut)
-- **Performance Components**: Modular system for gameplay (NoteRenderer, ScoreDisplay, GaugeDisplay, ComboDisplay, etc.)
+- **Performance Components**: Modular system for gameplay including:
+  - **NoteRenderer**: Lane-based note rendering with hit detection
+  - **ScoreDisplay**: Score calculation and display with DTXMania scoring
+  - **GaugeDisplay/GaugeManager**: Life gauge with fail threshold management
+  - **ComboDisplay/ComboManager**: Combo tracking with reset on poor hits
+  - **JudgementManager**: Hit timing windows and accuracy detection
+  - **AudioLoader**: Multi-format audio loading (WAV, MP3, OGG)
+  - **EffectsManager**: Visual effects for hits and combos
 
 #### 3. Resource Management
 - **ResourceManager**: Handles textures, fonts, sounds with caching and reference counting
@@ -102,9 +116,13 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 #### 6. UI System
 - **Component-based**: UILabel, UIButton, UIImage, UIPanel, UIList
 - **DTXMania Patterns**: Follows On活性化/On進行描画 lifecycle
-- **Layout System**: Centralized UI layout configuration classes (e.g., SongSelectionUILayout, SongTransitionUILayout)
+- **Layout System**: Centralized UI layout configuration classes including:
+  - **SongSelectionUILayout**: Song bars, status panel, difficulty grid, preview images
+  - **SongTransitionUILayout**: Transition animations and staging
+  - **PerformanceUILayout**: Gameplay elements positioning
+  - **ResultUILayout**: Result screen layout constants
 - **Layout Constants**: Position, sizing, font size, and color configuration stored in dedicated layout classes
-- **Input Handling**: Mouse and keyboard with proper state tracking
+- **Input Handling**: Mouse and keyboard with proper state tracking via ModularInputManager
 
 #### 7. Song Management
 - **SongManager**: Handles song discovery and metadata parsing
@@ -202,10 +220,13 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - Implements DTXMania-compatible graphics settings
 
 ### Input System
-- Enhanced InputManager with state tracking
+- **ModularInputManager**: Enhanced input system with state tracking and auto-save
+- **InputRouter**: Routes input events to appropriate handlers
+- **KeyBindings**: Configurable key mapping with Config.ini integration
 - Supports both keyboard and mouse input
 - Proper key press detection (not just held state)
 - Gamepad support for back button
+- Real-time key binding configuration in Config stage
 
 ### Font System
 - SharedFontFactory provides cross-platform font support using MonoGame SpriteFont
@@ -230,18 +251,21 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 ## Common File Locations
 
 ### Core Game Logic
-- `DTXMania.Game/Game1.cs` - Contains BaseGame and Game1 classes
+- `DTXMania.Game/Game1.cs` - Contains BaseGame and Game1 classes (lines 49-268)
 - `DTXMania.Game/Program.cs` - Application entry point
-- `DTXMania.Game/Lib/Stage/` - Stage management system
+- `DTXMania.Game/Lib/Stage/StageManager.cs` - Core stage management with transition system (lines 11-284)
 - `DTXMania.Game/Lib/Stage/Performance/` - Performance stage components (NoteRenderer, ScoreDisplay, etc.)
-- `DTXMania.Game/Lib/Resources/` - Resource management including SharedFontFactory
-- `DTXMania.Game/Lib/Config/` - Configuration system
+- `DTXMania.Game/Lib/Resources/ResourceManager.cs` - Resource management with caching (lines 17-781)
+- `DTXMania.Game/Lib/Resources/TexturePath.cs` - Centralized texture path constants (lines 7-217)
+- `DTXMania.Game/Lib/Config/ConfigManager.cs` - Configuration system (lines 8-162)
 - `DTXMania.Game/Lib/Song/` - Song management and DTX parsing
+- `DTXMania.Game/Lib/Input/ModularInputManager.cs` - Enhanced input system
 
 ### UI Components
-- `DTXMania.Game/Lib/UI/Components/` - UI components
-- `DTXMania.Game/Lib/UI/Layout/` - Centralized UI layout configuration classes
-- `DTXMania.Game/Lib/UI/` - UI core system
+- `DTXMania.Game/Lib/UI/Components/` - UI components (UILabel, UIButton, UIImage, etc.)
+- `DTXMania.Game/Lib/UI/Layout/SongSelectionUILayout.cs` - Song selection layout constants (lines 9-506)
+- `DTXMania.Game/Lib/UI/Layout/` - All UI layout configuration classes
+- `DTXMania.Game/Lib/UI/` - UI core system (UIManager, UIContainer, InputStateManager)
 
 ### Platform-Specific Project Files
 - `DTXMania.Game/DTXMania.Game.Windows.csproj` - Windows build configuration
@@ -252,8 +276,10 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - `DTXMania.Game/Content/NotoSerifJP.*` - Font files (linked from platform builds)
 
 ### Testing
-- `DTXMania.Test/` - All unit tests organized by component
-- `DTXMania.Test/Helpers/` - Test utilities and mocks
+- `DTXMania.Test/DTXMania.Test.csproj` - xUnit test project with Moq and MonoGame references
+- `DTXMania.Test/` - All unit tests organized by component (Config/, Graphics/, Input/, Resources/, Song/, Stage/, UI/)
+- `DTXMania.Test/Helpers/` - Test utilities and mocks (MockResourceManager, TestGraphicsDeviceService, etc.)
+- `DTXMania.Test/Stage/Performance/` - Performance stage component tests (JudgementManager, GaugeManager, etc.)
 
 ## Debugging and Troubleshooting
 
