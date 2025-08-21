@@ -255,10 +255,22 @@ namespace DTXMania.Game.Lib.Stage
                     System.Diagnostics.Debug.WriteLine($"NoFail changed to {value}");
                 });
 
+            // AutoPlay toggle
+            var autoPlayItem = new ToggleConfigItem(
+                "Auto Play",
+                () => _workingConfig.AutoPlay,
+                value =>
+                {
+                    _workingConfig.AutoPlay = value;
+                    _hasUnsavedChanges = true;
+                    System.Diagnostics.Debug.WriteLine($"AutoPlay changed to {value}");
+                });
+
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
             _configItems.Add(vsyncItem);
             _configItems.Add(noFailItem);
+            _configItems.Add(autoPlayItem);
 
             // Select first item
             if (_configItems.Count > 0)
@@ -370,6 +382,7 @@ namespace DTXMania.Game.Lib.Stage
             config.FullScreen = _workingConfig.FullScreen;
             config.VSyncWait = _workingConfig.VSyncWait;
             config.NoFail = _workingConfig.NoFail;
+            config.AutoPlay = _workingConfig.AutoPlay;
 
             // Save to file
             try
