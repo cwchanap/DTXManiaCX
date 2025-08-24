@@ -56,7 +56,6 @@ namespace DTXMania.Game.Lib.Stage
         private JudgementLineRenderer _judgementLineRenderer;
         private ScoreDisplay _scoreDisplay;
         private ComboDisplay _comboDisplay;
-        private GaugeDisplay _gaugeDisplay;
 
         // Phase 2 components - Chart loading and note scrolling
         private ParsedChart _parsedChart;
@@ -212,50 +211,66 @@ namespace DTXMania.Game.Lib.Stage
             _songTimer?.Update(_currentGameTime);
         }
 
+        // Debug logging control
+        private static int _debugFrameCounter = 0;
+        private const int DEBUG_LOG_INTERVAL = 120; // Log every 120 frames (2 seconds at 60fps)
+
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
 
-            // Draw components in proper order:
-            // Background → Lanes → Notes → HitEffectsManager.Draw → JudgementTexts.Draw → JudgementLine → UI
+            // Periodic debug logging to avoid performance issues
+            bool shouldLog = (_debugFrameCounter % DEBUG_LOG_INTERVAL) == 0;
+            _debugFrameCounter++;
 
-            // Begin standard spritebatch for most elements
-            _spriteBatch.Begin();
+            if (shouldLog)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTX_RENDER] === Frame {_debugFrameCounter} ===");
+                System.Diagnostics.Debug.WriteLine($"[DTX_RENDER] SpriteBatch: BackToFront, AlphaBlend");
+            }
 
-            // Draw background
+            // Draw components in proper Z-order (BackToFront sorting):
+            // Background (1.0f) → Lanes (0.9f) → Notes (0.7f) → JudgementLine (0.6f) → Effects (0.5f) → JudgementTexts (0.4f) → UI (0.2f) → Overlays (0.1f)
+
+            // Begin standard spritebatch with depth sorting
+            _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
+
+            // Draw background (furthest back - highest depth value)
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Background (1.0f)");
             DrawBackground();
 
             // Draw lane backgrounds
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Lanes (0.9f)");
             DrawLaneBackgrounds();
 
-            // Draw scrolling notes (Phase 2)
+            // Draw scrolling notes 
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Notes (0.7f)");
             DrawNotes();
+
+            // Draw judgement line
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Judge Line (0.6f)");
+            DrawJudgementLine();
+
+            // Draw judgement text popups
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Judge Texts (0.4f)");
+            DrawJudgementTexts();  // RE-ENABLED: Uses BitmapFont which should be safe
+
+            // Draw UI elements (gauge, score, combo)
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] UI Elements (0.2f)");
+            DrawUIElements();
+
+            // Draw ready state or loading indicator
+            if (shouldLog) System.Diagnostics.Debug.WriteLine("[DTX_RENDER] Gameplay State (0.1f)");
+            DrawGameplayState();  // RE-ENABLED: Using safe fallback rendering
 
             _spriteBatch.End();
 
-            // Begin additive blend mode for effects layer
+            // Begin additive blend mode for effects layer (drawn on top)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
             // Draw hit effects with additive blending
             DrawHitEffects();
-
-            _spriteBatch.End();
-
-            // Resume standard rendering for remaining elements
-            _spriteBatch.Begin();
-
-            // Draw judgement text popups
-            DrawJudgementTexts();
-
-            // Draw judgement line
-            DrawJudgementLine();
-
-            // Draw UI elements (gauge, score, combo)
-            DrawUIElements();
-
-            // Draw ready state or loading indicator
-            DrawGameplayState();
 
             _spriteBatch.End();
         }
@@ -315,8 +330,6 @@ namespace DTXMania.Game.Lib.Stage
             _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
             _comboDisplay = new ComboDisplay(_resourceManager, graphicsDevice);
 
-            // Initialize gauge display
-            _gaugeDisplay = new GaugeDisplay(_resourceManager, graphicsDevice);
 
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
@@ -327,7 +340,7 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize UX components
             InitializeReadyFont();
             
-            // Load performance UI assets
+            // Load performance UI assets using DTXManiaNX layout
             LoadPerformanceUIAssets();
 
             // Create a reusable white texture for fallback rendering
@@ -364,9 +377,6 @@ namespace DTXMania.Game.Lib.Stage
             _comboDisplay?.Dispose();
             _comboDisplay = null;
 
-            // Cleanup gauge display
-            _gaugeDisplay?.Dispose();
-            _gaugeDisplay = null;
 
             // Cleanup Phase 2 components
             _songTimer?.Dispose();
@@ -445,10 +455,10 @@ namespace DTXMania.Game.Lib.Stage
         /// 
         /// ESC/Back button behavior:
         /// - Immediately stops song playback and timing
-        /// - Performs comprehensive resource cleanup to prevent memory leaks
-        /// - Disposes audio components, graphics resources, and gameplay managers
+        /// - Deactivates judgement manager to prevent further input processing
         /// - Pauses input processing to prevent further judgement handling
         /// - Returns to song selection stage with smooth fade transition
+        /// - Resource cleanup is deferred to OnDeactivate() to prevent texture flickering
         /// 
         /// Controller support:
         /// - Supports both keyboard ESC key and gamepad/controller Back button
@@ -465,11 +475,11 @@ namespace DTXMania.Game.Lib.Stage
                 _judgementManager.IsActive = false;
             }
 
-            // 3. Clean up components to free resources and avoid audio leaks
-            CleanupComponents();
-
-            // 4. Pause input to block further judgement processing
+            // 3. Pause input to block further judgement processing
             _inputPaused = true;
+
+            // 4. Component cleanup will be handled automatically by OnDeactivate() during stage transition
+            // This prevents premature texture disposal that causes gauge flickering
 
             // Return to song selection stage
             StageManager?.ChangeStage(StageType.SongSelect,
@@ -700,46 +710,56 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine("[DTX_ASSETS] Loading performance UI assets...");
+                
                 // Load background texture
                 _backgroundTexture = TryLoadTexture(PerformanceUILayout.Background.AssetPath);
+                System.Diagnostics.Debug.WriteLine($"[DTX_ASSETS] Background: {(_backgroundTexture != null ? "OK" : "FAILED")} - {PerformanceUILayout.Background.AssetPath}");
                 
-                // Load shutter textures (now separate top and bottom)
-                _shutterTexture = TryLoadTexture(PerformanceUILayout.Shutters.TopShutterAssetPath);
-                // Note: Bottom shutter would be loaded separately if needed
+                // Load shutter texture
+                _shutterTexture = TryLoadTexture(PerformanceUILayout.Shutter.AssetPath);
                 
-                // Load lane textures
-                _laneBgTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneBackgroundAssetPath);
-                _laneDividerTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneDividerAssetPath);
-                _laneFlashTexture = TryLoadTexture(PerformanceUILayout.LaneArea.LaneFlashAssetPath);
+                // Load lane strip textures (7_Paret.png)
+                _laneBgTexture = TryLoadTexture(PerformanceUILayout.LaneStrips.AssetPath);
+                System.Diagnostics.Debug.WriteLine($"[DTX_ASSETS] Lanes: {(_laneBgTexture != null ? "OK" : "FAILED")} - {PerformanceUILayout.LaneStrips.AssetPath}");
                 
-                // Load judgement line
-                _judgementLineTexture = TryLoadTexture(PerformanceUILayout.JudgementLineAssets.AssetPath);
+                // Load lane covers (7_lanes_Cover_cls.png) 
+                _laneDividerTexture = TryLoadTexture(PerformanceUILayout.LaneCovers.AssetPath);
                 
-                // Load gauge textures
-                _gaugeBaseTexture = TryLoadTexture(PerformanceUILayout.LifeGaugeAssets.BackgroundAssetPath);
-                _gaugeFillTexture = TryLoadTexture(PerformanceUILayout.LifeGaugeAssets.FillAssetPath);
+                // Load lane flush texture (will be used for effects)
+                _laneFlashTexture = TryLoadTexture(PerformanceUILayout.LaneFlush.FlushAssetPathPrefix + "default.png");
+                
+                // Load hit-bar (judgement line)
+                _judgementLineTexture = TryLoadTexture(PerformanceUILayout.HitBar.AssetPath);
+                System.Diagnostics.Debug.WriteLine($"[DTX_ASSETS] Judge Line: {(_judgementLineTexture != null ? "OK" : "FAILED")} - {PerformanceUILayout.HitBar.AssetPath}");
+                
+                // Load gauge textures using new layout
+                _gaugeBaseTexture = TryLoadTexture(PerformanceUILayout.Gauge.FrameAssetPath);
+                _gaugeFillTexture = TryLoadTexture(PerformanceUILayout.Gauge.FillAssetPath);
                 
                 // Load progress bar textures
-                _progressBaseTexture = TryLoadTexture(PerformanceUILayout.SongProgressAssets.BackgroundAssetPath);
-                _progressFillTexture = TryLoadTexture(PerformanceUILayout.SongProgressAssets.FillAssetPath);
+                _progressBaseTexture = TryLoadTexture(PerformanceUILayout.Progress.FrameAssetPath);
+                _progressFillTexture = TryLoadTexture("Graphics/7_progress_fill.png"); // generated texture
                 
-                // Load digit textures
-                _comboDigitsTexture = TryLoadTexture(PerformanceUILayout.ComboDigitsAssets.AssetPath);
-                _scoreDigitsTexture = TryLoadTexture(PerformanceUILayout.ScoreDigitsAssets.AssetPath);
+                // Load digit textures using new layout
+                _comboDigitsTexture = TryLoadTexture(PerformanceUILayout.Combo.AssetPath);
+                _scoreDigitsTexture = TryLoadTexture(PerformanceUILayout.Score.AssetPath);
                 
                 // Load judgement text sprite sheet
                 _judgeStringsTexture = TryLoadTexture(PerformanceUILayout.JudgementTextAssets.JudgeStringsAssetPath);
                 
-                // Load timing indicator sprite sheet
+                // Load timing indicator sprite sheet  
                 _lagNumbersTexture = TryLoadTexture(PerformanceUILayout.TimingIndicatorAssets.LagNumbersAssetPath);
                 
                 // Load overlay textures
                 _pauseOverlayTexture = TryLoadTexture(PerformanceUILayout.OverlayAssets.PauseOverlayAssetPath);
-                _dangerOverlayTexture = TryLoadTexture(PerformanceUILayout.OverlayAssets.DangerOverlayAssetPath);
+                _dangerOverlayTexture = TryLoadTexture(PerformanceUILayout.Danger.AssetPath);
+                
+                System.Diagnostics.Debug.WriteLine("[DTX_ASSETS] Asset loading completed");
             }
             catch (Exception ex)
             {
-                // Asset loading failed, will use fallback rendering
+                System.Diagnostics.Debug.WriteLine($"[DTX_ASSETS] Loading failed: {ex.Message}");
             }
         }
         
@@ -824,31 +844,23 @@ namespace DTXMania.Game.Lib.Stage
             // Calculate center position
             var screenCenter = new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.ScreenHeight / 2);
 
-            if (_readyFont?.IsLoaded == true)
-            {
-                // Use bitmap font if available
-                var textSize = _readyFont.MeasureText(text);
-                var textPosition = new Vector2(screenCenter.X - textSize.X / 2, screenCenter.Y - textSize.Y / 2);
+            // TEMPORARY: Use only fallback rendering to avoid font SpriteBatch interference
+            // TODO: Fix BitmapFont to work properly with depth-sorted SpriteBatch
+            
+            // Fallback: draw colored rectangle as placeholder with proper depth
+            var rectWidth = text.Length * 12;
+            var rectHeight = 20;
+            var rectPosition = new Rectangle(
+                (int)(screenCenter.X - rectWidth / 2),
+                (int)(screenCenter.Y - rectHeight / 2),
+                rectWidth,
+                rectHeight
+            );
 
-                _readyFont.DrawText(_spriteBatch, text, (int)textPosition.X, (int)textPosition.Y, color);
-            }
-            else
+            // Use the cached white texture for fallback rendering at proper gameplay state depth (0.1f)
+            if (_fallbackWhiteTexture != null)
             {
-                // Fallback: draw colored rectangle as placeholder
-                var rectWidth = text.Length * 12;
-                var rectHeight = 20;
-                var rectPosition = new Rectangle(
-                    (int)(screenCenter.X - rectWidth / 2),
-                    (int)(screenCenter.Y - rectHeight / 2),
-                    rectWidth,
-                    rectHeight
-                );
-
-                // Use the cached white texture for fallback rendering
-                if (_fallbackWhiteTexture != null)
-                {
-                    _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, color);
-                }
+                _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, null, color, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
             }
         }
 
@@ -1027,11 +1039,15 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnGaugeChanged(object? sender, GaugeChangedEventArgs e)
         {
-            // Update gauge display
-            if (_gaugeDisplay != null)
+            bool shouldLog = (_debugFrameCounter % (DEBUG_LOG_INTERVAL / 4)) == 0; // More frequent gauge logging
+            
+            if (shouldLog)
             {
-                _gaugeDisplay.SetValue(e.CurrentLife / 100.0f); // Convert to 0.0-1.0 range
+                System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE] Life changed: {e.CurrentLife}% -> {e.CurrentLife / 100.0f:F3}");
             }
+            
+            // Update gauge display
+            // Legacy gauge display removed - now using asset-based gauge in DrawGaugeElements()
             
             // Update our internal gauge value for asset rendering
             _currentGaugeValue = e.CurrentLife / 100.0f;
@@ -1185,7 +1201,6 @@ namespace DTXMania.Game.Lib.Stage
             _comboDisplay?.Update(deltaTime);
 
             // Update gauge display
-            _gaugeDisplay?.Update(deltaTime);
         }
 
         #endregion
@@ -1194,18 +1209,30 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawBackground()
         {
+            bool shouldLogDetails = (_debugFrameCounter % DEBUG_LOG_INTERVAL) == 1; // Log details once per interval
+            
             if (_backgroundTexture != null)
             {
-                // Draw performance background (7_background.jpg)
+                // Draw performance background (7_background.jpg) at furthest back depth
                 var backgroundRect = PerformanceUILayout.Background.Bounds;
-                _backgroundTexture.Draw(_spriteBatch, backgroundRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                if (shouldLogDetails)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DTX_BG] Texture: {_backgroundTexture.SourcePath}");
+                    System.Diagnostics.Debug.WriteLine($"[DTX_BG] Rect: {backgroundRect}, Size: {_backgroundTexture.Width}x{_backgroundTexture.Height}");
+                }
+                _backgroundTexture.Draw(_spriteBatch, backgroundRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 1.0f);
             }
             else
             {
-                // Fallback to BackgroundRenderer
+                // Fallback to BackgroundRenderer with consistent depth
                 var viewport = _spriteBatch.GraphicsDevice.Viewport;
                 var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
-                _backgroundRenderer?.Draw(_spriteBatch, backgroundRect);
+                if (shouldLogDetails)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DTX_BG] Fallback renderer, Ready: {_backgroundRenderer?.IsReady}");
+                    System.Diagnostics.Debug.WriteLine($"[DTX_BG] Viewport: {viewport.Width}x{viewport.Height}");
+                }
+                _backgroundRenderer?.Draw(_spriteBatch, backgroundRect, 1.0f);
             }
         }
 
@@ -1213,9 +1240,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_laneBgTexture != null)
             {
-                // Draw lane background (7_lane_bg.png)
-                var laneRect = PerformanceUILayout.LaneArea.LaneBackground;
-                _laneBgTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+                // Draw individual lane strips using 7_Paret.png sprite sheet at lane depth
+                for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
+                {
+                    var sourceRect = PerformanceUILayout.LaneStrips.SourceRects[i];
+                    var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
+                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.9f);
+                }
             }
             else
             {
@@ -1223,33 +1254,41 @@ namespace DTXMania.Game.Lib.Stage
                 _laneBackgroundRenderer?.Draw(_spriteBatch);
             }
             
-            // Draw lane divider overlay if available
+            // Draw lane covers if available (7_lanes_Cover_cls.png)
             if (_laneDividerTexture != null)
             {
-                var laneRect = PerformanceUILayout.LaneArea.LaneDivider;
-                _laneDividerTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+                // Draw lane covers for unused/hidden lanes at same depth as lanes
+                // This would be controlled by game settings to hide specific lanes
+                // For now, we'll skip drawing covers to show all lanes
             }
             
-            // Draw lane flash overlay if available (could be animated based on hits)
+            // Draw lane flash overlay if available (effects layer)
             if (_laneFlashTexture != null)
             {
-                var laneRect = PerformanceUILayout.LaneArea.LaneFlash;
-                // You might want to control the alpha based on lane hit state
-                _laneFlashTexture.Draw(_spriteBatch, new Vector2(laneRect.X, laneRect.Y));
+                // Lane flash effects would be drawn per-lane based on hit state
+                // This would be implemented in the effects manager
             }
         }
 
         private void DrawJudgementLine()
         {
+            bool shouldLogDetails = (_debugFrameCounter % DEBUG_LOG_INTERVAL) == 2; // Different offset to spread logs
+            
             if (_judgementLineTexture != null)
             {
-                // Draw judgement line (7_judge_line.png)
-                var lineRect = PerformanceUILayout.JudgementLineAssets.Bounds;
-                _judgementLineTexture.Draw(_spriteBatch, new Vector2(lineRect.X, lineRect.Y));
+                // Draw hit-bar (ScreenPlayDrums hit-bar.png) at judgement line depth
+                var hitBarPos = PerformanceUILayout.HitBar.Position;
+                var hitBarRect = new Rectangle((int)hitBarPos.X, (int)hitBarPos.Y, _judgementLineTexture.Width, _judgementLineTexture.Height);
+                if (shouldLogDetails)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DTX_JUDGE] Texture: {_judgementLineTexture.SourcePath}, Pos: {hitBarPos}");
+                }
+                _judgementLineTexture.Draw(_spriteBatch, hitBarRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
             }
             else
             {
                 // Fallback to JudgementLineRenderer
+                if (shouldLogDetails) System.Diagnostics.Debug.WriteLine($"[DTX_JUDGE] Using fallback renderer");
                 _judgementLineRenderer?.Draw(_spriteBatch);
             }
         }
@@ -1268,6 +1307,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawUIElements()
         {
+            bool shouldLogDetails = (_debugFrameCounter % DEBUG_LOG_INTERVAL) == 3;
+            
             // Draw shutters first (overlay elements)
             DrawShutters();
             
@@ -1278,9 +1319,15 @@ namespace DTXMania.Game.Lib.Stage
             DrawProgressBar();
             
             // Draw existing UI components as fallback
-            _gaugeDisplay?.Draw(_spriteBatch);
-            _scoreDisplay?.Draw(_spriteBatch);
-            _comboDisplay?.Draw(_spriteBatch);
+            // Legacy gauge display removed - using asset-based gauge only
+            
+            if (shouldLogDetails)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTX_UI] RE-ENABLED: ScoreDisplay/ComboDisplay with safe ManagedFont methods");
+            }
+            _scoreDisplay?.Draw(_spriteBatch);  // RE-ENABLED: Safe DrawStringWithShadow method
+            _comboDisplay?.Draw(_spriteBatch);  // RE-ENABLED: Safe DrawStringWithShadow method
+            
             _uiManager?.Draw(_spriteBatch, 0);
             
             // Draw overlays last (topmost)
@@ -1288,61 +1335,101 @@ namespace DTXMania.Game.Lib.Stage
         }
         
         /// <summary>
-        /// Draws top and bottom shutters using single texture with source rectangles
+        /// Draws shutter animation using DTXManiaNX layout
         /// </summary>
         private void DrawShutters()
         {
             if (_shutterTexture != null)
             {
-                // Draw top shutter (using single texture)
-                var topRect = PerformanceUILayout.Shutters.TopShutter;
-                _shutterTexture.Draw(_spriteBatch, topRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
-                
-                // Note: Bottom shutter would need separate texture load and draw if implemented
+                // Draw shutter at UI overlay depth - should appear above gameplay elements
+                var shutterPos = PerformanceUILayout.Shutter.StartPosition;
+                // Draw shutter at UI overlay depth - should appear above gameplay elements
+                var shutterRect = new Rectangle((int)shutterPos.X, (int)shutterPos.Y, _shutterTexture.Width, _shutterTexture.Height);
+                _shutterTexture.Draw(_spriteBatch, shutterRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
             }
         }
         
         /// <summary>
-        /// Draws life gauge with base and fill
+        /// Draws life gauge with base and fill using DTXManiaNX layout
         /// </summary>
         private void DrawGaugeElements()
         {
+            bool shouldLogGaugeDetails = (_debugFrameCounter % 30) == 5; // Log gauge render details more frequently for debugging
+            
+            // Debug: Check for texture state changes
+            if (shouldLogGaugeDetails)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE_DEBUG] Frame {_debugFrameCounter}: Base texture: {_gaugeBaseTexture != null}, Fill texture: {_gaugeFillTexture != null}, Value: {_currentGaugeValue:F3}");
+            }
+            
             if (_gaugeBaseTexture != null)
             {
-                var gaugeRect = PerformanceUILayout.LifeGaugeAssets.Background;
-                _gaugeBaseTexture.Draw(_spriteBatch, new Vector2(gaugeRect.X, gaugeRect.Y));
+                // Draw gauge frame at DTXManiaNX position (294, 626) at UI depth
+                var framePos = PerformanceUILayout.Gauge.FramePosition;
+                var frameRect = new Rectangle((int)framePos.X, (int)framePos.Y, _gaugeBaseTexture.Width, _gaugeBaseTexture.Height);
+                
+                if (shouldLogGaugeDetails)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE_DEBUG] Drawing base at {frameRect}, texture size: {_gaugeBaseTexture.Width}x{_gaugeBaseTexture.Height}, depth: 0.19f");
+                }
+                
+                _gaugeBaseTexture.Draw(_spriteBatch, frameRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.19f);
+            }
+            else if (shouldLogGaugeDetails)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE_DEBUG] MISSING BASE TEXTURE!");
             }
             
             if (_gaugeFillTexture != null && _currentGaugeValue > 0)
             {
-                var fillRect = PerformanceUILayout.LifeGaugeAssets.Fill;
-                var fillWidth = (int)(fillRect.Width * _currentGaugeValue);
-                var sourceRect = new Rectangle(0, 0, fillWidth, fillRect.Height);
-                var destRect = new Rectangle(fillRect.X, fillRect.Y, fillWidth, fillRect.Height);
+                // Draw gauge fill at origin position with life percentage width at UI depth
+                var fillOrigin = PerformanceUILayout.Gauge.FillOrigin;
+                var fillHeight = PerformanceUILayout.Gauge.FillHeight;
+                var estimatedMaxWidth = 200; // estimated from layout, adjust based on actual gauge size
+                var fillWidth = (int)(estimatedMaxWidth * _currentGaugeValue);
                 
-                _gaugeFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                if (shouldLogGaugeDetails)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE_DEBUG] Drawing fill - Value: {_currentGaugeValue:F3}, Width: {fillWidth}/{estimatedMaxWidth}, Origin: {fillOrigin}, Height: {fillHeight}, depth: 0.18f");
+                }
+                
+                var sourceRect = new Rectangle(0, 0, fillWidth, fillHeight);
+                var destRect = new Rectangle((int)fillOrigin.X, (int)fillOrigin.Y, fillWidth, fillHeight);
+                
+                _gaugeFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.18f);
+            }
+            else if (shouldLogGaugeDetails)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DTX_GAUGE_DEBUG] No fill - Value: {_currentGaugeValue:F3}, Texture: {_gaugeFillTexture != null}");
             }
         }
         
         /// <summary>
-        /// Draws song progress bar with base and fill
+        /// Draws song progress bar using DTXManiaNX layout (right side)
         /// </summary>
         private void DrawProgressBar()
         {
             if (_progressBaseTexture != null)
             {
-                var progressRect = PerformanceUILayout.SongProgressAssets.Background;
-                _progressBaseTexture.Draw(_spriteBatch, new Vector2(progressRect.X, progressRect.Y));
+                // Draw progress frame (853, 0, 60, 540) at UI depth
+                var frameRect = PerformanceUILayout.Progress.FrameBounds;
+                // Draw progress frame (853, 0, 60, 540) at UI depth
+                var progressRect = new Rectangle(frameRect.X, frameRect.Y, _progressBaseTexture.Width, _progressBaseTexture.Height);
+                _progressBaseTexture.Draw(_spriteBatch, progressRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
             }
             
-            if (_progressFillTexture != null && _currentProgressValue > 0)
+            // Draw progress fill using generated colored segments
+            if (_currentProgressValue > 0)
             {
-                var fillRect = PerformanceUILayout.SongProgressAssets.Fill;
-                var fillWidth = (int)(fillRect.Width * _currentProgressValue);
-                var sourceRect = new Rectangle(0, 0, fillWidth, fillRect.Height);
-                var destRect = new Rectangle(fillRect.X, fillRect.Y, fillWidth, fillRect.Height);
+                var barRect = PerformanceUILayout.Progress.BarBounds;
+                var fillHeight = (int)(barRect.Height * _currentProgressValue);
                 
-                _progressFillTexture.Draw(_spriteBatch, destRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                // Use fallback white texture to draw colored progress fill at UI depth
+                if (_fallbackWhiteTexture != null)
+                {
+                    var fillRect = new Rectangle(barRect.X, barRect.Bottom - fillHeight, barRect.Width, fillHeight);
+                    _spriteBatch.Draw(_fallbackWhiteTexture, fillRect, null, Color.LightBlue, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
+                }
             }
         }
         
@@ -1353,16 +1440,23 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_isPaused && _pauseOverlayTexture != null)
             {
-                var pauseRect = PerformanceUILayout.OverlayAssets.PauseOverlay;
-                _pauseOverlayTexture.Draw(_spriteBatch, new Vector2(pauseRect.X, pauseRect.Y));
+                // Draw pause overlay fullscreen at topmost depth
+                // Draw pause overlay fullscreen at topmost depth
+                var pauseRect = new Rectangle(0, 0, _pauseOverlayTexture.Width, _pauseOverlayTexture.Height);
+                _pauseOverlayTexture.Draw(_spriteBatch, pauseRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
             }
             
             if (_isDanger && _dangerOverlayTexture != null)
             {
-                var dangerRect = PerformanceUILayout.OverlayAssets.DangerOverlay;
-                // Apply some transparency and maybe a pulsing effect
+                // Draw danger tint overlay with pulsing effect at topmost depth
+                // Tile the danger texture across the screen if needed
+                var tileSize = PerformanceUILayout.Danger.TileSize;
                 var alpha = 0.3f + 0.2f * (float)Math.Sin(_totalTime * 4.0);
-                _dangerOverlayTexture.Draw(_spriteBatch, dangerRect, null, Color.White * alpha, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                
+                // Simple fullscreen draw for now - tiling could be added later
+                // Draw danger tint overlay with pulsing effect at topmost depth
+                var dangerRect = new Rectangle(0, 0, _dangerOverlayTexture.Width, _dangerOverlayTexture.Height);
+                _dangerOverlayTexture.Draw(_spriteBatch, dangerRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
             }
         }
 

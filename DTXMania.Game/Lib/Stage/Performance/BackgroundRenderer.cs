@@ -109,18 +109,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="destinationRectangle">Destination rectangle</param>
         public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle)
         {
+            Draw(spriteBatch, destinationRectangle, 1.0f);
+        }
+
+        /// <summary>
+        /// Draw the background with specified depth
+        /// </summary>
+        /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        /// <param name="destinationRectangle">Destination rectangle</param>
+        /// <param name="depth">Z-depth for rendering (0.0f = front, 1.0f = back)</param>
+        public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle, float depth)
+        {
             if (_disposed || spriteBatch == null)
                 return;
 
             if (_backgroundTexture != null && IsReady)
             {
-                // Draw the loaded background texture with custom destination
-                _backgroundTexture.Draw(spriteBatch, destinationRectangle, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                // Draw the loaded background texture with custom destination and depth
+                _backgroundTexture.Draw(spriteBatch, destinationRectangle, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, depth);
             }
             else
             {
                 // Draw fallback background color
-                DrawFallbackBackground(spriteBatch, destinationRectangle);
+                DrawFallbackBackground(spriteBatch, destinationRectangle, depth);
             }
         }
 
@@ -129,6 +140,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Private Methods
 
         private void DrawFallbackBackground(SpriteBatch spriteBatch, Rectangle area)
+        {
+            DrawFallbackBackground(spriteBatch, area, 1.0f);
+        }
+
+        private void DrawFallbackBackground(SpriteBatch spriteBatch, Rectangle area, float depth)
         {
             // Create a simple 1x1 white texture for drawing colored rectangles
             // This is a temporary solution - in a real implementation, we'd cache this texture
@@ -140,7 +156,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             if (_whiteTexture != null)
             {
-                spriteBatch.Draw(_whiteTexture, area, PerformanceUILayout.FallbackBackgroundColor);
+                spriteBatch.Draw(_whiteTexture, area, null, PerformanceUILayout.FallbackBackgroundColor, 0f, Vector2.Zero, SpriteEffects.None, depth);
             }
         }
 
