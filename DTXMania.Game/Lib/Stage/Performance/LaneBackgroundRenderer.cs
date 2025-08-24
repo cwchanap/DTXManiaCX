@@ -86,7 +86,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Draw with transparency for placeholder effect
             var transparentColor = laneColor * 0.3f;
             
-            spriteBatch.Draw(_whiteTexture.Texture, laneRect, transparentColor);
+            spriteBatch.Draw(_whiteTexture.Texture, laneRect, null, transparentColor, 0f, Vector2.Zero, SpriteEffects.None, 0.9f);
         }
 
         /// <summary>
@@ -131,7 +131,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Apply custom alpha
             var colorWithAlpha = laneColor * alpha;
             
-            spriteBatch.Draw(_whiteTexture.Texture, laneRect, colorWithAlpha);
+            spriteBatch.Draw(_whiteTexture.Texture, laneRect, null, colorWithAlpha, 0f, Vector2.Zero, SpriteEffects.None, 0.9f);
         }
  
          #endregion

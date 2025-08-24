@@ -100,7 +100,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Apply alpha to line color
             var colorWithAlpha = _lineColor * _alpha;
             
-            spriteBatch.Draw(_whiteTexture, lineRect, colorWithAlpha);
+            spriteBatch.Draw(_whiteTexture, lineRect, null, colorWithAlpha, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
         }
 
         /// <summary>
@@ -119,7 +119,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Apply alpha to custom color
             var colorWithAlpha = color * _alpha;
             
-            spriteBatch.Draw(_whiteTexture, lineRect, colorWithAlpha);
+            spriteBatch.Draw(_whiteTexture, lineRect, null, colorWithAlpha, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
         }
 
         /// <summary>
@@ -141,7 +141,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Apply custom alpha to color
             var colorWithAlpha = color * alpha;
             
-            spriteBatch.Draw(_whiteTexture, lineRect, colorWithAlpha);
+            spriteBatch.Draw(_whiteTexture, lineRect, null, colorWithAlpha, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
         }
 
         #endregion
