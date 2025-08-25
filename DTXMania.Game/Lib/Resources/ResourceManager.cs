@@ -72,24 +72,16 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
             {
-                // Check if the cached texture is disposed
-                if (cachedTexture.IsDisposed)
+                try
+                {
+                    cachedTexture.AddReference();
+                    Interlocked.Increment(ref _cacheHits);
+                    return cachedTexture;
+                }
+                catch (ObjectDisposedException)
                 {
                     _textureCache.TryRemove(cacheKey, out _);
                     // Continue to load a new texture
-                }
-                else
-                {
-                    try
-                    {
-                        cachedTexture.AddReference();
-                        Interlocked.Increment(ref _cacheHits);
-                        return cachedTexture;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _textureCache.TryRemove(cacheKey, out _);
-                    }
                 }
             }
 
@@ -162,24 +154,16 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_fontCache.TryGetValue(cacheKey, out var cachedFont))
             {
-                // Check if the cached font is disposed
-                if (cachedFont.IsDisposed)
+                try
+                {
+                    cachedFont.AddReference();
+                    Interlocked.Increment(ref _cacheHits);
+                    return cachedFont;
+                }
+                catch (ObjectDisposedException)
                 {
                     _fontCache.TryRemove(cacheKey, out _);
                     // Continue to load a new font
-                }
-                else
-                {
-                    try
-                    {
-                        cachedFont.AddReference();
-                        Interlocked.Increment(ref _cacheHits);
-                        return cachedFont;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _fontCache.TryRemove(cacheKey, out _);
-                    }
                 }
             }
 
@@ -221,24 +205,16 @@ namespace DTXMania.Game.Lib.Resources
             // Check cache first
             if (_soundCache.TryGetValue(cacheKey, out var cachedSound))
             {
-                // Check if the cached sound is disposed
-                if (cachedSound.IsDisposed)
+                try
+                {
+                    cachedSound.AddReference();
+                    Interlocked.Increment(ref _cacheHits);
+                    return cachedSound;
+                }
+                catch (ObjectDisposedException)
                 {
                     _soundCache.TryRemove(cacheKey, out _);
                     // Continue to load a new sound
-                }
-                else
-                {
-                    try
-                    {
-                        cachedSound.AddReference();
-                        Interlocked.Increment(ref _cacheHits);
-                        return cachedSound;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _soundCache.TryRemove(cacheKey, out _);
-                    }
                 }
             }
 
@@ -292,24 +268,16 @@ namespace DTXMania.Game.Lib.Resources
 
             if (_textureCache.TryGetValue(cacheKey, out var cachedTexture))
             {
-                // Check if the cached texture is disposed
-                if (cachedTexture.IsDisposed)
+                try
                 {
-                    // Remove the disposed texture from cache
-                    _textureCache.TryRemove(cacheKey, out _);
+                    cachedTexture.AddReference();
+                    Interlocked.Increment(ref _cacheHits);
+                    return cachedTexture;
                 }
-                else
+                catch (ObjectDisposedException)
                 {
-                    try
-                    {
-                        cachedTexture.AddReference();
-                        Interlocked.Increment(ref _cacheHits);
-                        return cachedTexture;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _textureCache.TryRemove(cacheKey, out _);
-                    }
+                    _textureCache.TryRemove(cacheKey, out _);
+                    // Continue to create new texture
                 }
             }
 

@@ -568,7 +568,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
 
             // When using authentic 5_BPM.png, don't draw redundant labels
-            bool useAuthenticTexture = _bpmBackgroundTexture != null && !_bpmBackgroundTexture.IsDisposed;
+            bool useAuthenticTexture = _bpmBackgroundTexture != null;
 
             // Draw song duration (DTXManiaNX format: "Length: 2:34" or just "2:34")
             var formattedDuration = FormatDuration(chart.Duration);
@@ -606,7 +606,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Try to use the authentic 5_BPM.png texture first
-            if (_bpmBackgroundTexture != null && !_bpmBackgroundTexture.IsDisposed)
+            if (_bpmBackgroundTexture != null)
             {
                 try
                 {
@@ -627,7 +627,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 try
                 {
                     var fallbackTexture = _graphicsGenerator.GenerateBPMBackground((int)size.X, (int)size.Y, true);
-                    if (fallbackTexture != null && !fallbackTexture.IsDisposed)
+                    if (fallbackTexture != null)
                     {
                         fallbackTexture.Draw(spriteBatch, position);
                         // Note: Don't dispose here - texture is cached and managed by DefaultGraphicsGenerator
@@ -681,7 +681,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var graphPanelTexture = isDrumsMode ? _graphPanelDrumsTexture : _graphPanelGuitarBassTexture;
 
             // Try to use the authentic graph panel texture first
-            if (graphPanelTexture != null && !graphPanelTexture.IsDisposed)
+            if (graphPanelTexture != null)
             {
                 try
                 {

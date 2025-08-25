@@ -128,6 +128,15 @@ namespace DTXMania.Game.Lib.Resources
         
         #endregion
         
+        #region Performance Stage Textures
+        
+        /// <summary>
+        /// Drum notes sprite sheet with chip graphics for all lanes
+        /// </summary>
+        public const string DrumChips = "Graphics/7_chips_drums.png";
+        
+        #endregion
+        
         #region Helper Methods
         
         /// <summary>
@@ -158,7 +167,8 @@ namespace DTXMania.Game.Lib.Resources
                 ConsoleFontSecondary,
                 LevelNumberFont,
                 DifficultySprite,
-                DefaultPreview
+                DefaultPreview,
+                DrumChips
             };
         }
         

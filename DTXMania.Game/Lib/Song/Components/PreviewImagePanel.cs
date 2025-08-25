@@ -189,7 +189,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     _defaultPreviewTexture = _resourceManager.LoadTexture(TexturePath.DefaultPreview);
 
                     // Verify the loaded texture is valid
-                    if (_defaultPreviewTexture != null && _defaultPreviewTexture.IsDisposed)
+                    if (false) // Texture disposal removed
                     {
                         _defaultPreviewTexture = null;
                     }
@@ -252,7 +252,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (string.IsNullOrEmpty(songDirectory))
                 {
                     // Use default texture if available and not disposed
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
+                    if (_defaultPreviewTexture != null)
                     {
                         _currentPreviewTexture = _defaultPreviewTexture;
                     }
@@ -265,7 +265,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Verify directory exists before trying to find preview files
                 if (!System.IO.Directory.Exists(resolvedDirectory))
                 {
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
+                    if (_defaultPreviewTexture != null)
                     {
                         _currentPreviewTexture = _defaultPreviewTexture;
                     }
@@ -283,7 +283,7 @@ namespace DTXMania.Game.Lib.Song.Components
                         _currentPreviewTexture = _resourceManager.LoadTexture(previewPath);
 
                         // Verify the loaded texture is valid
-                        if (_currentPreviewTexture != null && _currentPreviewTexture.IsDisposed)
+                        if (false) // Texture disposal removed
                         {
                             _currentPreviewTexture = _defaultPreviewTexture;
                         }
@@ -296,7 +296,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 else
                 {
                     // Use default texture if available and not disposed
-                    if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
+                    if (_defaultPreviewTexture != null)
                     {
                         _currentPreviewTexture = _defaultPreviewTexture;
                     }
@@ -309,7 +309,7 @@ namespace DTXMania.Game.Lib.Song.Components
             catch (Exception)
             {
                 // Try to use default texture as fallback, but check if it's valid first
-                if (_defaultPreviewTexture != null && !_defaultPreviewTexture.IsDisposed)
+                if (_defaultPreviewTexture != null)
                 {
                     _currentPreviewTexture = _defaultPreviewTexture;
                 }
@@ -466,7 +466,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 textureToUse = _currentPreviewTexture ?? _defaultPreviewTexture;
             }
 
-            if (textureToUse != null && !textureToUse.IsDisposed)
+            if (textureToUse != null)
             {
                 try
                 {
