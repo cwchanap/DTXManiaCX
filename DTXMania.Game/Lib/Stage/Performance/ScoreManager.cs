@@ -110,8 +110,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             };
 
             ScoreChanged?.Invoke(this, eventArgs);
-
-            System.Diagnostics.Debug.WriteLine($"Score updated: +{scoreToAdd} ({judgementEvent.Type}) = {_currentScore}");
         }
 
         /// <summary>

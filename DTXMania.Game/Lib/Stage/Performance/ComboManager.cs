@@ -117,8 +117,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     JudgementType = judgementEvent.Type,
                     WasReset = _currentCombo == 0 && previousCombo > 0
                 });
-
-                System.Diagnostics.Debug.WriteLine($"Combo updated: {previousCombo} → {_currentCombo} ({judgementEvent.Type})");
             }
         }
 
