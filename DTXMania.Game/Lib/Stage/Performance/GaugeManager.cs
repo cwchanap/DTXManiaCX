@@ -141,8 +141,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 JudgementType = judgementEvent.Type,
                 JustFailed = justFailed
             });
-
-            System.Diagnostics.Debug.WriteLine($"Life gauge: {previousLife:F1}% → {_currentLife:F1}% ({adjustment:+0.0;-0.0}% from {judgementEvent.Type})");
         }
 
         /// <summary>
