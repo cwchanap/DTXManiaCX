@@ -130,10 +130,9 @@ namespace DTXMania.Game.Lib.Resources
         public void RemoveReference()
         {
             var newCount = Interlocked.Decrement(ref _referenceCount);
-            if (newCount <= 0)
-            {
-                Dispose();
-            }
+            // Don't automatically dispose when reference count reaches 0
+            // Let the ResourceManager handle cleanup via CollectUnusedResources()
+            // This prevents textures from being disposed while still cached
         }
 
         #endregion
@@ -142,7 +141,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 return;
 
             var color = Color.White * (_transparency / 255f);
@@ -151,7 +150,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 return;
 
             var color = Color.White * (_transparency / 255f);
@@ -161,7 +160,7 @@ namespace DTXMania.Game.Lib.Resources
         public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle, Rectangle? sourceRectangle,
                         Color color, float rotation, Vector2 origin, SpriteEffects effects, float layerDepth)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 return;
 
             var finalColor = color * (_transparency / 255f);
@@ -171,7 +170,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Vector2 scale, float rotation, Vector2 origin)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 return;
 
             var color = Color.White * (_transparency / 255f);
@@ -188,7 +187,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public ITexture Clone()
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             // Create a new texture with the same data
@@ -210,7 +209,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public Color[] GetColorData()
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             var colorData = new Color[Width * Height];
@@ -220,7 +219,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void SetColorData(Color[] colorData)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             if (colorData.Length != Width * Height)
@@ -231,7 +230,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void SaveToFile(string filePath)
         {
-            if (_disposed || _texture == null)
+            if (_texture == null)
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             if (string.IsNullOrEmpty(filePath))

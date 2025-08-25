@@ -107,7 +107,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position)
         {
-            if (IsDisposed || Texture == null)
+            if (Texture == null)
                 return;
 
             var sourceRect = GetSpriteSourceRectangle(spriteIndex);
@@ -120,7 +120,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale)
         {
-            if (IsDisposed || Texture == null)
+            if (Texture == null)
                 return;
 
             var sourceRect = GetSpriteSourceRectangle(spriteIndex);
@@ -137,7 +137,7 @@ namespace DTXMania.Game.Lib.Resources
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale, 
                               float rotation, Vector2 origin, Color tintColor)
         {
-            if (IsDisposed || Texture == null)
+            if (Texture == null)
                 return;
 
             var sourceRect = GetSpriteSourceRectangle(spriteIndex);
@@ -153,7 +153,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position)
         {
-            if (IsDisposed || Texture == null)
+            if (Texture == null)
                 return;
 
             var sourceRect = GetSpriteSourceRectangle(row, col);
@@ -166,7 +166,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Rectangle destinationRectangle)
         {
-            if (IsDisposed || Texture == null)
+            if (Texture == null)
                 return;
 
             var sourceRect = GetSpriteSourceRectangle(spriteIndex);
