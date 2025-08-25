@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Game.Lib.Stage.Performance

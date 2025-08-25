@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Stage.Performance

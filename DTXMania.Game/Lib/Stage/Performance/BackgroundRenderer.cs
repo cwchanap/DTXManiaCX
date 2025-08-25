@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
