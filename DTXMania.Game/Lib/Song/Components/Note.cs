@@ -99,7 +99,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Gets the lane name for display purposes
-        /// Updated to match gameplay order from left to right: LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD
+        /// Updated to match CORRECT gameplay order from left to right: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         public string GetLaneName()
         {
@@ -110,7 +110,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 2 => "LP",  // Left Pedal
                 3 => "SN",  // Snare Drum
                 4 => "HT",  // High Tom
-                5 => "BD",  // Bass Drum
+                5 => "DB",  // Bass Drum (Drum Bass)
                 6 => "LT",  // Low Tom
                 7 => "FT",  // Floor Tom
                 8 => "CY",  // Cymbal/Ride

@@ -201,17 +201,18 @@ namespace DTXMania.Test.Stage.Performance
                 Bpm = 120.0
             };
 
-            // Add one note per lane using correct channel-to-lane mapping
-            // Based on updated DTXChartParser.ChannelToLaneMap:
+            // Add one note per lane using CORRECT channel-to-lane mapping
+            // Based on final corrected DTXChartParser.ChannelToLaneMap:
+            // LC, HH, LP, SN, HT, DB, LT, FT, CY
             var channelsForLanes = new int[]
             {
                 0x1A, // Lane 0: Left Crash
                 0x18, // Lane 1: Hi-Hat Open (primary for lane 1)
                 0x1B, // Lane 2: Left Pedal
-                0x12, // Lane 3: Snare
+                0x12, // Lane 3: Snare (now in correct position)
                 0x14, // Lane 4: High Tom
-                0x13, // Lane 5: Bass Drum
-                0x15, // Lane 6: Low Tom
+                0x13, // Lane 5: Bass Drum (now in correct position)
+                0x15, // Lane 6: Low Tom (now in correct position)
                 0x17, // Lane 7: Floor Tom
                 0x19  // Lane 8: Right Cymbal (primary for lane 8)
             };
