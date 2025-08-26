@@ -30,15 +30,15 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// DTX channel to lane index mapping
-        /// Maps DTX channels to gameplay lane positions: LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD
-        /// Updated based on user clarification for correct channel assignments
+        /// Maps DTX channels to CORRECT gameplay lane positions: LC, HH, LP, SN, HT, DB, LT, FT, CY
+        /// Updated to match the desired gameplay order and channel assignments
         /// </summary>
         private static readonly Dictionary<int, int> ChannelToLaneMap = new Dictionary<int, int>
         {
             // Lane 0: LC (Left Crash)
             { 0x1A, 0 }, // LC - Left Crash
 
-            // Lane 1: HH/HHC (Hi-Hat & Hi-Hat Close) - corrected assignment
+            // Lane 1: HH/HHC (Hi-Hat & Hi-Hat Close)
             { 0x18, 1 }, // HH - Hi-Hat 
             { 0x11, 1 }, // HHC - Hi-Hat Close
 
@@ -46,22 +46,22 @@ namespace DTXMania.Game.Lib.Song
             { 0x1B, 2 }, // LP - Left Pedal
             { 0x1C, 2 }, // Left Crash (alternate)
 
-            // Lane 3: SN (Snare)
+            // Lane 3: SN (Snare) - now in correct position
             { 0x12, 3 }, // SN - Snare
 
             // Lane 4: HT (High Tom)
             { 0x14, 4 }, // HT - High Tom 
 
-            // Lane 5: BD (Bass Drum) - corrected assignment
-            { 0x13, 5 }, // DB - Drum/Bass (was previously mapped to lane 1)
+            // Lane 5: DB (Bass Drum) - now in correct position
+            { 0x13, 5 }, // DB - Drum/Bass
 
-            // Lane 6: LT (Low Tom) - corrected assignment
-            { 0x15, 6 }, // LT - Low Tom (was previously mapped to lane 5)
+            // Lane 6: LT (Low Tom) - now in correct position
+            { 0x15, 6 }, // LT - Low Tom
 
-            // Lane 7: FT (Floor Tom) - corrected assignment  
-            { 0x17, 7 }, // FT - Floor Tom (was previously mapped to lane 6)
+            // Lane 7: FT (Floor Tom)
+            { 0x17, 7 }, // FT - Floor Tom
 
-            // Lane 8: CY/RD (Right Cymbal) - corrected assignment
+            // Lane 8: CY (Right Cymbal)
             { 0x19, 8 }, // CY - Right Cymbal
             { 0x16, 8 }, // RD - Ride Cymbal (shares lane with CY)
         };

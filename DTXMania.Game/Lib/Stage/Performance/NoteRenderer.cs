@@ -574,6 +574,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Legacy method - Maps DTX lane index to sprite sheet column
         /// Kept for compatibility with overlay effects
+        /// Updated for CORRECT lane order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         /// <param name="laneIndex">DTX lane index (0-8)</param>
         /// <returns>Sprite column index or -1 if invalid</returns>
@@ -585,10 +586,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 0 => 9,  // Lane 0: 0x1A (Left Crash) -> Column 9
                 1 => 10, // Lane 1: 0x18 (Hi-Hat Open) -> Column 10 (primary for lane 1)
                 2 => 11, // Lane 2: 0x1B (Left Pedal) -> Column 11
-                3 => 2,  // Lane 3: 0x12 (Snare) -> Column 2
+                3 => 2,  // Lane 3: 0x12 (Snare) -> Column 2 (now in correct position)
                 4 => 3,  // Lane 4: 0x14 (High Tom) -> Column 3
-                5 => 0,  // Lane 5: 0x13 (Bass Drum) -> Column 0
-                6 => 4,  // Lane 6: 0x15 (Low Tom) -> Column 4
+                5 => 0,  // Lane 5: 0x13 (Bass Drum) -> Column 0 (now in correct position)
+                6 => 4,  // Lane 6: 0x15 (Low Tom) -> Column 4 (now in correct position)
                 7 => 5,  // Lane 7: 0x17 (Floor Tom) -> Column 5
                 8 => 1,  // Lane 8: 0x19 (Right Cymbal) -> Column 1 (primary for lane 8)
                 _ => -1  // Invalid lane
@@ -655,6 +656,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Legacy method - Determines if a lane represents snare or tom drums
         /// Kept for compatibility
+        /// Updated for CORRECT lane order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         /// <param name="laneIndex">DTX lane index (0-8)</param>
         /// <returns>True if this is a snare/tom lane that uses overlay frames</returns>
@@ -662,9 +664,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return laneIndex switch
             {
-                3 => true,  // Lane 3: SN (Snare) - uses overlay frames
+                3 => true,  // Lane 3: SN (Snare) - uses overlay frames (now in correct position)
                 4 => true,  // Lane 4: HT (High Tom) - uses overlay frames  
-                6 => true,  // Lane 6: LT (Low Tom) - uses overlay frames
+                6 => true,  // Lane 6: LT (Low Tom) - uses overlay frames (now in correct position)
                 7 => true,  // Lane 7: FT (Floor Tom) - uses overlay frames
                 _ => false  // All other lanes use base animation frames
             };

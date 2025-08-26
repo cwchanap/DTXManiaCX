@@ -55,76 +55,79 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int LaneCount = 9;
         
         /// <summary>
-        /// Lane types in DTXMania order
+        /// Lane types in corrected DTXMania order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         public enum LaneType
         {
             LC = 0,  // Left Cymbal
             HH = 1,  // Hi-Hat
-            SD = 2,  // Snare Drum
-            BD = 3,  // Bass Drum (LP in some layouts)
+            LP = 2,  // Left Pedal
+            SN = 3,  // Snare Drum
             HT = 4,  // High Tom
-            LT = 5,  // Low Tom
-            FT = 6,  // Floor Tom
-            RC = 7,  // Ride/Crash
-            RD = 8   // Ride (alternative)
+            DB = 5,  // Bass Drum (Drum Bass)
+            LT = 6,  // Low Tom
+            FT = 7,  // Floor Tom
+            CY = 8   // Cymbal (Right Cymbal)
         }
         
         /// <summary>
-        /// Lane names for display purposes
+        /// Lane names for display purposes - corrected order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         public static readonly string[] LaneNames = new string[]
         {
-            "LC", "HH", "SD", "BD", "HT", "LT", "FT", "RC", "RD"
+            "LC", "HH", "LP", "SN", "HT", "DB", "LT", "FT", "CY"
         };
         
         /// <summary>
         /// Lane center X positions based on DTXManiaNX layout specifications
+        /// Reordered for gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// These positions are pixel-perfect from 7_Paret.png sprite sheet layout
         /// </summary>
         public static readonly int[] LaneCenterX = new int[]
         {
             295 + 36,  // LC: X=295, width=72, center=295+36=331
             367 + 24,  // HH: X=367, width=49, center=367+24.5≈391
-            467 + 28,  // SD: X=467 (layout A/C) or 416 (B/D), width=57, center≈495
-            573 + 34,  // BD: X=573 (A/D) or 524 (B/C), width=69, center≈607
-            524 + 24,  // HT: X=524 (A) / 593 (B/C) / 473 (D), width=49, center≈548
+            415 + 19,  // LP: Using RD position (X=815->415), width=38, center≈434 (moved left)
+            467 + 28,  // SN: X=467 (was SD), width=57, center≈495
+            524 + 24,  // HT: X=524, width=49, center≈548
+            573 + 34,  // DB: X=573 (was BD), width=69, center≈607
             642 + 24,  // LT: X=642, width=49, center=642+24.5≈666
             691 + 27,  // FT: X=691, width=54, center=691+27=718
-            745 + 35,  // RC: X=745, width=70, center=745+35=780
-            815 + 19   // RD: X=815 (or 743), width=38, center≈834
+            745 + 35   // CY: X=745 (was RC), width=70, center=745+35=780
         };
         
         /// <summary>
         /// Lane widths based on 7_Paret.png sprite sheet
+        /// Reordered for gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         public static readonly int[] LaneWidths = new int[]
         {
             72, // LC
             49, // HH
-            57, // SD
-            69, // BD
+            38, // LP (was RD width)
+            57, // SN (was SD width)
             49, // HT
+            69, // DB (was BD width)
             49, // LT
             54, // FT
-            70, // RC
-            38  // RD
+            70  // CY (was RC width)
         };
         
         /// <summary>
         /// Lane left X positions based on 7_Paret.png sprite sheet
+        /// Reordered for gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
         public static readonly int[] LaneLeftX = new int[]
         {
             295, // LC
             367, // HH
-            467, // SD (layout A/C) - may vary by layout
-            573, // BD (layout A/D) - may vary by layout
-            524, // HT (layout A) - may vary by layout
+            415, // LP (repositioned, was RD at 815)
+            467, // SN (was SD)
+            524, // HT
+            573, // DB (was BD)
             642, // LT
             691, // FT
-            745, // RC
-            815  // RD (or 743)
+            745  // CY (was RC)
         };
         
         /// <summary>
