@@ -30,39 +30,40 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// DTX channel to lane index mapping
-        /// Original mapping that maintains UI display order
+        /// Maps DTX channels to gameplay lane positions: LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD
+        /// Updated based on user clarification for correct channel assignments
         /// </summary>
         private static readonly Dictionary<int, int> ChannelToLaneMap = new Dictionary<int, int>
         {
-            // Lane 0: 1A (Splash/Crash)
-            { 0x1A, 0 },
+            // Lane 0: LC (Left Crash)
+            { 0x1A, 0 }, // LC - Left Crash
 
-            // Lane 1: 18&11 (Floor Tom & Left Cymbal)
-            { 0x18, 1 }, // FT - Floor Tom
-            { 0x11, 1 }, // LC - Left Cymbal
+            // Lane 1: HH/HHC (Hi-Hat & Hi-Hat Close) - corrected assignment
+            { 0x18, 1 }, // HH - Hi-Hat 
+            { 0x11, 1 }, // HHC - Hi-Hat Close
 
-            // Lane 2: 1B&1C (Hi-Hat Foot & Left Crash)
-            { 0x1B, 2 }, // Hi-Hat Foot Pedal
-            { 0x1C, 2 }, // Left Crash
+            // Lane 2: LP (Left Pedal)
+            { 0x1B, 2 }, // LP - Left Pedal
+            { 0x1C, 2 }, // Left Crash (alternate)
 
-            // Lane 3: 12 (Left Pedal)
-            { 0x12, 3 }, // LP - Left Pedal
+            // Lane 3: SN (Snare)
+            { 0x12, 3 }, // SN - Snare
 
-            // Lane 4: 14 (Snare Drum)
-            { 0x14, 4 }, // SD - Snare Drum
+            // Lane 4: HT (High Tom)
+            { 0x14, 4 }, // HT - High Tom 
 
-            // Lane 5: 13 (Hi-Hat)
-            { 0x13, 5 }, // HH - Hi-Hat
+            // Lane 5: BD (Bass Drum) - corrected assignment
+            { 0x13, 5 }, // DB - Drum/Bass (was previously mapped to lane 1)
 
-            // Lane 6: 15 (Bass Drum)
-            { 0x15, 6 }, // BD - Bass Drum
+            // Lane 6: LT (Low Tom) - corrected assignment
+            { 0x15, 6 }, // LT - Low Tom (was previously mapped to lane 5)
 
-            // Lane 7: 16 (High Tom)
-            { 0x16, 7 }, // HT - High Tom
+            // Lane 7: FT (Floor Tom) - corrected assignment  
+            { 0x17, 7 }, // FT - Floor Tom (was previously mapped to lane 6)
 
-            // Lane 8: 17&19 (Low Tom & Right Cymbal)
-            { 0x17, 8 }, // LT - Low Tom
+            // Lane 8: CY/RD (Right Cymbal) - corrected assignment
             { 0x19, 8 }, // CY - Right Cymbal
+            { 0x16, 8 }, // RD - Ride Cymbal (shares lane with CY)
         };
 
         /// <summary>
