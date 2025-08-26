@@ -248,29 +248,34 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Draw the note using drum chip sprite if available, otherwise use colored rectangle
             if (_drumChipsTexture != null)
             {
-                // Map lane index to sprite column (iconFrameIndex)
-                var spriteColumn = GetSpriteColumnForLane(note.LaneIndex);
+                // Map note channel to sprite column (use channel-based mapping for shared lanes)
+                var spriteColumn = GetSpriteColumnForChannel(note.Channel);
                 if (spriteColumn >= 0)
                 {
                     // Calculate sprite position centered on the lane
-                    var spriteWidth = GetSpriteWidthForLane(note.LaneIndex);
+                    var spriteWidth = GetSpriteWidthForColumn(spriteColumn);
                     var centeredX = noteRect.X + (DefaultNoteSize.X - spriteWidth) / 2;
                     var spritePosition = new Vector2(centeredX, noteRect.Y);
                     
+                    // Get custom source rectangle for variable-width sprites
+                    var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
+                    
                     // Check if this is a snare/tom note that uses overlay frames
-                    if (IsSnareOrTomLane(note.LaneIndex))
+                    if (IsSnareOrTomChannel(note.Channel))
                     {
                         // For snare/toms: Show overlay frame instead of base animation
                         // Use first overlay frame (row 0) as the primary visible sprite
                         var overlayRow = OverlayAnimationRows[0]; // Row 0
-                        _drumChipsTexture.DrawSprite(spriteBatch, overlayRow, spriteColumn, spritePosition);
+                        var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
+                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White);
                     }
                     else
                     {
                         // For other notes: Draw base animation first
                         var animationFrame = (int)(_animationTimeMs / AnimationFrameDurationMs) % BaseAnimationFrameCount;
                         var baseRow = BaseAnimationStartRow + animationFrame;
-                        _drumChipsTexture.DrawSprite(spriteBatch, baseRow, spriteColumn, spritePosition);
+                        var animSourceRect = new Rectangle(sourceRect.X, baseRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
+                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, animSourceRect, Color.White);
                         
                         // TODO: Add overlay rendering for hit effects when needed
                         // This would be called separately for hit feedback effects
@@ -534,66 +539,122 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Maps DTX lane index to sprite sheet column based on CORRECT lane configuration
+        /// Maps DTX channel directly to sprite sheet column
+        /// This ensures the correct sprite is shown based on the note's channel,
+        /// especially important for lanes that have multiple channels (like lane 1 and 8)
         /// 
-        /// CORRECT Lane Config: LC->HH/HHC->LP/LB->SN->HT->BD->LT->FT->CY/BD
-        /// 
-        /// noteOrder columns: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
-        /// Column meanings:
-        ///   0='13' RightBassDrum,  1='19' RideCymbal,    2='12' Snare,        3='14' HighTom,
-        ///   4='15' LowTom,         5='17' FloorTom,      6='16' RightCymbal,  7='11' HiHatClose,
-        ///   8='1C' LeftBassDrum,   9='1A' LeftCymbal,    10='18' HiHatOpen,   11='1B' LeftPedal
+        /// noteOrder: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
+        /// Column positions:
+        ///   0='13' BassDrum,      1='19' RightCymbal,     2='12' Snare,          3='14' HighTom,
+        ///   4='15' LowTom,        5='17' FloorTom,        6='16' RideCymbal,     7='11' HiHatClose,
+        ///   8='1C' LeftCrash,     9='1A' LeftCrash,       10='18' HiHatOpen,     11='1B' LeftPedal
+        /// </summary>
+        /// <param name="channel">DTX channel (hex value)</param>
+        /// <returns>Sprite column index or -1 if invalid</returns>
+        private int GetSpriteColumnForChannel(int channel)
+        {
+            return channel switch
+            {
+                0x13 => 0,  // '13' BassDrum -> Column 0
+                0x19 => 1,  // '19' RightCymbal -> Column 1
+                0x12 => 2,  // '12' Snare -> Column 2
+                0x14 => 3,  // '14' HighTom -> Column 3
+                0x15 => 4,  // '15' LowTom -> Column 4
+                0x17 => 5,  // '17' FloorTom -> Column 5
+                0x16 => 6,  // '16' RideCymbal -> Column 6
+                0x11 => 7,  // '11' HiHatClose -> Column 7
+                0x1C => 8,  // '1C' LeftCrash -> Column 8
+                0x1A => 9,  // '1A' LeftCrash -> Column 9
+                0x18 => 10, // '18' HiHatOpen -> Column 10
+                0x1B => 11, // '1B' LeftPedal -> Column 11
+                _ => -1     // Invalid channel
+            };
+        }
+
+        /// <summary>
+        /// Legacy method - Maps DTX lane index to sprite sheet column
+        /// Kept for compatibility with overlay effects
         /// </summary>
         /// <param name="laneIndex">DTX lane index (0-8)</param>
         /// <returns>Sprite column index or -1 if invalid</returns>
         private int GetSpriteColumnForLane(int laneIndex)
         {
+            // Use fallback mapping based on primary channel for each lane
             return laneIndex switch
             {
-                0 => 9,  // Lane 0: LC (Left Crash) → Column 9 ('1A' - LeftCymbal) ✅ Working
-                1 => 7,  // Lane 1: HH/HHC (Hi-Hat Close) → Column 7 ('11' - HiHatClose) 
-                2 => 8,  // Lane 2: LP/LB (Left Pedal/Bass) → Column 8 ('1C' - LeftBassDrum)
-                3 => 2,  // Lane 3: SD (Snare Drum) → Column 2 ('12' - Snare)
-                4 => 3,  // Lane 4: BD (Bass Drum) BUT should show as HT → Column 3 ('14' - HighTom) 
-                5 => 0,  // Lane 5: HT (High Tom) BUT should show as BD → Column 0 ('13' - RightBassDrum)
-                6 => 4,  // Lane 6: LT (Low Tom) → Column 4 ('15' - LowTom)
-                7 => 5,  // Lane 7: FT (Floor Tom) → Column 5 ('17' - FloorTom) ✅ Working
-                8 => 1,  // Lane 8: CY/BD (Cymbal) → Column 1 ('19' - RideCymbal) ✅ Working
+                0 => 9,  // Lane 0: 0x1A (Left Crash) -> Column 9
+                1 => 10, // Lane 1: 0x18 (Hi-Hat Open) -> Column 10 (primary for lane 1)
+                2 => 11, // Lane 2: 0x1B (Left Pedal) -> Column 11
+                3 => 2,  // Lane 3: 0x12 (Snare) -> Column 2
+                4 => 3,  // Lane 4: 0x14 (High Tom) -> Column 3
+                5 => 0,  // Lane 5: 0x13 (Bass Drum) -> Column 0
+                6 => 4,  // Lane 6: 0x15 (Low Tom) -> Column 4
+                7 => 5,  // Lane 7: 0x17 (Floor Tom) -> Column 5
+                8 => 1,  // Lane 8: 0x19 (Right Cymbal) -> Column 1 (primary for lane 8)
                 _ => -1  // Invalid lane
             };
         }
 
         /// <summary>
-        /// Gets the sprite width for a specific lane based on noteOrder mapping
-        /// Column widths based on drum type from original JSON config
+        /// Gets the sprite width for a specific column based on noteOrder mapping
+        /// Column widths based on actual noteOrder: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
+        /// Your provided widths: LC:74, HH:48, CY:74, RD:58, SN:64, HT:56, LT:56, FT:56, BD:70, LP:58
         /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <param name="columnIndex">Sprite sheet column index (0-11)</param>
         /// <returns>Sprite width in pixels</returns>
-        private int GetSpriteWidthForLane(int laneIndex)
+        private int GetSpriteWidthForColumn(int columnIndex)
         {
-            // Map lane to column, then column to width
-            var columnIndex = GetSpriteColumnForLane(laneIndex);
             return columnIndex switch
             {
-                0 => 70,  // Column 0: BD ('13') - Bass Drum width
-                1 => 58,  // Column 1: CY ('19') - Ride/Cymbal width  
-                2 => 64,  // Column 2: SN ('12') - Snare width
-                3 => 56,  // Column 3: HT ('14') - High Tom width
-                4 => 56,  // Column 4: LT ('15') - Low Tom width
-                5 => 56,  // Column 5: FT ('17') - Floor Tom width
-                6 => 74,  // Column 6: CY ('16') - Right Cymbal width
-                7 => 48,  // Column 7: HHC ('11') - Hi-Hat width
-                8 => 58,  // Column 8: LB ('1C') - Left Bass width
-                9 => 74,  // Column 9: LC ('1A') - Left Cymbal width
-                10 => 48, // Column 10: HHO ('18') - Hi-Hat Open width
-                11 => 58, // Column 11: LP ('1B') - Left Pedal width
+                0 => 70,  // Column 0: '13' BassDrum - BD width: 70
+                1 => 58,  // Column 1: '19' RideCymbal - RD width: 58  
+                2 => 64,  // Column 2: '12' Snare - SN width: 64
+                3 => 56,  // Column 3: '14' HighTom - HT width: 56
+                4 => 56,  // Column 4: '15' LowTom - LT width: 56
+                5 => 56,  // Column 5: '17' FloorTom - FT width: 56
+                6 => 74,  // Column 6: '16' RideCymbal - CY width: 74
+                7 => 48,  // Column 7: '11' HiHatClose - HH width: 48
+                8 => 70,  // Column 8: '1C' LeftCrash - LC width: 74 (same as left crash)
+                9 => 74,  // Column 9: '1A' LeftCrash - LC width: 74
+                10 => 48, // Column 10: '18' HiHatOpen - HH width: 48
+                11 => 58, // Column 11: '1B' LeftPedal - LP width: 58
                 _ => 64   // Default width
             };
         }
 
         /// <summary>
-        /// Determines if a lane represents snare or tom drums that use overlay frames
+        /// Legacy method - Gets the sprite width for a specific lane
+        /// Kept for compatibility
+        /// </summary>
+        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <returns>Sprite width in pixels</returns>
+        private int GetSpriteWidthForLane(int laneIndex)
+        {
+            var columnIndex = GetSpriteColumnForLane(laneIndex);
+            return GetSpriteWidthForColumn(columnIndex);
+        }
+
+        /// <summary>
+        /// Determines if a channel represents snare or tom drums that use overlay frames
         /// instead of base animation frames
+        /// </summary>
+        /// <param name="channel">DTX channel (hex value)</param>
+        /// <returns>True if this is a snare/tom channel that uses overlay frames</returns>
+        private bool IsSnareOrTomChannel(int channel)
+        {
+            return channel switch
+            {
+                0x12 => true, // Snare - uses overlay frames
+                0x14 => true, // High Tom - uses overlay frames  
+                0x15 => true, // Low Tom - uses overlay frames
+                0x17 => true, // Floor Tom - uses overlay frames
+                _ => false    // All other channels use base animation frames
+            };
+        }
+
+        /// <summary>
+        /// Legacy method - Determines if a lane represents snare or tom drums
+        /// Kept for compatibility
         /// </summary>
         /// <param name="laneIndex">DTX lane index (0-8)</param>
         /// <returns>True if this is a snare/tom lane that uses overlay frames</returns>
@@ -604,8 +665,64 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 3 => true,  // Lane 3: SN (Snare) - uses overlay frames
                 4 => true,  // Lane 4: HT (High Tom) - uses overlay frames  
                 6 => true,  // Lane 6: LT (Low Tom) - uses overlay frames
+                7 => true,  // Lane 7: FT (Floor Tom) - uses overlay frames
                 _ => false  // All other lanes use base animation frames
             };
+        }
+
+        /// <summary>
+        /// Gets custom source rectangle for variable-width sprites by column
+        /// Uses correct sprite sheet column ordering and widths
+        /// </summary>
+        /// <param name="columnIndex">Sprite sheet column index (0-11)</param>
+        /// <returns>Source rectangle for the sprite</returns>
+        private Rectangle GetCustomSpriteSourceRectangleForColumn(int columnIndex)
+        {
+            if (columnIndex < 0 || columnIndex >= 12) 
+                return new Rectangle(0, 0, 64, DrumChipsSpriteHeight); // Default
+
+            // Calculate X position based on accumulated widths using actual noteOrder
+            // noteOrder: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
+            // Widths:    [ 70,   58,   64,   56,   56,   56,   74,   48,   70,   74,   48,   58]
+            var spriteXPositions = new int[] 
+            { 
+                0,   // Column 0: '13' BassDrum (BD:70) starts at X=0
+                70,  // Column 1: '19' RideCymbal (RD:58) starts at X=70
+                128, // Column 2: '12' Snare (SN:64) starts at X=128
+                192, // Column 3: '14' HighTom (HT:56) starts at X=192
+                248, // Column 4: '15' LowTom (LT:56) starts at X=248
+                304, // Column 5: '17' FloorTom (FT:56) starts at X=304
+                360, // Column 6: '16' RideCymbal (CY:74) starts at X=360
+                434, // Column 7: '11' HiHatClose (HH:48) starts at X=434
+                482, // Column 8: '1C' LeftCrash (LC:70) starts at X=482
+                552, // Column 9: '1A' LeftCrash (LC:74) starts at X=552
+                626, // Column 10: '18' HiHatOpen (HH:48) starts at X=626
+                674  // Column 11: '1B' LeftPedal (LP:58) starts at X=674
+            };
+
+            var spriteWidths = new int[] 
+            { 
+                70, 58, 64, 56, 56, 56, 74, 48, 70, 74, 48, 58 
+            }; // Corresponding widths for each column
+
+            return new Rectangle(
+                spriteXPositions[columnIndex], 
+                0, // Y will be set by animation frame
+                spriteWidths[columnIndex], 
+                DrumChipsSpriteHeight
+            );
+        }
+
+        /// <summary>
+        /// Legacy method - Gets custom source rectangle for variable-width sprites by lane
+        /// Kept for compatibility
+        /// </summary>
+        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <returns>Source rectangle for the sprite</returns>
+        private Rectangle GetCustomSpriteSourceRectangle(int laneIndex)
+        {
+            var columnIndex = GetSpriteColumnForLane(laneIndex);
+            return GetCustomSpriteSourceRectangleForColumn(columnIndex);
         }
 
         #endregion

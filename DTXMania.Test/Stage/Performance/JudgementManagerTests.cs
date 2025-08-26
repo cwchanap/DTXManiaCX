@@ -201,10 +201,24 @@ namespace DTXMania.Test.Stage.Performance
                 Bpm = 120.0
             };
 
-            // Add one note per lane at different times (every ~198ms = 19 ticks at 120 BPM)
+            // Add one note per lane using correct channel-to-lane mapping
+            // Based on updated DTXChartParser.ChannelToLaneMap:
+            var channelsForLanes = new int[]
+            {
+                0x1A, // Lane 0: Left Crash
+                0x18, // Lane 1: Hi-Hat Open (primary for lane 1)
+                0x1B, // Lane 2: Left Pedal
+                0x12, // Lane 3: Snare
+                0x14, // Lane 4: High Tom
+                0x13, // Lane 5: Bass Drum
+                0x15, // Lane 6: Low Tom
+                0x17, // Lane 7: Floor Tom
+                0x19  // Lane 8: Right Cymbal (primary for lane 8)
+            };
+
             for (int lane = 0; lane < 9; lane++)
             {
-                int channel = 0x11 + lane;
+                int channel = channelsForLanes[lane];
                 int tick = 96 + lane * 19; // ~198ms intervals at 120 BPM (19 ticks * 2000ms/192ticks ≈ 198ms)
                 parsedChart.AddNote(new Note(lane, 0, tick, channel, "01"));
             }

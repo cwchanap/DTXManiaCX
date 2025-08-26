@@ -17,7 +17,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Lane index (0-8 for the 9 NX lanes)
-        /// Maps to DTX channels: 0x11=0 (LC), 0x12=1 (LP), 0x13=2 (HH), 0x14=3 (SD), 0x15=4 (BD), 0x16=5 (HT), 0x17=6 (LT), 0x18=7 (FT), 0x19=8 (CY)
+        /// UPDATED mapping to match gameplay order LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD:
+        /// 0x1A=0 (LC), 0x13=1 (HH), 0x1B=2 (LP), 0x12=3 (SN), 0x16=4 (HT), 0x15=5 (BD), 0x17=6 (LT), 0x18=7 (FT), 0x19=8 (CY)
         /// </summary>
         public int LaneIndex { get; set; }
 
@@ -98,20 +99,21 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Gets the lane name for display purposes
+        /// Updated to match gameplay order from left to right: LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD
         /// </summary>
         public string GetLaneName()
         {
             return LaneIndex switch
             {
-                0 => "LC",  // Left Cymbal
-                1 => "LP",  // Left Pedal
-                2 => "HH",  // Hi-Hat
-                3 => "SD",  // Snare Drum
-                4 => "BD",  // Bass Drum
-                5 => "HT",  // High Tom
+                0 => "LC",  // Left Crash
+                1 => "HH",  // Hi-Hat/Hi-Hat Close
+                2 => "LP",  // Left Pedal
+                3 => "SN",  // Snare Drum
+                4 => "HT",  // High Tom
+                5 => "BD",  // Bass Drum
                 6 => "LT",  // Low Tom
                 7 => "FT",  // Floor Tom
-                8 => "CY",  // Cymbal
+                8 => "CY",  // Cymbal/Ride
                 _ => "??"
             };
         }
