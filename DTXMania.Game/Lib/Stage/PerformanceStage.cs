@@ -247,7 +247,15 @@ namespace DTXMania.Game.Lib.Stage
 
             _spriteBatch.End();
 
-            // Begin additive blend mode for effects layer (drawn on top)
+            // Begin alpha blend mode for overlay animations (drawn on top of base animations)
+            _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
+
+            // Draw note overlay animations with alpha blending (on top of base animations)
+            DrawNoteOverlays();
+
+            _spriteBatch.End();
+
+            // Begin additive blend mode for effects layer (drawn on top of everything)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
             // Draw hit effects with additive blending
@@ -642,6 +650,28 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw the notes
             _noteRenderer.DrawNotes(_spriteBatch, activeNotes, currentTimeMs);
+        }
+
+        /// <summary>
+        /// Draws note overlay animations in effects pass
+        /// </summary>
+        private void DrawNoteOverlays()
+        {
+            if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
+                return;
+
+            if (!_songTimer.IsPlaying)
+                return;
+
+            // Get current song time using precise GameTime-based timing
+            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+
+            // Get active notes using the same look-ahead time as scroll calculation
+            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
+            var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
+
+            // Draw the note overlays with additive blending
+            _noteRenderer.DrawNoteOverlays(_spriteBatch, activeNotes, currentTimeMs);
         }
 
         /// <summary>

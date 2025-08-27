@@ -195,12 +195,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (!IsReady || spriteBatch == null || activeNotes == null)
                 return;
 
-            foreach (var note in activeNotes)
+            var notesList = activeNotes.ToList(); // Convert to list to avoid multiple enumeration
+
+            // First pass: Draw all base animations
+            foreach (var note in notesList)
             {
                 DrawNote(spriteBatch, note, currentSongTimeMs);
             }
 
-            // Draw lane flash effects on top of notes
+            // Note: Overlays will be drawn in the effects pass for proper layering
+
+            // Draw lane flash effects on top of everything
             DrawLaneFlashEffects(spriteBatch);
         }
 
@@ -250,6 +255,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 // Map note channel to sprite column (use channel-based mapping for shared lanes)
                 var spriteColumn = GetSpriteColumnForChannel(note.Channel);
+                
+                // Debug output disabled for test
+                // if (_animationTimeMs % 500 < 50)
+                // {
+                //     System.Diagnostics.Debug.WriteLine($"[DEBUG] SPRITE MAP L{note.LaneIndex} Ch:0x{note.Channel:X2} -> Col:{spriteColumn}");
+                // }
+                
                 if (spriteColumn >= 0)
                 {
                     // Calculate sprite position centered on the lane
@@ -261,21 +273,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
                     
                     // Check if this is a snare/tom note that uses overlay frames
-                    if (IsSnareOrTomChannel(note.Channel))
+                    // Use both channel-based AND lane-based detection for maximum compatibility
+                    if (IsSnareOrTomChannel(note.Channel) || IsSnareOrTomLane(note.LaneIndex))
                     {
-                        // For snare/toms: Show overlay frame instead of base animation
-                        // Use first overlay frame (row 0) as the primary visible sprite
-                        var overlayRow = OverlayAnimationRows[0]; // Row 0
+                        // For snare/toms: Draw overlay animation ONLY (frames 0, 1, 10) at correct note depth
+                        var overlayFrameIndex = (int)(_animationTimeMs / AnimationFrameDurationMs) % OverlayAnimationRows.Length;
+                        var overlayRow = OverlayAnimationRows[overlayFrameIndex];
                         var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
                         spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White);
                     }
                     else
                     {
-                        // For other notes: Draw base animation first
-                        var animationFrame = (int)(_animationTimeMs / AnimationFrameDurationMs) % BaseAnimationFrameCount;
-                        var baseRow = BaseAnimationStartRow + animationFrame;
-                        var animSourceRect = new Rectangle(sourceRect.X, baseRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, animSourceRect, Color.White);
+                        // For all other notes: Draw BOTH base animation (2-9) AND overlay animation (0,1,10)
+                        // Use correct depth layer for notes: 0.7f (from PerformanceStage depth structure)
+                        // Draw base animation at note depth
+                        var baseAnimationFrame = (int)(_animationTimeMs / AnimationFrameDurationMs) % BaseAnimationFrameCount;
+                        var baseRow = BaseAnimationStartRow + baseAnimationFrame;
+                        var baseSourceRect = new Rectangle(sourceRect.X, baseRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
+                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, baseSourceRect, Color.White);
+                        
                         
                         // TODO: Add overlay rendering for hit effects when needed
                         // This would be called separately for hit feedback effects
@@ -283,19 +299,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 }
                 else
                 {
-                    // Invalid lane, fallback to colored rectangle
+                    // Invalid sprite column, fallback to colored rectangle
                     if (_whiteTexture != null)
                         spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
                 }
             }
             else 
             {
-                // Debug logging for texture issues (only log occasionally to avoid spam)
-                if (note.LaneIndex == 0 && currentSongTimeMs % 1000 < 50) // Log once per second for lane 0 only
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] NoteRenderer: Using fallback rectangles - drum chips texture is null");
-                }
-                
                 // Fallback to colored rectangles
                 if (_whiteTexture != null)
                     spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
@@ -306,6 +316,77 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // This would require a font to be loaded, so we'll skip it for now
             // DrawNoteDebugInfo(spriteBatch, note, noteRect);
             #endif
+        }
+
+        /// <summary>
+        /// Draws overlay animations for all active notes in effects pass (called from PerformanceStage)
+        /// </summary>
+        /// <param name="spriteBatch">SpriteBatch for drawing (additive blend mode)</param>
+        /// <param name="activeNotes">Notes currently visible on screen</param>
+        /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        public void DrawNoteOverlays(SpriteBatch spriteBatch, IEnumerable<Note> activeNotes, double currentSongTimeMs)
+        {
+            if (!IsReady || spriteBatch == null || activeNotes == null)
+                return;
+
+            foreach (var note in activeNotes)
+            {
+                DrawNoteOverlay(spriteBatch, note, currentSongTimeMs);
+            }
+        }
+
+        /// <summary>
+        /// Renders overlay animation for a single note (effects pass)
+        /// </summary>
+        /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        /// <param name="note">Note to render overlay for</param>
+        /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        private void DrawNoteOverlay(SpriteBatch spriteBatch, Note note, double currentSongTimeMs)
+        {
+            if (!IsReady || spriteBatch == null || note == null)
+                return;
+
+            // Only draw overlay for non-snare/tom notes (snare/tom use overlay as their main animation)
+            if (IsSnareOrTomChannel(note.Channel) || IsSnareOrTomLane(note.LaneIndex))
+                return;
+
+            // Validate lane index
+            if (note.LaneIndex < 0 || note.LaneIndex >= PerformanceUILayout.LaneCount)
+                return;
+
+            // Calculate Y position: y = JudgementY - (scrollPxPerMs * (noteTime – songTime))
+            var timeDifference = note.TimeMs - currentSongTimeMs;
+            var yOffset = _scrollPixelsPerMs * timeDifference;
+            var noteY = JudgementY - yOffset;
+
+            // Skip notes that have passed the drop grace period or are too far above screen
+            if (noteY > JudgementY + DropGracePeriod || noteY < -DefaultNoteSize.Y)
+                return;
+
+            // Only draw overlay if we have drum chips texture
+            if (_drumChipsTexture == null)
+                return;
+
+            // Map note channel to sprite column
+            var spriteColumn = GetSpriteColumnForChannel(note.Channel);
+            if (spriteColumn < 0)
+                return;
+
+            // Calculate sprite position centered on the lane
+            var lanePosition = _lanePositions[note.LaneIndex];
+            var spriteWidth = GetSpriteWidthForColumn(spriteColumn);
+            var noteRect = new Rectangle((int)lanePosition.X, (int)noteY, (int)DefaultNoteSize.X, (int)DefaultNoteSize.Y);
+            var centeredX = noteRect.X + (DefaultNoteSize.X - spriteWidth) / 2;
+            var spritePosition = new Vector2(centeredX, noteRect.Y);
+
+            // Get custom source rectangle for variable-width sprites
+            var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
+
+            // Draw overlay animation with full opacity (zero transparency)
+            var overlayFrameIndex = (int)(_animationTimeMs / AnimationFrameDurationMs) % OverlayAnimationRows.Length;
+            var overlayRow = OverlayAnimationRows[overlayFrameIndex];
+            var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
+            spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White);
         }
 
         /// <summary>
