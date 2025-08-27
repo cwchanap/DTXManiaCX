@@ -719,45 +719,45 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Load background texture
-                _backgroundTexture = TryLoadTexture(PerformanceUILayout.Background.AssetPath);
+                // Load background texture using TexturePath constant
+                _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
                 
-                // Load shutter texture
-                _shutterTexture = TryLoadTexture(PerformanceUILayout.Shutter.AssetPath);
+                // Load shutter texture using TexturePath constant
+                _shutterTexture = TryLoadTexture(TexturePath.Shutter);
                 
-                // Load lane strip textures (7_Paret.png)
-                _laneBgTexture = TryLoadTexture(PerformanceUILayout.LaneStrips.AssetPath);
+                // Load lane strip textures (7_Paret.png) using TexturePath constant
+                _laneBgTexture = TryLoadTexture(TexturePath.LaneStrips);
                 
-                // Load lane covers (7_lanes_Cover_cls.png) 
-                _laneDividerTexture = TryLoadTexture(PerformanceUILayout.LaneCovers.AssetPath);
+                // Load lane covers (7_lanes_Cover_cls.png) using TexturePath constant
+                _laneDividerTexture = TryLoadTexture(TexturePath.LaneCovers);
                 
-                // Load lane flush texture (will be used for effects)
-                _laneFlashTexture = TryLoadTexture(PerformanceUILayout.LaneFlush.FlushAssetPathPrefix + "default.png");
+                // Load lane flush texture (will be used for effects) using TexturePath constant
+                _laneFlashTexture = TryLoadTexture(TexturePath.LaneFlushPrefix + "default.png");
                 
-                // Load hit-bar (judgement line)
-                _judgementLineTexture = TryLoadTexture(PerformanceUILayout.HitBar.AssetPath);
+                // Load hit-bar (judgement line) using TexturePath constant
+                _judgementLineTexture = TryLoadTexture(TexturePath.HitBar);
                 
-                // Load gauge textures using new layout
-                _gaugeBaseTexture = TryLoadTexture(PerformanceUILayout.Gauge.FrameAssetPath);
-                _gaugeFillTexture = TryLoadTexture(PerformanceUILayout.Gauge.FillAssetPath);
+                // Load gauge textures using TexturePath constants
+                _gaugeBaseTexture = TryLoadTexture(TexturePath.GaugeFrame);
+                _gaugeFillTexture = TryLoadTexture(TexturePath.GaugeFill);
                 
-                // Load progress bar textures
-                _progressBaseTexture = TryLoadTexture(PerformanceUILayout.Progress.FrameAssetPath);
-                _progressFillTexture = TryLoadTexture("Graphics/7_progress_fill.png"); // generated texture
+                // Load progress bar textures using TexturePath constants
+                _progressBaseTexture = TryLoadTexture(TexturePath.ProgressFrame);
+                _progressFillTexture = TryLoadTexture(TexturePath.ProgressFill);
                 
-                // Load digit textures using new layout
-                _comboDigitsTexture = TryLoadTexture(PerformanceUILayout.Combo.AssetPath);
-                _scoreDigitsTexture = TryLoadTexture(PerformanceUILayout.Score.AssetPath);
+                // Load digit textures using TexturePath constants
+                _comboDigitsTexture = TryLoadTexture(TexturePath.ComboDisplay);
+                _scoreDigitsTexture = TryLoadTexture(TexturePath.ScoreNumbers);
                 
-                // Load judgement text sprite sheet
-                _judgeStringsTexture = TryLoadTexture(PerformanceUILayout.JudgementTextAssets.JudgeStringsAssetPath);
+                // Load judgement text sprite sheet using TexturePath constant
+                _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
                 
-                // Load timing indicator sprite sheet  
-                _lagNumbersTexture = TryLoadTexture(PerformanceUILayout.TimingIndicatorAssets.LagNumbersAssetPath);
+                // Load timing indicator sprite sheet using TexturePath constant  
+                _lagNumbersTexture = TryLoadTexture(TexturePath.LagIndicator);
                 
-                // Load overlay textures
-                _pauseOverlayTexture = TryLoadTexture(PerformanceUILayout.OverlayAssets.PauseOverlayAssetPath);
-                _dangerOverlayTexture = TryLoadTexture(PerformanceUILayout.Danger.AssetPath);
+                // Load overlay textures using TexturePath constants
+                _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
+                _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
                 
             }
             catch (Exception ex)
@@ -1233,7 +1233,20 @@ namespace DTXMania.Game.Lib.Stage
             }
             else
             {
-                // Fallback to LaneBackgroundRenderer
+                // Debug fallback: Draw colored lanes if 7_Paret.png is not available
+                // This will help visually confirm that lane rendering is working
+                if (_fallbackWhiteTexture != null)
+                {
+                    for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
+                    {
+                        var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
+                        // Use different colors for each lane to make them visible
+                        var laneColor = i % 2 == 0 ? Color.DarkGray * 0.3f : Color.Gray * 0.3f;
+                        _spriteBatch.Draw(_fallbackWhiteTexture, destRect, null, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.9f);
+                    }
+                }
+                
+                // Also try the fallback LaneBackgroundRenderer
                 _laneBackgroundRenderer?.Draw(_spriteBatch);
             }
             

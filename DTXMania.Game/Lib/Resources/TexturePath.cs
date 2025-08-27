@@ -131,9 +131,220 @@ namespace DTXMania.Game.Lib.Resources
         #region Performance Stage Textures
         
         /// <summary>
+        /// Performance stage background texture
+        /// </summary>
+        public const string PerformanceBackgroundTexture = "Graphics/7_background.jpg";
+        
+        /// <summary>
+        /// Performance stage background video
+        /// </summary>
+        public const string PerformanceBackgroundVideo = "Graphics/7_background.mp4";
+        
+        /// <summary>
+        /// Stage failed overlay
+        /// </summary>
+        public const string StageFailed = "Graphics/7_stage_failed.jpg";
+        
+        /// <summary>
+        /// Full combo celebration overlay
+        /// </summary>
+        public const string FullCombo = "Graphics/7_FullCombo.png";
+        
+        /// <summary>
+        /// Danger overlay texture (tiling)
+        /// </summary>
+        public const string Danger = "Graphics/7_Danger.png";
+        
+        /// <summary>
+        /// Lane background strips sprite sheet (7_Paret.png)
+        /// Contains individual lane background strips for the drum lanes
+        /// </summary>
+        public const string LaneStrips = "Graphics/7_Paret.png";
+        
+        /// <summary>
+        /// Lane covers sprite sheet for hidden lanes
+        /// </summary>
+        public const string LaneCovers = "Graphics/7_lanes_Cover_cls.png";
+        
+        /// <summary>
+        /// Shutter animation texture
+        /// </summary>
+        public const string Shutter = "Graphics/7_shutter.png";
+        
+        /// <summary>
+        /// Hit-bar (judgement line) texture
+        /// </summary>
+        public const string HitBar = "Graphics/ScreenPlayDrums hit-bar.png";
+        
+        /// <summary>
         /// Drum notes sprite sheet with chip graphics for all lanes
         /// </summary>
         public const string DrumChips = "Graphics/7_chips_drums.png";
+        
+        /// <summary>
+        /// Long notes texture atlas
+        /// </summary>
+        public const string LongNotes = "Graphics/7_longnotes.png";
+        
+        /// <summary>
+        /// Explosion effects sprite sheet
+        /// </summary>
+        public const string Explosion = "Graphics/7_explosion.png";
+        
+        /// <summary>
+        /// Score display numbers texture
+        /// </summary>
+        public const string ScoreNumbers = "Graphics/7_score numbersGD.png";
+        
+        /// <summary>
+        /// Combo display texture
+        /// </summary>
+        public const string ComboDisplay = "Graphics/ScreenPlayDrums combo.png";
+        
+        /// <summary>
+        /// Alternate combo display texture (for 1000+)
+        /// </summary>
+        public const string ComboDisplayAlt = "Graphics/ScreenPlayDrums combo_2.png";
+        
+        /// <summary>
+        /// Combo bomb effect texture
+        /// </summary>
+        public const string ComboBomb = "Graphics/7_combobomb.png";
+        
+        /// <summary>
+        /// Gauge frame texture
+        /// </summary>
+        public const string GaugeFrame = "Graphics/7_Gauge.png";
+        
+        /// <summary>
+        /// Gauge fill texture
+        /// </summary>
+        public const string GaugeFill = "Graphics/7_gauge_bar.png";
+        
+        /// <summary>
+        /// Gauge full overlay texture
+        /// </summary>
+        public const string GaugeFullOverlay = "Graphics/7_gauge_bar.jpg";
+        
+        /// <summary>
+        /// Progress bar frame texture
+        /// </summary>
+        public const string ProgressFrame = "Graphics/7_Drum_Progress_bg.png";
+        
+        /// <summary>
+        /// Progress bar fill texture
+        /// </summary>
+        public const string ProgressFill = "Graphics/7_progress_fill.png";
+        
+        /// <summary>
+        /// Skill panel texture
+        /// </summary>
+        public const string SkillPanel = "Graphics/7_SkillPanel.png";
+        
+        /// <summary>
+        /// Panel icons texture sheet
+        /// </summary>
+        public const string PanelIcons = "Graphics/7_panel_icons.jpg";
+        
+        /// <summary>
+        /// Level number bitmap font texture
+        /// </summary>
+        public const string LevelNumbers = "Graphics/7_LevelNumber.png";
+        
+        /// <summary>
+        /// Large rate numbers texture
+        /// </summary>
+        public const string RateNumbersLarge = "Graphics/7_Ratenumber_l.png";
+        
+        /// <summary>
+        /// Rate percent symbol texture
+        /// </summary>
+        public const string RatePercent = "Graphics/7_RatePercent_l.png";
+        
+        /// <summary>
+        /// Skill max badge texture
+        /// </summary>
+        public const string SkillMax = "Graphics/7_skill max.png";
+        
+        /// <summary>
+        /// Small rate numbers texture
+        /// </summary>
+        public const string RateNumbersSmall = "Graphics/7_Ratenumber_s.png";
+        
+        /// <summary>
+        /// Lag numbers texture for timing display
+        /// </summary>
+        public const string LagNumbers = "Graphics/7_lag numbers.png";
+        
+        /// <summary>
+        /// Judgement text sprite sheet
+        /// </summary>
+        public const string JudgeStrings = "Graphics/7_judge.png";
+        
+        /// <summary>
+        /// Timing lag indicator texture
+        /// </summary>
+        public const string LagIndicator = "Graphics/7_lag.png";
+        
+        /// <summary>
+        /// Pause overlay texture
+        /// </summary>
+        public const string PauseOverlay = "Graphics/7_pause_overlay.png";
+        
+        /// <summary>
+        /// Hit spark effects - Red
+        /// </summary>
+        public const string HitSparkRed = "Graphics/ScreenPlayDrums chip fire_red.png";
+        
+        /// <summary>
+        /// Hit spark effects - Blue
+        /// </summary>
+        public const string HitSparkBlue = "Graphics/ScreenPlayDrums chip fire_blue.png";
+        
+        /// <summary>
+        /// Hit spark effects - Green
+        /// </summary>
+        public const string HitSparkGreen = "Graphics/ScreenPlayDrums chip fire_green.png";
+        
+        /// <summary>
+        /// Hit spark effects - Purple
+        /// </summary>
+        public const string HitSparkPurple = "Graphics/ScreenPlayDrums chip fire_purple.png";
+        
+        /// <summary>
+        /// Hit spark effects - Yellow
+        /// </summary>
+        public const string HitSparkYellow = "Graphics/ScreenPlayDrums chip fire_yellow.png";
+        
+        /// <summary>
+        /// Lane flush effects path prefix
+        /// </summary>
+        public const string LaneFlushPrefix = "Graphics/ScreenPlayDrums lane flush ";
+        
+        /// <summary>
+        /// Wailing fire effect texture
+        /// </summary>
+        public const string WailingFire = "Graphics/7_WailingFire.png";
+        
+        /// <summary>
+        /// Wailing flush effect texture
+        /// </summary>
+        public const string WailingFlush = "Graphics/7_WailingFlush.png";
+        
+        /// <summary>
+        /// Chip wave effect texture
+        /// </summary>
+        public const string ChipWave = "Graphics/ScreenPlayDrums chip wave.png";
+        
+        /// <summary>
+        /// Bonus effect texture
+        /// </summary>
+        public const string Bonus = "Graphics/7_Bonus.png";
+        
+        /// <summary>
+        /// Bonus 100 effect texture
+        /// </summary>
+        public const string Bonus100 = "Graphics/7_Bonus_100.png";
         
         #endregion
         
@@ -168,7 +379,49 @@ namespace DTXMania.Game.Lib.Resources
                 LevelNumberFont,
                 DifficultySprite,
                 DefaultPreview,
-                DrumChips
+                PerformanceBackgroundTexture,
+                PerformanceBackgroundVideo,
+                StageFailed,
+                FullCombo,
+                Danger,
+                LaneStrips,
+                LaneCovers,
+                Shutter,
+                HitBar,
+                DrumChips,
+                LongNotes,
+                Explosion,
+                ScoreNumbers,
+                ComboDisplay,
+                ComboDisplayAlt,
+                ComboBomb,
+                GaugeFrame,
+                GaugeFill,
+                GaugeFullOverlay,
+                ProgressFrame,
+                ProgressFill,
+                SkillPanel,
+                PanelIcons,
+                LevelNumbers,
+                RateNumbersLarge,
+                RatePercent,
+                SkillMax,
+                RateNumbersSmall,
+                LagNumbers,
+                JudgeStrings,
+                LagIndicator,
+                PauseOverlay,
+                HitSparkRed,
+                HitSparkBlue,
+                HitSparkGreen,
+                HitSparkPurple,
+                HitSparkYellow,
+                LaneFlushPrefix,
+                WailingFire,
+                WailingFlush,
+                ChipWave,
+                Bonus,
+                Bonus100
             };
         }
         

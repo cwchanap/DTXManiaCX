@@ -252,7 +252,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Vector2 DigitSize = new Vector2(36, 50);
             public const int DigitSpacing = 34; // with -2px overlap
             public const int MaxDigits = 7;
-            public const string AssetPath = "Graphics/7_score numbersGD.png";
         }
         
         #endregion
@@ -265,9 +264,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class Combo
         {
             public static readonly Vector2 BasePosition = new Vector2(1245, 60); // anchor top-right
-            public const string AssetPath = "Graphics/ScreenPlayDrums combo.png";
-            public const string AlternateAssetPath = "Graphics/ScreenPlayDrums combo_2.png"; // for 1000+ style
-            public const string CombobombAssetPath = "Graphics/7_combobomb.png";
             public static readonly Vector2 CombobombSize = new Vector2(360, 340);
         }
         
@@ -283,9 +279,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Vector2 FramePosition = new Vector2(294, 626);
             public static readonly Vector2 FillOrigin = new Vector2(314, 635); // FramePos + (20,9)
             public const int FillHeight = 31;
-            public const string FrameAssetPath = "Graphics/7_Gauge.png";
-            public const string FillAssetPath = "Graphics/7_gauge_bar.png";
-            public const string FullOverlayAssetPath = "Graphics/7_gauge_bar.jpg";
             
             /// <summary>
             /// Hi-Speed badge position (at gauge right end)
@@ -294,7 +287,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             {
                 public static readonly Vector2 Position = new Vector2(294 + 200 - 37, 634); // estimated frame width
                 public static readonly Vector2 Size = new Vector2(42, 48);
-                public const string AssetPath = "Graphics/7_panel_icons.jpg";
                 public const int CellHeight = 48;
             }
         }
@@ -311,7 +303,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Rectangle FrameBounds = new Rectangle(853, 0, 60, 540);
             public static readonly Rectangle BarBounds = new Rectangle(855, 15, 20, 540);
             public static readonly Rectangle MarkerBounds = new Rectangle(877, 15, 8, 540);
-            public const string FrameAssetPath = "Graphics/7_Drum_Progress_bg.png";
         }
         
         #endregion
@@ -324,7 +315,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class SkillPanel
         {
             public static readonly Vector2 PanelPosition = new Vector2(22, 250);
-            public const string PanelAssetPath = "Graphics/7_SkillPanel.png";
             
             /// <summary>
             /// Difficulty icon configuration
@@ -332,7 +322,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static class DifficultyIcon
             {
                 public static readonly Rectangle Bounds = new Rectangle(36, 516, 60, 60);
-                public const string AssetPath = "Graphics/7_Difficulty.png";
                 public static readonly Vector2 CellSize = new Vector2(60, 60);
             }
             
@@ -344,7 +333,6 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static readonly Vector2 StartPosition = new Vector2(40, 540); // classic: (48, 540)
                 public static readonly Vector2 DigitSize = new Vector2(16, 19); // estimated
                 public const int DigitSpacing = 16;
-                public const string AssetPath = "Graphics/7_LevelNumber.png";
             }
             
             /// <summary>
@@ -355,9 +343,6 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static readonly Vector2 NumbersPosition = new Vector2(80, 527);
                 public static readonly Vector2 PercentPosition = new Vector2(239, 537);
                 public static readonly Vector2 MaxBadgePosition = new Vector2(149, 527);
-                public const string NumbersAssetPath = "Graphics/7_Ratenumber_l.png";
-                public const string PercentAssetPath = "Graphics/7_RatePercent_l.png";
-                public const string MaxBadgeAssetPath = "Graphics/7_skill max.png";
                 public const int DigitWidth = 28;
             }
             
@@ -380,7 +365,6 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static readonly Vector2 MissPercentPos = new Vector2(189, 442);
                 public static readonly Vector2 MaxComboPercentPos = new Vector2(189, 472);
                 
-                public const string AssetPath = "Graphics/7_Ratenumber_s.png";
                 public static readonly Vector2 DigitSize = new Vector2(20, 19);
                 public const int MaxDigits = 4;
             }
@@ -392,7 +376,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             {
                 public static readonly Vector2 EarlyPosition = new Vector2(192, 585);
                 public static readonly Vector2 LatePosition = new Vector2(267, 585);
-                public const string AssetPath = "Graphics/7_lag numbers.png";
                 public static readonly Vector2 DigitSize = new Vector2(15, 19);
                 public const int MaxDigits = 4;
             }
@@ -401,11 +384,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         #endregion
         
         #region Background Configuration
-
-        /// <summary>
-        /// Default background image path
-        /// </summary>
-        public const string DefaultBackgroundPath = "Graphics/7_background.jpg";
 
         /// <summary>
         /// Fallback background color when image loading fails
@@ -613,8 +591,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class Background
         {
             public static readonly Rectangle Bounds = new Rectangle(0, 0, 1280, 720);
-            public const string AssetPath = "Graphics/7_background.jpg";
-            public const string VideoAssetPath = "Graphics/7_background.mp4";
         }
         
         /// <summary>
@@ -623,7 +599,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class StageFailed
         {
             public static readonly Rectangle Bounds = new Rectangle(0, 0, 1280, 720);
-            public const string AssetPath = "Graphics/7_stage_failed.jpg";
         }
         
         /// <summary>
@@ -632,7 +607,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class FullCombo
         {
             // Centered, baseline calculation: (1280-w)/2, (720-h)/2
-            public const string AssetPath = "Graphics/7_FullCombo.png";
             public static Vector2 GetCenteredPosition(int textureWidth, int textureHeight)
             {
                 return new Vector2((1280 - textureWidth) / 2, (720 - textureHeight) / 2);
@@ -644,7 +618,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class Danger
         {
-            public const string AssetPath = "Graphics/7_Danger.png";
             public static readonly Vector2 TileSize = new Vector2(32, 64); // estimated tile size
         }
         
@@ -652,9 +625,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// Lane strips configuration based on 7_Paret.png sprite sheet
         /// </summary>
         public static class LaneStrips
-        {
-            public const string AssetPath = "Graphics/7_Paret.png";
-            
+        {            
             public static readonly Rectangle[] SourceRects = new Rectangle[]
             {
                 new Rectangle(0, 0, 72, 720),    // LC
@@ -679,8 +650,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class LaneCovers
         {
-            public const string AssetPath = "Graphics/7_lanes_Cover_cls.png";
-            
             // Example cover source rectangles (adjust based on actual sprite sheet)
             public static readonly Rectangle[] CoverSourceRects = new Rectangle[]
             {
@@ -701,7 +670,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class Shutter
         {
-            public const string AssetPath = "Graphics/7_shutter.png";
             public static readonly Vector2 StartPosition = new Vector2(295, 0); // aligned with lane area left
         }
         
@@ -710,7 +678,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class HitBar
         {
-            public const string AssetPath = "Graphics/ScreenPlayDrums hit-bar.png";
             public static readonly Vector2 Position = new Vector2(295, JudgelineY); // spans lane region
         }
         
@@ -719,7 +686,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class DrumNotes
         {
-            public const string AssetPath = "Graphics/7_chips_drums.png";
             // Sprite sheet with one cell per pad type
         }
         
@@ -728,12 +694,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class HitSparks
         {
-            public const string RedSparkAssetPath = "Graphics/ScreenPlayDrums chip fire_red.png";
-            public const string BlueSparkAssetPath = "Graphics/ScreenPlayDrums chip fire_blue.png";
-            public const string GreenSparkAssetPath = "Graphics/ScreenPlayDrums chip fire_green.png";
-            public const string PurpleSparkAssetPath = "Graphics/ScreenPlayDrums chip fire_purple.png";
-            public const string YellowSparkAssetPath = "Graphics/ScreenPlayDrums chip fire_yellow.png";
-            
             public static Vector2 GetSparkPosition(int laneIndex)
             {
                 return new Vector2(LaneCenterX[laneIndex], JudgelineY);
@@ -748,9 +708,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Frame size for animation
             public static readonly Vector2 FrameSize = new Vector2(42, 128);
             public const int FrameAdvance = 42; // pixels per frame
-            
-            // Asset paths for different pads (would need to be specified for each pad type)
-            public const string FlushAssetPathPrefix = "Graphics/ScreenPlayDrums lane flush ";
             public const string FlushReverseAssetPathSuffix = " reverse.png";
         }
         
@@ -759,11 +716,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class WailingBonus
         {
-            public const string WailingFireAssetPath = "Graphics/7_WailingFire.png";
-            public const string WailingFlushAssetPath = "Graphics/7_WailingFlush.png";
-            public const string ChipWaveAssetPath = "Graphics/ScreenPlayDrums chip wave.png";
-            public const string BonusAssetPath = "Graphics/7_Bonus.png";
-            public const string Bonus100AssetPath = "Graphics/7_Bonus_100.png";
+            // Asset paths are handled by TexturePath constants
         }
         
         #endregion
@@ -776,29 +729,23 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class JudgementLineAssets
         {
             public static readonly Rectangle Bounds = new Rectangle(295, JudgelineY - 5, 520, 10); // estimated span
-            public const string AssetPath = "Graphics/ScreenPlayDrums hit-bar.png";
         }
         
         public static class LifeGaugeAssets
         {
             public static readonly Rectangle Background = Gauge.FramePosition.ToRectangle();
-            public const string BackgroundAssetPath = Gauge.FrameAssetPath;
             public static readonly Rectangle Fill = new Rectangle((int)Gauge.FillOrigin.X, (int)Gauge.FillOrigin.Y, 200, Gauge.FillHeight); // estimated width
-            public const string FillAssetPath = Gauge.FillAssetPath;
         }
         
         public static class SongProgressAssets
         {
             public static readonly Rectangle Background = Progress.FrameBounds;
-            public const string BackgroundAssetPath = Progress.FrameAssetPath;
             public static readonly Rectangle Fill = Progress.BarBounds;
-            public const string FillAssetPath = "Graphics/7_progress_fill.png";
         }
         
         public static class ComboDigitsAssets
         {
             public static readonly Rectangle Bounds = new Rectangle((int)Combo.BasePosition.X - 100, (int)Combo.BasePosition.Y, 200, 60); // estimated
-            public const string AssetPath = Combo.AssetPath;
             public const int AtlasRows = 1;
             public const int AtlasCols = 11;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -807,7 +754,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class ScoreDigitsAssets
         {
             public static readonly Rectangle Bounds = new Rectangle((int)Score.FirstDigitPosition.X, (int)Score.FirstDigitPosition.Y, (int)Score.DigitSize.X * Score.MaxDigits, (int)Score.DigitSize.Y);
-            public const string AssetPath = Score.AssetPath;
             public const int AtlasRows = 1;
             public const int AtlasCols = 12;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -816,7 +762,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class JudgementTextAssets
         {
             public static readonly Rectangle Bounds = new Rectangle((int)(0.39f * 1280), (int)(0.77f * 720), (int)(0.22f * 1280), (int)(0.07f * 720));
-            public const string JudgeStringsAssetPath = "Graphics/7_judge.png";
             public const int AtlasRows = 1;
             public const int AtlasCols = 5;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -831,7 +776,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             public static readonly Rectangle EarlyBounds = new Rectangle((int)(0.335f * 1280), (int)(0.77f * 720), (int)(0.05f * 1280), (int)(0.05f * 720));
             public static readonly Rectangle LateBounds = new Rectangle((int)(0.615f * 1280), (int)(0.77f * 720), (int)(0.05f * 1280), (int)(0.05f * 720));
-            public const string LagNumbersAssetPath = "Graphics/7_lag.png";
             public const int AtlasRows = 1;
             public const int AtlasCols = 2;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -842,26 +786,21 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class OverlayAssets
         {
             public static readonly Rectangle PauseOverlay = new Rectangle(0, 0, 1280, 720);
-            public const string PauseOverlayAssetPath = "Graphics/7_pause_overlay.png";
             public static readonly Rectangle DangerOverlay = new Rectangle(0, 0, 1280, 720);
-            public const string DangerOverlayAssetPath = Danger.AssetPath;
         }
         
         public static class NotesAssets
         {
-            public const string NotesAtlasAssetPath = DrumNotes.AssetPath;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
         }
         
         public static class LongNotesAssets
         {
-            public const string LongNotesAtlasAssetPath = "Graphics/7_longnotes.png";
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
         }
         
         public static class ExplosionAssets
         {
-            public const string ExplosionAssetPath = "Graphics/7_explosion.png";
             public const int AtlasRows = 2;
             public const int AtlasCols = 4;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
