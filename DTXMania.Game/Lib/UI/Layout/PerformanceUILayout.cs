@@ -102,38 +102,39 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static readonly int[] LaneWidths = new int[]
         {
-            72, // LC
-            49, // HH
-            38, // LP (was RD width)
-            57, // SN (was SD width)
-            49, // HT
-            69, // DB (was BD width)
-            49, // LT
-            54, // FT
-            70  // CY (was RC width)
+            72, // LC - Width matches source rectangle (72)
+            49, // HH - Width matches source rectangle (49)
+            57, // SD - Width matches source rectangle (57)
+            69, // LP - Width matches source rectangle (69)
+            49, // HT - Width matches source rectangle (49)
+            49, // LT - Width matches source rectangle (49)
+            54, // FT - Width matches source rectangle (54)
+            70, // RC - Width matches source rectangle (70)
+            38  // RD - Width matches source rectangle (38)
         };
         
         /// <summary>
-        /// Lane left X positions based on 7_Paret.png sprite sheet
-        /// Reordered for gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY
+        /// Lane left X positions based on 7_Paret.png sprite sheet  
+        /// Corrected order: LC, HH, SD, LP, HT, LT, FT, RC, RD
         /// </summary>
         public static readonly int[] LaneLeftX = new int[]
         {
-            295, // LC
-            367, // HH
-            415, // LP (repositioned, was RD at 815)
-            467, // SN (was SD)
-            524, // HT
-            573, // DB (was BD)
-            642, // LT
-            691, // FT
-            745  // CY (was RC)
+            295, // LC - Left Cymbal  
+            367, // HH - Hi-Hat
+            467, // SD - Snare Drum
+            573, // LP - Bass Drum (Low Pedal)
+            524, // HT - High Tom
+            642, // LT - Low Tom  
+            691, // FT - Floor Tom
+            745, // RC - Ride Cymbal
+            815  // RD - Ride (alternate position)
         };
         
         /// <summary>
-        /// Full lane height (full screen)
+        /// Lane height - stops before gauge area to prevent overlap
+        /// Gauge starts at Y=626, so lanes stop at Y=620 with padding
         /// </summary>
-        public const int LaneHeight = ScreenHeight;
+        public const int LaneHeight = 620;
         
         #endregion
         
@@ -628,20 +629,22 @@ namespace DTXMania.Game.Lib.UI.Layout
         {            
             public static readonly Rectangle[] SourceRects = new Rectangle[]
             {
-                new Rectangle(0, 0, 72, 720),    // LC
-                new Rectangle(72, 0, 49, 720),   // HH
-                new Rectangle(172, 0, 57, 720),  // SD
-                new Rectangle(278, 0, 69, 720),  // BD
-                new Rectangle(229, 0, 49, 720),  // HT
-                new Rectangle(347, 0, 49, 720),  // LT
-                new Rectangle(396, 0, 54, 720),  // FT
-                new Rectangle(450, 0, 70, 720),  // RC
-                new Rectangle(520, 0, 38, 720)   // RD
+                // Based on your specification for 7_Paret.png texture layout:
+                // Using full texture height but will be cropped by destination rectangle
+                new Rectangle(0, 0, 72, 720),    // Lane 0: LC at X=295 -> Src: (0,0,72,720)
+                new Rectangle(72, 0, 49, 720),   // Lane 1: HH at X=367 -> Src: (72,0,49,720)
+                new Rectangle(172, 0, 57, 720),  // Lane 2: SD at X=467 -> Src: (172,0,57,720)  
+                new Rectangle(278, 0, 69, 720),  // Lane 3: LP at X=573 -> Src: (278,0,69,720)
+                new Rectangle(229, 0, 49, 720),  // Lane 4: HT at X=524 -> Src: (229,0,49,720)
+                new Rectangle(347, 0, 49, 720),  // Lane 5: LT at X=642 -> Src: (347,0,49,720)
+                new Rectangle(396, 0, 54, 720),  // Lane 6: FT at X=691 -> Src: (396,0,54,720)
+                new Rectangle(450, 0, 70, 720),  // Lane 7: RC at X=745 -> Src: (450,0,70,720) 
+                new Rectangle(520, 0, 38, 720),  // Lane 8: RD at X=815 -> Src: (520,0,38,720)
             };
             
             public static Rectangle GetDestinationRect(int laneIndex)
             {
-                return new Rectangle(LaneLeftX[laneIndex], 0, LaneWidths[laneIndex], 720);
+                return new Rectangle(LaneLeftX[laneIndex], 0, LaneWidths[laneIndex], LaneHeight);
             }
         }
         
