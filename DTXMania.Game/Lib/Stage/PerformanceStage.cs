@@ -94,6 +94,7 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture _scoreDigitsTexture;
         private ITexture _pauseOverlayTexture;
         private ITexture _dangerOverlayTexture;
+        private ITexture _skillPanelTexture;
         
         // Judgement text textures (using sprite sheets)
         private ITexture _judgeStringsTexture;
@@ -759,6 +760,9 @@ namespace DTXMania.Game.Lib.Stage
                 _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
                 _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
                 
+                // Load skill panel texture using TexturePath constant
+                _skillPanelTexture = TryLoadTexture(TexturePath.SkillPanel);
+                
             }
             catch (Exception ex)
             {
@@ -833,6 +837,9 @@ namespace DTXMania.Game.Lib.Stage
             
             _dangerOverlayTexture?.RemoveReference();
             _dangerOverlayTexture = null;
+            
+            _skillPanelTexture?.RemoveReference();
+            _skillPanelTexture = null;
         }
 
         /// <summary>
@@ -1307,6 +1314,9 @@ namespace DTXMania.Game.Lib.Stage
             // Draw shutters first (overlay elements)
             DrawShutters();
             
+            // Draw skill panel
+            DrawSkillPanel();
+            
             // Draw gauge elements
             DrawGaugeElements();
             
@@ -1394,6 +1404,20 @@ namespace DTXMania.Game.Lib.Stage
                     var fillRect = new Rectangle(barRect.X, barRect.Bottom - fillHeight, barRect.Width, fillHeight);
                     _spriteBatch.Draw(_fallbackWhiteTexture, fillRect, null, Color.LightBlue, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
                 }
+            }
+        }
+        
+        /// <summary>
+        /// Draws skill panel using DTXManiaNX layout
+        /// </summary>
+        private void DrawSkillPanel()
+        {
+            if (_skillPanelTexture != null)
+            {
+                // Draw skill panel at DTXManiaNX position (22, 250) at UI depth
+                var panelPos = PerformanceUILayout.SkillPanel.PanelPosition;
+                var panelRect = new Rectangle((int)panelPos.X, (int)panelPos.Y, _skillPanelTexture.Width, _skillPanelTexture.Height);
+                _skillPanelTexture.Draw(_spriteBatch, panelRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
             }
         }
         
