@@ -219,7 +219,7 @@ namespace DTXMania.Game.Lib.Stage
 
 
             // Draw components in proper Z-order (BackToFront sorting):
-            // Background (1.0f) → Notes (0.7f) → JudgementLine (0.6f) → Effects (0.5f) → JudgementTexts (0.4f) → UI (0.2f) → FORCED VISIBLE LANES (0.1f-0.04f)
+            // Background (1.0f) → Lanes (0.8f) → Notes (0.7f) → JudgementLine (0.6f) → Effects (0.5f) → JudgementTexts (0.4f) → UI (0.2f) → Fallback Lanes (0.1f)
 
             // Begin standard spritebatch with depth sorting
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
@@ -1221,44 +1221,38 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawLaneBackgrounds()
         {
-            // FORCE VISIBILITY: Always draw bright colored lanes first to ensure something is visible
-            if (_fallbackWhiteTexture != null)
-            {
-                for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
-                {
-                    var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
-                    
-                    // Use bright alternating colors that are impossible to miss
-                    var brightColors = new Color[] { Color.Red, Color.Blue, Color.Green, Color.Yellow, Color.Magenta, Color.Cyan, Color.Orange, Color.Purple, Color.Pink };
-                    var laneColor = brightColors[i % brightColors.Length] * 0.6f; // Semi-transparent but very visible
-                    
-                    // Draw at a very forward depth to ensure visibility
-                    _spriteBatch.Draw(_fallbackWhiteTexture, destRect, null, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
-                }
-            }
-            
-            // If we have the texture, try to draw it on top, but don't rely on it
+            // Use actual 7_paret.png texture with maximum visibility
             if (_laneBgTexture != null)
             {
-                for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
+                int actualLaneCount = Math.Min(PerformanceUILayout.LaneCount, PerformanceUILayout.LaneStrips.SourceRects.Length);
+                System.Console.WriteLine($"[DEBUG] Drawing {actualLaneCount} lanes with 7_paret.png texture");
+                
+                for (int i = 0; i < actualLaneCount; i++)
                 {
-                    // Safety check for source rectangles
-                    if (i >= PerformanceUILayout.LaneStrips.SourceRects.Length)
-                        break;
-                        
                     var sourceRect = PerformanceUILayout.LaneStrips.SourceRects[i];
                     var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
                     
-                    // Try multiple approaches to make the texture visible
+                    System.Console.WriteLine($"[LANE {i}] X={destRect.X}, Y={destRect.Y}, W={destRect.Width}, H={destRect.Height} | Src=({sourceRect.X},{sourceRect.Y},{sourceRect.Width},{sourceRect.Height})");
                     
-                    // Approach 1: Additive blending with bright tint
-                    var tintColor = Color.White * 2.0f; // Very bright
-                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, tintColor, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
+                    // Draw with maximum brightness and special highlight for Lane 3
+                    Color laneColor;
+                    if (i == 3) // Lane 3 - LP (the problematic one)
+                    {
+                        laneColor = Color.Yellow * 2.0f; // SUPER BRIGHT YELLOW for Lane 3
+                        System.Console.WriteLine($"[SPECIAL] Lane 3 (LP) rendered with super bright yellow!");
+                    }
+                    else
+                    {
+                        laneColor = Color.White * 1.8f; // Very bright for all other lanes
+                    }
                     
-                    // Approach 2: Also try with a colored tint to see if texture has any content
-                    var debugTint = Color.Cyan * 0.8f;
-                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, debugTint, 0f, Vector2.Zero, SpriteEffects.None, 0.04f);
+                    // Draw at front depth to ensure visibility
+                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
                 }
+            }
+            else
+            {
+                System.Console.WriteLine("[ERROR] 7_paret.png texture not loaded!");
             }
             
             // Also try the LaneBackgroundRenderer as additional fallback
