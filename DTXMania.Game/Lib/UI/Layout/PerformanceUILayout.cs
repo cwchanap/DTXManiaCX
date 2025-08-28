@@ -52,7 +52,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Number of drum lanes (classic DTXMania drum layout)
         /// </summary>
-        public const int LaneCount = 9;
+        public const int LaneCount = 10;
         
         /// <summary>
         /// Lane types in corrected DTXMania order: LC, HH, LP, SN, HT, DB, LT, FT, CY
@@ -85,15 +85,16 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static readonly int[] LaneCenterX = new int[]
         {
-            295 + 36,  // LC: X=295, width=72, center=295+36=331
-            367 + 24,  // HH: X=367, width=49, center=367+24.5≈391
-            415 + 19,  // LP: Using RD position (X=815->415), width=38, center≈434 (moved left)
-            467 + 28,  // SN: X=467 (was SD), width=57, center≈495
-            524 + 24,  // HT: X=524, width=49, center≈548
-            573 + 34,  // DB: X=573 (was BD), width=69, center≈607
-            642 + 24,  // LT: X=642, width=49, center=642+24.5≈666
-            691 + 27,  // FT: X=691, width=54, center=691+27=718
-            745 + 35   // CY: X=745 (was RC), width=70, center=745+35=780
+            295 + 36,  // Lane 0: LC - X=295, width=72, center=295+36=331
+            367 + 24,  // Lane 1: HH - X=367, width=49, center=367+24.5≈391
+            416 + 25,  // Lane 2: Missing - X=416, width=51, center=416+25.5≈441
+            467 + 28,  // Lane 3: SD - X=467, width=57, center=467+28.5≈495
+            524 + 24,  // Lane 4: HT - X=524, width=49, center=524+24.5≈548
+            573 + 34,  // Lane 5: LP - X=573, width=69, center=573+34.5≈607
+            642 + 24,  // Lane 6: LT - X=642, width=49, center=642+24.5≈666
+            691 + 27,  // Lane 7: FT - X=691, width=54, center=691+27=718
+            745 + 35,  // Lane 8: RC - X=745, width=70, center=745+35=780
+            815 + 19   // Lane 9: RD - X=815, width=38, center=815+19=834
         };
         
         /// <summary>
@@ -102,15 +103,16 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static readonly int[] LaneWidths = new int[]
         {
-            72, // LC - Width matches source rectangle (72)
-            49, // HH - Width matches source rectangle (49)
-            57, // SD - Width matches source rectangle (57)
-            69, // LP - Width matches source rectangle (69)
-            49, // HT - Width matches source rectangle (49)
-            49, // LT - Width matches source rectangle (49)
-            54, // FT - Width matches source rectangle (54)
-            70, // RC - Width matches source rectangle (70)
-            38  // RD - Width matches source rectangle (38)
+            72, // Lane 0: LC - Width matches source rectangle (72)
+            49, // Lane 1: HH - Width matches source rectangle (49)
+            51, // Lane 2: Missing lane - Width calculated (121+51=172, so width=51)
+            57, // Lane 3: SD - Width matches source rectangle (57)
+            49, // Lane 4: HT - Width matches source rectangle (49)
+            69, // Lane 5: LP - Width matches source rectangle (69)
+            49, // Lane 6: LT - Width matches source rectangle (49)
+            54, // Lane 7: FT - Width matches source rectangle (54)
+            70, // Lane 8: RC - Width matches source rectangle (70)
+            38  // Lane 9: RD - Width matches source rectangle (38)
         };
         
         /// <summary>
@@ -119,15 +121,16 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static readonly int[] LaneLeftX = new int[]
         {
-            295, // LC - Left Cymbal  
-            367, // HH - Hi-Hat
-            467, // SD - Snare Drum
-            573, // LP - Bass Drum (Low Pedal)
-            524, // HT - High Tom
-            642, // LT - Low Tom  
-            691, // FT - Floor Tom
-            745, // RC - Ride Cymbal
-            815  // RD - Ride (alternate position)
+            295, // Lane 0: LC - Left Cymbal  
+            367, // Lane 1: HH - Hi-Hat
+            416, // Lane 2: Missing lane between HH and SD (seamless after HH)
+            467, // Lane 3: SD - Snare Drum
+            524, // Lane 4: HT - High Tom
+            573, // Lane 5: LP - Bass Drum (Low Pedal)  
+            642, // Lane 6: LT - Low Tom  
+            691, // Lane 7: FT - Floor Tom
+            745, // Lane 8: RC - Ride Cymbal
+            815  // Lane 9: RD - Ride (alternate position)
         };
         
         /// <summary>
@@ -221,18 +224,19 @@ namespace DTXMania.Game.Lib.UI.Layout
                 throw new ArgumentOutOfRangeException(nameof(laneIndex), 
                     $"Lane index must be between 0 and {LaneCount - 1}");
             
-            // Default drum colors for visual feedback
+            // Default drum colors for visual feedback - all 10 lanes
             var drumColors = new Color[]
             {
-                new Color(0xA0, 0x40, 0xFF), // LC - Purple
-                new Color(0xFF, 0xC8, 0x00), // HH - Yellow
-                new Color(0xFF, 0x40, 0x40), // SD - Red
-                new Color(0xFF, 0x80, 0x00), // BD - Orange
-                new Color(0x00, 0xC8, 0xFF), // HT - Light Blue
-                new Color(0x00, 0x80, 0xFF), // LT - Blue
-                new Color(0x00, 0xFF, 0x80), // FT - Green
-                new Color(0xFF, 0x64, 0xC8), // RC - Pink
-                new Color(0xFF, 0x64, 0xC8)  // RD - Pink
+                new Color(0xA0, 0x40, 0xFF), // Lane 0: LC - Purple
+                new Color(0xFF, 0xC8, 0x00), // Lane 1: HH - Yellow
+                new Color(0xFF, 0x60, 0xFF), // Lane 2: Missing lane - Magenta
+                new Color(0xFF, 0x40, 0x40), // Lane 3: SD - Red
+                new Color(0x00, 0xC8, 0xFF), // Lane 4: HT - Light Blue
+                new Color(0xFF, 0x80, 0x00), // Lane 5: LP (Bass) - Orange
+                new Color(0x00, 0x80, 0xFF), // Lane 6: LT - Blue
+                new Color(0x00, 0xFF, 0x80), // Lane 7: FT - Green
+                new Color(0xFF, 0x64, 0xC8), // Lane 8: RC - Pink
+                new Color(0xFF, 0x64, 0xC8)  // Lane 9: RD - Pink
             };
             
             return drumColors[laneIndex];
@@ -629,17 +633,17 @@ namespace DTXMania.Game.Lib.UI.Layout
         {            
             public static readonly Rectangle[] SourceRects = new Rectangle[]
             {
-                // Based on your specification for 7_Paret.png texture layout:
-                // Using full texture height but will be cropped by destination rectangle
-                new Rectangle(0, 0, 72, 720),    // Lane 0: LC at X=295 -> Src: (0,0,72,720)
-                new Rectangle(72, 0, 49, 720),   // Lane 1: HH at X=367 -> Src: (72,0,49,720)
-                new Rectangle(172, 0, 57, 720),  // Lane 2: SD at X=467 -> Src: (172,0,57,720)  
-                new Rectangle(278, 0, 69, 720),  // Lane 3: LP at X=573 -> Src: (278,0,69,720)
-                new Rectangle(229, 0, 49, 720),  // Lane 4: HT at X=524 -> Src: (229,0,49,720)
-                new Rectangle(347, 0, 49, 720),  // Lane 5: LT at X=642 -> Src: (347,0,49,720)
-                new Rectangle(396, 0, 54, 720),  // Lane 6: FT at X=691 -> Src: (396,0,54,720)
-                new Rectangle(450, 0, 70, 720),  // Lane 7: RC at X=745 -> Src: (450,0,70,720) 
-                new Rectangle(520, 0, 38, 720),  // Lane 8: RD at X=815 -> Src: (520,0,38,720)
+                // All 10 lanes from 7_Paret.png texture in sequential order:
+                new Rectangle(0, 0, 72, 720),    // Lane 0: LC -> Src: (0,0,72,720)
+                new Rectangle(72, 0, 49, 720),   // Lane 1: HH -> Src: (72,0,49,720)
+                new Rectangle(121, 0, 51, 720),  // Lane 2: Missing lane -> Src: (121,0,51,720)
+                new Rectangle(172, 0, 57, 720),  // Lane 3: SD -> Src: (172,0,57,720)  
+                new Rectangle(229, 0, 49, 720),  // Lane 4: HT -> Src: (229,0,49,720)
+                new Rectangle(278, 0, 69, 720),  // Lane 5: LP -> Src: (278,0,69,720)
+                new Rectangle(347, 0, 49, 720),  // Lane 6: LT -> Src: (347,0,49,720)
+                new Rectangle(396, 0, 54, 720),  // Lane 7: FT -> Src: (396,0,54,720)
+                new Rectangle(450, 0, 70, 720),  // Lane 8: RC -> Src: (450,0,70,720) 
+                new Rectangle(520, 0, 38, 720),  // Lane 9: RD -> Src: (520,0,38,720)
             };
             
             public static Rectangle GetDestinationRect(int laneIndex)
