@@ -79,7 +79,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _spriteColumns;
         private bool _disposed;
         private Texture2D _fallbackTexture;
-        private int _debugFrameCount = 0;
 
         #endregion
 
@@ -103,8 +102,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
 
             LoadPadTexture();
-            
-            System.Console.WriteLine($"[PadRenderer] PadRenderer initialized successfully");
         }
 
         #endregion
@@ -119,12 +116,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void TriggerPadPress(int laneIndex, bool isJudgedHit = true)
         {
             if (laneIndex < 0 || laneIndex >= _padVisuals.Length)
-            {
-                System.Console.WriteLine($"[PadRenderer] Invalid lane index: {laneIndex}");
                 return;
-            }
 
-            System.Console.WriteLine($"[PadRenderer] Triggering pad press for lane {laneIndex} (judged: {isJudgedHit})");
             _padVisuals[laneIndex].State = PadState.Pressed;
             _padVisuals[laneIndex].TimePressed = 0.0;
         }
@@ -159,18 +152,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void Draw(SpriteBatch spriteBatch)
         {
             if (spriteBatch == null)
-            {
-                System.Console.WriteLine("[PadRenderer] SpriteBatch is null!");
                 return;
-            }
-
-            // Minimal debug output
-            _debugFrameCount++;
-            if (_debugFrameCount % 120 == 0) // Every 2 seconds instead of 1
-            {
-                int pressedCount = _padVisuals.Count(p => p.State == PadState.Pressed);
-                System.Console.WriteLine($"[PadRenderer] Drawing {_padVisuals.Length} pads, {pressedCount} pressed");
-            }
 
             for (int laneIndex = 0; laneIndex < _padVisuals.Length; laneIndex++)
             {
@@ -207,26 +189,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     {
                         _padSpriteSheet = _resourceManager.LoadTexture(path);
                         if (_padSpriteSheet != null)
-                        {
-                            System.Console.WriteLine($"[PadRenderer] Successfully loaded pad texture from: {path}");
                             break;
-                        }
                     }
                     catch
                     {
                         // Continue trying other paths
-                        System.Console.WriteLine($"[PadRenderer] Failed to load pad texture from: {path}");
                     }
                 }
 
                 if (_padSpriteSheet != null)
                 {
-                    System.Console.WriteLine($"[PadRenderer] Successfully loaded pad sprite sheet");
                     CalculateCellDimensions();
-                }
-                else
-                {
-                    System.Console.WriteLine($"[PadRenderer] No pad sprite sheet found - will use fallback rendering");
                 }
             }
             catch (Exception ex)
@@ -262,7 +235,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _spriteColumns = cols;
                     _cellWidth = texW / cols;
                     foundValidColumnCount = true;
-                    System.Console.WriteLine($"[PadRenderer] Detected {cols} columns, cell size: {_cellWidth}x{_cellHeight}");
                     break;
                 }
             }
@@ -272,7 +244,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _spriteColumns = 4; // Default to 4 columns for existing texture
                 _cellWidth = texW / _spriteColumns;
-                System.Console.WriteLine($"[PadRenderer] Fallback: {_spriteColumns} columns, cell size: {_cellWidth}x{_cellHeight}");
             }
         }
 
@@ -317,12 +288,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 padWidth,
                 PadsHeight
             );
-            
-            // Debug coordinates only for first frame
-            if (_debugFrameCount == 1)
-            {
-                System.Console.WriteLine($"[PadRenderer] Lane {laneIndex}: pos=({laneLeftX},{PadsY}) size=({padWidth}x{PadsHeight})");
-            }
 
             // Try sprite sheet rendering first
             if (_padSpriteSheet != null && TryDrawSpriteSheetPad(spriteBatch, pad, laneIndex, destRect))
@@ -375,42 +340,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         private void DrawFallbackPad(SpriteBatch spriteBatch, PadVisual pad, Rectangle destRect, int laneIndex = -1)
         {
-            // Create a simple colored rectangle for debugging
-            // We need access to a white pixel texture - let's use the GraphicsDevice to create one
+            // Create fallback texture if needed
             if (_fallbackTexture == null)
             {
                 _fallbackTexture = new Texture2D(_graphicsDevice, 1, 1);
                 _fallbackTexture.SetData(new[] { Color.White });
-                System.Console.WriteLine("[PadRenderer] Created fallback texture");
             }
 
-            // Draw actual pad rectangles using the SAME method that works for the test rectangle
-            Color padColor = pad.State == PadState.Pressed 
-                ? Color.Red      // Full bright red when pressed  
-                : Color.Yellow;  // Full bright yellow when idle
-
-            // Draw actual pad at the lane position - use the working method
-            var padRect = new Rectangle(
-                destRect.X, 
-                destRect.Y, 
-                destRect.Width, 
-                destRect.Height
-            );
-            
-            spriteBatch.Draw(_fallbackTexture, padRect, null, padColor, 0f, Vector2.Zero, SpriteEffects.None, 0.0f);
-            
-            // Debug actual pad drawing and auto-trigger some presses for demo
-            if (_debugFrameCount % 30 == 0 && destRect.X < 400)
-            {
-                System.Console.WriteLine($"[PadRenderer] Drawing actual pad at ({padRect.X},{padRect.Y}) size {padRect.Width}x{padRect.Height}, color {padColor}");
-            }
-
-            // DEMO: Auto-trigger pad presses to show they work
-            if (_debugFrameCount % 180 == 0 && laneIndex < 3)
-            {
-                TriggerPadPress(laneIndex, true);
-                System.Console.WriteLine($"[PadRenderer] DEMO: Auto-triggered press for lane {laneIndex}");
-            }
+            // Draw colored rectangle fallback
+            Color padColor = pad.State == PadState.Pressed ? Color.Red : Color.Yellow;
+            spriteBatch.Draw(_fallbackTexture, destRect, null, padColor, 0f, Vector2.Zero, SpriteEffects.None, 0.0f);
         }
 
         /// <summary>

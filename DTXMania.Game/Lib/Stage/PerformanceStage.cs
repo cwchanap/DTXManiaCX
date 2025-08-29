@@ -124,10 +124,6 @@ namespace DTXMania.Game.Lib.Stage
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
         
-        // Debug frame counter
-        private int _debugFrameCount = 0;
-        private Texture2D _fallbackTestTexture;
-        
         // Autoplay functionality
         private bool _autoPlayEnabled = false;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
@@ -221,18 +217,7 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
-            {
-                System.Console.WriteLine("[PerformanceStage] OnDraw called but _spriteBatch is null!");
                 return;
-            }
-                
-            _debugFrameCount++;
-            
-            // Debug: Make sure OnDraw is being called
-            if (_debugFrameCount % 60 == 0)
-            {
-                System.Console.WriteLine($"[PerformanceStage] OnDraw called - frame {_debugFrameCount}");
-            }
 
 
             // Draw components in proper Z-order (BackToFront sorting):
@@ -241,12 +226,6 @@ namespace DTXMania.Game.Lib.Stage
             // Begin standard spritebatch with depth sorting
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
             
-            // TEMPORARY: Draw a test rectangle to confirm spritebatch is working here
-            if (_debugFrameCount % 120 == 0)
-            {
-                System.Console.WriteLine("[PerformanceStage] SpriteBatch started, about to draw pads");
-            }
-
             // Draw background (furthest back - highest depth value)
             DrawBackground();
 
@@ -1299,34 +1278,18 @@ namespace DTXMania.Game.Lib.Stage
             if (_laneBgTexture != null)
             {
                 int actualLaneCount = Math.Min(PerformanceUILayout.LaneCount, PerformanceUILayout.LaneStrips.SourceRects.Length);
-                System.Console.WriteLine($"[DEBUG] Drawing {actualLaneCount} lanes with 7_paret.png texture");
                 
                 for (int i = 0; i < actualLaneCount; i++)
                 {
                     var sourceRect = PerformanceUILayout.LaneStrips.SourceRects[i];
                     var destRect = PerformanceUILayout.LaneStrips.GetDestinationRect(i);
                     
-                    System.Console.WriteLine($"[LANE {i}] X={destRect.X}, Y={destRect.Y}, W={destRect.Width}, H={destRect.Height} | Src=({sourceRect.X},{sourceRect.Y},{sourceRect.Width},{sourceRect.Height})");
+                    // Normal lane rendering
+                    Color laneColor = Color.White;
                     
-                    // Draw with maximum brightness and special highlight for Lane 3
-                    Color laneColor;
-                    if (i == 3) // Lane 3 - LP (the problematic one)
-                    {
-                        laneColor = Color.Yellow * 2.0f; // SUPER BRIGHT YELLOW for Lane 3
-                        System.Console.WriteLine($"[SPECIAL] Lane 3 (LP) rendered with super bright yellow!");
-                    }
-                    else
-                    {
-                        laneColor = Color.White * 1.8f; // Very bright for all other lanes
-                    }
-                    
-                    // Draw at front depth to ensure visibility
-                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
+                    // Draw at background depth
+                    _laneBgTexture.Draw(_spriteBatch, destRect, sourceRect, laneColor, 0f, Vector2.Zero, SpriteEffects.None, 0.8f);
                 }
-            }
-            else
-            {
-                System.Console.WriteLine("[ERROR] 7_paret.png texture not loaded!");
             }
             
             // Also try the LaneBackgroundRenderer as additional fallback
@@ -1366,23 +1329,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawPads()
         {
-            // Debug: Make sure this method is being called
-            if (_debugFrameCount % 60 == 0)
-            {
-                System.Console.WriteLine("[PerformanceStage] DrawPads() called");
-            }
-            
-            // TEMPORARY TEST: Draw a direct rectangle here to test if this drawing location works
-            if (_fallbackTestTexture == null && _spriteBatch?.GraphicsDevice != null)
-            {
-                _fallbackTestTexture = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
-                _fallbackTestTexture.SetData(new[] { Color.White });
-                var viewport = _spriteBatch.GraphicsDevice.Viewport;
-                System.Console.WriteLine($"[PerformanceStage] Created test texture. Viewport: {viewport.Width}x{viewport.Height}");
-            }
-            
-            // Test rectangles removed - issue solved! The pads now use depth 0.0 for highest priority
-            
             // Draw pad indicators using PadRenderer
             _padRenderer?.Draw(_spriteBatch);
         }
