@@ -694,9 +694,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 3 => 56,  // Column 3: '14' HighTom - HT width: 56
                 4 => 56,  // Column 4: '15' LowTom - LT width: 56
                 5 => 56,  // Column 5: '17' FloorTom - FT width: 56
-                6 => 74,  // Column 6: '16' RideCymbal - CY width: 74
+                6 => 74,  // Column 6: '16' RightCrash - CY width: 74
                 7 => 48,  // Column 7: '11' HiHatClose - HH width: 48
-                8 => 70,  // Column 8: '1C' LeftCrash - LC width: 74 (same as left crash)
+                8 => 58,  // Column 8: '1C' LeftBass - LC width: 58
                 9 => 74,  // Column 9: '1A' LeftCrash - LC width: 74
                 10 => 48, // Column 10: '18' HiHatOpen - HH width: 48
                 11 => 58, // Column 11: '1B' LeftPedal - LP width: 58
@@ -764,34 +764,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (columnIndex < 0 || columnIndex >= 12) 
                 return new Rectangle(0, 0, 64, DrumChipsSpriteHeight); // Default
 
-            // Calculate X position based on accumulated widths using actual noteOrder
-            // noteOrder: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
-            // Widths:    [ 70,   58,   64,   56,   56,   56,   74,   48,   70,   74,   48,   58]
-            var spriteXPositions = new int[] 
-            { 
-                0,   // Column 0: '13' BassDrum (BD:70) starts at X=0
-                70,  // Column 1: '19' RideCymbal (RD:58) starts at X=70
-                128, // Column 2: '12' Snare (SN:64) starts at X=128
-                192, // Column 3: '14' HighTom (HT:56) starts at X=192
-                248, // Column 4: '15' LowTom (LT:56) starts at X=248
-                304, // Column 5: '17' FloorTom (FT:56) starts at X=304
-                360, // Column 6: '16' RideCymbal (CY:74) starts at X=360
-                434, // Column 7: '11' HiHatClose (HH:48) starts at X=434
-                482, // Column 8: '1C' LeftCrash (LC:70) starts at X=482
-                552, // Column 9: '1A' LeftCrash (LC:74) starts at X=552
-                626, // Column 10: '18' HiHatOpen (HH:48) starts at X=626
-                674  // Column 11: '1B' LeftPedal (LP:58) starts at X=674
-            };
-
-            var spriteWidths = new int[] 
-            { 
-                70, 58, 64, 56, 56, 56, 74, 48, 70, 74, 48, 58 
-            }; // Corresponding widths for each column
+            // Calculate X position dynamically based on accumulated widths from GetSpriteWidthForColumn
+            // This ensures single source of truth for sprite widths
+            int xPosition = 0;
+            for (int i = 0; i < columnIndex; i++)
+            {
+                xPosition += GetSpriteWidthForColumn(i);
+            }
+            
+            var spriteWidth = GetSpriteWidthForColumn(columnIndex);
 
             return new Rectangle(
-                spriteXPositions[columnIndex], 
+                xPosition, 
                 0, // Y will be set by animation frame
-                spriteWidths[columnIndex], 
+                spriteWidth, 
                 DrumChipsSpriteHeight
             );
         }
