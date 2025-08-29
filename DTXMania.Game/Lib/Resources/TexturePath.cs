@@ -345,6 +345,12 @@ namespace DTXMania.Game.Lib.Resources
         /// Bonus 100 effect texture
         /// </summary>
         public const string Bonus100 = "Graphics/7_Bonus_100.png";
+
+        /// <summary>
+        /// Pad visual indicators sprite sheet (2 rows: idle/pressed states)
+        /// Standard path for pad caps texture - can be customized per skin
+        /// </summary>
+        public const string PadCaps = "Graphics/7_PadCaps.png";
         
         #endregion
         

@@ -71,6 +71,7 @@ namespace DTXMania.Game.Lib.Stage
         private GaugeManager _gaugeManager;
         private EffectsManager _effectsManager;
         private JudgementTextPopupManager _judgementTextPopupManager;
+        private PadRenderer _padRenderer;
 
         // BGM management
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
@@ -122,6 +123,10 @@ namespace DTXMania.Game.Lib.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary;
         private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
+        
+        // Debug frame counter
+        private int _debugFrameCount = 0;
+        private Texture2D _fallbackTestTexture;
         
         // Autoplay functionality
         private bool _autoPlayEnabled = false;
@@ -216,7 +221,18 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
+            {
+                System.Console.WriteLine("[PerformanceStage] OnDraw called but _spriteBatch is null!");
                 return;
+            }
+                
+            _debugFrameCount++;
+            
+            // Debug: Make sure OnDraw is being called
+            if (_debugFrameCount % 60 == 0)
+            {
+                System.Console.WriteLine($"[PerformanceStage] OnDraw called - frame {_debugFrameCount}");
+            }
 
 
             // Draw components in proper Z-order (BackToFront sorting):
@@ -224,12 +240,21 @@ namespace DTXMania.Game.Lib.Stage
 
             // Begin standard spritebatch with depth sorting
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
+            
+            // TEMPORARY: Draw a test rectangle to confirm spritebatch is working here
+            if (_debugFrameCount % 120 == 0)
+            {
+                System.Console.WriteLine("[PerformanceStage] SpriteBatch started, about to draw pads");
+            }
 
             // Draw background (furthest back - highest depth value)
             DrawBackground();
 
             // Draw lane backgrounds
             DrawLaneBackgrounds();
+
+            // Draw pad indicators (above lane backgrounds, below notes)
+            DrawPads();
 
             // Draw scrolling notes
             DrawNotes();
@@ -326,6 +351,7 @@ namespace DTXMania.Game.Lib.Stage
             _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
             _effectsManager = new EffectsManager(graphicsDevice, _resourceManager);
             _judgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
+            _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
             // Initialize UX components
             InitializeReadyFont();
@@ -379,6 +405,8 @@ namespace DTXMania.Game.Lib.Stage
             _effectsManager = null;
             _judgementTextPopupManager?.Dispose();
             _judgementTextPopupManager = null;
+            _padRenderer?.Dispose();
+            _padRenderer = null;
 
             // Cleanup UX components
             _readyFont?.Dispose();
@@ -578,6 +606,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update judgement text popup manager
             _judgementTextPopupManager?.Update(deltaTime);
+
+            // Update pad renderer
+            _padRenderer?.Update(deltaTime);
 
             // Handle BGM event scheduling and gameplay managers
             if (_songTimer != null && _songTimer.IsPlaying)
@@ -976,6 +1007,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Wire up event handlers for UI binding
             WireUpEventHandlers();
+
+            // Subscribe to input events for immediate pad feedback
+            WireUpInputEventHandlers();
         }
 
         /// <summary>
@@ -997,6 +1031,27 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
+        /// Wires up input event handlers for immediate pad feedback
+        /// </summary>
+        private void WireUpInputEventHandlers()
+        {
+            if (_inputManager?.ModularInputManager != null)
+            {
+                // Subscribe to lane hit events for immediate visual feedback (before judgement)
+                _inputManager.ModularInputManager.OnLaneHit += OnLaneHitForPadFeedback;
+            }
+        }
+
+        /// <summary>
+        /// Handles lane hit events for immediate pad visual feedback
+        /// </summary>
+        private void OnLaneHitForPadFeedback(object? sender, LaneHitEventArgs e)
+        {
+            // Trigger immediate pad press effect on input (regardless of judgement)
+            _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
+        }
+
+        /// <summary>
         /// Handles judgement events and forwards them to all managers
         /// </summary>
         private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
@@ -1013,6 +1068,9 @@ namespace DTXMania.Game.Lib.Stage
 
                 // Trigger lane flash effect
                 _noteRenderer?.TriggerLaneFlash(e.Lane);
+
+                // Trigger pad press effect
+                _padRenderer?.TriggerPadPress(e.Lane, true);
             }
 
             // Spawn judgement text popup for all judgements
@@ -1130,6 +1188,9 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         // Auto-hit the note using the JudgementManager's test method
                         _judgementManager.TestTriggerLaneHit(note.LaneIndex, "AutoPlay");
+                        
+                        // Trigger pad press effect for autoplay
+                        _padRenderer?.TriggerPadPress(note.LaneIndex, true);
                     }
                     
                     _autoPlayNoteIndex++;
@@ -1172,6 +1233,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _gaugeManager.GaugeChanged -= OnGaugeChanged;
                 _gaugeManager.Failed -= OnPlayerFailed;
+            }
+
+            // Unsubscribe from input events
+            if (_inputManager?.ModularInputManager != null)
+            {
+                _inputManager.ModularInputManager.OnLaneHit -= OnLaneHitForPadFeedback;
             }
 
             // Dispose managers
@@ -1295,6 +1362,29 @@ namespace DTXMania.Game.Lib.Stage
                 // Fallback to JudgementLineRenderer
                 _judgementLineRenderer?.Draw(_spriteBatch);
             }
+        }
+
+        private void DrawPads()
+        {
+            // Debug: Make sure this method is being called
+            if (_debugFrameCount % 60 == 0)
+            {
+                System.Console.WriteLine("[PerformanceStage] DrawPads() called");
+            }
+            
+            // TEMPORARY TEST: Draw a direct rectangle here to test if this drawing location works
+            if (_fallbackTestTexture == null && _spriteBatch?.GraphicsDevice != null)
+            {
+                _fallbackTestTexture = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
+                _fallbackTestTexture.SetData(new[] { Color.White });
+                var viewport = _spriteBatch.GraphicsDevice.Viewport;
+                System.Console.WriteLine($"[PerformanceStage] Created test texture. Viewport: {viewport.Width}x{viewport.Height}");
+            }
+            
+            // Test rectangles removed - issue solved! The pads now use depth 0.0 for highest priority
+            
+            // Draw pad indicators using PadRenderer
+            _padRenderer?.Draw(_spriteBatch);
         }
 
         private void DrawHitEffects()
