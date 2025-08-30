@@ -190,7 +190,7 @@ namespace DTXMania.Test.Stage.Performance
             }
             catch (Exception ex)
             {
-                Assert.True(false, $"Simulation crashed with random input variance: {ex.Message}\n{ex.StackTrace}");
+                Assert.Fail($"Simulation crashed with random input variance: {ex.Message}\n{ex.StackTrace}");
             }
 
             // Assert - Verify no crash and reasonable statistics

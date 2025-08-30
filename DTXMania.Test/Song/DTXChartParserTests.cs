@@ -161,7 +161,7 @@ namespace DTXMania.Test.Song
                         Assert.Equal(8, note.LaneIndex);
                         break;
                     default:
-                        Assert.True(false, $"Unexpected channel: {note.Channel:X2}");
+                        Assert.Fail($"Unexpected channel: {note.Channel:X2}");
                         break;
                 }
             }

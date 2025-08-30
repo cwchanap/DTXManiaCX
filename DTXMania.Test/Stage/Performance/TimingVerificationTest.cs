@@ -63,7 +63,7 @@ namespace DTXMania.Test.Stage.Performance
                 _output.WriteLine($"First note in chartManager: ID={chartNote.Id}, TimeMs={chartNote.TimeMs}, Lane={chartNote.LaneIndex}");
             }
             
-            Assert.Equal(1, chartManager.AllNotes.Count);
+            Assert.Single(chartManager.AllNotes);
             Assert.Equal(500.0, chartManager.AllNotes[0].TimeMs, 1);
         }
 

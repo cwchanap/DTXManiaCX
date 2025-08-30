@@ -191,8 +191,8 @@ namespace DTXMania.Test.Song
 
             // Assert
             Assert.Equal(2, rootBox.Children.Count);
-            Assert.Equal(1, subBox1.Children.Count);
-            Assert.Equal(1, subBox2.Children.Count);
+            Assert.Single(subBox1.Children);
+            Assert.Single(subBox2.Children);
             Assert.Equal(rootBox, subBox1.Parent);
             Assert.Equal(subBox1, song1.Parent);
         }
