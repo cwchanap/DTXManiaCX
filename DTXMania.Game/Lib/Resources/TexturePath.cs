@@ -133,7 +133,7 @@ namespace DTXMania.Game.Lib.Resources
         /// <summary>
         /// Performance stage background texture
         /// </summary>
-        public const string PerformanceBackgroundTexture = "Graphics/7_background.jpg";
+        public const string PerformanceBackgroundTexture = PerformanceBackground;
         
         /// <summary>
         /// Performance stage background video
@@ -385,7 +385,6 @@ namespace DTXMania.Game.Lib.Resources
                 LevelNumberFont,
                 DifficultySprite,
                 DefaultPreview,
-                PerformanceBackgroundTexture,
                 PerformanceBackgroundVideo,
                 StageFailed,
                 FullCombo,

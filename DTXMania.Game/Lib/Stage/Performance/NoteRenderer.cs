@@ -377,11 +377,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Get custom source rectangle for variable-width sprites
             var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
 
-            // Draw overlay animation with full opacity (zero transparency)
+            // Draw overlay animation with full opacity (zero transparency) and depth sorting
             var overlayFrameIndex = (int)(_animationTimeMs / AnimationFrameDurationMs) % OverlayAnimationRows.Length;
             var overlayRow = OverlayAnimationRows[overlayFrameIndex];
             var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-            spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White);
+            spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White, 0f, Vector2.Zero, 1f, SpriteEffects.None, 0.5f);
         }
 
         /// <summary>
@@ -686,7 +686,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 6 => 4,  // Lane 6: 0x15 (Low Tom) -> Column 4 (now in correct position)
                 7 => 5,  // Lane 7: 0x17 (Floor Tom) -> Column 5
                 8 => 1,  // Lane 8: 0x19 (Right Cymbal) -> Column 1 (primary for lane 8)
-                _ => -1  // Invalid lane
+                9 => 6,  // Lane 9: RD (Ride) -> Column 6
+                _ => -1  // Invalid lane (lanes 0-9 supported)
             };
         }
 
