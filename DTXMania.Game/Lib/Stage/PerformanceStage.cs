@@ -253,7 +253,7 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch.End();
 
             // Begin alpha blend mode for overlay animations (drawn on top of base animations)
-            _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
+            _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
 
             // Draw note overlay animations with alpha blending (on top of base animations)
             DrawNoteOverlays();
