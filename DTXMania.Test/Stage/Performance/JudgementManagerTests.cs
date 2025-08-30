@@ -220,7 +220,11 @@ namespace DTXMania.Test.Stage.Performance
             for (int lane = 0; lane < 9; lane++)
             {
                 int channel = channelsForLanes[lane];
-                int tick = 96 + lane * 19; // ~198ms intervals at 120 BPM (19 ticks * 2000ms/192ticks ≈ 198ms)
+                // Calculate tick for time: 1000 + lane * 100 ms
+                // Formula: tick = (timeMs / (60000/BPM * 4)) * 192  
+                // At 120 BPM: tick = (timeMs / 2000) * 192
+                double targetTimeMs = 1000.0 + lane * 100.0;
+                int tick = (int)((targetTimeMs / 2000.0) * 192);
                 parsedChart.AddNote(new Note(lane, 0, tick, channel, "01"));
             }
 
