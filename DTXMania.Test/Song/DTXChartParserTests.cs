@@ -207,13 +207,13 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Note_GetLaneName_ReturnsCorrectNames()
         {
-            // Test all lane names
+            // Test all lane names (updated to match correct gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY)
             Assert.Equal("LC", new Note(0, 0, 0, 0x11, "01").GetLaneName());
-            Assert.Equal("LP", new Note(1, 0, 0, 0x12, "01").GetLaneName());
-            Assert.Equal("HH", new Note(2, 0, 0, 0x13, "01").GetLaneName());
-            Assert.Equal("SD", new Note(3, 0, 0, 0x14, "01").GetLaneName());
-            Assert.Equal("BD", new Note(4, 0, 0, 0x15, "01").GetLaneName());
-            Assert.Equal("HT", new Note(5, 0, 0, 0x16, "01").GetLaneName());
+            Assert.Equal("HH", new Note(1, 0, 0, 0x12, "01").GetLaneName());
+            Assert.Equal("LP", new Note(2, 0, 0, 0x13, "01").GetLaneName());
+            Assert.Equal("SN", new Note(3, 0, 0, 0x14, "01").GetLaneName());
+            Assert.Equal("HT", new Note(4, 0, 0, 0x15, "01").GetLaneName());
+            Assert.Equal("DB", new Note(5, 0, 0, 0x16, "01").GetLaneName());
             Assert.Equal("LT", new Note(6, 0, 0, 0x17, "01").GetLaneName());
             Assert.Equal("FT", new Note(7, 0, 0, 0x18, "01").GetLaneName());
             Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());

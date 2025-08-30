@@ -158,9 +158,9 @@ namespace DTXMania.Test.Stage.Performance
 
             // Act - Hit between two notes, should hit the nearer one
             judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
-            judgementManager.Update(1025.0); // 25ms after first note, 25ms before second note
+            judgementManager.Update(1025.0); // 25ms after first note, ~27ms before second note
 
-            // Assert - Should hit the first note (at 1000ms)
+            // Assert - Should hit the first note (at 1000ms) since it's closer
             Assert.NotNull(capturedEvent);
             Assert.Equal(25.0, capturedEvent.DeltaMs, 0.1);
             Assert.Equal(JudgementType.Just, capturedEvent.Type);
@@ -244,8 +244,9 @@ namespace DTXMania.Test.Stage.Performance
 
             // Add two notes 50ms apart in the same lane
             // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
-            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 2000.0) * 192), 0x11, "01"));      // At 1000ms
-            parsedChart.AddNote(new Note(0, 0, (int)((1050.0 / 2000.0) * 192), 0x11, "01"));     // At 1050ms
+            // For exact 1050ms: tick = (1050 / 2000) * 192 = 100.8, round to 101 for 1052.08ms
+            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 2000.0) * 192), 0x11, "01"));      // At 1000ms (tick 96)
+            parsedChart.AddNote(new Note(0, 0, 101, 0x11, "01"));                                 // At ~1052ms (tick 101)
             
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);
