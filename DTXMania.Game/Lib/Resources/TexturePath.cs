@@ -422,7 +422,7 @@ namespace DTXMania.Game.Lib.Resources
                 HitSparkGreen,
                 HitSparkPurple,
                 HitSparkYellow,
-                LaneFlushPrefix,
+                PadCaps,
                 WailingFire,
                 WailingFlush,
                 ChipWave,

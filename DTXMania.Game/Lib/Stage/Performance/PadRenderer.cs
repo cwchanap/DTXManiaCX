@@ -174,11 +174,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // Try to load pad sprite sheet texture - use existing pad textures
                 string[] padTexturePaths = 
                 {
-                    "../System/Graphics/7_pads.png",                // Primary: existing pad texture in System directory
-                    "System/Graphics/7_pads.png",                   // Alternative System path
+                    TexturePath.PadCaps,                           // Primary: TexturePath constant
                     "Graphics/7_pads.png",                          // Standard graphics path
                     "Graphics/ScreenPlayDrums/7_PadCaps.png",      // DTXManiaNX path
-                    TexturePath.PadCaps,                           // TexturePath constant
                     "Graphics/pads.png",
                     "Graphics/pad_caps.png"
                 };
