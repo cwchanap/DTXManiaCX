@@ -108,10 +108,12 @@ namespace DTXMania.Game.Lib.Config
                         Config.ScrollSpeed = scrollSpeed;
                     break;
                 case "AutoPlay":
-                    Config.AutoPlay = value.ToLower() == "true";
+                    if (TryParseBool(value, out var autoPlay))
+                        Config.AutoPlay = autoPlay;
                     break;
                 case "NoFail":
-                    Config.NoFail = value.ToLower() == "true";
+                    if (TryParseBool(value, out var noFail))
+                        Config.NoFail = noFail;
                     break;
                 // Handle key bindings from config file
                 default:
@@ -174,6 +176,29 @@ namespace DTXMania.Game.Lib.Config
         public void ResetToDefaults()
         {
             Config = new ConfigData();
+        }
+        
+        /// <summary>
+        /// Helper method for robust boolean parsing
+        /// </summary>
+        private static bool TryParseBool(string value, out bool result)
+        {
+            result = false;
+            if (string.IsNullOrEmpty(value))
+                return false;
+                
+            var trimmed = value.Trim().ToLowerInvariant();
+            if (trimmed == "true" || trimmed == "1" || trimmed == "yes" || trimmed == "on")
+            {
+                result = true;
+                return true;
+            }
+            if (trimmed == "false" || trimmed == "0" || trimmed == "no" || trimmed == "off")
+            {
+                result = false;
+                return true;
+            }
+            return false;
         }
     }
 }

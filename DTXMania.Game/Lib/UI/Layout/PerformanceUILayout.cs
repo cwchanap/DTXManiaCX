@@ -67,7 +67,8 @@ namespace DTXMania.Game.Lib.UI.Layout
             DB = 5,  // Bass Drum (Drum Bass)
             LT = 6,  // Low Tom
             FT = 7,  // Floor Tom
-            CY = 8   // Cymbal (Right Cymbal)
+            CY = 8,  // Cymbal (Right Cymbal)
+            RD = 9   // Right Pedal (Ride)
         }
         
         /// <summary>
@@ -75,7 +76,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static readonly string[] LaneNames = new string[]
         {
-            "LC", "HH", "LP", "SN", "HT", "DB", "LT", "FT", "CY"
+            "LC", "HH", "LP", "SN", "HT", "DB", "LT", "FT", "CY", "RD"
         };
         
         /// <summary>

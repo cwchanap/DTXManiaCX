@@ -256,11 +256,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // Map note channel to sprite column (use channel-based mapping for shared lanes)
                 var spriteColumn = GetSpriteColumnForChannel(note.Channel);
                 
-                // Debug output disabled for test
-                // if (_animationTimeMs % 500 < 50)
-                // {
-                //     System.Diagnostics.Debug.WriteLine($"[DEBUG] SPRITE MAP L{note.LaneIndex} Ch:0x{note.Channel:X2} -> Col:{spriteColumn}");
-                // }
                 
                 if (spriteColumn >= 0)
                 {
@@ -280,7 +275,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         var overlayFrameIndex = (int)(_animationTimeMs / AnimationFrameDurationMs) % OverlayAnimationRows.Length;
                         var overlayRow = OverlayAnimationRows[overlayFrameIndex];
                         var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White);
+                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White, 0f, Vector2.Zero, 1f, SpriteEffects.None, 0.70f);
                     }
                     else
                     {
@@ -290,7 +285,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         var baseAnimationFrame = (int)(_animationTimeMs / AnimationFrameDurationMs) % BaseAnimationFrameCount;
                         var baseRow = BaseAnimationStartRow + baseAnimationFrame;
                         var baseSourceRect = new Rectangle(sourceRect.X, baseRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, baseSourceRect, Color.White);
+                        spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, baseSourceRect, Color.White, 0f, Vector2.Zero, 1f, SpriteEffects.None, 0.70f);
                         
                         
                         // TODO: Add overlay rendering for hit effects when needed
@@ -301,14 +296,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 {
                     // Invalid sprite column, fallback to colored rectangle
                     if (_whiteTexture != null)
-                        spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
+                        spriteBatch.Draw(_whiteTexture, noteRect, null, noteColor, 0f, Vector2.Zero, SpriteEffects.None, 0.70f);
                 }
             }
             else 
             {
                 // Fallback to colored rectangles
                 if (_whiteTexture != null)
-                    spriteBatch.Draw(_whiteTexture, noteRect, noteColor);
+                    spriteBatch.Draw(_whiteTexture, noteRect, null, noteColor, 0f, Vector2.Zero, SpriteEffects.None, 0.70f);
             }
 
             // Optional: Draw note value for debugging (can be removed in final version)
@@ -516,7 +511,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Check if drum chips texture needs to be reloaded
             if (_drumChipsTexture == null)
             {
-                System.Diagnostics.Debug.WriteLine("[DEBUG] NoteRenderer: Drum chips texture is null, loading...");
                 LoadDrumChipsTexture();
             }
         }
@@ -540,8 +534,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // Create semi-transparent white color based on flash alpha
                     var flashColor = Color.White * _laneFlashAlpha[i];
                     
-                    // Draw the flash effect
-                    spriteBatch.Draw(_whiteTexture, laneRect, flashColor);
+                    // Draw the flash effect with layer depth 0.69f (above background, below notes)
+                    spriteBatch.Draw(_whiteTexture, laneRect, null, flashColor, 0f, Vector2.Zero, SpriteEffects.None, 0.69f);
                 }
             }
         }
@@ -554,6 +548,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             try
             {
                 // Clean up existing texture reference
+                if (_drumChipsTexture?.Texture?.IsDisposed == true)
+                {
+                    _drumChipsTexture = null;
+                }
+                
                 if (_drumChipsTexture != null)
                 {
                     _drumChipsTexture.RemoveReference();
@@ -564,28 +563,43 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var baseTexture = _resourceManager.LoadTexture(TexturePath.DrumChips);
                 if (baseTexture?.Texture != null)
                 {
-                    // Create ManagedSpriteTexture from the loaded texture
-                    // Sprite sheet: 12 columns x 11 rows, variable width per column, 64px height
-                    var spriteWidth = baseTexture.Texture.Width / DrumChipsSpriteColumns;
-                    _drumChipsTexture = new ManagedSpriteTexture(
-                        _graphicsDevice,
-                        baseTexture.Texture,
-                        TexturePath.DrumChips,
-                        spriteWidth,
-                        DrumChipsSpriteHeight
-                    );
+                    try
+                    {
+                        // Create ManagedSpriteTexture from the loaded texture
+                        // Sprite sheet: 12 columns x 11 rows, variable width per column, 64px height
+                        var spriteWidth = baseTexture.Texture.Width / DrumChipsSpriteColumns;
+                        _drumChipsTexture = new ManagedSpriteTexture(
+                            _graphicsDevice,
+                            baseTexture.Texture,
+                            TexturePath.DrumChips,
+                            spriteWidth,
+                            DrumChipsSpriteHeight
+                        );
                         
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] NoteRenderer: Successfully loaded drum chips texture. Dimensions: {baseTexture.Texture.Width}x{baseTexture.Texture.Height}, SpriteWidth: {spriteWidth}");
+                        // Release the original reference after creating ManagedSpriteTexture
+                        baseTexture.RemoveReference();
+                        baseTexture = null;
+                            
+                    }
+                    catch (Exception ex)
+                    {
+                        // Clean up on error
+                        if (baseTexture != null)
+                        {
+                            baseTexture.RemoveReference();
+                            baseTexture = null;
+                        }
+                        _drumChipsTexture = null;
+                        throw;
+                    }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"[WARNING] NoteRenderer: Failed to load drum chips texture. Base texture is null. Falling back to colored rectangles.");
                     _drumChipsTexture = null;
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[WARNING] NoteRenderer: Failed to load drum chips texture. Falling back to colored rectangles. Exception: {ex}");
                 _drumChipsTexture = null;
             }
         }
@@ -610,7 +624,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 // Log the full exception details for debugging purposes.
                 // Failing to create this texture is a critical error for the renderer.
-                System.Diagnostics.Debug.WriteLine($"[CRITICAL] NoteRenderer: Failed to create white texture. Renderer will not be functional. Exception: {ex}");
 
                 // Rethrow the exception to ensure the error is not silently ignored.
                 // This prevents the Note-renderer from being instantiated in an invalid state
