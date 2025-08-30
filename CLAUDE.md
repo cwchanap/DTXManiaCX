@@ -35,7 +35,11 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "TestCategory=Perfor
 
 # Run with coverage
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
-```
+
+# Note: macOS Testing Limitations
+# On macOS, tests may crash with SDL threading errors due to MonoGame graphics initialization
+# This is expected behavior - graphics-related tests are excluded from the Mac test project
+# To identify actual test failures, run individual test categories or use --logger trx for output
 
 ### Platform-Specific Builds
 ```bash

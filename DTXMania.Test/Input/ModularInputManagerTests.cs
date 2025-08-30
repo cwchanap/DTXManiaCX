@@ -233,7 +233,7 @@ namespace DTXMania.Test.Input
 
             // Assert
             Assert.Equal(-1, _inputManager.KeyBindings.GetLane(buttonId));
-            Assert.NotEqual(originalLane, -1); // Verify it was originally bound
+            Assert.NotEqual(-1, originalLane); // Verify it was originally bound
         }
 
         [Fact]
