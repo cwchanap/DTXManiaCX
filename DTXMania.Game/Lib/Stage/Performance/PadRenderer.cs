@@ -61,6 +61,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private const int SpriteSheetRows = 3;
 
         /// <summary>
+        /// Expected sprite sheet columns (4 columns for 7_pads.png layout)
+        /// </summary>
+        private const int SpriteSheetColumns = 4;
+
+        /// <summary>
         /// Drum lane order for mapping to sprite columns: LC, HH, SD, HT, LT, FT, RC, LP
         /// </summary>
         private static readonly int[] DrumLaneOrder = { 0, 1, 3, 4, 6, 7, 8, 2 }; // Maps lanes to sprite columns
@@ -79,6 +84,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _spriteColumns;
         private bool _disposed;
         private Texture2D _fallbackTexture;
+
+        /// <summary>
+        /// Base depth for pad rendering (configurable to ensure proper layering)
+        /// </summary>
+        public float BaseDepth { get; set; } = 0.75f; // Default depth below notes (0.7f) but above lanes (0.8f)
 
         #endregion
 
@@ -208,7 +218,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Calculates sprite sheet cell dimensions using resilient sizing rules
+        /// Calculates sprite sheet cell dimensions using defined constants
         /// </summary>
         private void CalculateCellDimensions()
         {
@@ -218,31 +228,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var texW = _padSpriteSheet.Width;
             var texH = _padSpriteSheet.Height;
 
-            // Cell height: texH / 3 (3 rows: cymbals, toms, pedals)
+            // Use defined sprite sheet dimensions
+            _spriteColumns = SpriteSheetColumns;
+            _cellWidth = texW / SpriteSheetColumns;
             _cellHeight = texH / SpriteSheetRows;
-
-            // For the 7_pads.png texture, it's a 4×3 grid
-            // Try common column counts (4 for the existing texture, then fallbacks)
-            int[] tryColumnCounts = { 4, 8, 7, PerformanceUILayout.LaneCount };
-            
-            bool foundValidColumnCount = false;
-            foreach (var cols in tryColumnCounts)
-            {
-                if (texW % cols == 0)
-                {
-                    _spriteColumns = cols;
-                    _cellWidth = texW / cols;
-                    foundValidColumnCount = true;
-                    break;
-                }
-            }
-
-            // Fallback: use detected columns from texture
-            if (!foundValidColumnCount)
-            {
-                _spriteColumns = 4; // Default to 4 columns for existing texture
-                _cellWidth = texW / _spriteColumns;
-            }
         }
 
         /// <summary>
@@ -319,7 +308,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Use color tinting to show pressed state (brighter when pressed)
             Color tint = pad.State == PadState.Pressed ? Color.White * 1.5f : Color.White;
             
-            // Draw with point sampling and alpha blending at highest priority
+            // Draw with point sampling and alpha blending at configured depth
             _padSpriteSheet.Draw(
                 spriteBatch,
                 destRect,
@@ -328,7 +317,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 0f,
                 Vector2.Zero,
                 SpriteEffects.None,
-                0.0f  // Highest priority - on top of everything
+                BaseDepth  // Use configurable depth for proper layering
             );
             return true;
         }
@@ -347,7 +336,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             // Draw colored rectangle fallback
             Color padColor = pad.State == PadState.Pressed ? Color.Red : Color.Yellow;
-            spriteBatch.Draw(_fallbackTexture, destRect, null, padColor, 0f, Vector2.Zero, SpriteEffects.None, 0.0f);
+            spriteBatch.Draw(_fallbackTexture, destRect, null, padColor, 0f, Vector2.Zero, SpriteEffects.None, BaseDepth);
         }
 
         /// <summary>
