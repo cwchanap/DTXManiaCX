@@ -287,13 +287,24 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int FillHeight = 31;
             
             /// <summary>
-            /// Hi-Speed badge position (at gauge right end)
+            /// Hi-Speed badge configuration (position calculated dynamically based on actual gauge width)
             /// </summary>
             public static class HiSpeedBadge
             {
-                public static readonly Vector2 Position = new Vector2(294 + 200 - 37, 634); // estimated frame width
+                public static readonly Vector2 BasePosition = new Vector2(294, 634); // Gauge frame origin
+                public static readonly Vector2 Offset = new Vector2(-37, 0); // Offset from gauge right edge
                 public static readonly Vector2 Size = new Vector2(42, 48);
                 public const int CellHeight = 48;
+
+                /// <summary>
+                /// Calculates HiSpeed badge position based on actual gauge frame width
+                /// </summary>
+                /// <param name="gaugeFrameWidth">Actual width of the gauge frame texture</param>
+                /// <returns>Calculated position for the HiSpeed badge</returns>
+                public static Vector2 GetPosition(int gaugeFrameWidth)
+                {
+                    return new Vector2(BasePosition.X + gaugeFrameWidth + Offset.X, BasePosition.Y + Offset.Y);
+                }
             }
         }
         
