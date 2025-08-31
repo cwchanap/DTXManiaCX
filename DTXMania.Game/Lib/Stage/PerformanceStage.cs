@@ -221,9 +221,9 @@ namespace DTXMania.Game.Lib.Stage
 
 
             // Draw components in proper Z-order (BackToFront sorting):
-            // Background (1.0f) → Lanes (0.8f) → Notes (0.7f) → JudgementLine (0.6f) → Effects (0.5f) → JudgementTexts (0.4f) → UI (0.2f) → Fallback Lanes (0.1f)
+            // Background (1.0f) → Lanes (0.8f) → Pads (0.75f) → Notes (0.7f) → JudgementLine (0.6f) → JudgementTexts (0.5f)
 
-            // Begin standard spritebatch with depth sorting
+            // Base pass: Background → Lanes → Pads → Notes → Judgement Line → Judgement Texts
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
             
             // Draw background (furthest back - highest depth value)
@@ -244,6 +244,19 @@ namespace DTXMania.Game.Lib.Stage
             // Draw judgement text popups
             DrawJudgementTexts();
 
+            _spriteBatch.End();
+
+            // Overlay pass: Note overlays with alpha blending (above notes, below UI)
+            _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
+
+            // Draw note overlay animations with alpha blending (on top of base animations)
+            DrawNoteOverlays();
+
+            _spriteBatch.End();
+
+            // UI pass: UI elements on top of everything else
+            _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
+
             // Draw UI elements (gauge, score, combo)
             DrawUIElements();
 
@@ -252,15 +265,7 @@ namespace DTXMania.Game.Lib.Stage
 
             _spriteBatch.End();
 
-            // Begin alpha blend mode for overlay animations (drawn on top of base animations)
-            _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
-
-            // Draw note overlay animations with alpha blending (on top of base animations)
-            DrawNoteOverlays();
-
-            _spriteBatch.End();
-
-            // Begin additive blend mode for effects layer (drawn on top of everything)
+            // Effects pass: Hit effects with additive blending (drawn on top of everything)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
             // Draw hit effects with additive blending
@@ -1150,18 +1155,29 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             var allNotes = _chartManager.AllNotes;
+            int autoPlayWindowMs = 50; // Configurable window for autoplay timing (±50ms)
             
             // Process notes that should be auto-hit at current time
             while (_autoPlayNoteIndex < allNotes.Count)
             {
                 var note = allNotes[_autoPlayNoteIndex];
                 
-                // Check if this note should be hit now (allow small timing window for perfect hits)
+                // Check timing difference
                 var timeDifference = currentSongTimeMs - note.TimeMs;
                 
-                if (timeDifference >= -1.0 && timeDifference <= 1.0) // Perfect timing window (±1ms)
+                if (timeDifference < -autoPlayWindowMs)
                 {
-                    // Check if note is still pending (not already hit or missed)
+                    // This note is in the future, stop processing (do not increment index)
+                    break;
+                }
+                else if (timeDifference > autoPlayWindowMs)
+                {
+                    // This note is too far in the past, skip it
+                    _autoPlayNoteIndex++;
+                }
+                else
+                {
+                    // Within autoplay window - trigger autoplay hit
                     var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
                     if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
                     {
@@ -1173,16 +1189,6 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     
                     _autoPlayNoteIndex++;
-                }
-                else if (timeDifference > 1.0)
-                {
-                    // This note is too far in the past, skip it
-                    _autoPlayNoteIndex++;
-                }
-                else
-                {
-                    // This note is in the future, stop processing
-                    break;
                 }
             }
         }
@@ -1292,8 +1298,11 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
             
-            // Also try the LaneBackgroundRenderer as additional fallback
-            _laneBackgroundRenderer?.Draw(_spriteBatch);
+            // Use LaneBackgroundRenderer as fallback only when lane background texture is not available
+            if (_laneBgTexture == null)
+            {
+                _laneBackgroundRenderer?.Draw(_spriteBatch);
+            }
             
             // Draw lane covers if available (7_lanes_Cover_cls.png)
             if (_laneDividerTexture != null)
@@ -1404,8 +1413,8 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw gauge fill at origin position with life percentage width at UI depth
                 var fillOrigin = PerformanceUILayout.Gauge.FillOrigin;
                 var fillHeight = PerformanceUILayout.Gauge.FillHeight;
-                var estimatedMaxWidth = 200; // estimated from layout, adjust based on actual gauge size
-                var fillWidth = (int)(estimatedMaxWidth * _currentGaugeValue);
+                var maxWidth = _gaugeFillTexture.Width; // Use actual texture width instead of hardcoded value
+                var fillWidth = (int)(maxWidth * _currentGaugeValue);
                 
                 var sourceRect = new Rectangle(0, 0, fillWidth, fillHeight);
                 var destRect = new Rectangle((int)fillOrigin.X, (int)fillOrigin.Y, fillWidth, fillHeight);
