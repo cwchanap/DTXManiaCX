@@ -174,6 +174,19 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, destinationRectangle, sourceRect, color);
         }
 
+        /// <summary>
+        /// Draw specific sprite by row and column with depth control
+        /// </summary>
+        public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position, float depth)
+        {
+            if (Texture == null)
+                return;
+
+            var sourceRect = GetSpriteSourceRectangle(row, col);
+            var color = Color.White * (Transparency / 255f);
+            spriteBatch.Draw(Texture, position, sourceRect, color, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, depth);
+        }
+
         #endregion
 
         #region Utility Methods
@@ -222,6 +235,7 @@ namespace DTXMania.Game.Lib.Resources
         void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale);
         void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale, float rotation, Vector2 origin, Color tintColor);
         void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position);
+        void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position, float depth);
         void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Rectangle destinationRectangle);
         int GetSpriteIndex(int row, int col);
         (int row, int col) GetRowCol(int spriteIndex);

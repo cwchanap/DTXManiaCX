@@ -17,6 +17,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private DateTime _systemStartTime;
         private bool _isPlaying = false;
         private bool _disposed = false;
+        private int _debugCallCount = 0;
 
         #endregion
 
@@ -24,8 +25,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Whether the song is currently playing
+        /// Note: When volume is 0 (muted for BGM events), we only check our internal flag
         /// </summary>
-        public bool IsPlaying => _isPlaying && _soundInstance?.State == SoundState.Playing;
+        public bool IsPlaying 
+        { 
+            get 
+            {
+                var internalPlaying = _isPlaying;
+                var soundState = _soundInstance?.State;
+                var volume = _soundInstance?.Volume ?? 0f;
+                var result = internalPlaying && (Math.Abs(volume) < 0.001f || soundState == SoundState.Playing);
+                
+                // Debug only when state changes unexpectedly or for first few calls
+                if ((internalPlaying && !result) || (_debugCallCount++ < 3))
+                {
+                    System.Console.WriteLine($"🔍 CLAUDE-DEBUG: IsPlaying check - internal={internalPlaying}, state={soundState}, volume={volume}, result={result}");
+                }
+                
+                return result;
+            }
+        }
 
         /// <summary>
         /// Whether the song has finished playing
@@ -84,12 +103,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void Play(GameTime gameTime)
         {
         if (_disposed || _soundInstance == null)
+        {
+            System.Console.WriteLine("🔍 CLAUDE-DEBUG: SongTimer.Play failed - disposed or null instance");
             return;
+        }
 
         _startTime = gameTime.TotalGameTime;
         _systemStartTime = DateTime.UtcNow;
-        _soundInstance.Play();
-        _isPlaying = true;
+        
+        try
+        {
+            _soundInstance.Play();
+            _isPlaying = true;
+            System.Console.WriteLine($"🔍 CLAUDE-DEBUG: SoundInstance.Play() called - State={_soundInstance.State}, Volume={_soundInstance.Volume}");
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"🔍 CLAUDE-DEBUG: SoundInstance.Play() failed: {ex.Message}");
+            _isPlaying = false;
+        }
         }
 
         /// <summary>
@@ -97,6 +129,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public void Pause()
         {
+            System.Console.WriteLine("🔍 CLAUDE-DEBUG: SongTimer.Pause() called");
+            
             if (_disposed || _soundInstance == null)
                 return;
 
@@ -128,6 +162,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public void Stop()
         {
+            var stackTrace = new System.Diagnostics.StackTrace(true);
+            var callingMethod = stackTrace.GetFrame(1)?.GetMethod();
+            var callingClass = callingMethod?.DeclaringType?.Name;
+            var callingMethodName = callingMethod?.Name;
+            var fileName = stackTrace.GetFrame(1)?.GetFileName();
+            var lineNumber = stackTrace.GetFrame(1)?.GetFileLineNumber();
+            
+            System.Console.WriteLine($"🔍 CLAUDE-DEBUG: SongTimer.Stop() called by {callingClass}::{callingMethodName} at {fileName}:{lineNumber}");
+            
         if (_disposed || _soundInstance == null)
             return;
 
