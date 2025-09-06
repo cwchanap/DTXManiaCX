@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>DTXManiaCX.MCP</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Authors>DTXManiaCX Team</Authors>
+    <Description>MCP Server for DTXManiaCX game interaction</Description>
+    <PackageTags>mcp;dtxmancia;monogame;game-interaction</PackageTags>
+    <RepositoryUrl>https://github.com/yourusername/dtxmancia</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Exclude MonoGame-dependent files from console app compilation -->
+  <ItemGroup>
+    <Compile Remove="Bridge\**" />
+    <Compile Remove="examples\**" />
+  </ItemGroup>
+
+</Project>
