@@ -84,11 +84,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _spriteColumns;
         private bool _disposed;
         private Texture2D _fallbackTexture;
+        
+        // Debug tracking
+        private int _frameCounter = 0;
+        private bool _lastFrameWasVisible = true;
 
         /// <summary>
         /// Base depth for pad rendering (configurable to ensure proper layering)
         /// </summary>
-        public float BaseDepth { get; set; } = 0.75f; // Default depth below notes (0.7f) but above lanes (0.8f)
+        public float BaseDepth { get; set; } = 0.1f; // Much closer to front to ensure visibility
 
         #endregion
 
@@ -161,8 +165,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         public void Draw(SpriteBatch spriteBatch)
         {
+            _frameCounter++;
+            
+            // Critical early returns
             if (spriteBatch == null)
+            {
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Frame {_frameCounter}: NULL SpriteBatch!");
                 return;
+            }
+            
+            if (_disposed)
+            {
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Frame {_frameCounter}: DISPOSED!");
+                return;
+            }
+            
+            // Log visibility status changes
+            bool shouldBeVisible = _padSpriteSheet != null || _fallbackTexture != null;
+            if (shouldBeVisible != _lastFrameWasVisible)
+            {
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: PAD VISIBILITY: Frame {_frameCounter} - sprite={_padSpriteSheet != null}, fallback={_fallbackTexture != null}");
+                _lastFrameWasVisible = shouldBeVisible;
+            }
 
             for (int laneIndex = 0; laneIndex < _padVisuals.Length; laneIndex++)
             {
@@ -197,7 +221,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     {
                         _padSpriteSheet = _resourceManager.LoadTexture(path);
                         if (_padSpriteSheet != null)
+                        {
+                            System.Console.WriteLine($"[DEBUG] PadRenderer loaded texture from: {path}");
                             break;
+                        }
                     }
                     catch
                     {
@@ -227,11 +254,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             var texW = _padSpriteSheet.Width;
             var texH = _padSpriteSheet.Height;
+            
+            System.Console.WriteLine($"[DEBUG] PadRenderer texture dimensions: {texW}x{texH}");
 
             // Use defined sprite sheet dimensions
             _spriteColumns = SpriteSheetColumns;
             _cellWidth = texW / SpriteSheetColumns;
             _cellHeight = texH / SpriteSheetRows;
+            
+            System.Console.WriteLine($"[DEBUG] PadRenderer cell dimensions: {_cellWidth}x{_cellHeight} (columns={_spriteColumns}, rows={SpriteSheetRows})");
         }
 
         /// <summary>
@@ -275,7 +306,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 padWidth,
                 PadsHeight
             );
-
+            
+            // Add bounds checking for debugging
+            bool isOnScreen = PadsY >= -50 && PadsY <= 800 && laneLeftX >= -50 && laneLeftX <= 1400;
+            
             // Try sprite sheet rendering first
             if (_padSpriteSheet != null && TryDrawSpriteSheetPad(spriteBatch, pad, laneIndex, destRect))
             {
@@ -291,6 +325,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         private bool TryDrawSpriteSheetPad(SpriteBatch spriteBatch, PadVisual pad, int laneIndex, Rectangle destRect)
         {
+            // Check if cell dimensions are valid
+            if (_cellWidth <= 0 || _cellHeight <= 0)
+                return false;
+            
             var (columnIndex, rowIndex) = GetSpritePositionForLane(laneIndex);
             
             // Skip if we don't have a valid position mapping

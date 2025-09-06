@@ -215,7 +215,7 @@ namespace DTXMania.Game.Lib.Stage
 
 
         protected override void OnDraw(double deltaTime)
-        {
+        {            
             if (_spriteBatch == null)
                 return;
 
@@ -234,6 +234,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw pad indicators (above lane backgrounds, below notes)
             DrawPads();
+            
 
             // Draw scrolling notes
             DrawNotes();
@@ -262,6 +263,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw ready state or loading indicator
             DrawGameplayState();
+            
 
             _spriteBatch.End();
 
@@ -531,6 +533,8 @@ namespace DTXMania.Game.Lib.Stage
                 // Load background audio - ALWAYS needed for SongTimer creation (master clock)
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
+                    System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Loading background audio: {_parsedChart.BackgroundAudioPath}");
+                    
                     // Use the correct chart path for the selected difficulty
                     var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
@@ -621,10 +625,17 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_songTimer != null && _currentGameTime != null)
             {
+                System.Console.WriteLine("🔍 CLAUDE-DEBUG: StartSong called - starting timer");
+                
                 // Start the song timer - this provides the master clock for notes and BGM events
                 _songTimer.SetPosition(0.0, _currentGameTime);
                 _songTimer.Play(_currentGameTime);
                 _isReady = false;
+                
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Timer started - IsPlaying={_songTimer.IsPlaying}");
+                
+                // Debug the actual sound state
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Sound instance details - Volume={_songTimer.Volume}, IsLooped={_songTimer.IsLooped}");
 
                 // Activate the judgement manager now that the song is playing
                 if (_judgementManager != null)
@@ -637,12 +648,17 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // New approach: Use BGM events for timed playback, silence the background audio
                     _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
+                    System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Set volume to 0 - IsPlaying={_songTimer.IsPlaying}");
                 }
                 else
                 {
                     // Legacy approach: Play background audio immediately (no BGM events)
                     _songTimer.Volume = 1.0f; // Ensure background audio is audible
                 }
+            }
+            else
+            {
+                System.Console.WriteLine("🔍 CLAUDE-DEBUG: StartSong failed - timer or gameTime is null");
             }
         }
 
@@ -652,15 +668,20 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawNotes()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
+            {
+                if (_noteRenderer == null) System.Console.WriteLine("🔍 CLAUDE-DEBUG: CRITICAL: NoteRenderer is NULL");
                 return;
+            }
 
             if (!_songTimer.IsPlaying)
+            {
+                // Add detailed diagnostics about WHY the timer stopped
+                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Timer stopped - IsPlaying={_songTimer.IsPlaying}, IsFinished={_songTimer.IsFinished}, Volume={_songTimer.Volume}");
                 return;
+            }
 
-            // Get current song time using precise GameTime-based timing
+            // Get current song time and active notes
             var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-
-            // Get active notes using the same look-ahead time as scroll calculation
             var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0 ? _noteRenderer.EffectiveLookAheadMs : 1500.0;
             var activeNotes = _chartManager.GetActiveNotes(currentTimeMs, lookAheadMs);
 
@@ -1338,8 +1359,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawPads()
         {
-            // Draw pad indicators using PadRenderer
-            _padRenderer?.Draw(_spriteBatch);
+            if (_padRenderer == null)
+            {
+                System.Console.WriteLine("🔍 CLAUDE-DEBUG: CRITICAL: PadRenderer is NULL");
+                return;
+            }
+            _padRenderer.Draw(_spriteBatch);
         }
 
         private void DrawHitEffects()
