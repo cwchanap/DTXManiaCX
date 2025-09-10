@@ -374,12 +374,12 @@ public class GameInteractionTools
                     client_id = clientId,
                     window_info = windowRect != null ? new
                     {
-                        left = windowRect.Value.Left,
-                        top = windowRect.Value.Top,
-                        right = windowRect.Value.Right,
-                        bottom = windowRect.Value.Bottom,
-                        width = windowRect.Value.Width,
-                        height = windowRect.Value.Height
+                        left = windowRect.Left,
+                        top = windowRect.Top,
+                        right = windowRect.Right,
+                        bottom = windowRect.Bottom,
+                        width = windowRect.Width,
+                        height = windowRect.Height
                     } : null
                 })
             };

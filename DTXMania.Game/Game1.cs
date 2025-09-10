@@ -1,6 +1,6 @@
-﻿using DTXMania.Game.Lib.Config;
+﻿using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
-using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
@@ -8,6 +8,11 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DTXMania.Game;
 
@@ -24,11 +29,17 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     public InputManagerCompat InputManager { get; protected set; }
     public IGraphicsManager GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; }
+
     
     // Global stage transition debouncing
     private double _totalGameTime = 0.0;
     private double _lastStageTransitionTime = 0.0;
     private const double GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY = 0.5; // 500ms debounce
+
+    // Game API server for MCP communication
+    private GameApiServer? _gameApiServer;
+    private GameApiImplementation? _gameApiImplementation;
+    private CancellationTokenSource? _gameApiCancellation;
     
     /// <summary>
     /// Checks if enough time has passed since the last stage transition to allow a new one
@@ -107,6 +118,35 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         StageManager = new StageManager(this);
 
         StageManager?.ChangeStage(StageType.Startup);
+
+        // Initialize Game API server for MCP communication if enabled
+        var config = ConfigManager.Config;
+        if (config.EnableGameApi)
+        {
+            _gameApiImplementation = new GameApiImplementation(this);
+            _gameApiServer = new GameApiServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
+            _gameApiCancellation = new CancellationTokenSource();
+            
+            // Start API server with proper error handling
+            _ = StartGameApiServerAsync();
+        }
+    }
+
+    private async Task StartGameApiServerAsync()
+    {
+        if (_gameApiServer == null || _gameApiCancellation == null)
+            return;
+
+        try
+        {
+            await _gameApiServer.StartAsync();
+            System.Diagnostics.Debug.WriteLine("Game API server started successfully");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to start Game API server: {ex.Message}");
+            // Continue without API server if it fails to start
+        }
     }
 
     protected override void Update(GameTime gameTime)
@@ -258,6 +298,31 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
             // Dispose resource manager
             ResourceManager?.Dispose();
+
+            // Stop and dispose game API server
+            if (_gameApiCancellation is not null)
+            {
+                _gameApiCancellation.Cancel();
+                _gameApiCancellation.Dispose();
+                _gameApiCancellation = null;
+            }
+
+            if (_gameApiServer != null)
+            {
+                try
+                {
+                    _gameApiServer.StopAsync().Wait(TimeSpan.FromSeconds(5)); // Wait max 5 seconds for graceful shutdown
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error stopping Game API server: {ex.Message}");
+                }
+                finally
+                {
+                    _gameApiServer.Dispose();
+                    _gameApiServer = null;
+                }
+            }
 
             // Dispose other resources
             _spriteBatch?.Dispose();
