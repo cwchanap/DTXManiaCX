@@ -1,69 +1,46 @@
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Drawing;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Server.Services;
 
 /// <summary>
-/// Service for interacting with .NET game applications (like MonoGame)
-/// Provides tools for clicking, input simulation, and game state inspection
+/// Service for interacting with .NET game applications via HTTP API
+/// Provides tools for sending input and retrieving game state through REST endpoints
 /// </summary>
-public class GameInteractionService
+public class GameInteractionService : IDisposable
 {
     private readonly ILogger<GameInteractionService> _logger;
     private readonly GameStateManager _gameStateManager;
-    private readonly bool _isWindows;
-    
-    // Windows API imports for mouse/keyboard simulation
-    [DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall)]
-    private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint cButtons, uint dwExtraInfo);
-    
-    [DllImport("user32.dll")]
-    private static extern bool SetCursorPos(int x, int y);
-    
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out Point lpPoint);
-    
-    [DllImport("user32.dll")]
-    private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-    
-    [DllImport("user32.dll")]
-    private static extern bool GetWindowRect(IntPtr hWnd, out Rectangle lpRect);
-    
-    [DllImport("user32.dll")]
-    private static extern bool ClientToScreen(IntPtr hWnd, ref Point lpPoint);
-    
-    [DllImport("user32.dll")]
-    private static extern bool ScreenToClient(IntPtr hWnd, ref Point lpPoint);
-    
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-    
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
-    
-    // Mouse event flags
-    private const uint MOUSEEVENTF_LEFTDOWN = 0x02;
-    private const uint MOUSEEVENTF_LEFTUP = 0x04;
-    private const uint MOUSEEVENTF_RIGHTDOWN = 0x08;
-    private const uint MOUSEEVENTF_RIGHTUP = 0x10;
-    private const uint MOUSEEVENTF_MOVE = 0x01;
-    
+    private readonly HttpClient _httpClient;
+    private readonly string _gameApiUrl;
+
     public GameInteractionService(ILogger<GameInteractionService> logger, GameStateManager gameStateManager)
     {
         _logger = logger;
         _gameStateManager = gameStateManager;
-        _isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        
-        if (!_isWindows)
-        {
-            _logger.LogWarning("Game interaction service running on non-Windows platform. Some features may be limited.");
-        }
+        _httpClient = new HttpClient();
+        _httpClient.Timeout = TimeSpan.FromSeconds(5); // Short timeout for game interactions
+        _gameApiUrl = "http://localhost:8080"; // Default game API URL
+    }
+
+    /// <summary>
+    /// Simple window information class
+    /// </summary>
+    public class WindowInfo
+    {
+        public int Left { get; set; }
+        public int Top { get; set; }
+        public int Right { get; set; }
+        public int Bottom { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
     }
     
     /// <summary>
-    /// Click at a specific position in a game window
+    /// Click at a specific position in a game window via HTTP API
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="x">X coordinate (relative to game window)</param>
@@ -74,69 +51,44 @@ public class GameInteractionService
     {
         try
         {
-            if (!_isWindows)
-            {
-                return (false, "Click operations are only supported on Windows platform");
-            }
-            
             _logger.LogInformation("Attempting to click at position ({X}, {Y}) for client {ClientId}", x, y, clientId);
-            
-            // Find the game window
-            var gameWindow = await FindGameWindowAsync(clientId);
-            if (gameWindow == IntPtr.Zero)
+
+            var input = new
             {
-                return (false, $"Could not find game window for client {clientId}");
-            }
-            
-            // Get window rectangle
-            if (!GetWindowRect(gameWindow, out Rectangle windowRect))
+                Type = "MouseClick",
+                Data = new
+                {
+                    x = x,
+                    y = y,
+                    button = button,
+                    clientId = clientId
+                }
+            };
+
+            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
+
+            if (response.IsSuccessStatusCode)
             {
-                return (false, "Could not get window rectangle");
+                var result = await response.Content.ReadFromJsonAsync<dynamic>();
+                _logger.LogInformation("Successfully sent click input to game");
+                return (true, $"Successfully clicked at ({x}, {y})");
             }
-            
-            // Convert relative coordinates to screen coordinates
-            var screenX = windowRect.Left + x;
-            var screenY = windowRect.Top + y;
-            
-            // Bring window to foreground
-            SetForegroundWindow(gameWindow);
-            await Task.Delay(100); // Small delay to ensure window is focused
-            
-            // Move mouse to target position
-            SetCursorPos(screenX, screenY);
-            await Task.Delay(50);
-            
-            // Perform click based on button type
-            switch (button.ToLower())
+            else
             {
-                case "left":
-                    mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)screenX, (uint)screenY, 0, 0);
-                    await Task.Delay(50);
-                    mouse_event(MOUSEEVENTF_LEFTUP, (uint)screenX, (uint)screenY, 0, 0);
-                    break;
-                    
-                case "right":
-                    mouse_event(MOUSEEVENTF_RIGHTDOWN, (uint)screenX, (uint)screenY, 0, 0);
-                    await Task.Delay(50);
-                    mouse_event(MOUSEEVENTF_RIGHTUP, (uint)screenX, (uint)screenY, 0, 0);
-                    break;
-                    
-                default:
-                    return (false, $"Unsupported button type: {button}");
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to send click input: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}");
             }
-            
-            _logger.LogInformation("Successfully clicked at ({X}, {Y}) for client {ClientId}", x, y, clientId);
-            return (true, $"Successfully clicked at ({x}, {y})");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error clicking at position ({X}, {Y}) for client {ClientId}", x, y, clientId);
+            _logger.LogError(ex, "Error sending click input for client {ClientId}", clientId);
             return (false, $"Error: {ex.Message}");
         }
     }
     
     /// <summary>
-    /// Drag from one position to another in the game window
+    /// Drag from one position to another in the game window via HTTP API
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="startX">Starting X coordinate</param>
@@ -149,70 +101,47 @@ public class GameInteractionService
     {
         try
         {
-            if (!_isWindows)
-            {
-                return (false, "Drag operations are only supported on Windows platform");
-            }
-            
-            _logger.LogInformation("Attempting to drag from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}", 
+            _logger.LogInformation("Attempting to drag from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}",
                 startX, startY, endX, endY, clientId);
-            
-            var gameWindow = await FindGameWindowAsync(clientId);
-            if (gameWindow == IntPtr.Zero)
+
+            var input = new
             {
-                return (false, $"Could not find game window for client {clientId}");
-            }
-            
-            if (!GetWindowRect(gameWindow, out Rectangle windowRect))
+                Type = "MouseDrag",
+                Data = new
+                {
+                    startX = startX,
+                    startY = startY,
+                    endX = endX,
+                    endY = endY,
+                    durationMs = durationMs,
+                    clientId = clientId
+                }
+            };
+
+            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
+
+            if (response.IsSuccessStatusCode)
             {
-                return (false, "Could not get window rectangle");
+                var result = await response.Content.ReadFromJsonAsync<dynamic>();
+                _logger.LogInformation("Successfully sent drag input to game");
+                return (true, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})");
             }
-            
-            SetForegroundWindow(gameWindow);
-            await Task.Delay(100);
-            
-            // Convert to screen coordinates
-            var screenStartX = windowRect.Left + startX;
-            var screenStartY = windowRect.Top + startY;
-            var screenEndX = windowRect.Left + endX;
-            var screenEndY = windowRect.Top + endY;
-            
-            // Move to start position and press mouse down
-            SetCursorPos(screenStartX, screenStartY);
-            await Task.Delay(50);
-            mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)screenStartX, (uint)screenStartY, 0, 0);
-            
-            // Calculate steps for smooth dragging
-            var steps = Math.Max(1, durationMs / 16); // ~60fps
-            var deltaX = (double)(screenEndX - screenStartX) / steps;
-            var deltaY = (double)(screenEndY - screenStartY) / steps;
-            
-            // Perform the drag
-            for (int i = 1; i <= steps; i++)
+            else
             {
-                var currentX = (int)(screenStartX + deltaX * i);
-                var currentY = (int)(screenStartY + deltaY * i);
-                SetCursorPos(currentX, currentY);
-                mouse_event(MOUSEEVENTF_MOVE, (uint)currentX, (uint)currentY, 0, 0);
-                await Task.Delay(16); // ~60fps
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to send drag input: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}");
             }
-            
-            // Release mouse button
-            mouse_event(MOUSEEVENTF_LEFTUP, (uint)screenEndX, (uint)screenEndY, 0, 0);
-            
-            _logger.LogInformation("Successfully dragged from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}", 
-                startX, startY, endX, endY, clientId);
-            return (true, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error dragging for client {ClientId}", clientId);
+            _logger.LogError(ex, "Error sending drag input for client {ClientId}", clientId);
             return (false, $"Error: {ex.Message}");
         }
     }
     
     /// <summary>
-    /// Get the current game state for a client
+    /// Get the current game state for a client via HTTP API
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <returns>Game state information</returns>
@@ -220,14 +149,22 @@ public class GameInteractionService
     {
         try
         {
-            var gameState = _gameStateManager.GetGameState(clientId);
-            if (gameState == null)
+            _logger.LogInformation("Retrieving game state for client {ClientId}", clientId);
+
+            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/state");
+
+            if (response.IsSuccessStatusCode)
             {
-                return (false, $"No game state found for client {clientId}", null);
+                var gameState = await response.Content.ReadFromJsonAsync<GameState>();
+                _logger.LogInformation("Successfully retrieved game state for client {ClientId}", clientId);
+                return (true, "Game state retrieved successfully", gameState);
             }
-            
-            _logger.LogInformation("Retrieved game state for client {ClientId}", clientId);
-            return (true, "Game state retrieved successfully", gameState);
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to retrieve game state: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
+            }
         }
         catch (Exception ex)
         {
@@ -237,32 +174,30 @@ public class GameInteractionService
     }
     
     /// <summary>
-    /// Get window information for a game client
+    /// Get window information for a game client via HTTP API
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <returns>Window dimensions and position</returns>
-    public async Task<(bool Success, string Message, Rectangle? WindowRect)> GetWindowInfoAsync(string clientId)
+    public async Task<(bool Success, string Message, WindowInfo? WindowRect)> GetWindowInfoAsync(string clientId)
     {
         try
         {
-            if (!_isWindows)
+            _logger.LogInformation("Retrieving window info for client {ClientId}", clientId);
+
+            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/window");
+
+            if (response.IsSuccessStatusCode)
             {
-                return (false, "Window information is only available on Windows platform", null);
+                var windowInfo = await response.Content.ReadFromJsonAsync<WindowInfo>();
+                _logger.LogInformation("Successfully retrieved window info for client {ClientId}", clientId);
+                return (true, "Window info retrieved successfully", windowInfo);
             }
-            
-            var gameWindow = await FindGameWindowAsync(clientId);
-            if (gameWindow == IntPtr.Zero)
+            else
             {
-                return (false, $"Could not find game window for client {clientId}", null);
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to retrieve window info: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
             }
-            
-            if (!GetWindowRect(gameWindow, out Rectangle windowRect))
-            {
-                return (false, "Could not get window rectangle", null);
-            }
-            
-            _logger.LogInformation("Retrieved window info for client {ClientId}: {WindowRect}", clientId, windowRect);
-            return (true, "Window info retrieved successfully", windowRect);
         }
         catch (Exception ex)
         {
@@ -272,16 +207,34 @@ public class GameInteractionService
     }
     
     /// <summary>
-    /// List all active game clients
+    /// List all active game clients via HTTP API
     /// </summary>
     /// <returns>List of active client IDs and their game states</returns>
     public async Task<(bool Success, string Message, Dictionary<string, GameState>? GameStates)> ListActiveClientsAsync()
     {
         try
         {
-            var gameStates = _gameStateManager.GetAllGameStates();
-            _logger.LogInformation("Retrieved {Count} active game clients", gameStates.Count);
-            return (true, $"Found {gameStates.Count} active clients", gameStates);
+            _logger.LogInformation("Retrieving active clients list");
+
+            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/state");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var gameState = await response.Content.ReadFromJsonAsync<GameState>();
+                var gameStates = new Dictionary<string, GameState>
+                {
+                    ["default"] = gameState ?? new GameState()
+                };
+
+                _logger.LogInformation("Retrieved game client information");
+                return (true, $"Found {gameStates.Count} active clients", gameStates);
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to retrieve client list: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
+            }
         }
         catch (Exception ex)
         {
@@ -291,7 +244,7 @@ public class GameInteractionService
     }
     
     /// <summary>
-    /// Simulate keyboard input to the game window
+    /// Simulate keyboard input to the game via HTTP API
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="key">Key to press (e.g., "W", "Space", "Enter")</param>
@@ -301,27 +254,33 @@ public class GameInteractionService
     {
         try
         {
-            if (!_isWindows)
-            {
-                return (false, "Keyboard simulation is only supported on Windows platform");
-            }
-            
             _logger.LogInformation("Attempting to send key '{Key}' to client {ClientId}", key, clientId);
-            
-            var gameWindow = await FindGameWindowAsync(clientId);
-            if (gameWindow == IntPtr.Zero)
+
+            var input = new
             {
-                return (false, $"Could not find game window for client {clientId}");
+                Type = "KeyPress",
+                Data = new
+                {
+                    key = key,
+                    holdDurationMs = holdDurationMs,
+                    clientId = clientId
+                }
+            };
+
+            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<dynamic>();
+                _logger.LogInformation("Successfully sent key input to game");
+                return (true, $"Key '{key}' sent successfully");
             }
-            
-            SetForegroundWindow(gameWindow);
-            await Task.Delay(100);
-            
-            // For now, this is a placeholder - full keyboard simulation would require more Windows API calls
-            // This could be extended to use SendInput API for more robust keyboard simulation
-            
-            _logger.LogInformation("Key simulation not fully implemented yet for client {ClientId}", clientId);
-            return (true, $"Key '{key}' simulation initiated (placeholder implementation)");
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to send key input: {StatusCode} - {Content}", response.StatusCode, errorContent);
+                return (false, $"HTTP {response.StatusCode}: {errorContent}");
+            }
         }
         catch (Exception ex)
         {
@@ -331,41 +290,10 @@ public class GameInteractionService
     }
     
     /// <summary>
-    /// Find a game window by client ID
-    /// This is a simplified implementation - in practice, you might maintain a registry of window handles
+    /// Dispose of HTTP client resources
     /// </summary>
-    /// <param name="clientId">Game client identifier</param>
-    /// <returns>Window handle or IntPtr.Zero if not found</returns>
-    private async Task<IntPtr> FindGameWindowAsync(string clientId)
+    public void Dispose()
     {
-        if (!_isWindows)
-        {
-            return IntPtr.Zero;
-        }
-        
-        // This is a simplified implementation
-        // In practice, you would maintain a registry of client IDs to window handles
-        // For now, we'll try to find windows with common MonoGame titles
-        
-        var possibleTitles = new[]
-        {
-            $"Game1 - {clientId}",
-            "SimpleGame",
-            "MonoGame",
-            clientId
-        };
-        
-        foreach (var title in possibleTitles)
-        {
-            var handle = FindWindow(null!, title);
-            if (handle != IntPtr.Zero)
-            {
-                return handle;
-            }
-        }
-        
-        // If not found by title, get the foreground window as fallback
-        // This assumes the game window is currently active
-        return GetForegroundWindow();
+        _httpClient?.Dispose();
     }
 }

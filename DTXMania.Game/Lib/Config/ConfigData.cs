@@ -31,5 +31,10 @@ namespace DTXMania.Game.Lib.Config
         public int ScrollSpeed { get; set; } = 100;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
+
+        // API settings
+        public bool EnableGameApi { get; set; } = false;
+        public int GameApiPort { get; set; } = 8080;
+        public string GameApiKey { get; set; } = "";
     }
 }
