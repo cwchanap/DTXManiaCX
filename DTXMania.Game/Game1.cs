@@ -2,6 +2,7 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
@@ -36,8 +37,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     private double _lastStageTransitionTime = 0.0;
     private const double GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY = 0.5; // 500ms debounce
 
-    // Game API server for MCP communication
-    private GameApiServer? _gameApiServer;
+    // JSON-RPC server for MCP communication
+    private JsonRpcServer? _jsonRpcServer;
     private GameApiImplementation? _gameApiImplementation;
     private CancellationTokenSource? _gameApiCancellation;
     
@@ -124,7 +125,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         if (config.EnableGameApi)
         {
             _gameApiImplementation = new GameApiImplementation(this);
-            _gameApiServer = new GameApiServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
+            _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
             _gameApiCancellation = new CancellationTokenSource();
             
             // Start API server with proper error handling
@@ -134,18 +135,18 @@ public class BaseGame : Microsoft.Xna.Framework.Game
 
     private async Task StartGameApiServerAsync()
     {
-        if (_gameApiServer == null || _gameApiCancellation == null)
+        if (_jsonRpcServer == null || _gameApiCancellation == null)
             return;
 
         try
         {
-            await _gameApiServer.StartAsync();
-            System.Diagnostics.Debug.WriteLine("Game API server started successfully");
+            await _jsonRpcServer.StartAsync();
+            System.Diagnostics.Debug.WriteLine("JSON-RPC server started successfully");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start Game API server: {ex.Message}");
-            // Continue without API server if it fails to start
+            System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
+            // Continue without JSON-RPC server if it fails to start
         }
     }
 
@@ -307,20 +308,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game
                 _gameApiCancellation = null;
             }
 
-            if (_gameApiServer != null)
+            if (_jsonRpcServer != null)
             {
                 try
                 {
-                    _gameApiServer.StopAsync().Wait(TimeSpan.FromSeconds(5)); // Wait max 5 seconds for graceful shutdown
+                    _jsonRpcServer.StopAsync().Wait(TimeSpan.FromSeconds(5)); // Wait max 5 seconds for graceful shutdown
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error stopping Game API server: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Error stopping JSON-RPC server: {ex.Message}");
                 }
                 finally
                 {
-                    _gameApiServer.Dispose();
-                    _gameApiServer = null;
+                    _jsonRpcServer.Dispose();
+                    _jsonRpcServer = null;
                 }
             }
 

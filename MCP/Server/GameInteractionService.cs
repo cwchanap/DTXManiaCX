@@ -1,29 +1,30 @@
 using Microsoft.Extensions.Logging;
-using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Server.Services;
 
 /// <summary>
-/// Service for interacting with .NET game applications via HTTP API
-/// Provides tools for sending input and retrieving game state through REST endpoints
+/// Service for interacting with .NET game applications via JSON-RPC 2.0
+/// Provides tools for sending input and retrieving game state through JSON-RPC protocol
 /// </summary>
 public class GameInteractionService : IDisposable
 {
     private readonly ILogger<GameInteractionService> _logger;
     private readonly GameStateManager _gameStateManager;
-    private readonly HttpClient _httpClient;
+    private readonly JsonRpcClient _jsonRpcClient;
     private readonly string _gameApiUrl;
+    private static readonly JsonSerializerOptions ResponseDeserializationOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public GameInteractionService(ILogger<GameInteractionService> logger, GameStateManager gameStateManager)
     {
         _logger = logger;
         _gameStateManager = gameStateManager;
-        _httpClient = new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(5); // Short timeout for game interactions
-        _gameApiUrl = "http://localhost:8080"; // Default game API URL
+        _gameApiUrl = "http://localhost:8080/jsonrpc"; // Default JSON-RPC endpoint
+        _jsonRpcClient = new JsonRpcClient(_gameApiUrl, logger as ILogger<JsonRpcClient>);
     }
 
     /// <summary>
@@ -40,7 +41,7 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Click at a specific position in a game window via HTTP API
+    /// Click at a specific position in a game window via JSON-RPC
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="x">X coordinate (relative to game window)</param>
@@ -53,9 +54,9 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogInformation("Attempting to click at position ({X}, {Y}) for client {ClientId}", x, y, clientId);
 
-            var input = new
+            var inputParams = new
             {
-                Type = "MouseClick",
+                Type = 0, // MouseClick
                 Data = new
                 {
                     x = x,
@@ -65,20 +66,30 @@ public class GameInteractionService : IDisposable
                 }
             };
 
-            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
+            
+            if (response.Result != null)
             {
-                var result = await response.Content.ReadFromJsonAsync<dynamic>();
-                _logger.LogInformation("Successfully sent click input to game");
-                return (true, $"Successfully clicked at ({x}, {y})");
+                var resultElement = (JsonElement)response.Result;
+                var success = resultElement.GetProperty("success").GetBoolean();
+                
+                if (success)
+                {
+                    _logger.LogInformation("Successfully sent click input to game");
+                    return (true, $"Successfully clicked at ({x}, {y})");
+                }
+                else
+                {
+                    return (false, "Game rejected the input");
+                }
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to send click input: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}");
-            }
+            
+            return (false, "No result returned from game");
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error sending click input for client {ClientId}", clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -88,7 +99,7 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Drag from one position to another in the game window via HTTP API
+    /// Drag from one position to another in the game window via JSON-RPC
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="startX">Starting X coordinate</param>
@@ -104,9 +115,9 @@ public class GameInteractionService : IDisposable
             _logger.LogInformation("Attempting to drag from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}",
                 startX, startY, endX, endY, clientId);
 
-            var input = new
+            var inputParams = new
             {
-                Type = "MouseDrag",
+                Type = 1, // MouseMove (we'll extend this to support drag)
                 Data = new
                 {
                     startX = startX,
@@ -114,24 +125,35 @@ public class GameInteractionService : IDisposable
                     endX = endX,
                     endY = endY,
                     durationMs = durationMs,
-                    clientId = clientId
+                    clientId = clientId,
+                    isDrag = true
                 }
             };
 
-            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
+            
+            if (response.Result != null)
             {
-                var result = await response.Content.ReadFromJsonAsync<dynamic>();
-                _logger.LogInformation("Successfully sent drag input to game");
-                return (true, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})");
+                var resultElement = (JsonElement)response.Result;
+                var success = resultElement.GetProperty("success").GetBoolean();
+                
+                if (success)
+                {
+                    _logger.LogInformation("Successfully sent drag input to game");
+                    return (true, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})");
+                }
+                else
+                {
+                    return (false, "Game rejected the input");
+                }
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to send drag input: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}");
-            }
+            
+            return (false, "No result returned from game");
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error sending drag input for client {ClientId}", clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -141,7 +163,7 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Get the current game state for a client via HTTP API
+    /// Get the current game state for a client via JSON-RPC
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <returns>Game state information</returns>
@@ -151,20 +173,21 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogInformation("Retrieving game state for client {ClientId}", clientId);
 
-            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/state");
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("getGameState");
+            
+            if (response.Result != null)
             {
-                var gameState = await response.Content.ReadFromJsonAsync<GameState>();
+                var gameState = DeserializeResult<GameState>(response.Result);
                 _logger.LogInformation("Successfully retrieved game state for client {ClientId}", clientId);
                 return (true, "Game state retrieved successfully", gameState);
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to retrieve game state: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
-            }
+            
+            return (false, "No game state returned", null);
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error retrieving game state for client {ClientId}", clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}", null);
         }
         catch (Exception ex)
         {
@@ -174,7 +197,7 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Get window information for a game client via HTTP API
+    /// Get window information for a game client via JSON-RPC
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <returns>Window dimensions and position</returns>
@@ -184,20 +207,21 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogInformation("Retrieving window info for client {ClientId}", clientId);
 
-            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/window");
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("getWindowInfo");
+            
+            if (response.Result != null)
             {
-                var windowInfo = await response.Content.ReadFromJsonAsync<WindowInfo>();
+                var windowInfo = DeserializeResult<WindowInfo>(response.Result);
                 _logger.LogInformation("Successfully retrieved window info for client {ClientId}", clientId);
                 return (true, "Window info retrieved successfully", windowInfo);
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to retrieve window info: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
-            }
+            
+            return (false, "No window info returned", null);
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error retrieving window info for client {ClientId}", clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}", null);
         }
         catch (Exception ex)
         {
@@ -207,7 +231,7 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// List all active game clients via HTTP API
+    /// List all active game clients via JSON-RPC
     /// </summary>
     /// <returns>List of active client IDs and their game states</returns>
     public async Task<(bool Success, string Message, Dictionary<string, GameState>? GameStates)> ListActiveClientsAsync()
@@ -216,25 +240,26 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogInformation("Retrieving active clients list");
 
-            var response = await _httpClient.GetAsync($"{_gameApiUrl}/game/state");
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("getGameState");
+            
+            if (response.Result != null)
             {
-                var gameState = await response.Content.ReadFromJsonAsync<GameState>();
+                var gameState = DeserializeResult<GameState>(response.Result) ?? new GameState();
                 var gameStates = new Dictionary<string, GameState>
                 {
-                    ["default"] = gameState ?? new GameState()
+                    ["default"] = gameState
                 };
 
                 _logger.LogInformation("Retrieved game client information");
                 return (true, $"Found {gameStates.Count} active clients", gameStates);
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to retrieve client list: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}", null);
-            }
+            
+            return (false, "No game state returned", null);
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error listing active clients");
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}", null);
         }
         catch (Exception ex)
         {
@@ -243,8 +268,24 @@ public class GameInteractionService : IDisposable
         }
     }
     
+    private static T? DeserializeResult<T>(object? result)
+    {
+        if (result is null)
+        {
+            return default;
+        }
+
+        if (result is JsonElement element)
+        {
+            return element.Deserialize<T>(ResponseDeserializationOptions);
+        }
+
+        var json = JsonSerializer.Serialize(result);
+        return JsonSerializer.Deserialize<T>(json, ResponseDeserializationOptions);
+    }
+    
     /// <summary>
-    /// Simulate keyboard input to the game via HTTP API
+    /// Simulate keyboard input to the game via JSON-RPC
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <param name="key">Key to press (e.g., "W", "Space", "Enter")</param>
@@ -256,9 +297,9 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogInformation("Attempting to send key '{Key}' to client {ClientId}", key, clientId);
 
-            var input = new
+            var inputParams = new
             {
-                Type = "KeyPress",
+                Type = 2, // KeyPress
                 Data = new
                 {
                     key = key,
@@ -267,20 +308,30 @@ public class GameInteractionService : IDisposable
                 }
             };
 
-            var response = await _httpClient.PostAsJsonAsync($"{_gameApiUrl}/game/input", input);
-
-            if (response.IsSuccessStatusCode)
+            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
+            
+            if (response.Result != null)
             {
-                var result = await response.Content.ReadFromJsonAsync<dynamic>();
-                _logger.LogInformation("Successfully sent key input to game");
-                return (true, $"Key '{key}' sent successfully");
+                var resultElement = (JsonElement)response.Result;
+                var success = resultElement.GetProperty("success").GetBoolean();
+                
+                if (success)
+                {
+                    _logger.LogInformation("Successfully sent key input to game");
+                    return (true, $"Key '{key}' sent successfully");
+                }
+                else
+                {
+                    return (false, "Game rejected the input");
+                }
             }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to send key input: {StatusCode} - {Content}", response.StatusCode, errorContent);
-                return (false, $"HTTP {response.StatusCode}: {errorContent}");
-            }
+            
+            return (false, "No result returned from game");
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error sending key to client {ClientId}", clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -290,10 +341,10 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Dispose of HTTP client resources
+    /// Dispose of JSON-RPC client resources
     /// </summary>
     public void Dispose()
     {
-        _httpClient?.Dispose();
+        _jsonRpcClient?.Dispose();
     }
 }
