@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using DTXManiaCX.MCP.Server.Services;
 using DTXManiaCX.MCP.Server.Tools;
 using DTXManiaCX.MCP.Server.Console;
+using ModelContextProtocol.Server;
 
 namespace DTXManiaCX.MCP.Server;
 
@@ -35,8 +36,22 @@ class Program
         var testConsole = serviceProvider.GetRequiredService<GameInteractionTestConsole>();
         await testConsole.RunTestsAsync();
         
+        if (!Environment.UserInteractive || System.Console.IsInputRedirected)
+        {
+            System.Console.WriteLine("Test run complete.");
+            return;
+        }
+
         System.Console.WriteLine("Press any key to exit...");
-        System.Console.ReadKey();
+
+        try
+        {
+            System.Console.ReadKey(true);
+        }
+        catch (InvalidOperationException)
+        {
+            // Non-interactive environments throw when no console is attached; ignore.
+        }
     }
     
     static async Task RunServerModeAsync(string[] args)
@@ -61,8 +76,14 @@ class Program
         services.AddSingleton<GameInteractionTools>();
         services.AddSingleton<GameInteractionTestConsole>();
         services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+
+        var mcpBuilder = services.AddMcpServer(_ => { });
+
+        mcpBuilder
+            .WithStdioServerTransport()
+            .WithTools<GameInteractionMcpToolHandlers>();
     }
-    
+
     static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
             .ConfigureServices((context, services) =>

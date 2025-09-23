@@ -7,12 +7,15 @@
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>DTXManiaCX.MCP</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
+    <PackageVersion>1.0.0-preview.1</PackageVersion>
     <Authors>DTXManiaCX Team</Authors>
     <Description>MCP Server for DTXManiaCX game interaction</Description>
     <PackageTags>mcp;dtxmancia;monogame;game-interaction</PackageTags>
     <RepositoryUrl>https://github.com/yourusername/dtxmancia</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <EnablePackageVulnerabilityAudit>false</EnablePackageVulnerabilityAudit>
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+    <NoWarn>$(NoWarn);NU1900</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

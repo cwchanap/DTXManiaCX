@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Server.Services;
@@ -20,8 +21,16 @@ public class JsonRpcClient : IDisposable
     public JsonRpcClient(string serverUrl, ILogger<JsonRpcClient>? logger = null)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(5); // Short timeout for game interactions
+
+        var handler = new SocketsHttpHandler
+        {
+            UseCookies = false
+        };
+
+        _httpClient = new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = TimeSpan.FromSeconds(5)
+        };
         _serverUrl = serverUrl.TrimEnd('/'); // Remove trailing slash if present
         
         _jsonOptions = new JsonSerializerOptions
