@@ -1,98 +1,93 @@
-# Procyon - MCP Bridge for MonoGame
+# DTXManiaCX MCP
 
-Procyon is a Model Context Protocol (MCP) integration solution for MonoGame applications, split into two packages:
+The MCP project hosts the Model Context Protocol (MCP) bridge that lets AI copilots talk to a running DTXManiaCX client. It exposes the game state and interaction tools over JSON-RPC so external MCP-compatible clients can inspect and manipulate gameplay.
 
-## 📦 Packages
+## Project layout
+- `Bridge/` – MonoGame-facing bridge components (`McpBridgeService`, `McpBridgeComponent`) that can be added to the game loop.
+- `Server/` – Background service, JSON-RPC helpers, and the console harness entry point (`Program.cs`).
+- `Tools/` – Definitions of MCP tools (`game_click`, `game_drag`, `game_get_state`, etc.) and the dispatcher that calls into the JSON-RPC layer.
 
-### 1. Procyon.McpBridge
-A library package that provides MCP integration for MonoGame applications.
+## Prerequisites
+- .NET 8 SDK (`dotnet --version` should report 8.x).
+- A DTXManiaCX build exposing the JSON-RPC bridge at `http://localhost:8080/jsonrpc` (current default in `GameInteractionService`).
+- An MCP client implementation (for example Anthropic's Claude Desktop, `@modelcontextprotocol/client`, or another MCP-compatible IDE integration).
 
-**Features:**
-- Easy integration with MonoGame projects
-- Game state synchronization with MCP servers
-- AI assistance requests from within games
-- Built-in MonoGame component for seamless integration
-
-**Installation:**
+## Build & restore
 ```bash
-dotnet add package Procyon.McpBridge
+dotnet restore MCP/MCP.csproj
+dotnet build MCP/MCP.csproj -c Debug
+```
+Use `-c Release` when packaging the server or distributing binaries.
+
+## Running the MCP server
+The default host is a console application that wires up logging, the game state manager, and tool registry.
+
+```bash
+dotnet run --project MCP/MCP.csproj
 ```
 
-### 2. Procyon.McpServer
-A console application that acts as an MCP server for processing game data.
+Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which exercises the tool dispatcher without starting the long-running background service. This is handy while the MonoGame bridge and JSON-RPC endpoints are still being scaffolded.
 
-**Features:**
-- Hosted service architecture
-- Game state management
-- Extensible processing pipeline
-- Logging and monitoring
+### Server lifecycle
+- On startup the server initializes `GameInteractionTools`, which currently registers six high-level actions (`game_click`, `game_drag`, `game_get_state`, `game_get_window_info`, `game_list_clients`, `game_send_key`).
+- `GameInteractionService` forwards each tool invocation to the configured JSON-RPC endpoint (`http://localhost:8080/jsonrpc`). Adjust that URL inside `Server/GameInteractionService.cs` if your game build exposes a different port or path.
+- `GameStateManager` collects state snapshots reported by the game bridge. The background service polls the manager every five seconds and logs the latest state; the concrete MCP transport will tap into the same manager.
 
-## 🚀 Quick Start
+## Configuring an MCP client
+Model Context Protocol clients discover and launch servers via small JSON manifests. Regardless of the client, point the command to `dotnet run --project MCP/MCP.csproj` so the .NET host boots on demand. The exact shape of the manifest depends on the client, but every setup needs the command line, working directory, and optional environment variables. The examples below assume the repository root is `/Users/chanwaichan/workspace/DTXmaniaCX`.
 
-### Using the MCP Bridge in MonoGame
-
-```csharp
-public class MyGame : Game
+### Using the reference Node.js client (`@modelcontextprotocol/client`)
+Create (or merge into) `~/.config/mcp/servers.json`:
+```json
 {
-    private McpBridgeComponent _mcpBridge;
-    
-    protected override void LoadContent()
-    {
-        // Add MCP bridge component to your game
-        _mcpBridge = new McpBridgeComponent(this);
-        Components.Add(_mcpBridge);
+  "servers": {
+    "dtxmaniacx": {
+      "command": "dotnet run --project MCP/MCP.csproj",
+      "cwd": "/Users/chanwaichan/workspace/DTXmaniaCX",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
     }
-    
-    protected override void Update(GameTime gameTime)
-    {
-        // Your game logic here
-        base.Update(gameTime);
-    }
+  }
 }
 ```
-
-### Running the MCP Server
-
+Then launch the client:
 ```bash
-cd src/Procyon.McpServer
-dotnet run
+npx @modelcontextprotocol/client connect dtxmaniacx
 ```
+The CLI will spawn the .NET process, negotiate tool availability, and expose the registered actions to your MCP-compatible application.
 
-## 🛠️ Development
-
-### Building the Projects
-
-```bash
-# Build the entire solution
-dotnet build
-
-# Build individual projects
-dotnet build src/Procyon.McpBridge/Procyon.McpBridge.csproj
-dotnet build src/Procyon.McpServer/Procyon.McpServer.csproj
+### Configuring Claude Desktop (macOS & Windows)
+Claude Desktop loads `claude_desktop_config.json` from `~/Library/Application Support/Claude/` (macOS) or `%APPDATA%\Claude\`. Add a server entry:
+```json
+{
+  "mcp_servers": [
+    {
+      "name": "DTXManiaCX",
+      "description": "Interact with the DTXManiaCX MCP bridge",
+      "command": "dotnet run --project MCP/MCP.csproj",
+      "cwd": "/Users/chanwaichan/workspace/DTXmaniaCX",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  ]
+}
 ```
+Restart Claude Desktop and pick the new "DTXManiaCX" server from the MCP sources list. Once connected, Claude can call the exposed tools (`game_click`, `game_get_state`, etc.) against your running game instance.
 
-### Creating Packages
+### Other clients
+Most IDE integrations follow the same pattern—specify the command line (`dotnet run --project MCP/MCP.csproj`), supply the repo root as the working directory, and propagate any optional environment variables. If your client splits command/arguments instead of accepting a single string, set `command` to `dotnet` and `args` to `["run", "--project", "MCP/MCP.csproj"]`.
 
-```bash
-# Create NuGet packages
-dotnet pack src/Procyon.McpBridge/Procyon.McpBridge.csproj -c Release
-dotnet pack src/Procyon.McpServer/Procyon.McpServer.csproj -c Release
+## MonoGame integration
+Add `McpBridgeComponent` to your MonoGame `Game` implementation to push game state into the server:
+```csharp
+var bridgeComponent = new McpBridgeComponent(this);
+Components.Add(bridgeComponent);
 ```
+`McpBridgeComponent.Initialize` currently targets `http://localhost:3000` while the server scaffolding solidifies. Align that endpoint with wherever the MCP server listens once the networking layer is complete.
 
-## 📋 Requirements
-
-- .NET 9.0 or later
-- MonoGame Framework (for the bridge library)
-- Model Context Protocol package
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Next steps
+- Flesh out the MCP transport layer so `McpServerService` registers tools with the `ModelContextProtocol` host instead of just logging.
+- Replace the hard-coded JSON-RPC URL with configuration (environment variables or `appsettings.json`).
+- Extend the bridge to stream richer game telemetry (stage, chart, timing) and expose safe control surfaces for automated playtesting.

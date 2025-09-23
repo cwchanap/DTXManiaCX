@@ -12,6 +12,8 @@ public class GameInteractionTools
 {
     private readonly ILogger<GameInteractionTools> _logger;
     private readonly GameInteractionService _gameInteractionService;
+    private readonly List<ToolDefinition> _toolDefinitions = new();
+    private bool _initialized;
     
     public GameInteractionTools(ILogger<GameInteractionTools> logger, GameInteractionService gameInteractionService)
     {
@@ -25,10 +27,16 @@ public class GameInteractionTools
     /// </summary>
     public void Initialize()
     {
+        if (_initialized)
+        {
+            return;
+        }
+
         _logger.LogInformation("Initializing game interaction tools");
         
         // Define available tools for MCP clients
-        var toolDefinitions = new List<ToolDefinition>
+        _toolDefinitions.Clear();
+        _toolDefinitions.AddRange(new[]
         {
             new ToolDefinition
             {
@@ -189,24 +197,17 @@ public class GameInteractionTools
                     ["required"] = new[] { "client_id", "key" }
                 }
             }
-        };
+        });
         
-        _logger.LogInformation("Initialized {Count} game interaction tools", toolDefinitions.Count);
+        _initialized = true;
+        _logger.LogInformation("Initialized {Count} game interaction tools", _toolDefinitions.Count);
     }
     
     /// <summary>
     /// Get all available tool definitions
     /// </summary>
     /// <returns>List of tool definitions</returns>
-    public List<ToolDefinition> GetToolDefinitions()
-    {
-        var toolDefinitions = new List<ToolDefinition>();
-        // Return the same definitions as in Initialize() method
-        // This is a simplified approach - in a full implementation, 
-        // these would be stored as class members during Initialize()
-        
-        return toolDefinitions;
-    }
+    public IReadOnlyList<ToolDefinition> GetToolDefinitions() => _toolDefinitions;
     
     /// <summary>
     /// Execute a tool call with the given name and arguments
