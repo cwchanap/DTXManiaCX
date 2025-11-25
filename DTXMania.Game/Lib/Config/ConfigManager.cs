@@ -115,6 +115,17 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var noFail))
                         Config.NoFail = noFail;
                     break;
+                case "EnableGameApi":
+                    if (TryParseBool(value, out var enableGameApi))
+                        Config.EnableGameApi = enableGameApi;
+                    break;
+                case "GameApiPort":
+                    if (int.TryParse(value, out var apiPort))
+                        Config.GameApiPort = apiPort;
+                    break;
+                case "GameApiKey":
+                    Config.GameApiKey = value;
+                    break;
                 // Handle key bindings from config file
                 default:
                     if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
@@ -158,7 +169,13 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
             sb.AppendLine($"AutoPlay={Config.AutoPlay}");
             sb.AppendLine($"NoFail={Config.NoFail}");
-            
+
+            sb.AppendLine();
+            sb.AppendLine("[Api]");
+            sb.AppendLine($"EnableGameApi={Config.EnableGameApi}");
+            sb.AppendLine($"GameApiPort={Config.GameApiPort}");
+            sb.AppendLine($"GameApiKey={Config.GameApiKey}");
+
             // Save key bindings to config file
             if (Config.KeyBindings.Count > 0)
             {
