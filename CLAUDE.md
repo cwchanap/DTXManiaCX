@@ -62,6 +62,19 @@ dotnet publish DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Releas
 dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --output ./publish/mac --self-contained false
 ```
 
+### MCP Server Commands
+```bash
+# Build MCP server
+dotnet restore MCP/MCP.csproj
+dotnet build MCP/MCP.csproj -c Debug
+
+# Run MCP server (for Claude Desktop integration)
+dotnet run --project MCP/MCP.csproj
+
+# Run MCP server in test mode (interactive testing without MCP client)
+dotnet run --project MCP/MCP.csproj -- --test
+```
+
 ## Architecture Overview
 
 ### Core Structure
@@ -73,6 +86,10 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
   - **Lib/**: All shared game libraries (Resources, Stage, UI, Config, etc.)
   - **Content/**: Shared content files with symbolic links from platform builds
 - **DTXMania.Test**: Comprehensive unit test suite using xUnit
+- **MCP/**: Model Context Protocol server for AI copilot integration
+  - **Server/**: MCP server, JSON-RPC client, and game interaction services
+  - **Tools/**: MCP tool definitions and handlers
+  - **Bridge/**: MonoGame-facing components for in-game integration
 
 ### Key Architectural Components
 
@@ -136,6 +153,14 @@ dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Release --
 - **Chart Management**: ChartManager handles parsed chart data and note processing
 - **Song Components**: SongBar, SongStatusPanel, PreviewImagePanel for UI display
 
+#### 8. MCP Integration (AI Copilot)
+- **GameApiServer**: HTTP server exposing JSON-RPC endpoint at `http://localhost:8080/jsonrpc`
+- **IGameApi**: Interface for game state and input interaction
+- **JsonRpcServer**: JSON-RPC 2.0 protocol handler for client-server communication
+- **MCP Server**: Standalone .NET 8 console application providing MCP protocol tools
+- **Game Interaction Tools**: MCP tools for AI copilots (game_click, game_drag, game_get_state, game_send_key, etc.)
+- **Claude Desktop Integration**: Allows Claude to interact with running game instances via MCP
+
 ### Key Design Patterns
 
 #### Stage Lifecycle
@@ -178,6 +203,33 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 // Avoid hardcoded values - use layout constants instead
 ```
 
+#### MCP Integration Pattern
+```csharp
+// In Game1.cs or BaseGame.cs - Initialize GameApiServer to enable MCP interaction:
+var gameApi = new GameApiImplementation(this);
+_gameApiServer = new GameApiServer(gameApi, port: 8080);
+await _gameApiServer.StartAsync();
+
+// Game API exposes state through IGameApi interface:
+public async Task<GameState> GetGameStateAsync()
+{
+    return new GameState
+    {
+        CurrentStage = _stageManager?.CurrentStageType.ToString() ?? "None",
+        Score = currentScore,
+        CustomData = new Dictionary<string, object>
+        {
+            ["fps"] = frameRate,
+            ["stage"] = currentStage
+        }
+    };
+}
+
+// MCP server connects via JSON-RPC client:
+// External MCP clients (Claude Desktop, etc.) communicate through:
+// http://localhost:8080/jsonrpc
+```
+
 ## Development Guidelines
 
 ### Code Conventions
@@ -208,6 +260,15 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - SharedFontFactory provides cross-platform font support
 - Test on both Windows and Mac when possible
 - Use platform-specific .csproj files for building/running
+
+### MCP Integration Guidelines
+- **GameApiServer runs on port 8080** by default - ensure this port is available during development
+- **IGameApi interface** defines the contract between game and MCP server
+- **JSON-RPC 2.0 protocol** is used for all game-MCP communication
+- **MCP Server is independent** - runs as separate process, can be tested with `--test` flag
+- **Tool definitions** in GameInteractionTools.cs must match handler methods
+- **Claude Desktop integration** requires MCP server to be configured in `claude_desktop_config.json`
+- **State synchronization** is pull-based - MCP server queries game state via JSON-RPC
 
 ### Resource Guidelines
 - Place assets in appropriate directories (Graphics/, Fonts/, Sounds/)
@@ -285,6 +346,19 @@ var backgroundColor = SongTransitionUILayout.MainPanel.BackgroundColor;
 - `DTXMania.Test/Helpers/` - Test utilities and mocks (MockResourceManager, TestGraphicsDeviceService, etc.)
 - `DTXMania.Test/Stage/Performance/` - Performance stage component tests (JudgementManager, GaugeManager, etc.)
 
+### MCP Integration
+- `MCP/MCP.csproj` - MCP server project configuration
+- `MCP/Server/Program.cs` - MCP server entry point with test mode support
+- `MCP/Server/McpServerService.cs` - Background service hosting MCP protocol
+- `MCP/Server/GameInteractionService.cs` - JSON-RPC client for game communication (lines 11-350)
+- `MCP/Server/JsonRpcClient.cs` - JSON-RPC 2.0 protocol implementation
+- `MCP/Tools/GameInteractionTools.cs` - MCP tool definitions and dispatcher (lines 11-492)
+- `MCP/Server/GameInteractionMcpToolHandlers.cs` - MCP tool handlers using ModelContextProtocol SDK
+- `MCP/Bridge/McpBridgeService.cs` - MonoGame integration component (excluded from console build)
+- `DTXMania.Game/Lib/GameApiServer.cs` - HTTP server exposing JSON-RPC endpoint
+- `DTXMania.Game/Lib/GameApi.cs` - Game state and input interfaces
+- `DTXMania.Game/Lib/JsonRpc/` - JSON-RPC server and message types
+
 ## Debugging and Troubleshooting
 
 ### Debug Output
@@ -299,3 +373,6 @@ The application outputs detailed debug information to help with troubleshooting:
 - **Font Loading**: Ensure platform-specific font factory is available
 - **Graphics Issues**: Check device availability and render target validity
 - **Stage Transitions**: Verify stage lifecycle methods are properly implemented
+- **MCP Connection Failures**: Ensure game's GameApiServer is running on port 8080 before starting MCP server
+- **JSON-RPC Errors**: Check that MCP server and game are using matching JSON-RPC message formats
+- **Tool Not Found**: Verify tool name in GameInteractionTools.cs matches the handler in ExecuteToolAsync switch statement

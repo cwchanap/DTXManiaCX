@@ -33,7 +33,7 @@ namespace DTXMania.Game.Lib.Config
         public bool NoFail { get; set; } = false;
 
         // API settings
-        public bool EnableGameApi { get; set; } = false;
+        public bool EnableGameApi { get; set; } = true;
         public int GameApiPort { get; set; } = 8080;
         public string GameApiKey { get; set; } = "";
     }
