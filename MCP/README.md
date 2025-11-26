@@ -85,7 +85,8 @@ Add `McpBridgeComponent` to your MonoGame `Game` implementation to push game sta
 var bridgeComponent = new McpBridgeComponent(this);
 Components.Add(bridgeComponent);
 ```
-`McpBridgeComponent.Initialize` currently targets `http://localhost:3000` while the server scaffolding solidifies. Align that endpoint with wherever the MCP server listens once the networking layer is complete.
+
+**Note:** `McpBridgeComponent.Initialize` currently targets a placeholder endpoint (`http://localhost:3000`) for future MCP client functionality. This is separate from the JSON-RPC server endpoint (`http://localhost:8080/jsonrpc`) used by `GameInteractionService`. The bridge component will be updated to use configurable endpoints once the MCP transport layer is complete.
 
 ## Next steps
 - Flesh out the MCP transport layer so `McpServerService` registers tools with the `ModelContextProtocol` host instead of just logging.
