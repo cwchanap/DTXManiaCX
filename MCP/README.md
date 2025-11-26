@@ -34,7 +34,7 @@ Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which ex
 - `GameStateManager` collects state snapshots reported by the game bridge. The background service polls the manager every five seconds and logs the latest state; the concrete MCP transport will tap into the same manager.
 
 ## Configuring an MCP client
-Model Context Protocol clients discover and launch servers via small JSON manifests. Regardless of the client, point the command to `dotnet run --project MCP/MCP.csproj` so the .NET host boots on demand. The exact shape of the manifest depends on the client, but every setup needs the command line, working directory, and optional environment variables. The examples below assume the repository root is `/Users/chanwaichan/workspace/DTXmaniaCX`.
+Model Context Protocol clients discover and launch servers via small JSON manifests. Regardless of the client, point the command to `dotnet run --project MCP/MCP.csproj` so the .NET host boots on demand. The exact shape of the manifest depends on the client, but every setup needs the command line, working directory, and optional environment variables. The examples below use `<repo-root>` as a placeholder—replace it with the absolute path to your local DTXManiaCX repository clone.
 
 ### Using the reference Node.js client (`@modelcontextprotocol/client`)
 Create (or merge into) `~/.config/mcp/servers.json`:
@@ -43,7 +43,7 @@ Create (or merge into) `~/.config/mcp/servers.json`:
   "servers": {
     "dtxmaniacx": {
       "command": "dotnet run --project MCP/MCP.csproj",
-      "cwd": "/Users/chanwaichan/workspace/DTXmaniaCX",
+      "cwd": "<repo-root>",
       "env": {
         "DOTNET_ENVIRONMENT": "Development"
       }
@@ -66,7 +66,7 @@ Claude Desktop loads `claude_desktop_config.json` from `~/Library/Application Su
       "name": "DTXManiaCX",
       "description": "Interact with the DTXManiaCX MCP bridge",
       "command": "dotnet run --project MCP/MCP.csproj",
-      "cwd": "/Users/chanwaichan/workspace/DTXmaniaCX",
+      "cwd": "<repo-root>",
       "env": {
         "DOTNET_ENVIRONMENT": "Development"
       }

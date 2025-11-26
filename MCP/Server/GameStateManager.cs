@@ -46,11 +46,13 @@ public class GameStateManager
     /// <summary>
     /// Get all active game states
     /// </summary>
-    /// <returns>Dictionary of all game states</returns>
-    public Dictionary<string, GameState> GetAllGameStates()
+    /// <returns>Read-only dictionary of all game states. Values are snapshots; callers should not cache references.</returns>
+    public IReadOnlyDictionary<string, GameState> GetAllGameStates()
     {
         lock (_lock)
         {
+            // Return a new dictionary as IReadOnlyDictionary to prevent caller modifications
+            // Note: GameState objects are still mutable; callers should treat them as snapshots
             return new Dictionary<string, GameState>(_gameStates);
         }
     }
