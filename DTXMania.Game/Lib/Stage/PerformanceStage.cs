@@ -10,12 +10,10 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
-using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
-using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Stage

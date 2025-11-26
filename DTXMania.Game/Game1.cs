@@ -138,14 +138,17 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         if (_jsonRpcServer == null || _gameApiCancellation == null)
             return;
 
+        var config = ConfigManager.Config;
         try
         {
             await _jsonRpcServer.StartAsync();
-            System.Diagnostics.Debug.WriteLine("JSON-RPC server started successfully");
+            System.Diagnostics.Debug.WriteLine($"JSON-RPC server started successfully on port {config.GameApiPort}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server on port {config.GameApiPort}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine("Troubleshooting: Ensure the port is not in use by another application. " +
+                                              $"You can change the port in Config.ini via GameApiPort setting.");
             // Continue without JSON-RPC server if it fails to start
         }
     }
@@ -312,7 +315,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             {
                 try
                 {
-                    _jsonRpcServer.StopAsync().Wait(TimeSpan.FromSeconds(5)); // Wait max 5 seconds for graceful shutdown
+                    // Use GetAwaiter().GetResult() instead of .Wait() to avoid potential deadlocks
+                    // This properly propagates exceptions and is safer in synchronous dispose contexts
+                    // Note: StopAsync has a built-in timeout, so we don't need an external CancellationToken
+                    _jsonRpcServer.StopAsync().GetAwaiter().GetResult();
                 }
                 catch (Exception ex)
                 {

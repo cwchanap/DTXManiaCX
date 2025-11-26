@@ -111,7 +111,9 @@ public class GameInteractionMcpToolHandlers
     public async Task<CallToolResult> ListClientsAsync(
         CancellationToken cancellationToken = default)
     {
-        var (success, message, clients) = await _interactionService.ListActiveClientsAsync();
+        // Note: This currently returns a single default client's state.
+        // Multi-client support would require game API enhancements.
+        var (success, message, clients) = await _interactionService.GetDefaultClientStateAsync();
 
         var payload = new
         {

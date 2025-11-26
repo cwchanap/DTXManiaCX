@@ -169,8 +169,16 @@ public class JsonRpcClient : IDisposable
 }
 
 /// <summary>
-/// JSON-RPC 2.0 message classes for client
+/// JSON-RPC 2.0 message classes for client.
 /// </summary>
+/// <remarks>
+/// These types mirror DTXMania.Game.Lib.JsonRpc.JsonRpcMessage types to enable
+/// JSON-RPC communication. The MCP project is intentionally kept independent
+/// of DTXMania.Game to allow standalone distribution.
+/// 
+/// When modifying these classes, ensure the properties match those in
+/// DTXMania.Game/Lib/JsonRpc/JsonRpcMessage.cs to maintain wire-compatibility.
+/// </remarks>
 public class JsonRpcRequest
 {
     [JsonPropertyName("jsonrpc")]
