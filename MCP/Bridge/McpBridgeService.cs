@@ -5,9 +5,10 @@ namespace DTXManiaCX.MCP.Bridge;
 /// <summary>
 /// Bridge service for integrating MCP (Model Context Protocol) with MonoGame applications
 /// </summary>
-public class McpBridgeService
+public class McpBridgeService : IDisposable
 {
     private readonly Game _game;
+    private bool _disposed;
     // TODO: Add MCP client when the API is more stable
     // private McpClient? _mcpClient;
     
@@ -54,8 +55,26 @@ public class McpBridgeService
     /// </summary>
     public void Dispose()
     {
-        // TODO: Dispose MCP client when implemented
-        // _mcpClient?.Dispose();
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Dispose of managed resources
+    /// </summary>
+    /// <param name="disposing">True if called from Dispose(), false if from finalizer</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+            return;
+
+        if (disposing)
+        {
+            // TODO: Dispose MCP client when implemented
+            // _mcpClient?.Dispose();
+        }
+
+        _disposed = true;
     }
 }
 
@@ -77,6 +96,7 @@ public class GameState
 public class McpBridgeComponent : GameComponent
 {
     private readonly McpBridgeService _bridgeService;
+    private Task? _initializationTask;
     
     public McpBridgeComponent(Game game) : base(game)
     {
@@ -86,8 +106,21 @@ public class McpBridgeComponent : GameComponent
     public override void Initialize()
     {
         base.Initialize();
-        // Initialize MCP bridge
-        _ = Task.Run(async () => await _bridgeService.InitializeAsync("http://localhost:3000"));
+        // Initialize MCP bridge - store task to observe exceptions
+        _initializationTask = InitializeBridgeAsync();
+    }
+
+    private async Task InitializeBridgeAsync()
+    {
+        try
+        {
+            await _bridgeService.InitializeAsync("http://localhost:3000");
+        }
+        catch (Exception ex)
+        {
+            // Log initialization failure - don't crash the game
+            System.Diagnostics.Debug.WriteLine($"MCP Bridge initialization failed: {ex.Message}");
+        }
     }
     
     public override void Update(GameTime gameTime)
