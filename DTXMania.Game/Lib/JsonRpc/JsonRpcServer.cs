@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading;
@@ -16,7 +17,7 @@ namespace DTXMania.Game.Lib.JsonRpc;
 /// <summary>
 /// JSON-RPC 2.0 server that exposes game API for MCP server to connect to
 /// </summary>
-public class JsonRpcServer : IDisposable
+public class JsonRpcServer : IDisposable, IAsyncDisposable
 {
     private readonly IGameApi _gameApi;
     private readonly ILogger<JsonRpcServer>? _logger;
@@ -27,28 +28,18 @@ public class JsonRpcServer : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    public JsonRpcServer(IGameApi gameApi, int port = 8080, string apiKey = "")
+    public JsonRpcServer(IGameApi gameApi, int port = 8080, string apiKey = "", ILogger<JsonRpcServer>? logger = null)
     {
         _gameApi = gameApi ?? throw new ArgumentNullException(nameof(gameApi));
         _port = port;
         _apiKey = apiKey;
+        _logger = logger;
         
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = false
         };
-
-        // Try to get logger if available
-        try
-        {
-            // This would be set up by the game's dependency injection if available
-            _logger = null; // For now, we'll use Console.WriteLine
-        }
-        catch
-        {
-            // Logger not available
-        }
     }
 
     /// <summary>
@@ -122,6 +113,20 @@ public class JsonRpcServer : IDisposable
 
         try
         {
+            // Validate API key if configured
+            if (!string.IsNullOrEmpty(_apiKey))
+            {
+                var providedKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+                if (providedKey != _apiKey)
+                {
+                    context.Response.StatusCode = 401;
+                    response = CreateErrorResponse(null, JsonRpcErrorCodes.InvalidRequest, 
+                        "Unauthorized: Invalid or missing API key");
+                    await SendJsonRpcResponse(context, response);
+                    return;
+                }
+            }
+
             // Check request size limit (prevent large payloads)
             if (context.Request.ContentLength > 1024) // 1KB limit
             {
@@ -420,16 +425,24 @@ public class JsonRpcServer : IDisposable
     public bool IsRunning => _isRunning;
 
     /// <summary>
-    /// Dispose of resources
+    /// Dispose of resources asynchronously
     /// </summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_isRunning)
         {
-            StopAsync().Wait();
+            await StopAsync();
         }
 
         _cancellationTokenSource?.Dispose();
         _host?.Dispose();
+    }
+
+    /// <summary>
+    /// Dispose of resources synchronously
+    /// </summary>
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

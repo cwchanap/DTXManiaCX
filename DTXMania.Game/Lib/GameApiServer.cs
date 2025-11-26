@@ -17,7 +17,7 @@ namespace DTXMania.Game.Lib;
 /// <summary>
 /// Simple HTTP server that exposes game API for MCP server to connect to
 /// </summary>
-public class GameApiServer : IDisposable
+public class GameApiServer : IDisposable, IAsyncDisposable
 {
     private readonly IGameApi _gameApi;
     private readonly ILogger<GameApiServer>? _logger;
@@ -27,22 +27,12 @@ public class GameApiServer : IDisposable
     private bool _isRunning;
     private CancellationTokenSource? _cancellationTokenSource;
 
-    public GameApiServer(IGameApi gameApi, int port = 8080, string apiKey = "")
+    public GameApiServer(IGameApi gameApi, int port = 8080, string apiKey = "", ILogger<GameApiServer>? logger = null)
     {
         _gameApi = gameApi ?? throw new ArgumentNullException(nameof(gameApi));
         _port = port;
         _apiKey = apiKey;
-
-        // Try to get logger if available
-        try
-        {
-            // This would be set up by the game's dependency injection if available
-            _logger = null; // For now, we'll use Console.WriteLine
-        }
-        catch
-        {
-            // Logger not available
-        }
+        _logger = logger;
     }
 
     /// <summary>
@@ -66,6 +56,31 @@ public class GameApiServer : IDisposable
                     });
                     webBuilder.Configure(app =>
                     {
+                        // Add API key validation middleware for protected endpoints
+                        app.Use(async (context, next) =>
+                        {
+                            // Skip authentication for health endpoint
+                            if (context.Request.Path.StartsWithSegments("/health"))
+                            {
+                                await next();
+                                return;
+                            }
+
+                            // Validate API key if configured
+                            if (!string.IsNullOrEmpty(_apiKey))
+                            {
+                                var providedKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+                                if (providedKey != _apiKey)
+                                {
+                                    context.Response.StatusCode = 401;
+                                    await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid or missing API key" });
+                                    return;
+                                }
+                            }
+
+                            await next();
+                        });
+
                         app.UseRouting();
                         app.UseEndpoints(endpoints =>
                         {
@@ -270,16 +285,24 @@ public class GameApiServer : IDisposable
     }
 
     /// <summary>
-    /// Dispose of resources
+    /// Dispose of resources asynchronously
     /// </summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_isRunning)
         {
-            StopAsync().Wait();
+            await StopAsync();
         }
 
         _cancellationTokenSource?.Dispose();
         _host?.Dispose();
+    }
+
+    /// <summary>
+    /// Dispose of resources synchronously
+    /// </summary>
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

@@ -400,7 +400,9 @@ public class GameInteractionTools
     {
         try
         {
-            var (success, message, gameStates) = await _gameInteractionService.ListActiveClientsAsync();
+            // Note: This currently returns a single default client's state.
+            // Multi-client support would require game API enhancements.
+            var (success, message, gameStates) = await _gameInteractionService.GetDefaultClientStateAsync();
             
             return new ToolExecutionResult
             {

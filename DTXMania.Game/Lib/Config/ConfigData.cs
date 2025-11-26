@@ -33,8 +33,23 @@ namespace DTXMania.Game.Lib.Config
         public bool NoFail { get; set; } = false;
 
         // API settings
-        public bool EnableGameApi { get; set; } = true;
+        /// <summary>
+        /// Enables the Game API server for MCP (Model Context Protocol) communication.
+        /// Defaults to false for security. Set to true explicitly to enable external tool access.
+        /// </summary>
+        public bool EnableGameApi { get; set; } = false;
+
+        /// <summary>
+        /// The port number for the Game API server. Default is 8080.
+        /// Change this if the default port is already in use.
+        /// </summary>
         public int GameApiPort { get; set; } = 8080;
+
+        /// <summary>
+        /// API key for authenticating requests to the Game API server.
+        /// If set, all API requests must include this key in the X-Api-Key header.
+        /// Leave empty to allow unauthenticated access (not recommended for production).
+        /// </summary>
         public string GameApiKey { get; set; } = "";
     }
 }

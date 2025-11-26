@@ -73,40 +73,50 @@ public class GameApiImplementation : IGameApi
         }
     }
 
+    /// <summary>
+    /// Sends input to the game.
+    /// </summary>
+    /// <remarks>
+    /// STUB IMPLEMENTATION: This method currently only logs inputs and does not route them
+    /// to the actual game input system. Returns false to indicate the input was not processed.
+    /// 
+    /// TODO: Integrate with ModularInputManager/InputRouter to route MCP-driven input
+    /// through the same path as player input for consistent handling.
+    /// </remarks>
+    /// <param name="input">The input to send to the game.</param>
+    /// <returns>False - input is not currently processed (stub implementation).</returns>
     public async Task<bool> SendInputAsync(GameInput input)
     {
         try
         {
-            // This is a simplified implementation
-            // In a real game, you'd route the input to the appropriate game systems
+            // STUB: This implementation only logs inputs - it does not route them to the game.
+            // MCP clients should be aware that inputs are acknowledged but not acted upon.
             switch (input.Type)
             {
                 case InputType.MouseClick:
-                    // Handle mouse click
-                    System.Diagnostics.Debug.WriteLine($"Game API: Mouse click input received: {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse click input received (not processed): {input.Data}");
                     break;
 
                 case InputType.MouseMove:
-                    // Handle mouse move
-                    System.Diagnostics.Debug.WriteLine($"Game API: Mouse move input received: {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse move input received (not processed): {input.Data}");
                     break;
 
                 case InputType.KeyPress:
-                    // Handle key press
-                    System.Diagnostics.Debug.WriteLine($"Game API: Key press input received: {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key press input received (not processed): {input.Data}");
                     break;
 
                 case InputType.KeyRelease:
-                    // Handle key release
-                    System.Diagnostics.Debug.WriteLine($"Game API: Key release input received: {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key release input received (not processed): {input.Data}");
                     break;
 
                 default:
-                    System.Diagnostics.Debug.WriteLine($"Game API: Unknown input type: {input.Type}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Unknown input type: {input.Type}");
                     return false;
             }
 
-            return true;
+            // Return false to indicate the input was not actually processed
+            // This is intentional - MCP clients should know the input wasn't acted upon
+            return false;
         }
         catch (Exception ex)
         {

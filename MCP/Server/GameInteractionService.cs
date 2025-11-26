@@ -163,10 +163,15 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// Get the current game state for a client via JSON-RPC
+    /// Get the current game state via JSON-RPC.
     /// </summary>
-    /// <param name="clientId">Game client identifier</param>
-    /// <returns>Game state information</returns>
+    /// <remarks>
+    /// Note: The clientId parameter is used for logging context only. The current implementation
+    /// only supports a single game instance. Multi-client support would require the game API
+    /// to track and differentiate between multiple client sessions.
+    /// </remarks>
+    /// <param name="clientId">Client identifier used for logging context (not passed to game API).</param>
+    /// <returns>Game state information.</returns>
     public async Task<(bool Success, string Message, GameState? GameState)> GetGameStateAsync(string clientId)
     {
         try
@@ -231,10 +236,15 @@ public class GameInteractionService : IDisposable
     }
     
     /// <summary>
-    /// List all active game clients via JSON-RPC
+    /// Get the default (single) client's game state via JSON-RPC.
     /// </summary>
-    /// <returns>List of active client IDs and their game states</returns>
-    public async Task<(bool Success, string Message, Dictionary<string, GameState>? GameStates)> ListActiveClientsAsync()
+    /// <remarks>
+    /// Note: This implementation only supports a single game client. Multi-client support
+    /// would require the game API to track and expose multiple client sessions.
+    /// The returned dictionary always contains a single "default" entry.
+    /// </remarks>
+    /// <returns>Dictionary containing the default client's game state.</returns>
+    public async Task<(bool Success, string Message, Dictionary<string, GameState>? GameStates)> GetDefaultClientStateAsync()
     {
         try
         {
