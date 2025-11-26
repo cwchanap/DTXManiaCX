@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
 
@@ -38,6 +39,29 @@ namespace DTXMania.Game.Lib.Config
 
                 ParseConfigLine(key, value);
             }
+
+            // Security: If Game API is enabled but no API key is set, generate one and save
+            if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
+            {
+                Config.GameApiKey = GenerateSecureApiKey();
+                SaveConfig(filePath);
+                System.Diagnostics.Debug.WriteLine($"Generated new API key for Game API. Key saved to config file.");
+            }
+        }
+
+        /// <summary>
+        /// Generates a cryptographically secure random API key.
+        /// </summary>
+        /// <returns>A 32-character hex string API key</returns>
+        private static string GenerateSecureApiKey()
+        {
+            // Generate 16 random bytes (128 bits of entropy) and convert to hex string
+            var randomBytes = new byte[16];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(randomBytes);
+            }
+            return Convert.ToHexString(randomBytes).ToLowerInvariant();
         }
 
         public void LoadKeyBindings(KeyBindings keyBindings)

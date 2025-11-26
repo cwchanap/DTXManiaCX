@@ -124,12 +124,22 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         var config = ConfigManager.Config;
         if (config.EnableGameApi)
         {
-            _gameApiImplementation = new GameApiImplementation(this);
-            _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
-            _gameApiCancellation = new CancellationTokenSource();
-            
-            // Start API server with proper error handling
-            _ = StartGameApiServerAsync();
+            // Security: Validate API key is present when API is enabled
+            if (string.IsNullOrEmpty(config.GameApiKey))
+            {
+                System.Diagnostics.Debug.WriteLine("WARNING: Game API is enabled but no API key is configured. " +
+                                                  "API server will not start. Please set GameApiKey in Config.ini or " +
+                                                  "delete Config.ini to auto-generate a secure key.");
+            }
+            else
+            {
+                _gameApiImplementation = new GameApiImplementation(this);
+                _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
+                _gameApiCancellation = new CancellationTokenSource();
+                
+                // Start API server with proper error handling
+                _ = StartGameApiServerAsync();
+            }
         }
     }
 

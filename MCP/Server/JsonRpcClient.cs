@@ -90,7 +90,7 @@ public class JsonRpcClient : IDisposable
         try
         {
             var json = JsonSerializer.Serialize(request, _jsonOptions);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             _logger?.LogDebug("Sending JSON-RPC request: {Method} with ID: {Id}", request.Method, request.Id);
 

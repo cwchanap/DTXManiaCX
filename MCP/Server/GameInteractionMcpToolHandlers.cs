@@ -38,6 +38,7 @@ public class GameInteractionMcpToolHandlers
         string button = "left",
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var (success, message) = await _interactionService.ClickAsync(client_id, x, y, button);
 
         var payload = new
@@ -61,6 +62,7 @@ public class GameInteractionMcpToolHandlers
         int duration_ms = 500,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var (success, message) = await _interactionService.DragAsync(client_id, start_x, start_y, end_x, end_y, duration_ms);
 
         var payload = new
@@ -80,6 +82,7 @@ public class GameInteractionMcpToolHandlers
         string client_id,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var (success, message, state) = await _interactionService.GetGameStateAsync(client_id);
 
         var payload = new
@@ -96,6 +99,7 @@ public class GameInteractionMcpToolHandlers
         string client_id,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var (success, message, window) = await _interactionService.GetWindowInfoAsync(client_id);
 
         var payload = new
@@ -111,6 +115,7 @@ public class GameInteractionMcpToolHandlers
     public async Task<CallToolResult> ListClientsAsync(
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // Note: This currently returns a single default client's state.
         // Multi-client support would require game API enhancements.
         var (success, message, clients) = await _interactionService.GetDefaultClientStateAsync();
@@ -131,6 +136,7 @@ public class GameInteractionMcpToolHandlers
         int hold_duration_ms = 50,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var (success, message) = await _interactionService.SendKeyAsync(client_id, key, hold_duration_ms);
 
         var payload = new
