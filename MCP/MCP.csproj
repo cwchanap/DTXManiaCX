@@ -10,8 +10,8 @@
     <PackageVersion>1.0.0-preview.1</PackageVersion>
     <Authors>DTXManiaCX Team</Authors>
     <Description>MCP Server for DTXManiaCX game interaction</Description>
-    <PackageTags>mcp;dtxmancia;monogame;game-interaction</PackageTags>
-    <RepositoryUrl>https://github.com/yourusername/dtxmancia</RepositoryUrl>
+    <PackageTags>mcp;dtxmania;monogame;game-interaction</PackageTags>
+    <RepositoryUrl>https://github.com/cwchanap/DTXManiaCX</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <EnablePackageVulnerabilityAudit>false</EnablePackageVulnerabilityAudit>
     <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
