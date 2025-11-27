@@ -71,6 +71,14 @@ class Program
     
     static void ConfigureServices(IServiceCollection services)
     {
+        // Configure game interaction options from environment variables
+        var options = new GameInteractionOptions
+        {
+            GameApiUrl = Environment.GetEnvironmentVariable("DTXMANIA_API_URL") ?? "http://localhost:8080/jsonrpc",
+            GameApiKey = Environment.GetEnvironmentVariable("DTXMANIA_API_KEY")
+        };
+        
+        services.AddSingleton(options);
         services.AddSingleton<GameStateManager>();
         services.AddSingleton<GameInteractionService>();
         services.AddSingleton<GameInteractionTools>();

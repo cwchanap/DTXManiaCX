@@ -147,10 +147,18 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             return;
 
         var config = ConfigManager.Config;
+        var cancellationToken = _gameApiCancellation.Token;
+        
         try
         {
-            await _jsonRpcServer.StartAsync();
+            // Pass cancellation token to allow graceful shutdown
+            await _jsonRpcServer.StartAsync(cancellationToken);
             System.Diagnostics.Debug.WriteLine($"JSON-RPC server started successfully on port {config.GameApiPort}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested during startup
+            System.Diagnostics.Debug.WriteLine("JSON-RPC server startup was cancelled");
         }
         catch (Exception ex)
         {
