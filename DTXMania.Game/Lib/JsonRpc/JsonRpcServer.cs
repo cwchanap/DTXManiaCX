@@ -45,12 +45,13 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// <summary>
     /// Start the JSON-RPC server
     /// </summary>
-    public async Task StartAsync()
+    /// <param name="cancellationToken">Optional cancellation token to stop server startup</param>
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_isRunning)
             return;
 
-        _cancellationTokenSource = new CancellationTokenSource();
+        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
         {

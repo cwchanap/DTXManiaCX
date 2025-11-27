@@ -5,6 +5,22 @@ using System.Threading.Tasks;
 namespace DTXManiaCX.MCP.Server.Services;
 
 /// <summary>
+/// Configuration options for GameInteractionService
+/// </summary>
+public class GameInteractionOptions
+{
+    /// <summary>
+    /// The JSON-RPC endpoint URL for the game API
+    /// </summary>
+    public string GameApiUrl { get; set; } = "http://localhost:8080/jsonrpc";
+    
+    /// <summary>
+    /// The API key for authenticating with the game API (optional, but required if game has EnableGameApi with a key set)
+    /// </summary>
+    public string? GameApiKey { get; set; }
+}
+
+/// <summary>
 /// Service for interacting with .NET game applications via JSON-RPC 2.0
 /// Provides tools for sending input and retrieving game state through JSON-RPC protocol
 /// </summary>
@@ -19,12 +35,14 @@ public class GameInteractionService : IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    public GameInteractionService(ILogger<GameInteractionService> logger, GameStateManager gameStateManager)
+    public GameInteractionService(ILogger<GameInteractionService> logger, GameStateManager gameStateManager, GameInteractionOptions? options = null)
     {
         _logger = logger;
         _gameStateManager = gameStateManager;
-        _gameApiUrl = "http://localhost:8080/jsonrpc"; // Default JSON-RPC endpoint
-        _jsonRpcClient = new JsonRpcClient(_gameApiUrl, logger as ILogger<JsonRpcClient>);
+        
+        options ??= new GameInteractionOptions();
+        _gameApiUrl = options.GameApiUrl;
+        _jsonRpcClient = new JsonRpcClient(_gameApiUrl, options.GameApiKey, logger as ILogger<JsonRpcClient>);
     }
 
     /// <summary>

@@ -26,11 +26,25 @@ The default host is a console application that wires up logging, the game state 
 dotnet run --project MCP/MCP.csproj
 ```
 
+### Configuration via environment variables
+The MCP server can be configured using the following environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DTXMANIA_API_URL` | The JSON-RPC endpoint URL for the game API | `http://localhost:8080/jsonrpc` |
+| `DTXMANIA_API_KEY` | The API key for authenticating with the game API (required if the game has `EnableGameApi` with `GameApiKey` set) | _(none)_ |
+
+Example with configuration:
+```bash
+DTXMANIA_API_KEY="your-api-key" dotnet run --project MCP/MCP.csproj
+```
+
 Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which exercises the tool dispatcher without starting the long-running background service. This is handy while the MonoGame bridge and JSON-RPC endpoints are still being scaffolded.
 
 ### Server lifecycle
 - On startup the server initializes `GameInteractionTools`, which currently registers six high-level actions (`game_click`, `game_drag`, `game_get_state`, `game_get_window_info`, `game_list_clients`, `game_send_key`).
-- `GameInteractionService` forwards each tool invocation to the configured JSON-RPC endpoint (`http://localhost:8080/jsonrpc`). Adjust that URL inside `Server/GameInteractionService.cs` if your game build exposes a different port or path.
+- `GameInteractionService` forwards each tool invocation to the configured JSON-RPC endpoint (default: `http://localhost:8080/jsonrpc`). Configure the URL via the `DTXMANIA_API_URL` environment variable if your game build exposes a different port or path.
+- If the game API requires authentication (when `EnableGameApi` is enabled with a `GameApiKey` in `Config.ini`), set the `DTXMANIA_API_KEY` environment variable to the same key value. Without this, MCP tool calls will receive HTTP 401 Unauthorized errors.
 - `GameStateManager` collects state snapshots reported by the game bridge. The background service polls the manager every five seconds and logs the latest state; the concrete MCP transport will tap into the same manager.
 
 ## Configuring an MCP client
@@ -45,7 +59,8 @@ Create (or merge into) `~/.config/mcp/servers.json`:
       "command": "dotnet run --project MCP/MCP.csproj",
       "cwd": "<repo-root>",
       "env": {
-        "DOTNET_ENVIRONMENT": "Development"
+        "DOTNET_ENVIRONMENT": "Development",
+        "DTXMANIA_API_KEY": "<your-api-key-from-Config.ini>"
       }
     }
   }
@@ -68,7 +83,8 @@ Claude Desktop loads `claude_desktop_config.json` from `~/Library/Application Su
       "command": "dotnet run --project MCP/MCP.csproj",
       "cwd": "<repo-root>",
       "env": {
-        "DOTNET_ENVIRONMENT": "Development"
+        "DOTNET_ENVIRONMENT": "Development",
+        "DTXMANIA_API_KEY": "<your-api-key-from-Config.ini>"
       }
     }
   ]
@@ -77,7 +93,7 @@ Claude Desktop loads `claude_desktop_config.json` from `~/Library/Application Su
 Restart Claude Desktop and pick the new "DTXManiaCX" server from the MCP sources list. Once connected, Claude can call the exposed tools (`game_click`, `game_get_state`, etc.) against your running game instance.
 
 ### Other clients
-Most IDE integrations follow the same pattern—specify the command line (`dotnet run --project MCP/MCP.csproj`), supply the repo root as the working directory, and propagate any optional environment variables. If your client splits command/arguments instead of accepting a single string, set `command` to `dotnet` and `args` to `["run", "--project", "MCP/MCP.csproj"]`.
+Most IDE integrations follow the same pattern—specify the command line (`dotnet run --project MCP/MCP.csproj`), supply the repo root as the working directory, and propagate the `DTXMANIA_API_KEY` environment variable (if the game API requires authentication). If your client splits command/arguments instead of accepting a single string, set `command` to `dotnet` and `args` to `["run", "--project", "MCP/MCP.csproj"]`.
 
 ## MonoGame integration
 Add `McpBridgeComponent` to your MonoGame `Game` implementation to push game state into the server:
@@ -90,5 +106,4 @@ Components.Add(bridgeComponent);
 
 ## Next steps
 - Flesh out the MCP transport layer so `McpServerService` registers tools with the `ModelContextProtocol` host instead of just logging.
-- Replace the hard-coded JSON-RPC URL with configuration (environment variables or `appsettings.json`).
 - Extend the bridge to stream richer game telemetry (stage, chart, timing) and expose safe control surfaces for automated playtesting.

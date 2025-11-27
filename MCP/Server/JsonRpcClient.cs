@@ -15,12 +15,14 @@ public class JsonRpcClient : IDisposable
     private readonly ILogger<JsonRpcClient>? _logger;
     private readonly HttpClient _httpClient;
     private readonly string _serverUrl;
+    private readonly string? _apiKey;
     private readonly JsonSerializerOptions _jsonOptions;
     private int _requestId;
 
-    public JsonRpcClient(string serverUrl, ILogger<JsonRpcClient>? logger = null)
+    public JsonRpcClient(string serverUrl, string? apiKey = null, ILogger<JsonRpcClient>? logger = null)
     {
         _logger = logger;
+        _apiKey = apiKey;
 
         var handler = new SocketsHttpHandler
         {
@@ -92,9 +94,19 @@ public class JsonRpcClient : IDisposable
             var json = JsonSerializer.Serialize(request, _jsonOptions);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+            // Add API key header if configured
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _serverUrl)
+            {
+                Content = content
+            };
+            if (!string.IsNullOrEmpty(_apiKey))
+            {
+                httpRequest.Headers.Add("X-Api-Key", _apiKey);
+            }
+
             _logger?.LogDebug("Sending JSON-RPC request: {Method} with ID: {Id}", request.Method, request.Id);
 
-            var httpResponse = await _httpClient.PostAsync(_serverUrl, content);
+            var httpResponse = await _httpClient.SendAsync(httpRequest);
             
             if (!httpResponse.IsSuccessStatusCode)
             {
