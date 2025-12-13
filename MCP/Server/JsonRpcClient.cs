@@ -106,6 +106,8 @@ public class JsonRpcClient : IDisposable
 
             _logger?.LogDebug("Sending JSON-RPC request: {Method} with ID: {Id}", request.Method, request.Id);
 
+            // IMPORTANT: If the game server is configured to require an API key, the X-Api-Key header must be set on this request
+            // (see the header assignment above). Otherwise the server will return HTTP 401 before the JSON-RPC payload is processed.
             var httpResponse = await _httpClient.SendAsync(httpRequest);
             
             if (!httpResponse.IsSuccessStatusCode)
@@ -190,6 +192,8 @@ public class JsonRpcClient : IDisposable
 /// 
 /// When modifying these classes, ensure the properties match those in
 /// DTXMania.Game/Lib/JsonRpc/JsonRpcMessage.cs to maintain wire-compatibility.
+/// This duplication is intentional, but it can drift over time; if that becomes a maintenance burden,
+/// consider extracting the shared JSON-RPC message types into a common assembly referenced by both projects.
 /// </remarks>
 public class JsonRpcRequest
 {

@@ -167,6 +167,8 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
 
             requestId = request.Id;
 
+            // NOTE: This validation only checks JSON-RPC 2.0 request shape (jsonrpc/method), not caller authentication.
+            // If an API key is configured, it must be validated separately before routing (otherwise any local process can invoke methods).
             // Validate JSON-RPC format
             if (request.JsonRpc != "2.0" || string.IsNullOrEmpty(request.Method))
             {
