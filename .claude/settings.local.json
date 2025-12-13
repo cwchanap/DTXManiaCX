@@ -11,7 +11,8 @@
       "Bash(ls:*)",
       "Bash(dotnet clean:*)",
       "Bash(mgcb:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(wc:*)"
     ],
     "deny": []
   }

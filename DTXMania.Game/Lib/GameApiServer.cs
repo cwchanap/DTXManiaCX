@@ -249,6 +249,8 @@ public class GameApiServer : IDisposable, IAsyncDisposable
     /// <summary>
     /// Validate game input for security and correctness
     /// </summary>
+    // NOTE: This validation logic is duplicated in JsonRpcServer.cs. Consider extracting it into a shared validator
+    // to keep behavior consistent and avoid having to update multiple copies when the rules change.
     private static (bool IsValid, string ErrorMessage) ValidateGameInput(GameInput input)
     {
         // Validate input type
