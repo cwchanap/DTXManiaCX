@@ -373,7 +373,7 @@ namespace DTXMania.Test.Input
             Assert.True(averageTime < 1.0, $"Average update time {averageTime:F2}ms exceeds 1ms target");
         }
 
-        [Fact(Skip = "Skipped due to macOS SDL threading issue - NSMenu must be set on main thread")]
+        [Fact]
         public void StressTest_ManyBindings_HandlesEfficiently()
         {
             // Arrange - Add many bindings
