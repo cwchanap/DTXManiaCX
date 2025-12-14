@@ -152,6 +152,7 @@ public class GameApiImplementation : IGameApi
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"Game API: Error getting window info: {ex.Message}");
                 // Return safe fallback window info if access fails
                 return new GameWindowInfo
                 {

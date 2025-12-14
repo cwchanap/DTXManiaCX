@@ -56,11 +56,7 @@ namespace DTXMania.Game.Lib.Config
         private static string GenerateSecureApiKey()
         {
             // Generate 16 random bytes (128 bits of entropy) and convert to hex string
-            var randomBytes = new byte[16];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(randomBytes);
-            }
+            var randomBytes = RandomNumberGenerator.GetBytes(16);
             return Convert.ToHexString(randomBytes).ToLowerInvariant();
         }
 
