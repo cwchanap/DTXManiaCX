@@ -479,9 +479,9 @@ namespace DTXMania.Test.Stage
             
             // Mock resource manager to simulate missing resources
             _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
-                .Returns((DTX.Resources.ITexture)null);
+                .Returns((ITexture)null!);
             _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
-                .Returns((DTX.Resources.IFont)null);
+                .Returns((IFont)null!);
             
             // Act & Assert - Should handle missing resources gracefully
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
@@ -498,8 +498,8 @@ namespace DTXMania.Test.Stage
             if (_graphicsDeviceService?.GraphicsDevice == null)
             {
                 // Verify initial state without graphics
-                var stage = new SongSelectionStage(_mockGame.Object);
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+                var stageNoGfx = new SongSelectionStage(_mockGame.Object);
+                Assert.Equal(StagePhase.Inactive, stageNoGfx.CurrentPhase);
                 return;
             }
             
