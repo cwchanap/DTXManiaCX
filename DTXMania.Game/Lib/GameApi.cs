@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace DTXMania.Game.Lib;
@@ -50,7 +51,7 @@ public class GameState
 public class GameInput
 {
     public InputType Type { get; set; }
-    public object Data { get; set; } = new();
+    public JsonElement? Data { get; set; }
 }
 
 /// <summary>

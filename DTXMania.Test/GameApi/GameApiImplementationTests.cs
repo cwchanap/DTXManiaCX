@@ -2,6 +2,7 @@ using DTXMania.Game.Lib;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -104,7 +105,7 @@ namespace DTXMania.Test.GameApi
             // Arrange
             var mockApi = new Mock<IGameApi>();
             mockApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(false);
-            var input = new GameInput { Type = inputType, Data = "test" };
+            var input = new GameInput { Type = inputType, Data = JsonSerializer.SerializeToElement("test") };
 
             // Act
             var result = await mockApi.Object.SendInputAsync(input);
@@ -165,9 +166,9 @@ namespace DTXMania.Test.GameApi
         public void GameInput_DataProperty_CanHoldVariousTypes()
         {
             // Arrange & Act
-            var mouseInput = new GameInput { Type = InputType.MouseClick, Data = new { x = 100, y = 200 } };
-            var keyInput = new GameInput { Type = InputType.KeyPress, Data = "Enter" };
-            var numericInput = new GameInput { Type = InputType.KeyPress, Data = 65 };
+            var mouseInput = new GameInput { Type = InputType.MouseClick, Data = JsonSerializer.SerializeToElement(new { x = 100, y = 200 }) };
+            var keyInput = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement("Enter") };
+            var numericInput = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement(65) };
 
             // Assert
             Assert.NotNull(mouseInput.Data);

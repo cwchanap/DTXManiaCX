@@ -91,22 +91,23 @@ public class GameApiImplementation : IGameApi
         {
             // STUB: This implementation only logs inputs - it does not route them to the game.
             // MCP clients should be aware that inputs are acknowledged but not acted upon.
+            var dataText = input.Data?.GetRawText() ?? "null";
             switch (input.Type)
             {
                 case InputType.MouseClick:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse click input received (not processed): {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse click input received (not processed): {dataText}");
                     break;
 
                 case InputType.MouseMove:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse move input received (not processed): {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse move input received (not processed): {dataText}");
                     break;
 
                 case InputType.KeyPress:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key press input received (not processed): {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key press input received (not processed): {dataText}");
                     break;
 
                 case InputType.KeyRelease:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key release input received (not processed): {input.Data}");
+                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key release input received (not processed): {dataText}");
                     break;
 
                 default:
