@@ -264,20 +264,34 @@ public class GameApiServer : IDisposable, IAsyncDisposable
             case InputType.MouseClick:
             case InputType.MouseMove:
                 // For mouse input, data should contain position info
-                if (input.Data == null)
+                if (input.Data is null || input.Data.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
                     return (false, "Mouse input requires position data");
+
+                if (input.Data.Value.ValueKind != JsonValueKind.Object)
+                    return (false, "Mouse input data must be an object");
                 break;
 
             case InputType.KeyPress:
             case InputType.KeyRelease:
                 // For key input, data should contain key info
-                if (input.Data == null)
+                if (input.Data is null || input.Data.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
                     return (false, "Key input requires key data");
-                
-                // Basic sanitization - check if it's a reasonable string/number
-                var keyData = input.Data.ToString();
-                if (string.IsNullOrEmpty(keyData) || keyData.Length > 50)
+
+                if (input.Data.Value.ValueKind == JsonValueKind.String)
+                {
+                    var keyData = input.Data.Value.GetString();
+                    if (string.IsNullOrEmpty(keyData) || keyData.Length > 50)
+                        return (false, "Invalid key data format");
+                }
+                else if (input.Data.Value.ValueKind == JsonValueKind.Number)
+                {
+                    if (!input.Data.Value.TryGetInt32(out var keyCode) || keyCode < 0 || keyCode > 255)
+                        return (false, "Invalid key data format");
+                }
+                else
+                {
                     return (false, "Invalid key data format");
+                }
                 break;
 
             default:

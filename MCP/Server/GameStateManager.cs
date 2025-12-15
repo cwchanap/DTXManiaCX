@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.Logging;
 
 namespace DTXManiaCX.MCP.Server.Services;
@@ -23,9 +24,24 @@ public class GameStateManager
     /// <param name="gameState">The current game state</param>
     public void UpdateGameState(string clientId, GameState gameState)
     {
+        if (clientId is null)
+        {
+            throw new ArgumentNullException(nameof(clientId));
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new ArgumentException("clientId cannot be empty or whitespace.", nameof(clientId));
+        }
+
+        if (gameState is null)
+        {
+            throw new ArgumentNullException(nameof(gameState));
+        }
+
         lock (_lock)
         {
-            _gameStates[clientId] = gameState;
+            _gameStates[clientId] = CloneGameState(gameState);
             _logger.LogDebug("Updated game state for client {ClientId}", clientId);
         }
     }
@@ -37,9 +53,19 @@ public class GameStateManager
     /// <returns>Game state or null if not found</returns>
     public GameState? GetGameState(string clientId)
     {
+        if (clientId is null)
+        {
+            throw new ArgumentNullException(nameof(clientId));
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new ArgumentException("clientId cannot be empty or whitespace.", nameof(clientId));
+        }
+
         lock (_lock)
         {
-            return _gameStates.TryGetValue(clientId, out var state) ? state : null;
+            return _gameStates.TryGetValue(clientId, out var state) ? CloneGameState(state) : null;
         }
     }
     
@@ -53,8 +79,28 @@ public class GameStateManager
         {
             // Return a new dictionary as IReadOnlyDictionary to prevent caller modifications
             // Note: GameState objects are still mutable; callers should treat them as snapshots
-            return new Dictionary<string, GameState>(_gameStates);
+            var snapshot = new Dictionary<string, GameState>(_gameStates.Count);
+            foreach (var (clientId, state) in _gameStates)
+            {
+                snapshot[clientId] = CloneGameState(state);
+            }
+
+            return snapshot;
         }
+    }
+
+    private static GameState CloneGameState(GameState source)
+    {
+        return new GameState
+        {
+            PlayerPositionX = source.PlayerPositionX,
+            PlayerPositionY = source.PlayerPositionY,
+            Score = source.Score,
+            Level = source.Level,
+            CurrentStage = source.CurrentStage ?? string.Empty,
+            CustomData = source.CustomData is null ? new Dictionary<string, object>() : new Dictionary<string, object>(source.CustomData),
+            Timestamp = source.Timestamp,
+        };
     }
     
     /// <summary>
@@ -82,6 +128,16 @@ public class GameStateManager
     /// <param name="clientId">Unique identifier for the client</param>
     public void RemoveClient(string clientId)
     {
+        if (clientId is null)
+        {
+            throw new ArgumentNullException(nameof(clientId));
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new ArgumentException("clientId cannot be empty or whitespace.", nameof(clientId));
+        }
+
         lock (_lock)
         {
             if (_gameStates.Remove(clientId))

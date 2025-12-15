@@ -3,15 +3,19 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DTXMania.Game.Lib.Config
 {
     public class ConfigManager : IConfigManager
     {
+        private readonly ILogger<ConfigManager> _logger;
         public ConfigData Config { get; private set; }
 
-        public ConfigManager()
+        public ConfigManager(ILogger<ConfigManager>? logger = null)
         {
+            _logger = logger ?? NullLogger<ConfigManager>.Instance;
             Config = new ConfigData();
         }
 
@@ -43,9 +47,21 @@ namespace DTXMania.Game.Lib.Config
             // Security: If Game API is enabled but no API key is set, generate one and save
             if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
             {
-                Config.GameApiKey = GenerateSecureApiKey();
-                SaveConfig(filePath);
-                System.Diagnostics.Debug.WriteLine($"Generated new API key for Game API. Key saved to config file.");
+                var previousApiKey = Config.GameApiKey;
+                var generatedApiKey = GenerateSecureApiKey();
+                Config.GameApiKey = generatedApiKey;
+
+                try
+                {
+                    SaveConfig(filePath);
+                    _logger.LogInformation("Generated a new API key for Game API and saved it to the config file.");
+                }
+                catch (Exception ex)
+                {
+                    Config.GameApiKey = previousApiKey;
+                    _logger.LogError(ex, "Failed to save generated Game API key to config file: {ErrorMessage}", ex.Message);
+                    return;
+                }
             }
         }
 
