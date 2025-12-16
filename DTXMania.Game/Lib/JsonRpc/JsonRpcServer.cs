@@ -159,7 +159,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             if (!string.IsNullOrEmpty(_apiKey))
             {
                 var providedKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
-                if (providedKey != _apiKey)
+                if (string.IsNullOrEmpty(providedKey) || !ConstantTimeEquals(providedKey, _apiKey))
                 {
                     context.Response.StatusCode = 401;
                     response = CreateErrorResponse(null, JsonRpcErrorCodes.InvalidRequest, 
@@ -437,6 +437,20 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         context.Response.ContentType = "application/json";
         var json = JsonSerializer.Serialize(response, _jsonOptions);
         await context.Response.WriteAsync(json);
+    }
+
+    private static bool ConstantTimeEquals(string a, string b)
+    {
+        if (a.Length != b.Length)
+            return false;
+
+        var diff = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            diff |= a[i] ^ b[i];
+        }
+
+        return diff == 0;
     }
 
     /// <summary>
