@@ -27,6 +27,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     private bool _isRunning;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly SemaphoreSlim _lifecycleSemaphore = new SemaphoreSlim(1, 1);
 
     public JsonRpcServer(IGameApi gameApi, int port = 8080, string apiKey = "", ILogger<JsonRpcServer>? logger = null)
     {
@@ -54,59 +55,93 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Optional cancellation token to stop server startup</param>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_isRunning)
-            return;
-
-        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
+        await _lifecycleSemaphore.WaitAsync(cancellationToken);
         try
         {
-            _host = Host.CreateDefaultBuilder()
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    webBuilder.UseKestrel(options =>
+            if (_isRunning)
+                return;
+
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            try
+            {
+                _host = Host.CreateDefaultBuilder()
+                    .ConfigureWebHostDefaults(webBuilder =>
                     {
-                        options.Listen(IPAddress.Loopback, _port);
-                    });
-                    webBuilder.Configure(app =>
-                    {
-                        app.UseRouting();
-                        app.UseEndpoints(endpoints =>
+                        webBuilder.UseKestrel(options =>
                         {
-                            endpoints.MapPost("/jsonrpc", HandleJsonRpcRequest);
-                            
-                            endpoints.MapGet("/health", async context =>
+                            options.Listen(IPAddress.Loopback, _port);
+                        });
+                        webBuilder.Configure(app =>
+                        {
+                            app.UseRouting();
+                            app.UseEndpoints(endpoints =>
                             {
-                                var response = new
+                                endpoints.MapPost("/jsonrpc", HandleJsonRpcRequest);
+                                
+                                endpoints.MapGet("/health", async context =>
                                 {
-                                    status = "ok",
-                                    protocol = "JSON-RPC 2.0",
-                                    game_running = _gameApi.IsRunning,
-                                    timestamp = DateTime.UtcNow
-                                };
-                                context.Response.ContentType = "application/json";
-                                await context.Response.WriteAsync(JsonSerializer.Serialize(response, _jsonOptions));
+                                    var response = new
+                                    {
+                                        status = "ok",
+                                        protocol = "JSON-RPC 2.0",
+                                        game_running = _gameApi.IsRunning,
+                                        timestamp = DateTime.UtcNow
+                                    };
+                                    context.Response.ContentType = "application/json";
+                                    await context.Response.WriteAsync(JsonSerializer.Serialize(response, _jsonOptions));
+                                });
                             });
                         });
-                    });
-                })
-                .ConfigureServices(services =>
+                    })
+                    .ConfigureServices(services =>
+                    {
+                        services.AddRouting();
+                    })
+                    .Build();
+
+                await _host.StartAsync(_cancellationTokenSource.Token);
+                _isRunning = true;
+
+                System.Diagnostics.Debug.WriteLine($"JSON-RPC server started on http://localhost:{_port}/jsonrpc");
+                _logger?.LogInformation("JSON-RPC server started on port {Port}", _port);
+            }
+            catch (Exception ex)
+            {
+                _isRunning = false;
+
+                try
                 {
-                    services.AddRouting();
-                })
-                .Build();
+                    _cancellationTokenSource?.Cancel();
+                }
+                catch
+                {
+                }
 
-            await _host.StartAsync(_cancellationTokenSource.Token);
-            _isRunning = true;
+                try
+                {
+                    if (_host != null)
+                    {
+                        await _host.StopAsync();
+                        _host.Dispose();
+                        _host = null;
+                    }
+                }
+                catch
+                {
+                }
 
-            System.Diagnostics.Debug.WriteLine($"JSON-RPC server started on http://localhost:{_port}/jsonrpc");
-            _logger?.LogInformation("JSON-RPC server started on port {Port}", _port);
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+
+                System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
+                _logger?.LogError(ex, "Failed to start JSON-RPC server");
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
-            _logger?.LogError(ex, "Failed to start JSON-RPC server");
-            throw;
+            _lifecycleSemaphore.Release();
         }
     }
 
@@ -409,28 +444,42 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task StopAsync()
     {
-        if (!_isRunning)
-            return;
-
+        await _lifecycleSemaphore.WaitAsync();
         try
         {
-            _cancellationTokenSource?.Cancel();
+            if (!_isRunning)
+                return;
 
-            if (_host != null)
+            try
             {
-                await _host.StopAsync();
-                _host.Dispose();
-                _host = null;
-            }
+                _cancellationTokenSource?.Cancel();
 
-            _isRunning = false;
-            System.Diagnostics.Debug.WriteLine("JSON-RPC server stopped");
-            _logger?.LogInformation("JSON-RPC server stopped");
+                if (_host != null)
+                {
+                    await _host.StopAsync();
+                    _host.Dispose();
+                    _host = null;
+                }
+
+                _isRunning = false;
+                System.Diagnostics.Debug.WriteLine("JSON-RPC server stopped");
+                _logger?.LogInformation("JSON-RPC server stopped");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error stopping JSON-RPC server: {ex.Message}");
+                _logger?.LogError(ex, "Error stopping JSON-RPC server");
+                throw;
+            }
+            finally
+            {
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            System.Diagnostics.Debug.WriteLine($"Error stopping JSON-RPC server: {ex.Message}");
-            _logger?.LogError(ex, "Error stopping JSON-RPC server");
+            _lifecycleSemaphore.Release();
         }
     }
 
