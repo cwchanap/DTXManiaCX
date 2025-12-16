@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 
 namespace DTXMania.Game.Lib;
@@ -12,10 +13,12 @@ public class GameApiImplementation : IGameApi
 {
     private readonly BaseGame _game;
     private readonly object _lock = new object();
+    private readonly ILogger<GameApiImplementation>? _logger;
 
-    public GameApiImplementation(BaseGame game)
+    public GameApiImplementation(BaseGame game, ILogger<GameApiImplementation>? logger = null)
     {
         _game = game ?? throw new ArgumentNullException(nameof(game));
+        _logger = logger;
     }
 
     public bool IsRunning => true; // Game is running if this instance exists
@@ -54,6 +57,7 @@ public class GameApiImplementation : IGameApi
             }
             catch (Exception ex)
             {
+                _logger?.LogError(ex, "Error getting game state");
                 // Return safe fallback state if game state access fails
                 return new GameState
                 {
@@ -64,13 +68,18 @@ public class GameApiImplementation : IGameApi
                     CurrentStage = "Error",
                     CustomData = new Dictionary<string, object>
                     {
-                        ["error"] = ex.Message,
+                        ["error"] = SanitizeExceptionMessage(ex),
                         ["game_name"] = "DTXManiaCX"
                     },
                     Timestamp = DateTime.UtcNow
                 };
             }
         }
+    }
+
+    private static string SanitizeExceptionMessage(Exception ex)
+    {
+        return $"Internal error ({ex.GetType().Name})";
     }
 
     /// <summary>
