@@ -3,19 +3,27 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Game.Lib;
+
+public interface IGameContext
+{
+    IStageManager? StageManager { get; }
+    IConfigManager? ConfigManager { get; }
+}
 
 /// <summary>
 /// Implementation of IGameApi for the DTXMania game
 /// </summary>
 public class GameApiImplementation : IGameApi
 {
-    private readonly BaseGame _game;
+    private readonly IGameContext _game;
     private readonly object _lock = new object();
     private readonly ILogger<GameApiImplementation>? _logger;
 
-    public GameApiImplementation(BaseGame game, ILogger<GameApiImplementation>? logger = null)
+    public GameApiImplementation(IGameContext game, ILogger<GameApiImplementation>? logger = null)
     {
         _game = game ?? throw new ArgumentNullException(nameof(game));
         _logger = logger;

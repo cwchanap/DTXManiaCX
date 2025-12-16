@@ -1,4 +1,7 @@
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Stage;
+using Microsoft.Extensions.Logging;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -9,9 +12,10 @@ using Xunit;
 namespace DTXMania.Test.GameApi
 {
     /// <summary>
-    /// Unit tests for GameApiImplementation.
-    /// Uses a mock IGameApi to test the interface contract without MonoGame dependencies.
-    /// Integration tests with actual BaseGame would require graphics context.
+    /// Unit tests for Game API-related types.
+    /// Most tests in this file validate the IGameApi interface contract and models using Moq,
+    /// and do not exercise the real GameApiImplementation behavior because it depends on BaseGame/MonoGame.
+    /// Integration tests against GameApiImplementation would require a graphics-capable BaseGame fixture.
     /// </summary>
     public class GameApiImplementationTests
     {
@@ -27,70 +31,60 @@ namespace DTXMania.Test.GameApi
 
         #endregion
 
-        #region IGameApi Interface Tests (using mock)
+        #region GameApiImplementation Tests
 
         [Fact]
-        public void IGameApi_IsRunning_CanBeQueried()
+        public void IsRunning_ShouldReturnTrue()
         {
-            // Arrange
-            var mockApi = new Mock<IGameApi>();
-            mockApi.Setup(api => api.IsRunning).Returns(true);
+            var gameContext = new Mock<IGameContext>();
+            var api = new GameApiImplementation(gameContext.Object);
 
-            // Act & Assert
-            Assert.True(mockApi.Object.IsRunning);
+            Assert.True(api.IsRunning);
         }
 
         [Fact]
-        public async Task IGameApi_GetGameStateAsync_ReturnsGameState()
+        public async Task GetGameStateAsync_WithStageAndConfig_ShouldPopulateFields()
         {
-            // Arrange
-            var mockApi = new Mock<IGameApi>();
-            var expectedState = new GameState
-            {
-                PlayerPositionX = 100,
-                PlayerPositionY = 200,
-                Score = 1000,
-                Level = 5,
-                CurrentStage = "TestStage",
-                Timestamp = DateTime.UtcNow
-            };
-            mockApi.Setup(api => api.GetGameStateAsync()).ReturnsAsync(expectedState);
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Title);
+            stage.Setup(s => s.ToString()).Returns("Title");
 
-            // Act
-            var result = await mockApi.Object.GetGameStateAsync();
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
 
-            // Assert
+            var configManager = new Mock<IConfigManager>();
+            configManager.SetupGet(cm => cm.Config).Returns(new ConfigData { ScreenWidth = 1234, ScreenHeight = 567 });
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+            gameContext.SetupGet(g => g.ConfigManager).Returns(configManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.GetGameStateAsync();
+
             Assert.NotNull(result);
-            Assert.Equal(100, result.PlayerPositionX);
-            Assert.Equal(200, result.PlayerPositionY);
-            Assert.Equal(1000, result.Score);
-            Assert.Equal(5, result.Level);
-            Assert.Equal("TestStage", result.CurrentStage);
+            Assert.Equal("Title", result.CurrentStage);
+            Assert.Equal("DTXManiaCX", result.CustomData["game_name"]);
+            Assert.Equal(1234, (int)result.CustomData["config_screen_width"]);
+            Assert.Equal(567, (int)result.CustomData["config_screen_height"]);
         }
 
         [Fact]
-        public async Task IGameApi_GetWindowInfoAsync_ReturnsWindowInfo()
+        public async Task GetWindowInfoAsync_WithConfig_ShouldUseConfiguredSize()
         {
-            // Arrange
-            var mockApi = new Mock<IGameApi>();
-            var expectedInfo = new GameWindowInfo
-            {
-                Width = 1920,
-                Height = 1080,
-                X = 0,
-                Y = 0,
-                Title = "DTXManiaCX",
-                IsVisible = true
-            };
-            mockApi.Setup(api => api.GetWindowInfoAsync()).ReturnsAsync(expectedInfo);
+            var configManager = new Mock<IConfigManager>();
+            configManager.SetupGet(cm => cm.Config).Returns(new ConfigData { ScreenWidth = 800, ScreenHeight = 600 });
 
-            // Act
-            var result = await mockApi.Object.GetWindowInfoAsync();
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.ConfigManager).Returns(configManager.Object);
 
-            // Assert
-            Assert.NotNull(result);
-            Assert.Equal(1920, result.Width);
-            Assert.Equal(1080, result.Height);
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.GetWindowInfoAsync();
+
+            Assert.Equal(800, result.Width);
+            Assert.Equal(600, result.Height);
             Assert.Equal("DTXManiaCX", result.Title);
             Assert.True(result.IsVisible);
         }
@@ -100,18 +94,40 @@ namespace DTXMania.Test.GameApi
         [InlineData(InputType.MouseMove)]
         [InlineData(InputType.KeyPress)]
         [InlineData(InputType.KeyRelease)]
-        public async Task IGameApi_SendInputAsync_AcceptsAllInputTypes(InputType inputType)
+        public async Task SendInputAsync_ShouldReturnFalse_ForSupportedInputTypes(InputType inputType)
         {
-            // Arrange
-            var mockApi = new Mock<IGameApi>();
-            mockApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(false);
+            var gameContext = new Mock<IGameContext>();
+            var api = new GameApiImplementation(gameContext.Object);
+
             var input = new GameInput { Type = inputType, Data = JsonSerializer.SerializeToElement("test") };
+            var result = await api.SendInputAsync(input);
 
-            // Act
-            var result = await mockApi.Object.SendInputAsync(input);
+            Assert.False(result);
+        }
 
-            // Assert
-            mockApi.Verify(api => api.SendInputAsync(It.Is<GameInput>(i => i.Type == inputType)), Times.Once);
+        [Fact]
+        public async Task GetGameStateAsync_WhenContextThrows_ShouldReturnSanitizedError_AndLog()
+        {
+            var logger = new Mock<ILogger<GameApiImplementation>>();
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Throws(new InvalidOperationException("secret"));
+
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+
+            var result = await api.GetGameStateAsync();
+
+            Assert.Equal("Error", result.CurrentStage);
+            Assert.True(result.CustomData.TryGetValue("error", out var errorValue));
+            Assert.Equal("Internal error (InvalidOperationException)", errorValue);
+
+            logger.Verify(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString() == "Error getting game state"),
+                It.IsAny<InvalidOperationException>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
 
         #endregion
@@ -223,20 +239,18 @@ namespace DTXMania.Test.GameApi
         #region Thread Safety Tests (using mock)
 
         [Fact]
-        public async Task IGameApi_MultipleConcurrentCalls_ShouldNotThrow()
+        public async Task MultipleConcurrentCalls_ShouldNotThrow()
         {
-            // Arrange
-            var mockApi = new Mock<IGameApi>();
-            mockApi.Setup(api => api.GetGameStateAsync()).ReturnsAsync(new GameState());
-            mockApi.Setup(api => api.GetWindowInfoAsync()).ReturnsAsync(new GameWindowInfo());
+            var gameContext = new Mock<IGameContext>();
+            var api = new GameApiImplementation(gameContext.Object);
 
             var tasks = new List<Task>();
 
             // Act
             for (int i = 0; i < 10; i++)
             {
-                tasks.Add(mockApi.Object.GetGameStateAsync());
-                tasks.Add(mockApi.Object.GetWindowInfoAsync());
+                tasks.Add(api.GetGameStateAsync());
+                tasks.Add(api.GetWindowInfoAsync());
             }
 
             // Assert - should complete without throwing
