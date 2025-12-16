@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 namespace DTXMania.Game;
 
 
-public class BaseGame : Microsoft.Xna.Framework.Game
+public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 {
     private GraphicsDeviceManager _graphicsDeviceManager;
     private IGraphicsManager _graphicsManager;
