@@ -8,6 +8,8 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,7 +72,19 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                             if (!string.IsNullOrEmpty(_apiKey))
                             {
                                 var providedKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
-                                if (providedKey != _apiKey)
+                                var providedKeyBytes = Encoding.UTF8.GetBytes(providedKey ?? string.Empty);
+                                var apiKeyBytes = Encoding.UTF8.GetBytes(_apiKey ?? string.Empty);
+
+                                var maxLength = Math.Max(providedKeyBytes.Length, apiKeyBytes.Length);
+                                var providedKeyPadded = new byte[maxLength];
+                                var apiKeyPadded = new byte[maxLength];
+                                Buffer.BlockCopy(providedKeyBytes, 0, providedKeyPadded, 0, providedKeyBytes.Length);
+                                Buffer.BlockCopy(apiKeyBytes, 0, apiKeyPadded, 0, apiKeyBytes.Length);
+
+                                var isMatch = CryptographicOperations.FixedTimeEquals(providedKeyPadded, apiKeyPadded);
+                                isMatch &= providedKeyBytes.Length == apiKeyBytes.Length;
+
+                                if (!isMatch)
                                 {
                                     context.Response.StatusCode = 401;
                                     await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid or missing API key" });
