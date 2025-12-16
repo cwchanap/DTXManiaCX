@@ -5,6 +5,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -22,6 +23,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
     private IGraphicsManager _graphicsManager;
     private SpriteBatch _spriteBatch;
     private RenderTarget2D _renderTarget;
+    private readonly ILoggerFactory _loggerFactory;
 
     public IStageManager StageManager { get; protected set; }
     public IConfigManager ConfigManager { get; protected set; }
@@ -61,6 +63,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game
         _graphicsDeviceManager = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
+
+        _loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+        });
     }
 
     protected override void Initialize()
@@ -131,8 +138,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             }
             else
             {
-                _gameApiImplementation = new GameApiImplementation(this);
-                _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey);
+                _gameApiImplementation = new GameApiImplementation(this, _loggerFactory.CreateLogger<GameApiImplementation>());
+                _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey, _loggerFactory.CreateLogger<JsonRpcServer>());
                 _gameApiCancellation = new CancellationTokenSource();
                 
                 // Start API server with proper error handling
@@ -350,6 +357,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game
             // Dispose other resources
             _spriteBatch?.Dispose();
             _renderTarget?.Dispose();
+            _loggerFactory.Dispose();
         }
         base.Dispose(disposing);
     }
