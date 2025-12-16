@@ -85,7 +85,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                                     {
                                         status = "ok",
                                         protocol = "JSON-RPC 2.0",
-                                        game_running = _gameApi.IsRunning,
+                                        gameRunning = _gameApi.IsRunning,
                                         timestamp = DateTime.UtcNow
                                     };
                                     context.Response.ContentType = "application/json";
@@ -131,11 +131,12 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 {
                 }
 
+                System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
+                _logger?.LogError(ex, "Failed to start JSON-RPC server");
+
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
 
-                System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
-                _logger?.LogError(ex, "Failed to start JSON-RPC server");
                 throw;
             }
         }
