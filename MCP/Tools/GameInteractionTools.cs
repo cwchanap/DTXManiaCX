@@ -249,12 +249,12 @@ public class GameInteractionTools
     {
         try
         {
-            var clientId = arguments.GetProperty("client_id").GetString()!;
+            var clientId = arguments.GetProperty("client_id").GetString()
+                ?? throw new ArgumentException("client_id cannot be null");
             var x = arguments.GetProperty("x").GetInt32();
             var y = arguments.GetProperty("y").GetInt32();
             var button = arguments.TryGetProperty("button", out var buttonProp) ? 
-                buttonProp.GetString() ?? "left" : "left";
-            
+                buttonProp.GetString() ?? "left" : "left";            
             var (success, message) = await _gameInteractionService.ClickAsync(clientId, x, y, button);
             
             return new ToolExecutionResult

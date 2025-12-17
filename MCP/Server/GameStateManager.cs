@@ -106,21 +106,29 @@ public class GameStateManager
     /// <summary>
     /// Process pending game state updates
     /// </summary>
-    public async Task ProcessUpdatesAsync(CancellationToken cancellationToken)
+    public Task ProcessUpdatesAsync(CancellationToken cancellationToken)
     {
         var states = GetAllGameStates();
         
         foreach (var (clientId, gameState) in states)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            _logger.LogDebug("Processing game state for client {ClientId}: Position=({X}, {Y}), Score={Score}",
-                clientId, gameState.PlayerPositionX, gameState.PlayerPositionY, gameState.Score);
-            
-            // TODO: Implement actual processing logic
-            // This could include AI analysis, game recommendations, etc.
+
+            try
+            {
+                _logger.LogDebug("Processing game state for client {ClientId}: Position=({X}, {Y}), Score={Score}",
+                    clientId, gameState.PlayerPositionX, gameState.PlayerPositionY, gameState.Score);
+                
+                // TODO: Implement actual processing logic
+                // This could include AI analysis, game recommendations, etc.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing game state for client {ClientId}", clientId);
+            }
         }
-        
-        await Task.CompletedTask;
+
+        return Task.CompletedTask;
     }
     
     /// <summary>
