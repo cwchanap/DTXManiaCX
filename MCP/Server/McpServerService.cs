@@ -5,7 +5,7 @@ using DTXManiaCX.MCP.Server.Tools;
 namespace DTXManiaCX.MCP.Server.Services;
 
 /// <summary>
-/// Main MCP server service that handles client connections and requests
+/// Background worker that performs periodic MCP maintenance/update processing (every 5 seconds).
 /// </summary>
 public class McpServerService : BackgroundService
 {
@@ -36,7 +36,7 @@ public class McpServerService : BackgroundService
                 _logger.LogInformation("MCP Server running at: {time}", DateTimeOffset.Now);
                 
                 // Simulate processing game state updates
-                await _gameStateManager.ProcessUpdatesAsync();
+                await _gameStateManager.ProcessUpdatesAsync(stoppingToken);
                 
                 await Task.Delay(5000, stoppingToken);
             }

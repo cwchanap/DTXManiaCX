@@ -106,12 +106,13 @@ public class GameStateManager
     /// <summary>
     /// Process pending game state updates
     /// </summary>
-    public async Task ProcessUpdatesAsync()
+    public async Task ProcessUpdatesAsync(CancellationToken cancellationToken)
     {
         var states = GetAllGameStates();
         
         foreach (var (clientId, gameState) in states)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogDebug("Processing game state for client {ClientId}: Position=({X}, {Y}), Score={Score}",
                 clientId, gameState.PlayerPositionX, gameState.PlayerPositionY, gameState.Score);
             

@@ -60,7 +60,8 @@ namespace DTXMania.Test.JsonRpc
             _server = new JsonRpcServer(_mockGameApi.Object, port: 9090);
 
             // Assert
-            Assert.Contains("9090", _server.GetServerUrl());
+            var uri = new Uri(_server.GetServerUrl());
+            Assert.Equal(9090, uri.Port);
         }
 
         [Fact]
@@ -70,7 +71,8 @@ namespace DTXMania.Test.JsonRpc
             _server = new JsonRpcServer(_mockGameApi.Object);
 
             // Assert
-            Assert.Contains("8080", _server.GetServerUrl());
+            var uri = new Uri(_server.GetServerUrl());
+            Assert.Equal(8080, uri.Port);
         }
 
         #endregion
