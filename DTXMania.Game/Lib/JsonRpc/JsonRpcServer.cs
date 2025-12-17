@@ -25,6 +25,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     private readonly string _apiKey;
     private IHost? _host;
     private bool _isRunning;
+    private bool _disposed;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly SemaphoreSlim _lifecycleSemaphore = new SemaphoreSlim(1, 1);
@@ -55,9 +56,11 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Optional cancellation token to stop server startup</param>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        await _lifecycleSemaphore.WaitAsync(cancellationToken);
+        ThrowIfDisposed();
+        await _lifecycleSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfDisposed();
             if (_isRunning)
                 return;
 
@@ -100,7 +103,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                     })
                     .Build();
 
-                await _host.StartAsync(_cancellationTokenSource.Token);
+                await _host.StartAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
                 _isRunning = true;
 
                 System.Diagnostics.Debug.WriteLine($"JSON-RPC server started on http://localhost:{_port}/jsonrpc");
@@ -122,7 +125,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 {
                     if (_host != null)
                     {
-                        await _host.StopAsync();
+                        await _host.StopAsync().ConfigureAwait(false);
                         _host.Dispose();
                         _host = null;
                     }
@@ -459,9 +462,11 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task StopAsync()
     {
-        await _lifecycleSemaphore.WaitAsync();
+        ThrowIfDisposed();
+        await _lifecycleSemaphore.WaitAsync().ConfigureAwait(false);
         try
         {
+            ThrowIfDisposed();
             if (!_isRunning)
                 return;
 
@@ -471,12 +476,13 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
 
                 if (_host != null)
                 {
-                    await _host.StopAsync();
+                    await _host.StopAsync().ConfigureAwait(false);
                     _host.Dispose();
                     _host = null;
                 }
 
                 _isRunning = false;
+
                 System.Diagnostics.Debug.WriteLine("JSON-RPC server stopped");
                 _logger?.LogInformation("JSON-RPC server stopped");
             }
@@ -498,6 +504,59 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         }
     }
 
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(JsonRpcServer));
+    }
+
+    private static void CancelNoThrow(CancellationTokenSource? cancellationTokenSource)
+    {
+        if (cancellationTokenSource == null)
+            return;
+
+        try
+        {
+            cancellationTokenSource.Cancel();
+        }
+        catch
+        {
+        }
+    }
+
+    private void DisposeManagedResourcesSynchronously_NoLock()
+    {
+        CancelNoThrow(_cancellationTokenSource);
+
+        _host?.Dispose();
+        _host = null;
+
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        _isRunning = false;
+    }
+
+    private async Task StopAndDisposeHostAsync_NoLock()
+    {
+        CancelNoThrow(_cancellationTokenSource);
+
+        if (_host != null)
+        {
+            try
+            {
+                await _host.StopAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _host.Dispose();
+                _host = null;
+            }
+        }
+
+        _isRunning = false;
+    }
+
     /// <summary>
     /// Get the server URL
     /// </summary>
@@ -516,13 +575,26 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_isRunning)
+        if (_disposed)
+            return;
+
+        await _lifecycleSemaphore.WaitAsync().ConfigureAwait(false);
+        try
         {
-            await StopAsync();
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            await StopAndDisposeHostAsync_NoLock().ConfigureAwait(false);
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+        }
+        finally
+        {
+            _lifecycleSemaphore.Release();
         }
 
-        _cancellationTokenSource?.Dispose();
-        _host?.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -530,6 +602,30 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// </summary>
     public void Dispose()
     {
-        DisposeAsync().AsTask().GetAwaiter().GetResult();
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposing)
+            return;
+
+        if (_disposed)
+            return;
+
+        _lifecycleSemaphore.Wait();
+        try
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            DisposeManagedResourcesSynchronously_NoLock();
+        }
+        finally
+        {
+            _lifecycleSemaphore.Release();
+        }
     }
 }

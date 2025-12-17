@@ -78,8 +78,9 @@ public class JsonRpcClient : IDisposable
             await SendRequestAsync(request);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger?.LogError(ex, "SendNotificationAsync failed for method {Method}", method);
             return false;
         }
     }

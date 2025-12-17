@@ -31,10 +31,12 @@ class Program
         
         var services = new ServiceCollection();
         ConfigureServices(services);
-        var serviceProvider = services.BuildServiceProvider();
-        
-        var testConsole = serviceProvider.GetRequiredService<GameInteractionTestConsole>();
-        await testConsole.RunTestsAsync();
+        using (var serviceProvider = services.BuildServiceProvider())
+        {
+            using var scope = serviceProvider.CreateScope();
+            var testConsole = scope.ServiceProvider.GetRequiredService<GameInteractionTestConsole>();
+            await testConsole.RunTestsAsync();
+        }
         
         if (!Environment.UserInteractive || System.Console.IsInputRedirected)
         {
