@@ -27,7 +27,6 @@ public class GameInteractionOptions
 public class GameInteractionService : IDisposable
 {
     private readonly ILogger<GameInteractionService> _logger;
-    private readonly GameStateManager _gameStateManager;
     private readonly JsonRpcClient _jsonRpcClient;
     private readonly string _gameApiUrl;
     private static readonly JsonSerializerOptions ResponseDeserializationOptions = new()
@@ -35,10 +34,9 @@ public class GameInteractionService : IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    public GameInteractionService(ILogger<GameInteractionService> logger, GameStateManager gameStateManager, GameInteractionOptions? options = null)
+    public GameInteractionService(ILogger<GameInteractionService> logger, GameInteractionOptions? options = null)
     {
         _logger = logger;
-        _gameStateManager = gameStateManager;
         
         options ??= new GameInteractionOptions();
         _gameApiUrl = options.GameApiUrl;

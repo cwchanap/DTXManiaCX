@@ -93,7 +93,7 @@ public class JsonRpcClient : IDisposable
         try
         {
             var json = JsonSerializer.Serialize(request, _jsonOptions);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Add API key header if configured
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _serverUrl)
