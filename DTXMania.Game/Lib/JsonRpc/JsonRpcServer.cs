@@ -472,16 +472,36 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
 
             try
             {
-                _cancellationTokenSource?.Cancel();
+                try
+                {
+                    _cancellationTokenSource?.Cancel();
+                }
+                catch
+                {
+                }
 
                 if (_host != null)
                 {
-                    await _host.StopAsync().ConfigureAwait(false);
-                    _host.Dispose();
-                    _host = null;
+                    try
+                    {
+                        await _host.StopAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            _host.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError(ex, "Error disposing JSON-RPC server host");
+                        }
+                        finally
+                        {
+                            _host = null;
+                        }
+                    }
                 }
-
-                _isRunning = false;
 
                 System.Diagnostics.Debug.WriteLine("JSON-RPC server stopped");
                 _logger?.LogInformation("JSON-RPC server stopped");
@@ -494,8 +514,22 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             }
             finally
             {
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
+                if (_cancellationTokenSource != null)
+                {
+                    try
+                    {
+                        _cancellationTokenSource.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Error disposing JSON-RPC server cancellation token source");
+                    }
+                    finally
+                    {
+                        _cancellationTokenSource = null;
+                    }
+                }
+                _isRunning = false;
             }
         }
         finally

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Server.Services;
@@ -34,13 +35,13 @@ public class GameInteractionService : IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    public GameInteractionService(ILogger<GameInteractionService> logger, GameInteractionOptions? options = null)
+    public GameInteractionService(ILogger<GameInteractionService> logger, ILoggerFactory loggerFactory, GameInteractionOptions? options = null)
     {
         _logger = logger;
         
         options ??= new GameInteractionOptions();
         _gameApiUrl = options.GameApiUrl;
-        _jsonRpcClient = new JsonRpcClient(_gameApiUrl, options.GameApiKey, logger as ILogger<JsonRpcClient>);
+        _jsonRpcClient = new JsonRpcClient(_gameApiUrl, options.GameApiKey, loggerFactory.CreateLogger<JsonRpcClient>());
     }
 
     /// <summary>
@@ -55,6 +56,48 @@ public class GameInteractionService : IDisposable
         public int Width { get; set; }
         public int Height { get; set; }
     }
+
+    private Task<(bool Success, string Message)> SendInputAsync(string methodName, object inputParams, string clientId, string successMessage)
+    {
+        return SendInputAsync(methodName, inputParams, clientId, successMessage, CancellationToken.None);
+    }
+
+    private async Task<(bool Success, string Message)> SendInputAsync(string methodName, object inputParams, string clientId, string successMessage, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _jsonRpcClient.SendRequestAsync(methodName, inputParams, cancellationToken);
+
+            if (response.Result is not JsonElement resultElement)
+            {
+                return (false, "No result returned from game");
+            }
+
+            if (!resultElement.TryGetProperty("success", out var successProperty))
+            {
+                return (false, "No result returned from game");
+            }
+
+            var success = successProperty.GetBoolean();
+            if (success)
+            {
+                _logger.LogInformation("Successfully sent {Method} input to game", methodName);
+                return (true, successMessage);
+            }
+
+            return (false, "Game rejected the input");
+        }
+        catch (JsonRpcException ex)
+        {
+            _logger.LogError(ex, "JSON-RPC error sending {Method} input for client {ClientId}", methodName, clientId);
+            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending {Method} input for client {ClientId}", methodName, clientId);
+            return (false, $"Error: {ex.Message}");
+        }
+    }
     
     /// <summary>
     /// Click at a specific position in a game window via JSON-RPC
@@ -64,10 +107,11 @@ public class GameInteractionService : IDisposable
     /// <param name="y">Y coordinate (relative to game window)</param>
     /// <param name="button">Mouse button to click (left, right, middle)</param>
     /// <returns>Success status and any error message</returns>
-    public async Task<(bool Success, string Message)> ClickAsync(string clientId, int x, int y, string button = "left")
+    public async Task<(bool Success, string Message)> ClickAsync(string clientId, int x, int y, string button = "left", CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Attempting to click at position ({X}, {Y}) for client {ClientId}", x, y, clientId);
 
             var inputParams = new
@@ -82,7 +126,7 @@ public class GameInteractionService : IDisposable
                 }
             };
 
-            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
+            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams, cancellationToken);
             
             if (response.Result != null)
             {
@@ -124,58 +168,28 @@ public class GameInteractionService : IDisposable
     /// <param name="endY">Ending Y coordinate</param>
     /// <param name="durationMs">Duration of the drag in milliseconds</param>
     /// <returns>Success status and any error message</returns>
-    public async Task<(bool Success, string Message)> DragAsync(string clientId, int startX, int startY, int endX, int endY, int durationMs = 500)
+    public async Task<(bool Success, string Message)> DragAsync(string clientId, int startX, int startY, int endX, int endY, int durationMs = 500, CancellationToken cancellationToken = default)
     {
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        _logger.LogInformation("Attempting to drag from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}",
+            startX, startY, endX, endY, clientId);
+
+        var inputParams = new
         {
-            _logger.LogInformation("Attempting to drag from ({StartX}, {StartY}) to ({EndX}, {EndY}) for client {ClientId}",
-                startX, startY, endX, endY, clientId);
-
-            var inputParams = new
+            Type = 1, // MouseMove (we'll extend this to support drag)
+            Data = new
             {
-                Type = 1, // MouseMove (we'll extend this to support drag)
-                Data = new
-                {
-                    startX = startX,
-                    startY = startY,
-                    endX = endX,
-                    endY = endY,
-                    durationMs = durationMs,
-                    clientId = clientId,
-                    isDrag = true
-                }
-            };
-
-            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
-            
-            if (response.Result != null)
-            {
-                var resultElement = (JsonElement)response.Result;
-                var success = resultElement.GetProperty("success").GetBoolean();
-                
-                if (success)
-                {
-                    _logger.LogInformation("Successfully sent drag input to game");
-                    return (true, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})");
-                }
-                else
-                {
-                    return (false, "Game rejected the input");
-                }
+                startX = startX,
+                startY = startY,
+                endX = endX,
+                endY = endY,
+                durationMs = durationMs,
+                clientId = clientId,
+                isDrag = true
             }
-            
-            return (false, "No result returned from game");
-        }
-        catch (JsonRpcException ex)
-        {
-            _logger.LogError(ex, "JSON-RPC error sending drag input for client {ClientId}", clientId);
-            return (false, $"JSON-RPC Error {ex.ErrorCode}: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending drag input for client {ClientId}", clientId);
-            return (false, $"Error: {ex.Message}");
-        }
+        };
+
+        return await SendInputAsync("sendInput", inputParams, clientId, $"Successfully dragged from ({startX}, {startY}) to ({endX}, {endY})", cancellationToken);
     }
     
     /// <summary>
@@ -188,13 +202,14 @@ public class GameInteractionService : IDisposable
     /// </remarks>
     /// <param name="clientId">Client identifier used for logging context (not passed to game API).</param>
     /// <returns>Game state information.</returns>
-    public async Task<(bool Success, string Message, GameState? GameState)> GetGameStateAsync(string clientId)
+    public async Task<(bool Success, string Message, GameState? GameState)> GetGameStateAsync(string clientId, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Retrieving game state for client {ClientId}", clientId);
 
-            var response = await _jsonRpcClient.SendRequestAsync("getGameState");
+            var response = await _jsonRpcClient.SendRequestAsync("getGameState", null, cancellationToken);
             
             if (response.Result != null)
             {
@@ -222,13 +237,14 @@ public class GameInteractionService : IDisposable
     /// </summary>
     /// <param name="clientId">Game client identifier</param>
     /// <returns>Window dimensions and position</returns>
-    public async Task<(bool Success, string Message, WindowInfo? WindowRect)> GetWindowInfoAsync(string clientId)
+    public async Task<(bool Success, string Message, WindowInfo? WindowRect)> GetWindowInfoAsync(string clientId, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Retrieving window info for client {ClientId}", clientId);
 
-            var response = await _jsonRpcClient.SendRequestAsync("getWindowInfo");
+            var response = await _jsonRpcClient.SendRequestAsync("getWindowInfo", null, cancellationToken);
             
             if (response.Result != null)
             {
@@ -317,10 +333,11 @@ public class GameInteractionService : IDisposable
     /// <param name="key">Key to press (e.g., "W", "Space", "Enter")</param>
     /// <param name="holdDurationMs">How long to hold the key in milliseconds</param>
     /// <returns>Success status and any error message</returns>
-    public async Task<(bool Success, string Message)> SendKeyAsync(string clientId, string key, int holdDurationMs = 50)
+    public async Task<(bool Success, string Message)> SendKeyAsync(string clientId, string key, int holdDurationMs = 50, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Attempting to send key '{Key}' to client {ClientId}", key, clientId);
 
             var inputParams = new
@@ -334,7 +351,7 @@ public class GameInteractionService : IDisposable
                 }
             };
 
-            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams);
+            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams, cancellationToken);
             
             if (response.Result != null)
             {

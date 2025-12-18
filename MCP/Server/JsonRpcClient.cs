@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Server.Services;
@@ -58,7 +59,24 @@ public class JsonRpcClient : IDisposable
             Params = parameters
         };
 
-        return await SendRequestAsync(request);
+        return await SendRequestAsync(request, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Send a JSON-RPC request and expect a response
+    /// </summary>
+    public async Task<JsonRpcResponse> SendRequestAsync(string method, object? parameters, CancellationToken cancellationToken)
+    {
+        var requestId = Interlocked.Increment(ref _requestId);
+
+        var request = new JsonRpcRequest
+        {
+            Id = requestId,
+            Method = method,
+            Params = parameters
+        };
+
+        return await SendRequestAsync(request, cancellationToken);
     }
 
     /// <summary>
@@ -75,7 +93,7 @@ public class JsonRpcClient : IDisposable
 
         try
         {
-            await SendRequestAsync(request);
+            await SendRequestAsync(request, CancellationToken.None);
             return true;
         }
         catch (Exception ex)
@@ -88,10 +106,11 @@ public class JsonRpcClient : IDisposable
     /// <summary>
     /// Send a JSON-RPC request object
     /// </summary>
-    private async Task<JsonRpcResponse> SendRequestAsync(JsonRpcRequest request)
+    private async Task<JsonRpcResponse> SendRequestAsync(JsonRpcRequest request, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var json = JsonSerializer.Serialize(request, _jsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -109,7 +128,7 @@ public class JsonRpcClient : IDisposable
 
             // IMPORTANT: If the game server is configured to require an API key, the X-Api-Key header must be set on this request
             // (see the header assignment above). Otherwise the server will return HTTP 401 before the JSON-RPC payload is processed.
-            var httpResponse = await _httpClient.SendAsync(httpRequest);
+            var httpResponse = await _httpClient.SendAsync(httpRequest, cancellationToken);
             
             if (!httpResponse.IsSuccessStatusCode)
             {
