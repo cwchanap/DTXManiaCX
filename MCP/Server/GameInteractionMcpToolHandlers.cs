@@ -39,14 +39,27 @@ public class GameInteractionMcpToolHandlers
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (success, message) = await _interactionService.ClickAsync(client_id, x, y, button);
+
+        if (string.IsNullOrWhiteSpace(client_id))
+        {
+            return BuildResult(false, "client_id cannot be null, empty, or whitespace.", new { action = "click" });
+        }
+
+        var normalizedButton = button?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedButton) ||
+            (normalizedButton != "left" && normalizedButton != "right" && normalizedButton != "middle"))
+        {
+            return BuildResult(false, "button must be one of: left, right, middle.", new { action = "click", client_id, button });
+        }
+
+        var (success, message) = await _interactionService.ClickAsync(client_id, x, y, normalizedButton, cancellationToken);
 
         var payload = new
         {
             action = "click",
             client_id,
             coordinates = new { x, y },
-            button
+            button = normalizedButton
         };
 
         return BuildResult(success, message, payload);
@@ -63,7 +76,18 @@ public class GameInteractionMcpToolHandlers
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (success, message) = await _interactionService.DragAsync(client_id, start_x, start_y, end_x, end_y, duration_ms);
+
+        if (string.IsNullOrWhiteSpace(client_id))
+        {
+            return BuildResult(false, "client_id is required", null);
+        }
+
+        if (duration_ms <= 0)
+        {
+            return BuildResult(false, "duration_ms must be a positive value", new { action = "drag", client_id, duration_ms });
+        }
+
+        var (success, message) = await _interactionService.DragAsync(client_id, start_x, start_y, end_x, end_y, duration_ms, cancellationToken);
 
         var payload = new
         {
@@ -83,7 +107,13 @@ public class GameInteractionMcpToolHandlers
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (success, message, state) = await _interactionService.GetGameStateAsync(client_id);
+
+        if (string.IsNullOrWhiteSpace(client_id))
+        {
+            return BuildResult(false, "client_id is required", null);
+        }
+
+        var (success, message, state) = await _interactionService.GetGameStateAsync(client_id, cancellationToken);
 
         var payload = new
         {
@@ -100,7 +130,13 @@ public class GameInteractionMcpToolHandlers
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (success, message, window) = await _interactionService.GetWindowInfoAsync(client_id);
+
+        if (string.IsNullOrWhiteSpace(client_id))
+        {
+            return BuildResult(false, "client_id is required", null);
+        }
+
+        var (success, message, window) = await _interactionService.GetWindowInfoAsync(client_id, cancellationToken);
 
         var payload = new
         {
@@ -137,7 +173,33 @@ public class GameInteractionMcpToolHandlers
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (success, message) = await _interactionService.SendKeyAsync(client_id, key, hold_duration_ms);
+
+        if (client_id is null)
+        {
+            throw new ArgumentNullException(nameof(client_id));
+        }
+
+        if (string.IsNullOrWhiteSpace(client_id))
+        {
+            throw new ArgumentException("client_id cannot be empty or whitespace.", nameof(client_id));
+        }
+
+        if (key is null)
+        {
+            throw new ArgumentNullException(nameof(key));
+        }
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("key cannot be empty or whitespace.", nameof(key));
+        }
+
+        if (hold_duration_ms <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(hold_duration_ms), "hold_duration_ms must be greater than zero.");
+        }
+
+        var (success, message) = await _interactionService.SendKeyAsync(client_id, key, hold_duration_ms, cancellationToken);
 
         var payload = new
         {

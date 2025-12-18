@@ -39,7 +39,8 @@ public class GameInteractionTestConsole
     {
         _logger.LogInformation("Test: List Active Clients");
         
-        var emptyArgs = JsonDocument.Parse("{}").RootElement;
+        using var emptyDoc = JsonDocument.Parse("{}");
+        var emptyArgs = emptyDoc.RootElement;
         var result = await _gameTools.ExecuteToolAsync("game_list_clients", emptyArgs);
         
         System.Console.WriteLine($"Result: {result.Content}");
