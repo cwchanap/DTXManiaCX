@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,6 +29,7 @@ public class GameApiServer : IDisposable, IAsyncDisposable
     private IHost? _host;
     private bool _isRunning;
     private CancellationTokenSource? _cancellationTokenSource;
+    private const long MaxRequestBodyBytes = 1024;
 
     public GameApiServer(IGameApi gameApi, int port = 8080, string apiKey = "", ILogger<GameApiServer>? logger = null)
     {
@@ -55,6 +57,7 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                     webBuilder.UseKestrel(options =>
                     {
                         options.Listen(IPAddress.Loopback, _port);
+                        options.Limits.MaxRequestBodySize = MaxRequestBodyBytes;
                     });
                     webBuilder.Configure(app =>
                     {
@@ -146,8 +149,14 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                             {
                                 try
                                 {
+                                    var maxRequestBodySizeFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+                                    if (maxRequestBodySizeFeature != null && !maxRequestBodySizeFeature.IsReadOnly)
+                                    {
+                                        maxRequestBodySizeFeature.MaxRequestBodySize = MaxRequestBodyBytes;
+                                    }
+
                                     // Check request size limit (prevent large payloads)
-                                    if (context.Request.ContentLength > 1024) // 1KB limit
+                                    if (context.Request.ContentLength.HasValue && context.Request.ContentLength.Value > MaxRequestBodyBytes) // 1KB limit
                                     {
                                         context.Response.StatusCode = 413; // Payload Too Large
                                         var error = new { error = "Request payload too large" };
@@ -185,6 +194,12 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                                 {
                                     context.Response.StatusCode = 400;
                                     var error = new { error = "Invalid JSON format" };
+                                    await context.Response.WriteAsJsonAsync(error);
+                                }
+                                catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+                                {
+                                    context.Response.StatusCode = 413;
+                                    var error = new { error = "Request payload too large" };
                                     await context.Response.WriteAsJsonAsync(error);
                                 }
                                 catch (Exception ex)

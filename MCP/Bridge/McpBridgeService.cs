@@ -1,4 +1,8 @@
 using Microsoft.Xna.Framework;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DTXManiaCX.MCP.Bridge;
 
@@ -8,7 +12,7 @@ namespace DTXManiaCX.MCP.Bridge;
 public class McpBridgeService : IDisposable
 {
     private readonly Game _game;
-    private bool _disposed;
+    private int _disposed;
     // TODO: Add MCP client when the API is more stable
     // private McpClient? _mcpClient;
     
@@ -23,6 +27,7 @@ public class McpBridgeService : IDisposable
     /// <param name="serverEndpoint">The MCP server endpoint to connect to</param>
     public async Task InitializeAsync(string serverEndpoint)
     {
+        ThrowIfDisposed();
         // TODO: Implement MCP client initialization
         // This is a placeholder for the actual MCP client setup
         await Task.CompletedTask;
@@ -34,6 +39,7 @@ public class McpBridgeService : IDisposable
     /// <param name="gameState">The current game state</param>
     public async Task SendGameStateAsync(GameState gameState)
     {
+        ThrowIfDisposed();
         // TODO: Implement game state transmission to MCP server
         await Task.CompletedTask;
     }
@@ -45,9 +51,16 @@ public class McpBridgeService : IDisposable
     /// <returns>AI response or suggestions</returns>
     public async Task<string> RequestAiAssistanceAsync(string context)
     {
+        ThrowIfDisposed();
         // TODO: Implement AI assistance request
         await Task.CompletedTask;
         return "AI response placeholder";
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (System.Threading.Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(McpBridgeService));
     }
     
     /// <summary>
@@ -65,7 +78,7 @@ public class McpBridgeService : IDisposable
     /// <param name="disposing">True if called from Dispose(), false if from finalizer</param>
     protected virtual void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (System.Threading.Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
         if (disposing)
@@ -73,8 +86,6 @@ public class McpBridgeService : IDisposable
             // TODO: Dispose MCP client when implemented
             // _mcpClient?.Dispose();
         }
-
-        _disposed = true;
     }
 }
 
@@ -97,6 +108,7 @@ public class McpBridgeComponent : GameComponent
 {
     private readonly McpBridgeService _bridgeService;
     private Task? _initializationTask;
+    private int _disposed;
     
     public McpBridgeComponent(Game game) : base(game)
     {
@@ -114,7 +126,7 @@ public class McpBridgeComponent : GameComponent
     {
         try
         {
-            await _bridgeService.InitializeAsync("http://localhost:3000");
+            await _bridgeService.InitializeAsync("http://localhost:3000").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -133,7 +145,28 @@ public class McpBridgeComponent : GameComponent
     {
         if (disposing)
         {
-            _bridgeService.Dispose();
+            if (System.Threading.Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                var initializationTask = System.Threading.Volatile.Read(ref _initializationTask);
+                if (initializationTask != null && !initializationTask.IsCompleted)
+                {
+                    try
+                    {
+                        using var waitCts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds(2));
+                        initializationTask.Wait(waitCts.Token);
+                    }
+                    catch (System.OperationCanceledException)
+                    {
+                        System.Diagnostics.Debug.WriteLine("MCP Bridge initialization did not complete before disposal.");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"MCP Bridge initialization wait failed: {ex.Message}");
+                    }
+                }
+
+                _bridgeService.Dispose();
+            }
         }
         base.Dispose(disposing);
     }
