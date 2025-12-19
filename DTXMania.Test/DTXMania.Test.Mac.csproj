@@ -30,7 +30,7 @@
 
   <!-- Include all source files except problematic graphics tests -->
   <ItemGroup>
-    <Compile Include="**/*.cs" Exclude="Graphics/**/*.cs;Resources/BitmapFontTests.cs;Performance/StressTestRunner.cs;QA/ComprehensiveQATestSuite.cs;StressTestConsole/**/*.cs;UI/SongBarRendererTests.cs;UI/SongStatusPanelTests.cs;Stage/Performance/PerformanceStageCleanupVerificationTests.cs;Stage/Performance/JudgementTextPopupTests.cs;Resources/ResourceManagerTests.cs;Helpers/MockPerformanceStage.cs;Helpers/TestGraphicsDeviceService.cs" />
+    <Compile Include="**/*.cs" Exclude="bin/**/*.cs;obj/**/*.cs;Graphics/**/*.cs;Resources/BitmapFontTests.cs;Performance/StressTestRunner.cs;QA/ComprehensiveQATestSuite.cs;StressTestConsole/**/*.cs;UI/SongBarRendererTests.cs;UI/SongStatusPanelTests.cs;Stage/Performance/PerformanceStageCleanupVerificationTests.cs;Stage/Performance/JudgementTextPopupTests.cs;Resources/ResourceManagerTests.cs;Helpers/MockPerformanceStage.cs;Helpers/TestGraphicsDeviceService.cs" />
   </ItemGroup>
 
   <!-- Include xunit configuration if it exists -->

@@ -51,12 +51,13 @@ public class GameInteractionTestConsole
     {
         _logger.LogInformation("Test: Click Simulation");
         
-        var clickArgs = JsonDocument.Parse(@"{
+        using var clickDoc = JsonDocument.Parse(@"{
             ""client_id"": ""test-client"",
             ""x"": 100,
             ""y"": 100,
             ""button"": ""left""
-        }").RootElement;
+        }");
+        var clickArgs = clickDoc.RootElement.Clone();
         
         var result = await _gameTools.ExecuteToolAsync("game_click", clickArgs);
         
@@ -68,9 +69,10 @@ public class GameInteractionTestConsole
     {
         _logger.LogInformation("Test: Get Window Info");
         
-        var windowArgs = JsonDocument.Parse(@"{
+        using var windowDoc = JsonDocument.Parse(@"{
             ""client_id"": ""test-client""
-        }").RootElement;
+        }");
+        var windowArgs = windowDoc.RootElement.Clone();
         
         var result = await _gameTools.ExecuteToolAsync("game_get_window_info", windowArgs);
         
