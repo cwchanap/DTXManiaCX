@@ -398,6 +398,27 @@ namespace DTXMania.Game.Lib.Input
         #region Utility Methods
 
         /// <summary>
+        /// Injects a button state (e.g., from MCP/GameApi) and routes it through lane mapping.
+        /// Returns true if the button was mapped to a lane and dispatched.
+        /// </summary>
+        /// <param name="buttonId">Button identifier (e.g., \"Key.A\")</param>
+        /// <param name="isPressed">Whether the button is pressed</param>
+        /// <param name="velocity">Optional velocity/intensity (0.0-1.0)</param>
+        public bool InjectButton(string buttonId, bool isPressed, float velocity = 1.0f)
+        {
+            if (string.IsNullOrWhiteSpace(buttonId))
+                return false;
+
+            var lane = _keyBindings.GetLane(buttonId);
+            if (lane < 0)
+                return false;
+
+            var state = new ButtonState(buttonId, isPressed, velocity);
+            OnLaneHit?.Invoke(this, new LaneHitEventArgs(lane, state));
+            return true;
+        }
+
+        /// <summary>
         /// Gets the keyboard input source
         /// </summary>
         /// <returns>Keyboard input source or null if not found</returns>
