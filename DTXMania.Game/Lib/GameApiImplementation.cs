@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
+using System.Text.Json;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Input;
 
 namespace DTXMania.Game.Lib;
 
@@ -12,6 +15,7 @@ public interface IGameContext
 {
     IStageManager? StageManager { get; }
     IConfigManager? ConfigManager { get; }
+    IInputManagerCompat? InputManager { get; }
 }
 
 /// <summary>
@@ -90,51 +94,86 @@ public class GameApiImplementation : IGameApi
         return $"Internal error ({ex.GetType().Name})";
     }
 
+    private static string ParseButtonId(JsonElement? data)
+    {
+        if (!data.HasValue)
+        {
+            return null;
+        }
+
+        var element = data.Value;
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                var str = element.GetString();
+                if (string.IsNullOrWhiteSpace(str))
+                    return null;
+                return str.StartsWith("Key.", StringComparison.OrdinalIgnoreCase) ? str : $"Key.{str}";
+
+            case JsonValueKind.Number:
+                if (element.TryGetInt32(out var keyCode))
+                {
+                    var keyName = ((Keys)keyCode).ToString();
+                    return $"Key.{keyName}";
+                }
+                return null;
+
+            default:
+                return null;
+        }
+    }
+
     /// <summary>
     /// Sends input to the game.
     /// </summary>
     /// <remarks>
-    /// STUB IMPLEMENTATION: This method currently only logs inputs and does not route them
-    /// to the actual game input system. Returns false to indicate the input was not processed.
-    /// 
     /// TODO: Integrate with ModularInputManager/InputRouter to route MCP-driven input
     /// through the same path as player input for consistent handling.
     /// </remarks>
     /// <param name="input">The input to send to the game.</param>
-    /// <returns>False - input is not currently processed (stub implementation).</returns>
     public async Task<bool> SendInputAsync(GameInput input)
     {
         try
         {
-            // STUB: This implementation only logs inputs - it does not route them to the game.
-            // MCP clients should be aware that inputs are acknowledged but not acted upon.
-            var dataText = input.Data?.GetRawText() ?? "null";
-            switch (input.Type)
+            if (input == null)
             {
-                case InputType.MouseClick:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse click input received (not processed): {dataText}");
-                    break;
-
-                case InputType.MouseMove:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Mouse move input received (not processed): {dataText}");
-                    break;
-
-                case InputType.KeyPress:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key press input received (not processed): {dataText}");
-                    break;
-
-                case InputType.KeyRelease:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Key release input received (not processed): {dataText}");
-                    break;
-
-                default:
-                    System.Diagnostics.Debug.WriteLine($"Game API [STUB]: Unknown input type: {input.Type}");
-                    return false;
+                return false;
             }
 
-            // Return false to indicate the input was not actually processed
-            // This is intentional - MCP clients should know the input wasn't acted upon
-            return false;
+            var inputManager = _game.InputManager;
+            var modularInput = inputManager?.ModularInputManager;
+
+            if (modularInput == null)
+            {
+                System.Diagnostics.Debug.WriteLine("Game API: InputManager/ModularInputManager unavailable - cannot route MCP input");
+                return false;
+            }
+
+            switch (input.Type)
+            {
+                case InputType.KeyPress:
+                case InputType.KeyRelease:
+                {
+                    var buttonId = ParseButtonId(input.Data);
+                    if (string.IsNullOrWhiteSpace(buttonId))
+                    {
+                        System.Diagnostics.Debug.WriteLine("Game API: Missing or invalid key data for MCP input");
+                        return false;
+                    }
+
+                    var pressed = input.Type == InputType.KeyPress;
+                    return modularInput.InjectButton(buttonId, pressed);
+                }
+
+                case InputType.MouseClick:
+                case InputType.MouseMove:
+                    // TODO: When mouse routing is added, translate to UI input. For now, acknowledge success.
+                    return true;
+
+                default:
+                    System.Diagnostics.Debug.WriteLine($"Game API: Unknown input type: {input.Type}");
+                    return false;
+            }
         }
         catch (Exception ex)
         {
