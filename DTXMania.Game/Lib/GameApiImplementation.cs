@@ -174,8 +174,9 @@ public class GameApiImplementation : IGameApi
 
                 case InputType.MouseClick:
                 case InputType.MouseMove:
-                    // TODO: When mouse routing is added, translate to UI input. For now, acknowledge success.
-                    return true;
+                    // TODO: When mouse routing is added, translate to UI input. For now, report unsupported.
+                    System.Diagnostics.Debug.WriteLine($"Game API: Mouse input not yet supported ({input.Type})");
+                    return false;
 
                 default:
                     System.Diagnostics.Debug.WriteLine($"Game API: Unknown input type: {input.Type}");
