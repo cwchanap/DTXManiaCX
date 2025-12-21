@@ -94,7 +94,7 @@ public class GameApiImplementation : IGameApi
         return $"Internal error ({ex.GetType().Name})";
     }
 
-    private static string ParseButtonId(JsonElement? data)
+    private static string? ParseButtonId(JsonElement? data)
     {
         if (!data.HasValue)
         {
@@ -108,7 +108,14 @@ public class GameApiImplementation : IGameApi
                 var str = element.GetString();
                 if (string.IsNullOrWhiteSpace(str))
                     return null;
-                return str.StartsWith("Key.", StringComparison.OrdinalIgnoreCase) ? str : $"Key.{str}";
+
+                // Normalize casing via Keys enum so it matches KeyBindings (case-sensitive).
+                var trimmed = str.StartsWith("Key.", StringComparison.OrdinalIgnoreCase) ? str["Key.".Length..] : str;
+                if (Enum.TryParse<Keys>(trimmed, true, out var parsedKey))
+                {
+                    return $"Key.{parsedKey}";
+                }
+                return null;
 
             case JsonValueKind.Number:
                 if (element.TryGetInt32(out var keyCode))

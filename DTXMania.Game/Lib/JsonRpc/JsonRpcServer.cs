@@ -24,7 +24,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     private readonly ILogger<JsonRpcServer>? _logger;
     private readonly int _port;
     private readonly string _apiKey;
-    private const long MaxRequestBodyBytes = 1024;
+    // Typical JSON-RPC envelopes with sendInput params can exceed 1 KB; allow modest 8 KB.
+    private const long MaxRequestBodyBytes = 8 * 1024;
+
     private IHost? _host;
     private bool _isRunning;
     private bool _disposed;
