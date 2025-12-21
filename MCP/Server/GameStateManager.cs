@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -112,8 +114,96 @@ public class GameStateManager
         if (source.Count == 0)
             return new Dictionary<string, object>();
 
-        var json = JsonSerializer.Serialize(source);
-        return JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
+        var clone = new Dictionary<string, object>(source.Count);
+        foreach (var kvp in source)
+        {
+            var clonedValue = CloneValue(kvp.Value);
+            if (clonedValue.isSupported)
+            {
+                clone[kvp.Key] = clonedValue.value!;
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"GameStateManager: Skipping unsupported custom data value for key '{kvp.Key}' (type {kvp.Value?.GetType().FullName ?? "null"}).");
+            }
+        }
+
+        return clone;
+    }
+    
+    private static (bool isSupported, object? value) CloneValue(object? value)
+    {
+        if (value is null)
+            return (true, null);
+
+        switch (value)
+        {
+            // Primitives and common value types
+            case string s:
+                return (true, s);
+            case bool b:
+                return (true, b);
+            case int i:
+                return (true, i);
+            case long l:
+                return (true, l);
+            case double d:
+                return (true, d);
+            case float f:
+                return (true, f);
+            case decimal dec:
+                return (true, dec);
+            case short sh:
+                return (true, sh);
+            case byte by:
+                return (true, by);
+            case sbyte sb:
+                return (true, sb);
+            case uint ui:
+                return (true, ui);
+            case ulong ul:
+                return (true, ul);
+            case ushort us:
+                return (true, us);
+            case char c:
+                return (true, c);
+            case DateTime dt:
+                return (true, dt);
+            case DateTimeOffset dto:
+                return (true, dto);
+            case Guid guid:
+                return (true, guid);
+            case Enum e:
+                return (true, e);
+
+            // Nested dictionary
+            case Dictionary<string, object> dict:
+                return (true, DeepCloneCustomData(dict));
+            case IDictionary<string, object> idict:
+                return (true, DeepCloneCustomData(new Dictionary<string, object>(idict)));
+
+            // Lists/arrays
+            case IList list:
+            {
+                var clonedList = new List<object?>(list.Count);
+                foreach (var item in list)
+                {
+                    var clonedItem = CloneValue(item);
+                    if (clonedItem.isSupported)
+                    {
+                        clonedList.Add(clonedItem.value);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"GameStateManager: Skipping unsupported list item (type {item?.GetType().FullName ?? "null"}).");
+                    }
+                }
+                return (true, clonedList);
+            }
+
+            default:
+                return (false, null);
+        }
     }
     
     /// <summary>

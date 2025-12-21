@@ -28,6 +28,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     public IStageManager StageManager { get; protected set; }
     public IConfigManager ConfigManager { get; protected set; }
     public InputManagerCompat InputManager { get; protected set; }
+    IInputManagerCompat? IGameContext.InputManager => InputManager;
     public IGraphicsManager GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; }
 

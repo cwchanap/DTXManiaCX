@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework.Input;
@@ -21,6 +22,8 @@ namespace DTXMania.Game.Lib.Input
         private readonly KeyBindings _keyBindings;
         private readonly InputRouter _inputRouter;
         private readonly List<IInputSource> _inputSources;
+        private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
+        private readonly Dictionary<int, bool> _injectedKeyStates;
         private bool _disposed = false;
 
         // Legacy compatibility fields
@@ -81,6 +84,8 @@ namespace DTXMania.Game.Lib.Input
             _keyBindings = new KeyBindings();
             _inputRouter = new InputRouter(_keyBindings);
             _inputSources = new List<IInputSource>();
+            _injectedButtonQueue = new ConcurrentQueue<ButtonState>();
+            _injectedKeyStates = new Dictionary<int, bool>();
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
@@ -147,6 +152,8 @@ namespace DTXMania.Game.Lib.Input
             // Update previous key states for legacy compatibility
             UpdateLegacyKeyStates();
 
+            // Process externally injected inputs (e.g., MCP) on the main thread
+            ProcessInjectedInputs();
 
             // Update input router (processes all input sources)
             _inputRouter.Update();
@@ -401,7 +408,7 @@ namespace DTXMania.Game.Lib.Input
         /// Injects a button state (e.g., from MCP/GameApi) and routes it through lane mapping.
         /// Returns true if the button was mapped to a lane and dispatched.
         /// </summary>
-        /// <param name="buttonId">Button identifier (e.g., \"Key.A\")</param>
+        /// <param name="buttonId">Button identifier (e.g., "Key.A")</param>
         /// <param name="isPressed">Whether the button is pressed</param>
         /// <param name="velocity">Optional velocity/intensity (0.0-1.0)</param>
         public bool InjectButton(string buttonId, bool isPressed, float velocity = 1.0f)
@@ -409,12 +416,14 @@ namespace DTXMania.Game.Lib.Input
             if (string.IsNullOrWhiteSpace(buttonId))
                 return false;
 
+            velocity = Math.Clamp(velocity, 0.0f, 1.0f);
+
             var lane = _keyBindings.GetLane(buttonId);
             if (lane < 0)
                 return false;
 
             var state = new ButtonState(buttonId, isPressed, velocity);
-            OnLaneHit?.Invoke(this, new LaneHitEventArgs(lane, state));
+            _injectedButtonQueue.Enqueue(state);
             return true;
         }
 
@@ -450,6 +459,61 @@ namespace DTXMania.Game.Lib.Input
             }
 
             return info;
+        }
+
+        /// <summary>
+        /// Processes any externally injected button events, updating legacy key state and raising lane hits on the main thread.
+        /// </summary>
+        private void ProcessInjectedInputs()
+        {
+            while (_injectedButtonQueue.TryDequeue(out var injected))
+            {
+                // Map to lane with current bindings
+                var lane = _keyBindings.GetLane(injected.Id);
+                if (lane >= 0)
+                {
+                    OnLaneHit?.Invoke(this, new LaneHitEventArgs(lane, injected));
+                }
+
+                // Update legacy key state for Key.* inputs
+                if (TryGetKeyCode(injected.Id, out var keyCode))
+                {
+                    if (injected.IsPressed)
+                    {
+                        _injectedKeyStates[keyCode] = true;
+                    }
+                    else
+                    {
+                        _injectedKeyStates.Remove(keyCode);
+                    }
+                }
+            }
+
+            // Overlay injected key states so legacy queries see them
+            foreach (var kvp in _injectedKeyStates)
+            {
+                _keyStates[kvp.Key] = true;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to parse a buttonId of form "Key.X" into a key code.
+        /// </summary>
+        private static bool TryGetKeyCode(string buttonId, out int keyCode)
+        {
+            const string prefix = "Key.";
+            if (buttonId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var keyName = buttonId.Substring(prefix.Length);
+                if (Enum.TryParse<Keys>(keyName, true, out var key))
+                {
+                    keyCode = (int)key;
+                    return true;
+                }
+            }
+
+            keyCode = default;
+            return false;
         }
 
         #endregion
