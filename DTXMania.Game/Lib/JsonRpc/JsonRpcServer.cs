@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,12 +24,14 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     private readonly ILogger<JsonRpcServer>? _logger;
     private readonly int _port;
     private readonly string _apiKey;
+    private const long MaxRequestBodyBytes = 1024;
     private IHost? _host;
     private bool _isRunning;
     private bool _disposed;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly SemaphoreSlim _lifecycleSemaphore = new SemaphoreSlim(1, 1);
+    private int _lifecycleSemaphoreDisposed;
 
     public JsonRpcServer(IGameApi gameApi, int port = 8080, string apiKey = "", ILogger<JsonRpcServer>? logger = null)
     {
@@ -74,6 +77,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                         webBuilder.UseKestrel(options =>
                         {
                             options.Listen(IPAddress.Loopback, _port);
+                            options.Limits.MaxRequestBodySize = MaxRequestBodyBytes;
                         });
                         webBuilder.Configure(app =>
                         {
@@ -159,6 +163,12 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
 
         try
         {
+            var maxRequestBodySizeFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (maxRequestBodySizeFeature != null && !maxRequestBodySizeFeature.IsReadOnly)
+            {
+                maxRequestBodySizeFeature.MaxRequestBodySize = MaxRequestBodyBytes;
+            }
+
             // Validate API key if configured
             if (!string.IsNullOrEmpty(_apiKey))
             {
@@ -174,8 +184,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             }
 
             // Check request size limit (prevent large payloads)
-            if (context.Request.ContentLength > 1024) // 1KB limit
+            if (context.Request.ContentLength.HasValue && context.Request.ContentLength.Value > MaxRequestBodyBytes)
             {
+                context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
                 response = CreateErrorResponse(null, JsonRpcErrorCodes.InvalidRequest, 
                     "Request payload too large");
                 await SendJsonRpcResponse(context, response);
@@ -232,6 +243,13 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 await SendJsonRpcResponse(context, response);
             }
         }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            response = CreateErrorResponse(requestId, JsonRpcErrorCodes.InvalidRequest,
+                "Request payload too large");
+            await SendJsonRpcResponse(context, response);
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error handling JSON-RPC request");
@@ -269,9 +287,12 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error executing method {Method}", request.Method);
-            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InternalError, 
-                $"Error executing method: {ex.Message}");
+            var correlationId = Guid.NewGuid().ToString();
+            _logger?.LogError(ex, "Error executing method {Method}. CorrelationId: {CorrelationId}", request.Method, correlationId);
+            return CreateErrorResponse(
+                request.Id,
+                JsonRpcErrorCodes.InternalError,
+                $"Internal server error. CorrelationId: {correlationId}");
         }
     }
 
@@ -325,7 +346,12 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         try
         {
             // Deserialize params as GameInput
-            var jsonElement = (JsonElement)request.Params;
+            if (request.Params is not JsonElement jsonElement)
+            {
+                return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                    "Invalid input format");
+            }
+
             var gameInput = JsonSerializer.Deserialize<GameInput>(jsonElement.GetRawText(), _jsonOptions);
 
             if (gameInput == null)
@@ -558,6 +584,20 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         }
     }
 
+    private void DisposeLifecycleSemaphoreOnce()
+    {
+        if (Interlocked.Exchange(ref _lifecycleSemaphoreDisposed, 1) != 0)
+            return;
+
+        try
+        {
+            _lifecycleSemaphore.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     private void DisposeManagedResourcesSynchronously_NoLock()
     {
         CancelNoThrow(_cancellationTokenSource);
@@ -628,6 +668,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             _lifecycleSemaphore.Release();
         }
 
+        DisposeLifecycleSemaphoreOnce();
         GC.SuppressFinalize(this);
     }
 
@@ -661,5 +702,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         {
             _lifecycleSemaphore.Release();
         }
+
+        DisposeLifecycleSemaphoreOnce();
     }
 }

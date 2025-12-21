@@ -286,7 +286,8 @@ public class GameInteractionTools
     {
         try
         {
-            var clientId = arguments.GetProperty("client_id").GetString()!;
+            var clientId = arguments.GetProperty("client_id").GetString()
+                ?? throw new ArgumentException("client_id cannot be null");
             var startX = arguments.GetProperty("start_x").GetInt32();
             var startY = arguments.GetProperty("start_y").GetInt32();
             var endX = arguments.GetProperty("end_x").GetInt32();
@@ -326,7 +327,8 @@ public class GameInteractionTools
     {
         try
         {
-            var clientId = arguments.GetProperty("client_id").GetString()!;
+            var clientId = arguments.GetProperty("client_id").GetString()
+                ?? throw new ArgumentException("client_id cannot be null");
             var (success, message, gameState) = await _gameInteractionService.GetGameStateAsync(clientId);
             
             return new ToolExecutionResult
@@ -362,7 +364,8 @@ public class GameInteractionTools
     {
         try
         {
-            var clientId = arguments.GetProperty("client_id").GetString()!;
+            var clientId = arguments.GetProperty("client_id").GetString()
+                ?? throw new ArgumentException("client_id cannot be null");
             var (success, message, windowRect) = await _gameInteractionService.GetWindowInfoAsync(clientId);
             
             return new ToolExecutionResult
@@ -440,8 +443,10 @@ public class GameInteractionTools
     {
         try
         {
-            var clientId = arguments.GetProperty("client_id").GetString()!;
-            var key = arguments.GetProperty("key").GetString()!;
+            var clientId = arguments.GetProperty("client_id").GetString()
+                ?? throw new ArgumentException("client_id cannot be null");
+            var key = arguments.GetProperty("key").GetString()
+                ?? throw new ArgumentException("key cannot be null");
             var holdDurationMs = arguments.TryGetProperty("hold_duration_ms", out var durationProp) ? 
                 durationProp.GetInt32() : 50;
             
