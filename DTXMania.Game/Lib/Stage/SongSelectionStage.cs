@@ -1046,6 +1046,11 @@ namespace DTXMania.Game.Lib.Stage
                  /// </summary>
         private void CleanupStageRenderTargets()
         {
+            if (_stageRenderTarget == null)
+            {
+                return;
+            }
+
             if (_game is BaseGame baseGame)
             {
                 // Use RenderTargetManager to properly dispose the RenderTarget

@@ -1,12 +1,9 @@
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
-using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Resources;
 using Moq;
 using System;
-using System.Collections.Generic;
 using System.Reflection;
-using System.Runtime.Serialization;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -85,33 +82,8 @@ namespace DTXMania.Test.Stage
 
         private static SongSelectionStage CreateStageWithFakeGraphicsManager()
         {
-            var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
-
-            var renderTargetManager = CreateEmptyRenderTargetManager();
-            var mockGraphicsManager = new Mock<IGraphicsManager>();
-            mockGraphicsManager.SetupGet(x => x.RenderTargetManager).Returns(renderTargetManager);
-
-            var graphicsManagerField = typeof(BaseGame).GetField("_graphicsManager", BindingFlags.NonPublic | BindingFlags.Instance);
-            graphicsManagerField!.SetValue(game, mockGraphicsManager.Object);
-
-            return new SongSelectionStage(game);
-        }
-
-        private static RenderTargetManager CreateEmptyRenderTargetManager()
-        {
-            var instance = (RenderTargetManager)FormatterServices.GetUninitializedObject(typeof(RenderTargetManager));
-
-            var infoType = typeof(RenderTargetManager).GetNestedType("RenderTargetInfo", BindingFlags.NonPublic);
-            var dictType = typeof(Dictionary<,>).MakeGenericType(typeof(string), infoType!);
-            var dict = Activator.CreateInstance(dictType);
-
-            var renderTargetsField = typeof(RenderTargetManager).GetField("_renderTargets", BindingFlags.NonPublic | BindingFlags.Instance);
-            renderTargetsField!.SetValue(instance, dict);
-
-            var disposedField = typeof(RenderTargetManager).GetField("_disposed", BindingFlags.NonPublic | BindingFlags.Instance);
-            disposedField!.SetValue(instance, false);
-
-            return instance;
+            var mockGame = new Mock<BaseGame>();
+            return new SongSelectionStage(mockGame.Object);
         }
 
         #endregion
