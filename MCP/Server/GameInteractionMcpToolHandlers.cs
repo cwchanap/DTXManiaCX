@@ -174,29 +174,19 @@ public class GameInteractionMcpToolHandlers
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (client_id is null)
-        {
-            throw new ArgumentNullException(nameof(client_id));
-        }
-
         if (string.IsNullOrWhiteSpace(client_id))
         {
-            throw new ArgumentException("client_id cannot be empty or whitespace.", nameof(client_id));
-        }
-
-        if (key is null)
-        {
-            throw new ArgumentNullException(nameof(key));
+            return BuildResult(false, "client_id is required", new { action = "send_key", error_code = "invalid_argument", client_id });
         }
 
         if (string.IsNullOrWhiteSpace(key))
         {
-            throw new ArgumentException("key cannot be empty or whitespace.", nameof(key));
+            return BuildResult(false, "key is required", new { action = "send_key", error_code = "invalid_argument", client_id, key });
         }
 
         if (hold_duration_ms <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(hold_duration_ms), "hold_duration_ms must be greater than zero.");
+            return BuildResult(false, "hold_duration_ms must be a positive value", new { action = "send_key", error_code = "out_of_range", client_id, key, hold_duration_ms });
         }
 
         var (success, message) = await _interactionService.SendKeyAsync(client_id, key, hold_duration_ms, cancellationToken);

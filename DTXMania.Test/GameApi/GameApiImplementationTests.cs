@@ -13,9 +13,9 @@ namespace DTXMania.Test.GameApi
 {
     /// <summary>
     /// Unit tests for Game API-related types.
-    /// Most tests in this file validate the IGameApi interface contract and models using Moq,
-    /// and do not exercise the real GameApiImplementation behavior because it depends on BaseGame/MonoGame.
-    /// Integration tests against GameApiImplementation would require a graphics-capable BaseGame fixture.
+    /// This file creates real GameApiImplementation instances with mocked dependencies (e.g. IGameContext) via Moq,
+    /// exercising the implementation behavior while avoiding the need to spin up a full game runtime.
+    /// Full integration tests would still require a graphics-capable BaseGame/MonoGame fixture.
     /// </summary>
     public class GameApiImplementationTests
     {

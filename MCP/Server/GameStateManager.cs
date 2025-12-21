@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace DTXManiaCX.MCP.Server.Services;
@@ -97,10 +98,22 @@ public class GameStateManager
             PlayerPositionY = source.PlayerPositionY,
             Score = source.Score,
             Level = source.Level,
+            // Keep CurrentStage non-null for consumers that expect a string (intentional normalization)
             CurrentStage = source.CurrentStage ?? string.Empty,
-            CustomData = source.CustomData is null ? new Dictionary<string, object>() : new Dictionary<string, object>(source.CustomData),
+            CustomData = source.CustomData is null
+                ? new Dictionary<string, object>()
+                : DeepCloneCustomData(source.CustomData),
             Timestamp = source.Timestamp,
         };
+    }
+
+    private static Dictionary<string, object> DeepCloneCustomData(Dictionary<string, object> source)
+    {
+        if (source.Count == 0)
+            return new Dictionary<string, object>();
+
+        var json = JsonSerializer.Serialize(source);
+        return JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
     }
     
     /// <summary>
@@ -121,6 +134,10 @@ public class GameStateManager
                 
                 // TODO: Implement actual processing logic
                 // This could include AI analysis, game recommendations, etc.
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
