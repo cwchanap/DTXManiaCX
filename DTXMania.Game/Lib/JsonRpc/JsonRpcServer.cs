@@ -578,6 +578,39 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             throw new ObjectDisposedException(nameof(JsonRpcServer));
     }
 
+    private static void CancelNoThrow(CancellationTokenSource? cancellationTokenSource)
+    {
+        if (cancellationTokenSource == null)
+            return;
+
+        try
+        {
+            cancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            System.Diagnostics.Debug.WriteLine("Cancellation token source already disposed while cancelling JSON-RPC server operations.");
+        }
+        catch (AggregateException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Cancellation token source threw while cancelling JSON-RPC server operations: {ex.Message}");
+        }
+    }
+
+    private void DisposeLifecycleSemaphoreOnce()
+    {
+        if (Interlocked.Exchange(ref _lifecycleSemaphoreDisposed, 1) != 0)
+            return;
+
+        try
+        {
+            _lifecycleSemaphore.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     private void DisposeManagedResourcesSynchronously_NoLock()
     {
         CancelNoThrow(_cancellationTokenSource);
