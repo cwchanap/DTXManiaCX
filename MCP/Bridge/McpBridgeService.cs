@@ -94,11 +94,34 @@ public class McpBridgeService : IDisposable
 /// </summary>
 public class GameState
 {
+    // NOTE: This DTO intentionally mirrors DTXManiaCX.MCP.Server.GameState and DTXMania.Game.Lib.GameState.
+    // Keep properties in sync to avoid schema drift between the bridge and server.
     public float PlayerPositionX { get; set; }
     public float PlayerPositionY { get; set; }
     public int Score { get; set; }
     public int Level { get; set; }
+    public string CurrentStage { get; set; } = string.Empty;
     public Dictionary<string, object> CustomData { get; set; } = new();
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Map the full server/game GameState into the bridge DTO to keep schemas aligned.
+    /// </summary>
+    public static GameState FromFullState(DTXManiaCX.MCP.Server.GameState state)
+    {
+        if (state is null) throw new ArgumentNullException(nameof(state));
+
+        return new GameState
+        {
+            PlayerPositionX = state.PlayerPositionX,
+            PlayerPositionY = state.PlayerPositionY,
+            Score = state.Score,
+            Level = state.Level,
+            CurrentStage = state.CurrentStage,
+            CustomData = new Dictionary<string, object>(state.CustomData),
+            Timestamp = state.Timestamp
+        };
+    }
 }
 
 /// <summary>
