@@ -118,7 +118,9 @@ public class GameState
             Score = state.Score,
             Level = state.Level,
             CurrentStage = state.CurrentStage,
-            CustomData = new Dictionary<string, object>(state.CustomData),
+            CustomData = state.CustomData is null
+                ? new Dictionary<string, object>()
+                : new Dictionary<string, object>(state.CustomData),
             Timestamp = state.Timestamp
         };
     }

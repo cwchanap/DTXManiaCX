@@ -123,8 +123,10 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 {
                     _cancellationTokenSource?.Cancel();
                 }
-                catch
+                catch (Exception cancelEx)
                 {
+                    System.Diagnostics.Debug.WriteLine($"Failed to cancel JSON-RPC server token during startup failure: {cancelEx.Message}");
+                    _logger?.LogWarning(cancelEx, "Failed to cancel JSON-RPC server token during startup failure");
                 }
 
                 try
@@ -136,8 +138,10 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                         _host = null;
                     }
                 }
-                catch
+                catch (Exception stopEx)
                 {
+                    System.Diagnostics.Debug.WriteLine($"Failed to stop JSON-RPC server host during startup failure: {stopEx.Message}");
+                    _logger?.LogWarning(stopEx, "Failed to stop JSON-RPC server host during startup failure");
                 }
 
                 System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
@@ -504,8 +508,10 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 {
                     _cancellationTokenSource?.Cancel();
                 }
-                catch
+                catch (Exception cancelEx)
                 {
+                    System.Diagnostics.Debug.WriteLine($"Error cancelling JSON-RPC server: {cancelEx.Message}");
+                    _logger?.LogWarning(cancelEx, "Error cancelling JSON-RPC server");
                 }
 
                 if (_host != null)
@@ -570,34 +576,6 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(JsonRpcServer));
-    }
-
-    private static void CancelNoThrow(CancellationTokenSource? cancellationTokenSource)
-    {
-        if (cancellationTokenSource == null)
-            return;
-
-        try
-        {
-            cancellationTokenSource.Cancel();
-        }
-        catch
-        {
-        }
-    }
-
-    private void DisposeLifecycleSemaphoreOnce()
-    {
-        if (Interlocked.Exchange(ref _lifecycleSemaphoreDisposed, 1) != 0)
-            return;
-
-        try
-        {
-            _lifecycleSemaphore.Dispose();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
     }
 
     private void DisposeManagedResourcesSynchronously_NoLock()
