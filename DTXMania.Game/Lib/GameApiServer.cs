@@ -76,7 +76,7 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                             {
                                 var providedKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
                                 var providedKeyBytes = Encoding.UTF8.GetBytes(providedKey ?? string.Empty);
-                                var apiKeyBytes = Encoding.UTF8.GetBytes(_apiKey ?? string.Empty);
+                                var apiKeyBytes = Encoding.UTF8.GetBytes(_apiKey);
 
                                 var maxLength = Math.Max(providedKeyBytes.Length, apiKeyBytes.Length);
                                 var providedKeyPadded = new byte[maxLength];

@@ -577,8 +577,6 @@ namespace DTXMania.Game.Lib.Stage
                 _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
 
                 // Start preview sound loading - load immediately but delay playback
-                bool isScrolling = _songListDisplay?.IsScrolling ?? false;
-                
                 // Always load the preview sound - the delay timer will handle when to play it
                 LoadPreviewSound(e.SelectedSong);
             }
@@ -1059,7 +1057,7 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Fallback cleanup for non-BaseGame instances
-                _stageRenderTarget?.Dispose();
+                _stageRenderTarget.Dispose();
             }
             _stageRenderTarget = null;
         }
@@ -1074,7 +1072,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Load DTXMania-style cursor move sound (same as TitleStage)
                 _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 _cursorMoveSound = null;
             }
@@ -1084,14 +1082,14 @@ namespace DTXMania.Game.Lib.Stage
                 // Load now loading sound for song selection
                 _gameStartSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 try
                 {
                     // Fallback to decide sound if Now loading.ogg doesn't work
                     _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
                 }
-                catch (Exception fallbackEx)
+                catch (Exception)
                 {
                     _gameStartSound = null;
                 }
@@ -1156,15 +1154,15 @@ namespace DTXMania.Game.Lib.Stage
                 // Apply volume fade
                 if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
                 {
-                try
-                {
-                    float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
-                    _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
-                }
-                catch (Exception ex)
-                {
-                    // BGM fade failed, continue
-                }
+                    try
+                    {
+                        float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
+                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
+                    }
+                    catch (Exception)
+                    {
+                        // BGM fade failed, continue
+                    }
                 }
             }
 
@@ -1181,15 +1179,15 @@ namespace DTXMania.Game.Lib.Stage
                 // Apply volume fade
                 if (_backgroundMusicInstance != null && _backgroundMusicInstance.State == SoundState.Playing)
                 {
-                try
-                {
-                    float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
-                    _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
-                }
-                catch (Exception ex)
-                {
-                    // BGM fade failed, continue
-                }
+                    try
+                    {
+                        float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
+                        _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
+                    }
+                    catch (Exception)
+                    {
+                        // BGM fade failed, continue
+                    }
                 }
             }
         }

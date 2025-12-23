@@ -408,7 +408,7 @@ namespace DTXMania.Test.JsonRpc
                 Method = "getGameState"
             };
             var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Act
             var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
@@ -433,7 +433,7 @@ namespace DTXMania.Test.JsonRpc
                 Method = "ping"
             };
             var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Act - without API key
             var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
@@ -458,7 +458,7 @@ namespace DTXMania.Test.JsonRpc
                 Method = "ping"
             };
             var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Act
             var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
@@ -489,7 +489,7 @@ namespace DTXMania.Test.JsonRpc
                 @params = inputParams
             };
             var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Act
             var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
@@ -515,7 +515,7 @@ namespace DTXMania.Test.JsonRpc
                 Params = null
             };
             var json = JsonSerializer.Serialize(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             // Act
             var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
