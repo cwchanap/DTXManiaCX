@@ -139,8 +139,9 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                                 }
                                 catch (Exception ex)
                                 {
+                                    _logger?.LogError(ex, "Error processing /game/window request");
                                     context.Response.StatusCode = 500;
-                                    var error = new { error = ex.Message };
+                                    var error = new { error = "Internal server error" };
                                     await context.Response.WriteAsJsonAsync(error);
                                 }
                             });
