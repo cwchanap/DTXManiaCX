@@ -350,7 +350,7 @@ namespace DTXMania.Game.Lib.Resources
         /// Pad visual indicators sprite sheet (2 rows: idle/pressed states)
         /// Standard path for pad caps texture - can be customized per skin
         /// </summary>
-        public const string PadCaps = "Graphics/7_PadCaps.png";
+        public const string PadCaps = "Graphics/7_pads.png";
         
         #endregion
         

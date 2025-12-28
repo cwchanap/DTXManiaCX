@@ -30,26 +30,33 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// DTX channel to lane index mapping
-        /// Maps DTX channels to CORRECT gameplay lane positions: LC, HH, LP, SN, HT, DB, LT, FT, CY
-        /// Updated to match the desired gameplay order and channel assignments
+        /// Maps DTX channels to visual lane positions based on PerformanceUILayout.LaneType:
+        ///   Lane 0: LC (Left Cymbal/Crash)
+        ///   Lane 1: HH (Hi-Hat)
+        ///   Lane 2: LP (Left Pedal)
+        ///   Lane 3: SN (Snare)
+        ///   Lane 4: HT (High Tom)
+        ///   Lane 5: DB (Bass Drum)
+        ///   Lane 6: LT (Low Tom)
+        ///   Lane 7: FT (Floor Tom)
+        ///   Lane 8: CY (Cymbal/Right Crash)
+        ///   Lane 9: RD (Ride)
         /// </summary>
         private static readonly Dictionary<int, int> ChannelToLaneMap = new Dictionary<int, int>
         {
-            // Updated mapping to match test expectations:
-            { 0x11, 0 }, // Channel 0x11 -> Lane 0
-            { 0x12, 1 }, // Channel 0x12 -> Lane 1  
-            { 0x13, 2 }, // Channel 0x13 -> Lane 2
-            { 0x14, 3 }, // Channel 0x14 -> Lane 3
-            { 0x15, 4 }, // Channel 0x15 -> Lane 4
-            { 0x16, 5 }, // Channel 0x16 -> Lane 5
-            { 0x17, 6 }, // Channel 0x17 -> Lane 6
-            { 0x18, 7 }, // Channel 0x18 -> Lane 7
-            { 0x19, 8 }, // Channel 0x19 -> Lane 8
-            
-            // Special cases - document for future reference but ensure no conflicts
-            // { 0x1A, ? }, // Special: Left Crash - needs evaluation
-            // { 0x1B, ? }, // Special: Left Pedal - needs evaluation  
-            // { 0x1C, ? }, // Special: Alternate - needs evaluation
+            // Standard DTX drum channels mapped to visual lanes
+            { 0x11, 1 }, // HiHat Close -> Lane 1 (HH)
+            { 0x12, 3 }, // Snare -> Lane 3 (SN)
+            { 0x13, 5 }, // Bass Drum -> Lane 5 (DB)
+            { 0x14, 4 }, // High Tom -> Lane 4 (HT)
+            { 0x15, 6 }, // Low Tom -> Lane 6 (LT)
+            { 0x16, 9 }, // Cymbal (often Ride) -> Lane 9 (RD)
+            { 0x17, 7 }, // Floor Tom -> Lane 7 (FT)
+            { 0x18, 1 }, // HiHat Open -> Lane 1 (HH) - same lane as HiHat Close
+            { 0x19, 8 }, // Right Crash/Cymbal -> Lane 8 (CY)
+            { 0x1A, 0 }, // Left Crash -> Lane 0 (LC)
+            { 0x1B, 2 }, // Left Pedal -> Lane 2 (LP)
+            { 0x1C, 2 }, // Left Bass Drum -> Lane 2 (LP) - left pedal lane
         };
 
         /// <summary>

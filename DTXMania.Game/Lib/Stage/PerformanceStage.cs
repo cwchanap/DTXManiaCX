@@ -531,8 +531,6 @@ namespace DTXMania.Game.Lib.Stage
                 // Load background audio - ALWAYS needed for SongTimer creation (master clock)
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
-                    System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Loading background audio: {_parsedChart.BackgroundAudioPath}");
-                    
                     // Use the correct chart path for the selected difficulty
                     var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
@@ -623,17 +621,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_songTimer != null && _currentGameTime != null)
             {
-                System.Console.WriteLine("🔍 CLAUDE-DEBUG: StartSong called - starting timer");
-                
                 // Start the song timer - this provides the master clock for notes and BGM events
                 _songTimer.SetPosition(0.0, _currentGameTime);
                 _songTimer.Play(_currentGameTime);
                 _isReady = false;
-                
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Timer started - IsPlaying={_songTimer.IsPlaying}");
-                
-                // Debug the actual sound state
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Sound instance details - Volume={_songTimer.Volume}, IsLooped={_songTimer.IsLooped}");
 
                 // Activate the judgement manager now that the song is playing
                 if (_judgementManager != null)
@@ -646,17 +637,12 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // New approach: Use BGM events for timed playback, silence the background audio
                     _songTimer.Volume = 0.0f; // Mute the background audio since we'll use BGM events
-                    System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Set volume to 0 - IsPlaying={_songTimer.IsPlaying}");
                 }
                 else
                 {
                     // Legacy approach: Play background audio immediately (no BGM events)
                     _songTimer.Volume = 1.0f; // Ensure background audio is audible
                 }
-            }
-            else
-            {
-                System.Console.WriteLine("🔍 CLAUDE-DEBUG: StartSong failed - timer or gameTime is null");
             }
         }
 
@@ -666,17 +652,10 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawNotes()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
-            {
-                if (_noteRenderer == null) System.Console.WriteLine("🔍 CLAUDE-DEBUG: CRITICAL: NoteRenderer is NULL");
                 return;
-            }
 
             if (!_songTimer.IsPlaying)
-            {
-                // Add detailed diagnostics about WHY the timer stopped
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Timer stopped - IsPlaying={_songTimer.IsPlaying}, IsFinished={_songTimer.IsFinished}, Volume={_songTimer.Volume}");
                 return;
-            }
 
             // Get current song time and active notes
             var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
@@ -887,23 +866,34 @@ namespace DTXMania.Game.Lib.Stage
             // Calculate center position
             var screenCenter = new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.ScreenHeight / 2);
 
-            // TEMPORARY: Use only fallback rendering to avoid font SpriteBatch interference
-            // TODO: Fix BitmapFont to work properly with depth-sorted SpriteBatch
-            
-            // Fallback: draw colored rectangle as placeholder with proper depth
-            var rectWidth = text.Length * 12;
-            var rectHeight = 20;
-            var rectPosition = new Rectangle(
-                (int)(screenCenter.X - rectWidth / 2),
-                (int)(screenCenter.Y - rectHeight / 2),
-                rectWidth,
-                rectHeight
-            );
-
-            // Use the cached white texture for fallback rendering at proper gameplay state depth (0.1f)
-            if (_fallbackWhiteTexture != null)
+            // Try to use BitmapFont for actual text rendering
+            if (_readyFont != null && _readyFont.IsLoaded)
             {
-                _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, null, color, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
+                // Measure text to center it properly
+                var textSize = _readyFont.MeasureText(text);
+                var textX = (int)(screenCenter.X - textSize.X / 2);
+                var textY = (int)(screenCenter.Y - textSize.Y / 2);
+
+                // Draw text at gameplay state depth (0.1f = front layer for UI pass)
+                _readyFont.DrawText(_spriteBatch, text, textX, textY, color, BitmapFont.FontType.Normal, 0.1f);
+            }
+            else
+            {
+                // Fallback: draw colored rectangle as placeholder with proper depth
+                var rectWidth = text.Length * 12;
+                var rectHeight = 20;
+                var rectPosition = new Rectangle(
+                    (int)(screenCenter.X - rectWidth / 2),
+                    (int)(screenCenter.Y - rectHeight / 2),
+                    rectWidth,
+                    rectHeight
+                );
+
+                // Use the cached white texture for fallback rendering at proper gameplay state depth (0.1f)
+                if (_fallbackWhiteTexture != null)
+                {
+                    _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, null, color, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
+                }
             }
         }
 
@@ -1358,10 +1348,8 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawPads()
         {
             if (_padRenderer == null)
-            {
-                System.Console.WriteLine("🔍 CLAUDE-DEBUG: CRITICAL: PadRenderer is NULL");
                 return;
-            }
+
             _padRenderer.Draw(_spriteBatch);
         }
 
@@ -1408,11 +1396,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void DrawShutters()
         {
-            if (_shutterTexture != null)
+            // Shutter is only drawn during intro/outro animations, not during active gameplay
+            // During normal gameplay, the shutter should be fully open (not visible)
+            if (_shutterTexture != null && CurrentPhase != StagePhase.Normal)
             {
                 // Draw shutter at UI overlay depth - should appear above gameplay elements
                 var shutterPos = PerformanceUILayout.Shutter.StartPosition;
-                // Draw shutter at UI overlay depth - should appear above gameplay elements
                 var shutterRect = new Rectangle((int)shutterPos.X, (int)shutterPos.Y, _shutterTexture.Width, _shutterTexture.Height);
                 _shutterTexture.Draw(_spriteBatch, shutterRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
             }

@@ -84,10 +84,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _spriteColumns;
         private bool _disposed;
         private Texture2D _fallbackTexture;
-        
-        // Debug tracking
-        private int _frameCounter = 0;
-        private bool _lastFrameWasVisible = true;
 
         /// <summary>
         /// Base depth for pad rendering (configurable to ensure proper layering)
@@ -165,28 +161,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         public void Draw(SpriteBatch spriteBatch)
         {
-            _frameCounter++;
-            
-            // Critical early returns
-            if (spriteBatch == null)
-            {
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Frame {_frameCounter}: NULL SpriteBatch!");
+            if (spriteBatch == null || _disposed)
                 return;
-            }
-            
-            if (_disposed)
-            {
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: Frame {_frameCounter}: DISPOSED!");
-                return;
-            }
-            
-            // Log visibility status changes
-            bool shouldBeVisible = _padSpriteSheet != null || _fallbackTexture != null;
-            if (shouldBeVisible != _lastFrameWasVisible)
-            {
-                System.Console.WriteLine($"🔍 CLAUDE-DEBUG: PAD VISIBILITY: Frame {_frameCounter} - sprite={_padSpriteSheet != null}, fallback={_fallbackTexture != null}");
-                _lastFrameWasVisible = shouldBeVisible;
-            }
 
             for (int laneIndex = 0; laneIndex < _padVisuals.Length; laneIndex++)
             {
@@ -380,28 +356,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Maps a lane index to sprite sheet position (column, row)
         /// Based on 4×3 pad texture layout: 4 columns, 3 rows
-        /// Row 0: Cymbals (LC, HH, RC, Crash)
-        /// Row 1: Toms (HT, LT, FT, Snare) 
-        /// Row 2: Pedals (LP, Bass)
+        /// Sprite sheet layout (left to right, top to bottom):
+        ///   Row 0: LC, HH, CY, RD
+        ///   Row 1: SN, HT, LT, FT
+        ///   Row 2: LP, BD, (unused), (unused)
         /// </summary>
         /// <param name="laneIndex">Lane index (0-based)</param>
         /// <returns>Tuple of (columnIndex, rowIndex), or (-1, -1) if no mapping</returns>
         private (int columnIndex, int rowIndex) GetSpritePositionForLane(int laneIndex)
         {
-            // DTXManiaCX 10-lane mapping: LC, HH, LP, SD, HT, DB, LT, FT, CY, RD
-            // Map to 4×3 sprite sheet based on drum type
+            // DTXManiaCX 10-lane mapping: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD
+            // Map to 4×3 sprite sheet based on actual texture layout
             return laneIndex switch
             {
-                0 => (0, 0), // LC (Left Crash) -> Cymbal row, column 0
-                1 => (1, 0), // HH (Hi-Hat) -> Cymbal row, column 1
-                2 => (0, 2), // LP (Left Pedal) -> Pedal row, column 0
-                3 => (3, 1), // SD (Snare) -> Tom row, column 3 (snare position)
-                4 => (0, 1), // HT (High Tom) -> Tom row, column 0
-                5 => (1, 2), // DB (Bass Drum) -> Pedal row, column 1
-                6 => (1, 1), // LT (Low Tom) -> Tom row, column 1
-                7 => (2, 1), // FT (Floor Tom) -> Tom row, column 2
-                8 => (2, 0), // CY (Right Cymbal) -> Cymbal row, column 2
-                9 => (3, 0), // RD (Ride) -> Cymbal row, column 3
+                0 => (0, 0), // LC (Left Crash) -> Row 0, Col 0
+                1 => (1, 0), // HH (Hi-Hat) -> Row 0, Col 1
+                2 => (0, 2), // LP (Left Pedal) -> Row 2, Col 0
+                3 => (0, 1), // SN (Snare) -> Row 1, Col 0
+                4 => (1, 1), // HT (High Tom) -> Row 1, Col 1
+                5 => (1, 2), // DB (Bass Drum) -> Row 2, Col 1
+                6 => (2, 1), // LT (Low Tom) -> Row 1, Col 2
+                7 => (3, 1), // FT (Floor Tom) -> Row 1, Col 3
+                8 => (2, 0), // CY (Right Cymbal) -> Row 0, Col 2
+                9 => (3, 0), // RD (Ride) -> Row 0, Col 3
                 _ => (-1, -1) // Invalid lane
             };
         }

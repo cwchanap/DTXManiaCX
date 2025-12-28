@@ -94,7 +94,8 @@ namespace DTXMania.Game.Lib.Resources
         /// <param name="y">Y position</param>
         /// <param name="color">Tint color (default: White)</param>
         /// <param name="fontType">Font type for console fonts (ignored for other font types)</param>
-        public void DrawText(SpriteBatch spriteBatch, string text, int x, int y, Color color = default, FontType fontType = FontType.Normal)
+        /// <param name="depth">Depth for sprite sorting (0=front, 1=back). Default: 0</param>
+        public void DrawText(SpriteBatch spriteBatch, string text, int x, int y, Color color = default, FontType fontType = FontType.Normal, float depth = 0f)
         {
             if (_disposed || string.IsNullOrEmpty(text) || !IsLoaded)
                 return;
@@ -127,7 +128,7 @@ namespace DTXMania.Game.Lib.Resources
                     else
                     {
                         // Draw the character
-                        DrawCharacter(spriteBatch, charIndex, currentX, currentY, color, fontType);
+                        DrawCharacter(spriteBatch, charIndex, currentX, currentY, color, fontType, depth);
                         currentX += GetCharacterWidth(charIndex);
                     }
                 }
@@ -264,14 +265,14 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
-        private void DrawCharacter(SpriteBatch spriteBatch, int charIndex, int x, int y, Color color, FontType fontType)
+        private void DrawCharacter(SpriteBatch spriteBatch, int charIndex, int x, int y, Color color, FontType fontType, float depth = 0f)
         {
             if (_characterRectangles == null || charIndex < 0 || charIndex >= _characterRectangles.Length)
                 return;
 
             ITexture texture;
             Rectangle sourceRect;
-            
+
             if (_config.UseVariableWidths)
             {
                 // Variable width font (like level numbers)
@@ -285,15 +286,15 @@ namespace DTXMania.Game.Lib.Resources
                 texture = (fontIndex / 2 == 0) ? _fontTexture : _fontTexture2;
                 sourceRect = _characterRectangles[charIndex];
             }
-            
+
             if (texture?.Texture == null)
                 return;
 
             var destWidth = GetCharacterWidth(charIndex);
             var destHeight = _config.CharacterHeight;
             var destRect = new Rectangle(x, y, destWidth, destHeight);
-            
-            spriteBatch.Draw(texture.Texture, destRect, sourceRect, color);
+
+            spriteBatch.Draw(texture.Texture, destRect, sourceRect, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
         }
 
         #endregion
