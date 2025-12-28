@@ -88,16 +88,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Whether the renderer is ready to draw
         /// </summary>
-        public bool IsReady 
-        { 
-            get 
+        public bool IsReady
+        {
+            get
             {
-                var ready = !_disposed && _whiteTexture != null;
-                if (!ready)
-                {
-                    System.Console.WriteLine($"[DEBUG] NoteRenderer.IsReady=false: disposed={_disposed}, whiteTexture={_whiteTexture != null}");
-                }
-                return ready;
+                return !_disposed && _whiteTexture != null;
             }
         }
 
@@ -203,16 +198,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         public void DrawNotes(SpriteBatch spriteBatch, IEnumerable<Note> activeNotes, double currentSongTimeMs)
         {
-            System.Console.WriteLine($"[DEBUG] NoteRenderer.DrawNotes called: IsReady={IsReady}, spriteBatch={spriteBatch != null}, activeNotes={activeNotes != null}");
-            
             if (!IsReady || spriteBatch == null || activeNotes == null)
             {
-                System.Console.WriteLine($"[DEBUG] NoteRenderer.DrawNotes early return: IsReady={IsReady}, spriteBatch={spriteBatch != null}, activeNotes={activeNotes != null}");
                 return;
             }
 
             var notesList = activeNotes.ToList(); // Convert to list to avoid multiple enumeration
-            System.Console.WriteLine($"[DEBUG] NoteRenderer.DrawNotes processing {notesList.Count} notes");
 
             // First pass: Draw all base animations
             foreach (var note in notesList)
@@ -266,13 +257,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 (int)DefaultNoteSize.X,
                 (int)DefaultNoteSize.Y
             );
-            
-            // Add bounds checking for debugging
-            bool isOnScreen = noteY >= -50 && noteY <= 800 && lanePosition.X >= -50 && lanePosition.X <= 1400;
-            System.Console.WriteLine($"[DEBUG] DrawNote: lane={note.LaneIndex}, time={note.TimeMs:F1}, noteY={noteY:F1}, rect={noteRect}, onScreen={isOnScreen}");
 
             // Draw the note using drum chip sprite if available, otherwise use colored rectangle
-            if (_drumChipsTexture != null)
+            if (_drumChipsTexture != null && _drumChipsTexture.Texture != null && !_drumChipsTexture.Texture.IsDisposed)
             {
                 // Map note channel to sprite column (use channel-based mapping for shared lanes)
                 var spriteColumn = GetSpriteColumnForChannel(note.Channel);
@@ -296,7 +283,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         var overlayFrameIndex = (int)(_animationTimeMs / AnimationFrameDurationMs) % OverlayAnimationRows.Length;
                         var overlayRow = OverlayAnimationRows[overlayFrameIndex];
                         var overlaySourceRect = new Rectangle(sourceRect.X, overlayRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-                        System.Console.WriteLine($"[DEBUG] Drawing note overlay: position={spritePosition}, sourceRect={overlaySourceRect}, color=White, depth=0.05f");
                         spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, overlaySourceRect, Color.White, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0.05f);
                     }
                     else
@@ -307,7 +293,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         var baseAnimationFrame = (int)(_animationTimeMs / AnimationFrameDurationMs) % BaseAnimationFrameCount;
                         var baseRow = BaseAnimationStartRow + baseAnimationFrame;
                         var baseSourceRect = new Rectangle(sourceRect.X, baseRow * DrumChipsSpriteHeight, sourceRect.Width, sourceRect.Height);
-                        System.Console.WriteLine($"[DEBUG] Drawing note base: position={spritePosition}, sourceRect={baseSourceRect}");
                         spriteBatch.Draw(_drumChipsTexture.Texture, spritePosition, baseSourceRect, Color.White, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0.05f);
                         
                         
@@ -584,16 +569,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 // Load the base texture
                 var baseTexture = _resourceManager.LoadTexture(TexturePath.DrumChips);
-                System.Console.WriteLine($"[DEBUG] NoteRenderer loading texture: {TexturePath.DrumChips}, loaded={baseTexture != null}");
                 if (baseTexture?.Texture != null)
                 {
-                    System.Console.WriteLine($"[DEBUG] NoteRenderer texture dimensions: {baseTexture.Texture.Width}x{baseTexture.Texture.Height}");
                     try
                     {
                         // Create ManagedSpriteTexture from the loaded texture
                         // Sprite sheet: 12 columns x 11 rows, variable width per column, 64px height
                         var spriteWidth = baseTexture.Texture.Width / DrumChipsSpriteColumns;
-                        System.Console.WriteLine($"[DEBUG] NoteRenderer calculated spriteWidth: {spriteWidth} (columns={DrumChipsSpriteColumns}, height={DrumChipsSpriteHeight})");
                         _drumChipsTexture = new ManagedSpriteTexture(
                             _graphicsDevice,
                             baseTexture.Texture,

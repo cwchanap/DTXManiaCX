@@ -207,17 +207,19 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Note_GetLaneName_ReturnsCorrectNames()
         {
-            // Test all lane names (updated to match correct gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY)
-            Assert.Equal("LC", new Note(0, 0, 0, 0x11, "01").GetLaneName());
-            Assert.Equal("HH", new Note(1, 0, 0, 0x12, "01").GetLaneName());
-            Assert.Equal("LP", new Note(2, 0, 0, 0x13, "01").GetLaneName());
-            Assert.Equal("SN", new Note(3, 0, 0, 0x14, "01").GetLaneName());
-            Assert.Equal("HT", new Note(4, 0, 0, 0x15, "01").GetLaneName());
-            Assert.Equal("DB", new Note(5, 0, 0, 0x16, "01").GetLaneName());
-            Assert.Equal("LT", new Note(6, 0, 0, 0x17, "01").GetLaneName());
-            Assert.Equal("FT", new Note(7, 0, 0, 0x18, "01").GetLaneName());
-            Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());
-            Assert.Equal("??", new Note(9, 0, 0, 0x1A, "01").GetLaneName()); // Invalid lane
+            // Test all 10 lane names (matching gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)
+            // Channel values match DTX standard for each lane
+            Assert.Equal("LC", new Note(0, 0, 0, 0x1A, "01").GetLaneName());  // Left Crash
+            Assert.Equal("HH", new Note(1, 0, 0, 0x11, "01").GetLaneName());  // Hi-Hat
+            Assert.Equal("LP", new Note(2, 0, 0, 0x1B, "01").GetLaneName());  // Left Pedal
+            Assert.Equal("SN", new Note(3, 0, 0, 0x12, "01").GetLaneName());  // Snare
+            Assert.Equal("HT", new Note(4, 0, 0, 0x14, "01").GetLaneName());  // High Tom
+            Assert.Equal("DB", new Note(5, 0, 0, 0x13, "01").GetLaneName());  // Bass Drum
+            Assert.Equal("LT", new Note(6, 0, 0, 0x15, "01").GetLaneName());  // Low Tom
+            Assert.Equal("FT", new Note(7, 0, 0, 0x17, "01").GetLaneName());  // Floor Tom
+            Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());  // Right Cymbal
+            Assert.Equal("RD", new Note(9, 0, 0, 0x16, "01").GetLaneName());  // Ride
+            Assert.Equal("??", new Note(10, 0, 0, 0xFF, "01").GetLaneName()); // Invalid lane
         }
 
         [Fact]
