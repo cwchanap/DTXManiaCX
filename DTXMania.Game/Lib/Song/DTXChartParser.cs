@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// DTX chart parser for gameplay note data and metadata
-    /// Parses DTX files to extract notes for the 9 NX lanes (channels 11-19) and song metadata
+    /// Parses DTX files to extract notes for the 10 NX lanes (channels 11-1C) and song metadata
     /// Consolidates functionality from DTXMetadataParser
     /// Based on DTXManiaNX parsing patterns
     /// </summary>
@@ -344,7 +344,7 @@ namespace DTXMania.Game.Lib.Song
                 return;
             }
 
-            // Check if this is a drum lane channel (11-19, 1A-1C)
+            // Check if this is a drum lane channel (11-1C)
             if (!ChannelToLaneMap.TryGetValue(channel, out var laneIndex))
             {
                 // Skipping unmapped channel

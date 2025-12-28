@@ -167,7 +167,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class NoteDistributionBars
         {
-            // Drums configuration (9 lanes)
+            // Drums configuration (10 lanes)
             public static class Drums
             {
                 public const int StartX = 50;  // Start position X (15 + 31)
@@ -175,7 +175,7 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
-                public const int LaneCount = 9;   // Number of drum lanes
+                public const int LaneCount = 10;   // Number of drum lanes
                 
                 public static Vector2 StartPosition => new Vector2(StartX, StartY);
                 

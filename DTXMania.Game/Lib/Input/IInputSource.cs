@@ -81,7 +81,7 @@ namespace DTXMania.Game.Lib.Input
     public class LaneHitEventArgs : EventArgs
     {
         /// <summary>
-        /// Lane index (0-8 for the 9-lane drum layout)
+        /// Lane index (0-9 for the 10-lane drum layout)
         /// </summary>
         public int Lane { get; set; }
 

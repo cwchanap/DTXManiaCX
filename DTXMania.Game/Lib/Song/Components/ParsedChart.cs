@@ -69,8 +69,8 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public ParsedChart()
         {
-            // Initialize notes per lane dictionary for all 9 lanes
-            for (int i = 0; i < 9; i++)
+            // Initialize notes per lane dictionary for all 10 lanes
+            for (int i = 0; i < 10; i++)
             {
                 NotesPerLane[i] = 0;
             }
@@ -107,7 +107,7 @@ namespace DTXMania.Game.Lib.Song.Components
             Notes.Add(note);
 
             // Update lane statistics
-            if (note.LaneIndex >= 0 && note.LaneIndex < 9)
+            if (note.LaneIndex >= 0 && note.LaneIndex < 10)
             {
                 NotesPerLane[note.LaneIndex]++;
             }
@@ -183,7 +183,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Gets notes for a specific lane
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>Notes in the specified lane</returns>
         public IEnumerable<Note> GetNotesForLane(int laneIndex)
         {

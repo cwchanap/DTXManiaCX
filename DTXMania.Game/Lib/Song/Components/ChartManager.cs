@@ -111,7 +111,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Gets notes for a specific lane within a time range
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <param name="songTimeMs">Current song time in milliseconds</param>
         /// <param name="lookAheadMs">How far ahead to look for notes (in milliseconds)</param>
         /// <returns>Notes in the specified lane within the time range</returns>
@@ -140,7 +140,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Gets the next note in a specific lane after the specified time
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <param name="songTimeMs">Current song time in milliseconds</param>
         /// <returns>The next note in the lane, or null if no more notes</returns>
         public Note GetNextNoteInLane(int laneIndex, double songTimeMs)
@@ -192,7 +192,7 @@ namespace DTXMania.Game.Lib.Song.Components
             // Calculate notes per lane - optimized single pass
             foreach (var note in _notes)
             {
-                if (note.LaneIndex >= 0 && note.LaneIndex < 9)
+                if (note.LaneIndex >= 0 && note.LaneIndex < 10)
                 {
                     stats.NotesPerLane[note.LaneIndex]++;
                 }
@@ -285,7 +285,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public double DurationMs { get; set; }
         public double Bpm { get; set; }
         public double NoteDensity { get; set; } // Notes per second
-        public int[] NotesPerLane { get; set; } = new int[9]; // 9 lanes (0-8)
+        public int[] NotesPerLane { get; set; } = new int[10]; // 10 lanes (0-9)
 
         public override string ToString()
         {

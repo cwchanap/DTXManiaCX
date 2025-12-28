@@ -48,7 +48,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         public int NoteRef { get; set; }
         
         /// <summary>
-        /// The lane where the judgement occurred (0-8 for the 9 lanes)
+        /// The lane where the judgement occurred (0-9 for the 10 lanes)
         /// </summary>
         public int Lane { get; set; }
         
@@ -279,7 +279,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
     /// <summary>
     /// Enum for input lanes, mapping to specific DTX channels.
-    /// Based on DTXMania 9-lane layout (channels 11-19) for drum gameplay.
+    /// Based on DTXMania 10-lane layout (channels 11-1C) for drum gameplay.
     /// Updated to match DTXChartParser channel-to-lane mapping.
     /// </summary>
     public enum InputLane
@@ -361,10 +361,10 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
         
         /// <summary>
-        /// Converts InputLane to lane index (0-8) using DTXChartParser mapping
+        /// Converts InputLane to lane index (0-9) using DTXChartParser mapping
         /// </summary>
         /// <param name="lane">InputLane enum value</param>
-        /// <returns>Lane index (0-8)</returns>
+        /// <returns>Lane index (0-9)</returns>
         public static int ToLaneIndex(this InputLane lane)
         {
             return lane switch
@@ -383,9 +383,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
         
         /// <summary>
-        /// Converts lane index (0-8) to InputLane using DTXChartParser mapping
+        /// Converts lane index (0-9) to InputLane using DTXChartParser mapping
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>Corresponding InputLane, or null if invalid</returns>
         public static InputLane? FromLaneIndex(int laneIndex)
         {

@@ -16,9 +16,9 @@ namespace DTXMania.Game.Lib.Song.Components
         public int Id { get; internal set; }
 
         /// <summary>
-        /// Lane index (0-8 for the 9 NX lanes)
-        /// UPDATED mapping to match gameplay order LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY/RD:
-        /// 0x1A=0 (LC), 0x13=1 (HH), 0x1B=2 (LP), 0x12=3 (SN), 0x16=4 (HT), 0x15=5 (BD), 0x17=6 (LT), 0x18=7 (FT), 0x19=8 (CY)
+        /// Lane index (0-9 for the 10 NX lanes)
+        /// UPDATED mapping to match gameplay order LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY, RD:
+        /// 0x1A=0 (LC), 0x11=1 (HH), 0x1B=2 (LP), 0x12=3 (SN), 0x14=4 (HT), 0x13=5 (BD), 0x15=6 (LT), 0x16=7 (FT), 0x19=8 (CY), 0x16=9 (RD)
         /// </summary>
         public int LaneIndex { get; set; }
 
@@ -39,7 +39,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public double TimeMs { get; set; }
 
         /// <summary>
-        /// DTX channel number (11-19 for NX lanes)
+        /// DTX channel number (11-1C for NX lanes)
         /// </summary>
         public int Channel { get; set; }
 
@@ -63,7 +63,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Creates a new Note with specified parameters
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <param name="bar">Bar number</param>
         /// <param name="tick">Tick position</param>
         /// <param name="channel">DTX channel number</param>
