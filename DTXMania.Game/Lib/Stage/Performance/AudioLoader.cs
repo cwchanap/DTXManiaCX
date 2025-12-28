@@ -93,12 +93,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Creates a SongTimer instance for the loaded audio
         /// </summary>
+        /// <param name="logger">Optional logger action for logging errors and warnings</param>
         /// <returns>SongTimer instance, or null if no audio is loaded</returns>
-        public SongTimer CreateSongTimer()
+        public SongTimer CreateSongTimer(Action<string>? logger = null)
         {
             if (!IsLoaded)
             {
                 System.Diagnostics.Debug.WriteLine("AudioLoader: Cannot create SongTimer - no audio loaded");
+                logger?.Invoke("AudioLoader: Cannot create SongTimer - no audio loaded");
                 return null;
             }
 
@@ -108,16 +110,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (soundInstance == null)
                 {
                     System.Diagnostics.Debug.WriteLine("AudioLoader: Failed to create sound instance");
+                    logger?.Invoke("AudioLoader: Failed to create sound instance");
                     return null;
                 }
 
-                var songTimer = new SongTimer(soundInstance);
+                var songTimer = new SongTimer(soundInstance, logger);
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Created SongTimer for {Path.GetFileName(LoadedAudioPath)}");
                 return songTimer;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Failed to create SongTimer: {ex.Message}");
+                logger?.Invoke($"AudioLoader: Failed to create SongTimer: {ex.Message}");
                 return null;
             }
         }

@@ -19,7 +19,7 @@ using DTXMania.Game.Lib.Song.Entities;
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
-    /// Performance stage for playing songs with the 9-lane GITADORA XG layout.
+    /// Performance stage for playing songs with the 10-lane GITADORA XG layout.
     /// This class coordinates all gameplay components including timing, scoring, and visual feedback.
     /// Based on DTXManiaNX performance screen patterns.
     /// </summary>
@@ -543,8 +543,8 @@ namespace DTXMania.Game.Lib.Stage
                 // Schedule BGM events for playback
                 _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();
 
-                // Create song timer
-                _songTimer = _audioLoader.CreateSongTimer();
+                // Create song timer with logging support
+                _songTimer = _audioLoader.CreateSongTimer(LogPerformanceError);
 
                 _isLoading = false;
                 _isReady = true;
@@ -623,7 +623,14 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Start the song timer - this provides the master clock for notes and BGM events
                 _songTimer.SetPosition(0.0, _currentGameTime);
-                _songTimer.Play(_currentGameTime);
+                bool playbackStarted = _songTimer.Play(_currentGameTime);
+                
+                if (!playbackStarted)
+                {
+                    LogPerformanceError("PerformanceStage: Failed to start song playback - audio may be unavailable");
+                    // Continue anyway - the game can still run without audio
+                }
+                
                 _isReady = false;
 
                 // Activate the judgement manager now that the song is playing
@@ -1602,6 +1609,17 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
+        #region Logging
 
+        /// <summary>
+        /// Logs performance-related errors and warnings
+        /// </summary>
+        /// <param name="message">The message to log</param>
+        private void LogPerformanceError(string message)
+        {
+            System.Diagnostics.Debug.WriteLine(message);
+        }
+
+        #endregion
     }
 }

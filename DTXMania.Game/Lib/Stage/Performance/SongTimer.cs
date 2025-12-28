@@ -17,6 +17,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private DateTime _systemStartTime;
         private bool _isPlaying = false;
         private bool _disposed = false;
+        private readonly Action<string>? _logger;
 
         #endregion
 
@@ -78,9 +79,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Creates a new SongTimer with the specified sound instance
         /// </summary>
         /// <param name="soundInstance">The sound instance to wrap</param>
-        public SongTimer(SoundEffectInstance soundInstance)
+        /// <param name="logger">Optional logger action for logging errors and warnings</param>
+        public SongTimer(SoundEffectInstance soundInstance, Action<string>? logger = null)
         {
         _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
+        _logger = logger;
         }
 
         #endregion
@@ -91,10 +94,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Starts playing the song and begins timing
         /// </summary>
         /// <param name="gameTime">Current game time for precise timing</param>
-        public void Play(GameTime gameTime)
+        /// <returns>True if playback started successfully, false if an error occurred</returns>
+        public bool Play(GameTime gameTime)
         {
         if (_disposed || _soundInstance == null)
-            return;
+            return false;
 
         _startTime = gameTime.TotalGameTime;
         _systemStartTime = DateTime.UtcNow;
@@ -103,10 +107,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             _soundInstance.Play();
             _isPlaying = true;
+            return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             _isPlaying = false;
+            _logger?.Invoke($"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
+            return false;
         }
         }
 
