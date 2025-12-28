@@ -8,7 +8,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
     /// Lane background renderer component for PerformanceStage
-    /// Renders the 9-lane GITADORA XG layout with colored backgrounds
+    /// Renders the 10-lane GITADORA XG layout with colored backgrounds
     /// </summary>
     public class LaneBackgroundRenderer : IDisposable
     {
@@ -60,7 +60,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || spriteBatch == null || _whiteTexture == null)
                 return;
 
-            // Draw all 9 lanes with their respective colors
+            // Draw all 10 lanes with their respective colors
             for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
             {
                 DrawLane(spriteBatch, i);
@@ -71,7 +71,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Draw a specific lane background
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         public void DrawLane(SpriteBatch spriteBatch, int laneIndex)
         {
             if (_disposed || spriteBatch == null || _whiteTexture == null)
@@ -102,7 +102,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             alpha = MathHelper.Clamp(alpha, 0.0f, 1.0f);
 
-            // Draw all 9 lanes with custom alpha
+            // Draw all 10 lanes with custom alpha
             for (int i = 0; i < PerformanceUILayout.LaneCount; i++)
             {
                 DrawLane(spriteBatch, i, alpha);
@@ -113,7 +113,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Draw a specific lane background with custom alpha
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <param name="alpha">Alpha transparency (0.0f to 1.0f)</param>
         public void DrawLane(SpriteBatch spriteBatch, int laneIndex, float alpha)
         {

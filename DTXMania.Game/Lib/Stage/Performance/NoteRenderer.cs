@@ -10,7 +10,7 @@ using DTXMania.Game.Lib.UI.Layout;
 namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
-    /// Renders scrolling notes for the 9-lane GITADORA XG layout
+    /// Renders scrolling notes for the 10-lane GITADORA XG layout
     /// Handles note positioning, scrolling, and visual effects
     /// </summary>
     public class NoteRenderer : IDisposable
@@ -366,8 +366,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (noteY > JudgementY + DropGracePeriod || noteY < -DefaultNoteSize.Y)
                 return;
 
-            // Only draw overlay if we have drum chips texture
-            if (_drumChipsTexture == null)
+            // Only draw overlay if we have drum chips texture with valid, non-disposed texture
+            if (_drumChipsTexture == null || _drumChipsTexture.Texture == null || _drumChipsTexture.Texture.IsDisposed)
                 return;
 
             // Map note channel to sprite column
@@ -467,7 +467,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Triggers a flash effect for the specified lane
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8) to trigger flash for</param>
+        /// <param name="laneIndex">Lane index (0-9) to trigger flash for</param>
         public void TriggerLaneFlash(int laneIndex)
         {
             if (laneIndex >= 0 && laneIndex < _laneFlashAlpha.Length)
@@ -481,12 +481,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Used for hit effects or special visual feedback
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <param name="overlayFrameIndex">Overlay frame index (0-2)</param>
         /// <param name="position">Position to draw the overlay</param>
         public void DrawOverlayEffect(SpriteBatch spriteBatch, int laneIndex, int overlayFrameIndex, Vector2 position)
         {
-            if (!IsReady || spriteBatch == null || _drumChipsTexture == null)
+            if (!IsReady || spriteBatch == null || _drumChipsTexture == null || _drumChipsTexture.Texture == null || _drumChipsTexture.Texture.IsDisposed)
                 return;
 
             if (overlayFrameIndex < 0 || overlayFrameIndex >= OverlayAnimationRows.Length)
@@ -678,7 +678,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Kept for compatibility with overlay effects
         /// Updated for CORRECT lane order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <param name="laneIndex">DTX lane index (0-9)</param>
         /// <returns>Sprite column index or -1 if invalid</returns>
         private int GetSpriteColumnForLane(int laneIndex)
         {
@@ -730,7 +730,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Legacy method - Gets the sprite width for a specific lane
         /// Kept for compatibility
         /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <param name="laneIndex">DTX lane index (0-9)</param>
         /// <returns>Sprite width in pixels</returns>
         private int GetSpriteWidthForLane(int laneIndex)
         {
@@ -761,7 +761,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Kept for compatibility
         /// Updated for CORRECT lane order: LC, HH, LP, SN, HT, DB, LT, FT, CY
         /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <param name="laneIndex">DTX lane index (0-9)</param>
         /// <returns>True if this is a snare/tom lane that uses overlay frames</returns>
         private bool IsSnareOrTomLane(int laneIndex)
         {
@@ -808,7 +808,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Legacy method - Gets custom source rectangle for variable-width sprites by lane
         /// Kept for compatibility
         /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-8)</param>
+        /// <param name="laneIndex">DTX lane index (0-9)</param>
         /// <returns>Source rectangle for the sprite</returns>
         private Rectangle GetCustomSpriteSourceRectangle(int laneIndex)
         {

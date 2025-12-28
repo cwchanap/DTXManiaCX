@@ -208,18 +208,18 @@ namespace DTXMania.Test.Song
         public void Note_GetLaneName_ReturnsCorrectNames()
         {
             // Test all 10 lane names (matching gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)
-            // Channel values match DTX standard for each lane
-            Assert.Equal("LC", new Note(0, 0, 0, 0x1A, "01").GetLaneName());  // Left Crash
-            Assert.Equal("HH", new Note(1, 0, 0, 0x11, "01").GetLaneName());  // Hi-Hat
-            Assert.Equal("LP", new Note(2, 0, 0, 0x1B, "01").GetLaneName());  // Left Pedal
-            Assert.Equal("SN", new Note(3, 0, 0, 0x12, "01").GetLaneName());  // Snare
-            Assert.Equal("HT", new Note(4, 0, 0, 0x14, "01").GetLaneName());  // High Tom
-            Assert.Equal("DB", new Note(5, 0, 0, 0x13, "01").GetLaneName());  // Bass Drum
-            Assert.Equal("LT", new Note(6, 0, 0, 0x15, "01").GetLaneName());  // Low Tom
-            Assert.Equal("FT", new Note(7, 0, 0, 0x17, "01").GetLaneName());  // Floor Tom
-            Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());  // Right Cymbal
-            Assert.Equal("RD", new Note(9, 0, 0, 0x16, "01").GetLaneName());  // Ride
-            Assert.Equal("??", new Note(10, 0, 0, 0xFF, "01").GetLaneName()); // Invalid lane
+            // Channel values match canonical DTXChartParser.ChannelToLaneMap mapping
+            Assert.Equal("LC", new Note(0, 0, 0, 0x1A, "01").GetLaneName());  // Left Crash (0x1A → Lane 0)
+            Assert.Equal("HH", new Note(1, 0, 0, 0x11, "01").GetLaneName());  // Hi-Hat Close (0x11 → Lane 1)
+            Assert.Equal("LP", new Note(2, 0, 0, 0x1B, "01").GetLaneName());  // Left Pedal (0x1B → Lane 2)
+            Assert.Equal("SN", new Note(3, 0, 0, 0x12, "01").GetLaneName());  // Snare (0x12 → Lane 3)
+            Assert.Equal("HT", new Note(4, 0, 0, 0x14, "01").GetLaneName());  // High Tom (0x14 → Lane 4)
+            Assert.Equal("DB", new Note(5, 0, 0, 0x13, "01").GetLaneName());  // Bass Drum (0x13 → Lane 5)
+            Assert.Equal("LT", new Note(6, 0, 0, 0x15, "01").GetLaneName());  // Low Tom (0x15 → Lane 6)
+            Assert.Equal("FT", new Note(7, 0, 0, 0x17, "01").GetLaneName());  // Floor Tom (0x17 → Lane 7)
+            Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());  // Right Cymbal (0x19 → Lane 8)
+            Assert.Equal("RD", new Note(9, 0, 0, 0x16, "01").GetLaneName());  // Ride (0x16 → Lane 9)
+            Assert.Equal("??", new Note(10, 0, 0, 0xFF, "01").GetLaneName()); // Invalid lane (unmapped channel)
         }
 
         [Fact]

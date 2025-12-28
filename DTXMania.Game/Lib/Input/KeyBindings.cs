@@ -7,7 +7,7 @@ namespace DTXMania.Game.Lib.Input
 {
     /// <summary>
     /// Represents the key bindings configuration for all input devices
-    /// Maps button IDs to lane indices (0-8 for the 9-lane drum layout)
+    /// Maps button IDs to lane indices (0-9 for the 10-lane drum layout)
     /// </summary>
     public class KeyBindings
     {
@@ -19,7 +19,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Maps button IDs to lane indices (read-only)
         /// Key: Button ID (e.g., "Key.A", "MIDI.36", "Pad.A")
-        /// Value: Lane index (0-8)
+        /// Value: Lane index (0-9)
         /// </summary>
         public IReadOnlyDictionary<string, int> ButtonToLane => _buttonToLane;
 
@@ -67,7 +67,7 @@ namespace DTXMania.Game.Lib.Input
         /// Gets the lane index for a button ID, or -1 if not bound
         /// </summary>
         /// <param name="buttonId">Button ID to look up</param>
-        /// <returns>Lane index (0-8) or -1 if not bound</returns>
+        /// <returns>Lane index (0-9) or -1 if not bound</returns>
         public int GetLane(string buttonId)
         {
             return ButtonToLane.TryGetValue(buttonId, out var lane) ? lane : -1;
@@ -76,7 +76,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Gets all button IDs bound to a specific lane
         /// </summary>
-        /// <param name="lane">Lane index (0-8)</param>
+        /// <param name="lane">Lane index (0-9)</param>
         /// <returns>Collection of button IDs bound to this lane</returns>
         public IEnumerable<string> GetButtonsForLane(int lane)
         {
@@ -87,11 +87,11 @@ namespace DTXMania.Game.Lib.Input
         /// Binds a button to a lane
         /// </summary>
         /// <param name="buttonId">Button ID to bind</param>
-        /// <param name="lane">Lane index (0-8)</param>
+        /// <param name="lane">Lane index (0-9)</param>
         public void BindButton(string buttonId, int lane)
         {
-            if (lane < 0 || lane > 8)
-                throw new ArgumentOutOfRangeException(nameof(lane), "Lane must be between 0 and 8");
+            if (lane < 0 || lane > 9)
+                throw new ArgumentOutOfRangeException(nameof(lane), "Lane must be between 0 and 9");
 
             _buttonToLane[buttonId] = lane;
             OnBindingsChanged();
@@ -112,7 +112,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Unbinds all buttons from a specific lane
         /// </summary>
-        /// <param name="lane">Lane index (0-8)</param>
+        /// <param name="lane">Lane index (0-9)</param>
         public void UnbindLane(int lane)
         {
             var buttonsToRemove = GetButtonsForLane(lane).ToList();
@@ -139,7 +139,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Gets a human-readable description of the bindings for a lane
         /// </summary>
-        /// <param name="lane">Lane index (0-8)</param>
+        /// <param name="lane">Lane index (0-9)</param>
         /// <returns>Human-readable description</returns>
         public string GetLaneDescription(int lane)
         {
@@ -223,7 +223,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Gets lane names for display
         /// </summary>
-        /// <param name="lane">Lane index (0-8)</param>
+        /// <param name="lane">Lane index (0-9)</param>
         /// <returns>Human-readable lane name</returns>
         public static string GetLaneName(int lane)
         {
