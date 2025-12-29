@@ -60,7 +60,9 @@ namespace DTXMania.Game.Lib.Input
             // Lane 7: 16 (High Tom)
             _buttonToLane["Key.K"] = 7;         // High Tom
             // Lane 8: 17&19 (Low Tom & Right Cymbal)
-            _buttonToLane["Key.L"] = 8; // Low Tom & Right Cymbal
+            _buttonToLane["Key.L"] = 8;         // Low Tom & Right Cymbal
+            // Lane 9: 1A (Ride)
+            _buttonToLane["Key.OemSemicolon"] = 9; // Ride
         }
 
         /// <summary>
@@ -238,6 +240,7 @@ namespace DTXMania.Game.Lib.Input
                 6 => "Bass Drum",            // 15
                 7 => "High Tom",             // 16
                 8 => "Low Tom/Right Cymbal", // 17&19
+                9 => "Ride",                 // 1A
                 _ => $"Lane {lane}"
             };
         }
