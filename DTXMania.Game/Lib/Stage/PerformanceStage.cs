@@ -544,7 +544,7 @@ namespace DTXMania.Game.Lib.Stage
                 _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();
 
                 // Create song timer with logging support
-                _songTimer = _audioLoader.CreateSongTimer(LogPerformanceError);
+                _songTimer = _audioLoader.CreateSongTimer(message => LogPerformanceError(message));
 
                 _isLoading = false;
                 _isReady = true;
@@ -1615,9 +1615,20 @@ namespace DTXMania.Game.Lib.Stage
         /// Logs performance-related errors and warnings
         /// </summary>
         /// <param name="message">The message to log</param>
-        private void LogPerformanceError(string message)
+        /// <param name="exception">Optional exception to include in the log</param>
+        private void LogPerformanceError(string message, Exception? exception = null)
         {
-            System.Diagnostics.Debug.WriteLine(message);
+            // Use Console.WriteLine to ensure logs are visible in all build configurations
+            // (Debug.WriteLine is compiled out in Release builds)
+            if (exception != null)
+            {
+                Console.WriteLine($"[PerformanceError] {message}: {exception.Message}");
+                Console.WriteLine($"[PerformanceError] Stack trace: {exception.StackTrace}");
+            }
+            else
+            {
+                Console.WriteLine($"[PerformanceError] {message}");
+            }
         }
 
         #endregion
