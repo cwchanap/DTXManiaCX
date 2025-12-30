@@ -211,7 +211,9 @@ namespace DTXMania.Test.Song
             // Channel values match canonical DTXChartParser.ChannelToLaneMap mapping
             Assert.Equal("LC", new Note(0, 0, 0, 0x1A, "01").GetLaneName());  // Left Crash (0x1A → Lane 0)
             Assert.Equal("HH", new Note(1, 0, 0, 0x11, "01").GetLaneName());  // Hi-Hat Close (0x11 → Lane 1)
+            Assert.Equal("HH", new Note(1, 0, 0, 0x18, "01").GetLaneName());  // Hi-Hat Open (0x18 → Lane 1)
             Assert.Equal("LP", new Note(2, 0, 0, 0x1B, "01").GetLaneName());  // Left Pedal (0x1B → Lane 2)
+            Assert.Equal("LP", new Note(2, 0, 0, 0x1C, "01").GetLaneName());  // Left Bass Drum (0x1C → Lane 2)
             Assert.Equal("SN", new Note(3, 0, 0, 0x12, "01").GetLaneName());  // Snare (0x12 → Lane 3)
             Assert.Equal("HT", new Note(4, 0, 0, 0x14, "01").GetLaneName());  // High Tom (0x14 → Lane 4)
             Assert.Equal("DB", new Note(5, 0, 0, 0x13, "01").GetLaneName());  // Bass Drum (0x13 → Lane 5)

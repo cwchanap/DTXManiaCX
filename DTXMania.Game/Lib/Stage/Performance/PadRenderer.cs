@@ -365,7 +365,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <returns>Tuple of (columnIndex, rowIndex), or (-1, -1) if no mapping</returns>
         private (int columnIndex, int rowIndex) GetSpritePositionForLane(int laneIndex)
         {
-            // DTXManiaCX 10-lane mapping: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD
+            // DTXManiaCX 10-lane mapping: LC, HH, LP, SN, HT, BD, LT, FT, CY, RD
             // Map to 4×3 sprite sheet based on actual texture layout
             return laneIndex switch
             {
@@ -374,7 +374,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 2 => (0, 2), // LP (Left Pedal) -> Row 2, Col 0
                 3 => (0, 1), // SN (Snare) -> Row 1, Col 0
                 4 => (1, 1), // HT (High Tom) -> Row 1, Col 1
-                5 => (1, 2), // DB (Bass Drum) -> Row 2, Col 1
+                5 => (1, 2), // BD (Bass Drum) -> Row 2, Col 1
                 6 => (2, 1), // LT (Low Tom) -> Row 1, Col 2
                 7 => (3, 1), // FT (Floor Tom) -> Row 1, Col 3
                 8 => (2, 0), // CY (Right Cymbal) -> Row 0, Col 2

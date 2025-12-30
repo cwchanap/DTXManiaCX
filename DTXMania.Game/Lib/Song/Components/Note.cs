@@ -17,8 +17,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Lane index (0-9 for the 10 NX lanes)
-        /// UPDATED mapping to match gameplay order LC, HH/HHC, LP, SN, HT, BD, LT, FT, CY, RD:
-        /// 0x1A=0 (LC), 0x11=1 (HH), 0x1B=2 (LP), 0x12=3 (SN), 0x14=4 (HT), 0x13=5 (BD), 0x15=6 (LT), 0x16=7 (FT), 0x19=8 (CY), 0x16=9 (RD)
+        /// UPDATED mapping to match gameplay order LC, HH/HHC, LP, SN, HT, DB, LT, FT, CY, RD:
+        /// 0x1A=0 (LC), 0x11=1 (HH), 0x1B=2 (LP), 0x12=3 (SN), 0x14=4 (HT), 0x13=5 (DB), 0x15=6 (LT), 0x16=7 (FT), 0x19=8 (CY), 0x16=9 (RD)
         /// </summary>
         public int LaneIndex { get; set; }
 
