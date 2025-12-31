@@ -1,16 +1,23 @@
 using System;
 using System.Collections.Generic;
 using DTXMania.Game;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
-    /// Enhanced stage manager with transition support
-    /// Based on DTXManiaNX stage management patterns with eフェーズID handling
+    /// Enhanced stage manager with transition support and structured logging.
+    /// Based on DTXManiaNX stage management patterns with eフェーズID handling.
     /// </summary>
+    /// <remarks>
+    /// Provides lazy stage initialization and smooth transitions between game stages.
+    /// Supports optional ILogger for stage transition diagnostics.
+    /// </remarks>
     public class StageManager : IStageManager
     {
         private readonly BaseGame _game;
+        private readonly ILogger<StageManager> _logger;
         private readonly Dictionary<StageType, IStage> _stages;
         private IStage _currentStage;
         private IStage _previousStage;
@@ -26,9 +33,10 @@ namespace DTXMania.Game.Lib.Stage
         public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
         public bool IsTransitioning => _isTransitioning;
 
-        public StageManager(BaseGame game)
+        public StageManager(BaseGame game, ILogger<StageManager> logger = null)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
+            _logger = logger ?? NullLogger<StageManager>.Instance;
             _stages = new Dictionary<StageType, IStage>();
             // Don't initialize stages immediately - use lazy initialization
         }
@@ -76,22 +84,18 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_disposed)
             {
-                System.Diagnostics.Debug.WriteLine($"StageManager: Cannot change to {stageType} - manager is disposed");
+                _logger.LogWarning("Cannot change to {StageType} - manager is disposed", stageType);
                 return;
             }
 
             if (_isTransitioning)
             {
-                System.Diagnostics.Debug.WriteLine($"StageManager: Already transitioning, ignoring change to {stageType}");
+                _logger.LogDebug("Already transitioning, ignoring change to {StageType}", stageType);
                 return;
             }
 
+            // GetOrCreateStage throws ArgumentException for unknown types, so targetStage is never null
             var targetStage = GetOrCreateStage(stageType);
-            if (targetStage == null)
-            {
-                System.Diagnostics.Debug.WriteLine($"StageManager: Stage {stageType} not found");
-                return;
-            }
 
             var previousStageType = _currentStage?.Type;
             
@@ -101,15 +105,17 @@ namespace DTXMania.Game.Lib.Stage
             _currentTransition = transition ?? new InstantTransition();
             _isTransitioning = true;
 
-            // DEBUG: Detailed transition audit information
+            // Log transition details
             var transitionTypeName = _currentTransition.GetType().Name;
             var fadeOutAlpha = _currentTransition.GetFadeOutAlpha();
             var fadeInAlpha = _currentTransition.GetFadeInAlpha();
-            var sharedDataStatus = sharedData == null ? "null" : (sharedData.Count == 0 ? "empty" : $"contains {sharedData.Count} keys: [{string.Join(", ", sharedData.Keys)}]");
+            var sharedDataCount = sharedData?.Count ?? 0;
             
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] ChangeStage: {previousStageType ?? StageType.Startup} -> {stageType}");
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Transition: {transitionTypeName} (Duration: {_currentTransition.Duration:F3}s, FadeOut: {fadeOutAlpha:F3}, FadeIn: {fadeInAlpha:F3})");
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] SharedData: {sharedDataStatus}");
+            _logger.LogDebug("Stage transition: {PreviousStage} -> {TargetStage}", 
+                previousStageType ?? StageType.Startup, stageType);
+            _logger.LogDebug("Transition: {TransitionType} (Duration: {Duration:F3}s, FadeOut: {FadeOutAlpha:F3}, FadeIn: {FadeInAlpha:F3})",
+                transitionTypeName, _currentTransition.Duration, fadeOutAlpha, fadeInAlpha);
+            _logger.LogDebug("SharedData: {SharedDataCount} items", sharedDataCount);
 
             // Start transition
             _currentTransition.Start();
@@ -170,16 +176,17 @@ namespace DTXMania.Game.Lib.Stage
             if (!_isTransitioning)
                 return;
 
-            // DEBUG: Detailed completion audit
+            // Log transition completion details
             var previousStageType = _previousStage?.Type ?? _currentStage?.Type;
             var transitionTypeName = _currentTransition?.GetType().Name ?? "Unknown";
             var finalFadeOutAlpha = _currentTransition?.GetFadeOutAlpha() ?? 0.0f;
             var finalFadeInAlpha = _currentTransition?.GetFadeInAlpha() ?? 1.0f;
-            var sharedDataStatus = _pendingSharedData == null ? "null" : (_pendingSharedData.Count == 0 ? "empty" : $"contains {_pendingSharedData.Count} keys: [{string.Join(", ", _pendingSharedData.Keys)}]");
+            var sharedDataCount = _pendingSharedData?.Count ?? 0;
 
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] CompleteTransition: {previousStageType} -> {_targetStageType}");
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Final transition alphas - FadeOut: {finalFadeOutAlpha:F3}, FadeIn: {finalFadeInAlpha:F3}");
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Passing SharedData: {sharedDataStatus}");
+            _logger.LogDebug("Completing transition: {PreviousStage} -> {TargetStage}", 
+                previousStageType, _targetStageType);
+            _logger.LogDebug("Final transition alphas - FadeOut: {FadeOutAlpha:F3}, FadeIn: {FadeInAlpha:F3}",
+                finalFadeOutAlpha, finalFadeInAlpha);
 
             // Store previous stage for cleanup
             _previousStage = _currentStage;
@@ -187,7 +194,7 @@ namespace DTXMania.Game.Lib.Stage
             // Deactivate previous stage
             if (_previousStage != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Deactivating previous stage: {_previousStage.Type}");
+                _logger.LogDebug("Deactivating previous stage: {StageType}", _previousStage.Type);
                 _previousStage.Deactivate();
             }
 
@@ -196,7 +203,7 @@ namespace DTXMania.Game.Lib.Stage
             if (newStage != null)
             {
                 _currentStage = newStage;
-                System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Activating new stage: {_targetStageType}");
+                _logger.LogDebug("Activating new stage: {StageType}", _targetStageType);
                 _currentStage.Activate(_pendingSharedData);
                 _currentStage.OnTransitionIn(_currentTransition);
                 _currentStage.OnTransitionComplete();
@@ -208,7 +215,7 @@ namespace DTXMania.Game.Lib.Stage
             _pendingSharedData = null;
             _previousStage = null;
 
-            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Transition to {_targetStageType} completed - stage is now active");
+            _logger.LogInformation("Stage transition to {StageType} completed", _targetStageType);
         }
 
         private void DrawTransition(double deltaTime)
@@ -246,18 +253,19 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (disposing)
                 {
-                    // DEBUG: Audit stage manager disposal
+                    // Log disposal information
                     var currentStageType = _currentStage?.Type;
                     var isCurrentlyTransitioning = _isTransitioning;
                     var currentTransitionType = _currentTransition?.GetType().Name;
                     
-                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] StageManager.Dispose: CurrentStage={currentStageType}, IsTransitioning={isCurrentlyTransitioning}, Transition={currentTransitionType}");
-                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Disposing {_stages.Count} total stages");
+                    _logger.LogDebug("StageManager.Dispose: CurrentStage={CurrentStage}, IsTransitioning={IsTransitioning}, Transition={TransitionType}",
+                        currentStageType, isCurrentlyTransitioning, currentTransitionType);
+                    _logger.LogDebug("Disposing {StageCount} total stages", _stages.Count);
 
                     // Deactivate current stage before disposal
                     if (_currentStage != null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Deactivating current stage before disposal: {_currentStage.Type}");
+                        _logger.LogDebug("Deactivating current stage before disposal: {StageType}", _currentStage.Type);
                         _currentStage.Deactivate();
                         _currentStage = null;
                     }
@@ -267,13 +275,13 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         if (stage != null)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] Disposing stage: {stage.Type}");
+                            _logger.LogDebug("Disposing stage: {StageType}", stage.Type);
                             stage.Dispose();
                         }
                     }
                     _stages.Clear();
                     
-                    System.Diagnostics.Debug.WriteLine($"[STAGE_AUDIT] StageManager disposal completed");
+                    _logger.LogDebug("StageManager disposal completed");
                 }
                 _disposed = true;
             }

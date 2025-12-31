@@ -12,20 +12,24 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Game.Lib.JsonRpc;
 
 /// <summary>
-/// JSON-RPC 2.0 server that exposes game API for MCP server to connect to
+/// JSON-RPC 2.0 server that exposes game API for MCP server to connect to.
 /// </summary>
+/// <remarks>
+/// Uses structured logging via ILogger for server lifecycle events.
+/// Request body size limit is configured via GameConstants.JsonRpc.MaxRequestBodyBytes.
+/// Supports API key authentication and provides health check endpoint.
+/// </remarks>
 public class JsonRpcServer : IDisposable, IAsyncDisposable
 {
     private readonly IGameApi _gameApi;
     private readonly ILogger<JsonRpcServer>? _logger;
     private readonly int _port;
     private readonly string _apiKey;
-    // Typical JSON-RPC envelopes with sendInput params can exceed 1 KB; allow modest 8 KB.
-    private const long MaxRequestBodyBytes = 8 * 1024;
 
     private IHost? _host;
     private bool _isRunning;
@@ -79,7 +83,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                         webBuilder.UseKestrel(options =>
                         {
                             options.Listen(IPAddress.Loopback, _port);
-                            options.Limits.MaxRequestBodySize = MaxRequestBodyBytes;
+                            options.Limits.MaxRequestBodySize = GameConstants.JsonRpc.MaxRequestBodyBytes;
                         });
                         webBuilder.Configure(app =>
                         {
@@ -112,7 +116,6 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 await _host.StartAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
                 _isRunning = true;
 
-                System.Diagnostics.Debug.WriteLine($"JSON-RPC server started on http://localhost:{_port}/jsonrpc");
                 _logger?.LogInformation("JSON-RPC server started on port {Port}", _port);
             }
             catch (Exception ex)
@@ -125,7 +128,6 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 }
                 catch (Exception cancelEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to cancel JSON-RPC server token during startup failure: {cancelEx.Message}");
                     _logger?.LogWarning(cancelEx, "Failed to cancel JSON-RPC server token during startup failure");
                 }
 
@@ -140,11 +142,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 }
                 catch (Exception stopEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to stop JSON-RPC server host during startup failure: {stopEx.Message}");
                     _logger?.LogWarning(stopEx, "Failed to stop JSON-RPC server host during startup failure");
                 }
 
-                System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server: {ex.Message}");
                 _logger?.LogError(ex, "Failed to start JSON-RPC server");
 
                 _cancellationTokenSource?.Dispose();
@@ -172,7 +172,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             var maxRequestBodySizeFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
             if (maxRequestBodySizeFeature != null && !maxRequestBodySizeFeature.IsReadOnly)
             {
-                maxRequestBodySizeFeature.MaxRequestBodySize = MaxRequestBodyBytes;
+                maxRequestBodySizeFeature.MaxRequestBodySize = GameConstants.JsonRpc.MaxRequestBodyBytes;
             }
 
             // Validate API key if configured
@@ -190,7 +190,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             }
 
             // Check request size limit (prevent large payloads)
-            if (context.Request.ContentLength.HasValue && context.Request.ContentLength.Value > MaxRequestBodyBytes)
+            if (context.Request.ContentLength.HasValue && context.Request.ContentLength.Value > GameConstants.JsonRpc.MaxRequestBodyBytes)
             {
                 context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
                 response = CreateErrorResponse(null, JsonRpcErrorCodes.InvalidRequest, 
@@ -510,7 +510,6 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 }
                 catch (Exception cancelEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error cancelling JSON-RPC server: {cancelEx.Message}");
                     _logger?.LogWarning(cancelEx, "Error cancelling JSON-RPC server");
                 }
 
@@ -537,12 +536,10 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine("JSON-RPC server stopped");
                 _logger?.LogInformation("JSON-RPC server stopped");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error stopping JSON-RPC server: {ex.Message}");
                 _logger?.LogError(ex, "Error stopping JSON-RPC server");
                 throw;
             }
@@ -589,11 +586,11 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         }
         catch (ObjectDisposedException)
         {
-            System.Diagnostics.Debug.WriteLine("Cancellation token source already disposed while cancelling JSON-RPC server operations.");
+            // Expected when token source is already disposed
         }
-        catch (AggregateException ex)
+        catch (AggregateException)
         {
-            System.Diagnostics.Debug.WriteLine($"Cancellation token source threw while cancelling JSON-RPC server operations: {ex.Message}");
+            // Cancellation callback threw - suppress during dispose
         }
     }
 

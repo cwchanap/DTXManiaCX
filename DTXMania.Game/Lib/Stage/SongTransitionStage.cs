@@ -517,6 +517,10 @@ namespace DTXMania.Game.Lib.Stage
         
         private float GetCurrentDifficultyLevel()
         {
+            // Guard against null song - can happen if shared data was missing
+            if (_selectedSong == null)
+                return 0;
+            
             // Get the chart for the current difficulty level
             var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
             if (chart == null)

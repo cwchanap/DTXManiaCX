@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -7,9 +6,13 @@ using System.Collections.Generic;
 namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
-    /// Central manager for the UI system
-    /// Coordinates input, updates, and rendering for all UI elements
+    /// Central manager for the UI system.
+    /// Coordinates input, updates, and rendering for all UI elements.
     /// </summary>
+    /// <remarks>
+    /// Nullable reference types are disabled. The FocusedContainer property may be null
+    /// when no container has focus; callers should check before dereferencing.
+    /// </remarks>
     public class UIManager : IDisposable
     {
         #region Private Fields
@@ -39,7 +42,7 @@ namespace DTXMania.Game.Lib.UI
         public IInputState InputState => _inputStateManager;
 
         /// <summary>
-        /// Currently focused root container
+        /// Currently focused root container. May be null if no container is focused.
         /// </summary>
         public UIContainer? FocusedContainer
         {
@@ -48,13 +51,13 @@ namespace DTXMania.Game.Lib.UI
             {
                 if (_focusedContainer != value)
                 {
-                    // Remove focus from previous container
+                    // Remove focus from previous container (null-safe)
                     if (_focusedContainer != null)
                         _focusedContainer.Focused = false;
 
                     _focusedContainer = value;
 
-                    // Set focus on new container
+                    // Set focus on new container (null-safe)
                     if (_focusedContainer != null)
                         _focusedContainer.Focused = true;
                 }

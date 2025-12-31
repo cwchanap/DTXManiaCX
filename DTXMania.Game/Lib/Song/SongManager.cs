@@ -11,8 +11,6 @@ using DTXMania.Game.Lib.Song.Entities;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
-#nullable enable
-
 namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
@@ -24,7 +22,7 @@ namespace DTXMania.Game.Lib.Song
     {
         #region Singleton Implementation
 
-        private static SongManager? _instance;
+        private static SongManager _instance;
         private static readonly object _instanceLock = new();
 
         /// <summary>
@@ -38,7 +36,10 @@ namespace DTXMania.Game.Lib.Song
                 {
                     lock (_instanceLock)
                     {
-                        _instance ??= new SongManager();
+                        if (_instance == null)
+                        {
+                            _instance = new SongManager();
+                        }
                     }
                 }
                 return _instance;
@@ -90,9 +91,9 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Gets the database service instance
+        /// Gets the database service instance. May be null if not initialized.
         /// </summary>
-        public SongDatabaseService? DatabaseService
+        public SongDatabaseService DatabaseService
         {
             get
             {
@@ -122,10 +123,17 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<int> GetDatabaseScoreCountAsync()
         {
-            if (_databaseService == null) return 0;
+            // Copy reference under lock to avoid race with Clear()
+            SongDatabaseService? dbService;
+            lock (_lockObject)
+            {
+                dbService = _databaseService;
+            }
+            
+            if (dbService == null) return 0;
             try
             {
-                var stats = await _databaseService.GetDatabaseStatsAsync();
+                var stats = await dbService.GetDatabaseStatsAsync();
                 return stats.ScoreCount;
             }
             catch
@@ -147,7 +155,17 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Whether enumeration is currently in progress
         /// </summary>
-        public bool IsEnumerating => _enumCancellation != null && !_enumCancellation.Token.IsCancellationRequested;
+        public bool IsEnumerating
+        {
+            get
+            {
+                lock (_lockObject)
+                {
+                    var c = _enumCancellation;
+                    return c != null && !c.Token.IsCancellationRequested;
+                }
+            }
+        }
 
         #endregion
 
@@ -179,10 +197,13 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                // Initialize the database service if not already done
-                if (_databaseService == null)
+                // Initialize the database service if not already done (with proper synchronization)
+                lock (_lockObject)
                 {
-                    _databaseService = new SongDatabaseService(databasePath);
+                    if (_databaseService == null)
+                    {
+                        _databaseService = new SongDatabaseService(databasePath);
+                    }
                 }
 
                 // Check for database corruption first
@@ -482,13 +503,20 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
         {
-            if (IsEnumerating)
+            CancellationToken token;
+            lock (_lockObject)
             {
-                Debug.WriteLine("SongManager: Enumeration already in progress");
-                return 0;
+                if (_enumCancellation != null && !_enumCancellation.Token.IsCancellationRequested)
+                {
+                    Debug.WriteLine("SongManager: Enumeration already in progress");
+                    return 0;
+                }
+
+                _enumCancellation?.Dispose();
+                _enumCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                token = _enumCancellation.Token;
             }
 
-            _enumCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
 
@@ -506,7 +534,7 @@ namespace DTXMania.Game.Lib.Song
                         continue;
                     }
 
-                    var pathNodes = await EnumerateDirectoryAsync(searchPath, null, progress, _enumCancellation.Token).ConfigureAwait(false);
+                    var pathNodes = await EnumerateDirectoryAsync(searchPath, null, progress, token).ConfigureAwait(false);
                     newRootNodes.AddRange(pathNodes);
                 }
 
@@ -542,8 +570,11 @@ namespace DTXMania.Game.Lib.Song
             }
             finally
             {
-                _enumCancellation?.Dispose();
-                _enumCancellation = null;
+                lock (_lockObject)
+                {
+                    _enumCancellation?.Dispose();
+                    _enumCancellation = null;
+                }
             }
         }
 
@@ -552,7 +583,10 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public void CancelEnumeration()
         {
-            _enumCancellation?.Cancel();
+            lock (_lockObject)
+            {
+                _enumCancellation?.Cancel();
+            }
         }
 
         /// <summary>
@@ -1354,7 +1388,7 @@ namespace DTXMania.Game.Lib.Song
                         }
                     }
 
-                    if (currentSong.AvailableDifficulties > 0)
+                    if (currentSong != null && currentSong.AvailableDifficulties > 0)
                     {
                         results.Add(currentSong);
                     }
@@ -2192,13 +2226,13 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public void Clear()
         {
-            // Cancel any ongoing enumeration first
-            _enumCancellation?.Cancel();
-            _enumCancellation?.Dispose();
-            _enumCancellation = null;
-
             lock (_lockObject)
             {
+                // Cancel any ongoing enumeration first
+                _enumCancellation?.Cancel();
+                _enumCancellation?.Dispose();
+                _enumCancellation = null;
+
                 _rootSongs.Clear();
                 _isInitialized = false;
                 _databaseService?.Dispose();

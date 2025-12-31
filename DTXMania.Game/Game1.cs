@@ -10,13 +10,26 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace DTXMania.Game;
 
-
+/// <summary>
+/// Base game class for DTXManiaCX that manages core game systems.
+/// </summary>
+/// <remarks>
+/// This class coordinates:
+/// - Graphics management via IGraphicsManager
+/// - Stage management via IStageManager with debounced transitions
+/// - Input handling via InputManagerCompat
+/// - Resource management via IResourceManager
+/// - Configuration via IConfigManager
+/// - Optional JSON-RPC server for MCP communication
+/// 
+/// Uses structured logging via ILogger for diagnostics.
+/// Stage transition debouncing is configured via GameConstants.StageTransition.DebounceDelaySeconds.
+/// </remarks>
 public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 {
     private GraphicsDeviceManager _graphicsDeviceManager;
@@ -36,7 +49,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     // Global stage transition debouncing
     private double _totalGameTime = 0.0;
     private double _lastStageTransitionTime = 0.0;
-    private const double GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY = 0.5; // 500ms debounce
+    
+    // Logger for debugging and diagnostics
+    private ILogger<BaseGame> _logger;
 
     // JSON-RPC server for MCP communication
     private JsonRpcServer? _jsonRpcServer;
@@ -48,7 +63,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     /// </summary>
     public bool CanPerformStageTransition()
     {
-        return _totalGameTime - _lastStageTransitionTime >= GLOBAL_STAGE_TRANSITION_DEBOUNCE_DELAY;
+        return _totalGameTime - _lastStageTransitionTime >= GameConstants.StageTransition.DebounceDelaySeconds;
     }
     
     /// <summary>
@@ -69,6 +84,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         {
             builder.AddConsole();
         });
+        
+        _logger = _loggerFactory.CreateLogger<BaseGame>();
     }
 
     protected override void Initialize()
@@ -78,7 +95,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         ConfigManager.LoadConfig("Config.ini");
 
         // Initialize graphics manager
-        _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager);
+        _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>());
 
         // Apply graphics settings from config
         var config = ConfigManager.Config;
@@ -100,7 +117,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Initialize graphics manager after base initialization
         _graphicsManager.Initialize();
 
-        System.Diagnostics.Debug.WriteLine($"Graphics Manager initialized with settings: {_graphicsManager.Settings}");
+        _logger.LogInformation("Graphics Manager initialized with settings: {Settings}", _graphicsManager.Settings);
 
         // Create main render target using the graphics manager
         _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
@@ -108,7 +125,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
             config.ScreenWidth,
             config.ScreenHeight);
 
-        System.Diagnostics.Debug.WriteLine($"Main render target created: {config.ScreenWidth}x{config.ScreenHeight}");
+        _logger.LogInformation("Main render target created: {Width}x{Height}", config.ScreenWidth, config.ScreenHeight);
     }
 
     protected override void LoadContent()
@@ -133,9 +150,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
             // Security: Validate API key is present when API is enabled
             if (string.IsNullOrEmpty(config.GameApiKey))
             {
-                System.Diagnostics.Debug.WriteLine("WARNING: Game API is enabled but no API key is configured. " +
-                                                  "API server will not start. Please set GameApiKey in Config.ini or " +
-                                                  "delete Config.ini to auto-generate a secure key.");
+                _logger.LogWarning("Game API is enabled but no API key is configured. " +
+                                  "API server will not start. Please set GameApiKey in Config.ini or " +
+                                  "delete Config.ini to auto-generate a secure key.");
             }
             else
             {
@@ -161,18 +178,16 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         {
             // Pass cancellation token to allow graceful shutdown
             await _jsonRpcServer.StartAsync(cancellationToken);
-            System.Diagnostics.Debug.WriteLine($"JSON-RPC server started successfully on port {config.GameApiPort}");
+            _logger.LogInformation("JSON-RPC server started successfully on port {Port}", config.GameApiPort);
         }
         catch (OperationCanceledException)
         {
             // Expected when cancellation is requested during startup
-            System.Diagnostics.Debug.WriteLine("JSON-RPC server startup was cancelled");
+            _logger.LogInformation("JSON-RPC server startup was cancelled");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start JSON-RPC server on port {config.GameApiPort}: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine("Troubleshooting: Ensure the port is not in use by another application. " +
-                                              $"You can change the port in Config.ini via GameApiPort setting.");
+            _logger.LogError(ex, "Failed to start JSON-RPC server on port {Port}. Ensure the port is not in use by another application. You can change the port in Config.ini via GameApiPort setting.", config.GameApiPort);
             // Continue without JSON-RPC server if it fails to start
         }
     }
@@ -246,7 +261,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         ConfigManager.Config.UpdateFromGraphicsSettings(e.NewSettings);
 
         // Log the change
-        System.Diagnostics.Debug.WriteLine($"Graphics settings changed: {e.OldSettings} -> {e.NewSettings}");
+        _logger.LogInformation("Graphics settings changed: {OldSettings} -> {NewSettings}", e.OldSettings, e.NewSettings);
 
         // Always recreate render target when graphics settings change
         // This handles resolution changes, fullscreen toggle, and other graphics changes
@@ -264,11 +279,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                 e.NewSettings.Width,
                 e.NewSettings.Height);
 
-            System.Diagnostics.Debug.WriteLine($"Render target recreated: {e.NewSettings.Width}x{e.NewSettings.Height}");
+            _logger.LogInformation("Render target recreated: {Width}x{Height}", e.NewSettings.Width, e.NewSettings.Height);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error recreating render target: {ex.Message}");
+            _logger.LogError(ex, "Error recreating render target");
             _renderTarget = null; // Will be recreated in Draw() method
         }
     }
@@ -277,14 +292,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     {
         // Handle device lost scenario
         // For now, just log that it happened
-        System.Diagnostics.Debug.WriteLine("Graphics device lost");
+        _logger.LogWarning("Graphics device lost");
     }
 
     private void OnGraphicsDeviceReset(object sender, EventArgs e)
     {
         // Handle device reset scenario
         // Render targets are automatically recreated by the graphics manager
-        System.Diagnostics.Debug.WriteLine("Graphics device reset");
+        _logger.LogInformation("Graphics device reset");
 
         // Ensure our main render target is recreated after device reset
         try
@@ -295,11 +310,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                 config.ScreenWidth,
                 config.ScreenHeight);
 
-            System.Diagnostics.Debug.WriteLine("Main render target recreated after device reset");
+            _logger.LogInformation("Main render target recreated after device reset");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error recreating render target after device reset: {ex.Message}");
+            _logger.LogError(ex, "Error recreating render target after device reset");
             _renderTarget = null; // Will be recreated in Draw() method
         }
     }
@@ -346,7 +361,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error stopping JSON-RPC server: {ex.Message}");
+                    _logger.LogError(ex, "Error stopping JSON-RPC server");
                 }
                 finally
                 {
