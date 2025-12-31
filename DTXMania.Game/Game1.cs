@@ -1,4 +1,6 @@
-﻿using DTXMania.Game.Lib;
+﻿#nullable enable
+
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
@@ -33,17 +35,17 @@ namespace DTXMania.Game;
 public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 {
     private GraphicsDeviceManager _graphicsDeviceManager;
-    private IGraphicsManager _graphicsManager;
-    private SpriteBatch _spriteBatch;
-    private RenderTarget2D _renderTarget;
+    private IGraphicsManager _graphicsManager = null!;
+    private SpriteBatch _spriteBatch = null!;
+    private RenderTarget2D _renderTarget = null!;
     private readonly ILoggerFactory _loggerFactory;
 
-    public IStageManager StageManager { get; protected set; }
-    public IConfigManager ConfigManager { get; protected set; }
-    public InputManagerCompat InputManager { get; protected set; }
+    public IStageManager StageManager { get; protected set; } = null!;
+    public IConfigManager ConfigManager { get; protected set; } = null!;
+    public InputManagerCompat InputManager { get; protected set; } = null!;
     IInputManagerCompat? IGameContext.InputManager => InputManager;
     public IGraphicsManager GraphicsManager => _graphicsManager;
-    public IResourceManager ResourceManager { get; protected set; }
+    public IResourceManager ResourceManager { get; protected set; } = null!;
 
     
     // Global stage transition debouncing
@@ -51,7 +53,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     private double _lastStageTransitionTime = 0.0;
     
     // Logger for debugging and diagnostics
-    private ILogger<BaseGame> _logger;
+    private ILogger<BaseGame> _logger = null!;
 
     // JSON-RPC server for MCP communication
     private JsonRpcServer? _jsonRpcServer;
@@ -255,7 +257,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         base.Draw(gameTime);
     }
 
-    private void OnGraphicsSettingsChanged(object sender, GraphicsSettingsChangedEventArgs e)
+    private void OnGraphicsSettingsChanged(object? sender, GraphicsSettingsChangedEventArgs e)
     {
         // Update configuration when graphics settings change
         ConfigManager.Config.UpdateFromGraphicsSettings(e.NewSettings);
@@ -288,14 +290,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         }
     }
 
-    private void OnGraphicsDeviceLost(object sender, EventArgs e)
+    private void OnGraphicsDeviceLost(object? sender, EventArgs e)
     {
         // Handle device lost scenario
         // For now, just log that it happened
         _logger.LogWarning("Graphics device lost");
     }
 
-    private void OnGraphicsDeviceReset(object sender, EventArgs e)
+    private void OnGraphicsDeviceReset(object? sender, EventArgs e)
     {
         // Handle device reset scenario
         // Render targets are automatically recreated by the graphics manager

@@ -12,7 +12,6 @@ using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
-using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Input;
 
 namespace DTXMania.Game.Lib.Stage

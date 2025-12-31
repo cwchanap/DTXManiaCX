@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -44,72 +46,72 @@ namespace DTXMania.Game.Lib.Stage
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
 
-        // Stage data
-        private SongListNode _selectedSong;
+        // Stage data - initialized via ExtractSharedData
+        private SongListNode _selectedSong = null!;
         private int _selectedDifficulty;
         private int _songId;
 
-        // Performance components
-        private BackgroundRenderer _backgroundRenderer;
-        private LaneBackgroundRenderer _laneBackgroundRenderer;
-        private JudgementLineRenderer _judgementLineRenderer;
-        private ScoreDisplay _scoreDisplay;
-        private ComboDisplay _comboDisplay;
+        // Performance components - initialized in InitializeComponents
+        private BackgroundRenderer _backgroundRenderer = null!;
+        private LaneBackgroundRenderer _laneBackgroundRenderer = null!;
+        private JudgementLineRenderer _judgementLineRenderer = null!;
+        private ScoreDisplay _scoreDisplay = null!;
+        private ComboDisplay _comboDisplay = null!;
 
         // Phase 2 components - Chart loading and note scrolling
-        private ParsedChart _parsedChart;
-        private ChartManager _chartManager;
-        private AudioLoader _audioLoader;
-        private SongTimer _songTimer;
-        private NoteRenderer _noteRenderer;
+        private ParsedChart _parsedChart = null!;
+        private ChartManager _chartManager = null!;
+        private AudioLoader _audioLoader = null!;
+        private SongTimer _songTimer = null!;
+        private NoteRenderer _noteRenderer = null!;
 
         // Phase 3 components - Gameplay managers
-        private JudgementManager _judgementManager;
-        private ScoreManager _scoreManager;
-        private ComboManager _comboManager;
-        private GaugeManager _gaugeManager;
-        private EffectsManager _effectsManager;
-        private JudgementTextPopupManager _judgementTextPopupManager;
-        private PadRenderer _padRenderer;
+        private JudgementManager _judgementManager = null!;
+        private ScoreManager _scoreManager = null!;
+        private ComboManager _comboManager = null!;
+        private GaugeManager _gaugeManager = null!;
+        private EffectsManager _effectsManager = null!;
+        private JudgementTextPopupManager _judgementTextPopupManager = null!;
+        private PadRenderer _padRenderer = null!;
 
         // BGM management
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
         private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
 
         // UX components
-        private BitmapFont _readyFont;
+        private BitmapFont _readyFont = null!;
 
-        // Performance UI Assets
-        private ITexture _backgroundTexture;
-        private ITexture _shutterTexture; // Single shutter texture
-        private ITexture _laneBgTexture;
-        private ITexture _laneDividerTexture;
-        private ITexture _laneFlashTexture;
-        private ITexture _judgementLineTexture;
-        private ITexture _gaugeBaseTexture;
-        private ITexture _gaugeFillTexture;
-        private ITexture _progressBaseTexture;
-        private ITexture _progressFillTexture;
-        private ITexture _comboDigitsTexture;
-        private ITexture _scoreDigitsTexture;
-        private ITexture _pauseOverlayTexture;
-        private ITexture _dangerOverlayTexture;
-        private ITexture _skillPanelTexture;
+        // Performance UI Assets - initialized in InitializeComponents
+        private ITexture _backgroundTexture = null!;
+        private ITexture _shutterTexture = null!; // Single shutter texture
+        private ITexture _laneBgTexture = null!;
+        private ITexture _laneDividerTexture = null!;
+        private ITexture _laneFlashTexture = null!;
+        private ITexture _judgementLineTexture = null!;
+        private ITexture _gaugeBaseTexture = null!;
+        private ITexture _gaugeFillTexture = null!;
+        private ITexture _progressBaseTexture = null!;
+        private ITexture _progressFillTexture = null!;
+        private ITexture _comboDigitsTexture = null!;
+        private ITexture _scoreDigitsTexture = null!;
+        private ITexture _pauseOverlayTexture = null!;
+        private ITexture _dangerOverlayTexture = null!;
+        private ITexture _skillPanelTexture = null!;
         
         // Judgement text textures (using sprite sheets)
-        private ITexture _judgeStringsTexture;
+        private ITexture _judgeStringsTexture = null!;
         
         // Timing indicator textures (using sprite sheet)
-        private ITexture _lagNumbersTexture;
+        private ITexture _lagNumbersTexture = null!;
 
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
         private double _readyCountdown = GameConstants.Performance.ReadyCountdownSeconds;
-        private GameTime _currentGameTime;
+        private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
-        private Texture2D _fallbackWhiteTexture;
+        private Texture2D _fallbackWhiteTexture = null!;
         
         // UI state tracking
         private bool _isPaused = false;
@@ -120,7 +122,7 @@ namespace DTXMania.Game.Lib.Stage
         // Stage completion state
         private bool _stageCompleted = false;
         private bool _inputPaused = false;
-        private PerformanceSummary _performanceSummary;
+        private PerformanceSummary _performanceSummary = null!;
         
         // Autoplay functionality
         private bool _autoPlayEnabled = false;

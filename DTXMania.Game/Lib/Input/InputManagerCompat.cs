@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
