@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -15,7 +17,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Private Fields
 
         private readonly IResourceManager _resourceManager;
-        private ISound _loadedSound;
+        private ISound? _loadedSound;
         private bool _disposed = false;
 
         #endregion
@@ -95,7 +97,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="logger">Optional logger action for logging errors and warnings</param>
         /// <returns>SongTimer instance, or null if no audio is loaded</returns>
-        public SongTimer CreateSongTimer(Action<string>? logger = null)
+        public SongTimer? CreateSongTimer(Action<string>? logger = null)
         {
             if (!IsLoaded)
             {
@@ -106,7 +108,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                var soundInstance = _loadedSound.CreateInstance();
+                var soundInstance = _loadedSound?.CreateInstance();
                 if (soundInstance == null)
                 {
                     System.Diagnostics.Debug.WriteLine("AudioLoader: Failed to create sound instance");

@@ -1,3 +1,5 @@
+#nullable enable
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
@@ -21,16 +23,16 @@ namespace DTXMania.Game.Lib.Graphics
         private readonly GraphicsDeviceManager _deviceManager;
         private readonly ILogger<GraphicsManager> _logger;
         private GraphicsSettings _currentSettings;
-        private RenderTargetManager _renderTargetManager;
+        private RenderTargetManager _renderTargetManager = null!;
         private bool _disposed = false;
 
         public GraphicsDevice GraphicsDevice => _deviceManager.GraphicsDevice;
         public GraphicsSettings Settings => _currentSettings?.Clone();
         public bool IsDeviceAvailable => GraphicsDevice != null && !GraphicsDevice.IsDisposed;
 
-        public event EventHandler<GraphicsSettingsChangedEventArgs> SettingsChanged;
-        public event EventHandler DeviceLost;
-        public event EventHandler DeviceReset;
+        public event EventHandler<GraphicsSettingsChangedEventArgs>? SettingsChanged;
+        public event EventHandler? DeviceLost;
+        public event EventHandler? DeviceReset;
 
         /// <summary>
         /// Gets the render target manager for this graphics manager
@@ -208,12 +210,12 @@ namespace DTXMania.Game.Lib.Graphics
             }
         }
 
-        private void OnDeviceLost(object sender, EventArgs e)
+        private void OnDeviceLost(object? sender, EventArgs e)
         {
             DeviceLost?.Invoke(this, EventArgs.Empty);
         }
 
-        private void OnDeviceReset(object sender, EventArgs e)
+        private void OnDeviceReset(object? sender, EventArgs e)
         {
             // Recreate render targets after device reset
             _renderTargetManager?.RecreateAllRenderTargets();

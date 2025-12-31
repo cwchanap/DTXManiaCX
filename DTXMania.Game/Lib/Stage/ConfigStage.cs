@@ -6,7 +6,6 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game;
-using DTXMania.Game.Lib.Input;
 using System;
 using System.Collections.Generic;
 
