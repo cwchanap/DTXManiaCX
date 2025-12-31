@@ -1,4 +1,3 @@
-#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -10,10 +9,15 @@ using DTXMania.Game.Lib.Config;
 namespace DTXMania.Game.Lib.Input
 {
     /// <summary>
-    /// Modular input manager that provides unified input handling through InputRouter
-    /// Maintains backward compatibility with existing InputManager API
-    /// Supports hot-swappable key bindings and multiple input sources
+    /// Modular input manager that provides unified input handling through InputRouter.
+    /// Maintains backward compatibility with existing InputManager API.
+    /// Supports hot-swappable key bindings and multiple input sources.
     /// </summary>
+    /// <remarks>
+    /// Nullable reference types are disabled. Event handlers (OnLaneHit, OnBindingsChanged)
+    /// may be null if no subscribers are attached; invocations use null-conditional operators.
+    /// Device scan interval is configured via GameConstants.Input.DeviceScanIntervalMs.
+    /// </remarks>
     public class ModularInputManager : IDisposable
     {
         #region Private Fields
@@ -39,21 +43,20 @@ namespace DTXMania.Game.Lib.Input
 
         // Hot-plug detection
         private double _lastDeviceScanTime = 0.0;
-        private const double DeviceScanIntervalMs = 3000.0; // 3 seconds
 
         #endregion
 
         #region Events
 
         /// <summary>
-        /// Raised when a lane is hit (from InputRouter)
+        /// Raised when a lane is hit (from InputRouter). May be null if no handler is attached.
         /// </summary>
-        public event EventHandler<LaneHitEventArgs>? OnLaneHit;
+        public event EventHandler<LaneHitEventArgs> OnLaneHit;
 
         /// <summary>
-        /// Raised when key bindings are changed
+        /// Raised when key bindings are changed. May be null if no handler is attached.
         /// </summary>
-        public event EventHandler? OnBindingsChanged;
+        public event EventHandler OnBindingsChanged;
 
         #endregion
 
@@ -214,7 +217,7 @@ namespace DTXMania.Game.Lib.Input
         {
             _lastDeviceScanTime += deltaTime * 1000.0; // Convert to milliseconds
 
-            if (_lastDeviceScanTime >= DeviceScanIntervalMs)
+            if (_lastDeviceScanTime >= GameConstants.Input.DeviceScanIntervalMs)
             {
                 _lastDeviceScanTime = 0.0;
                 ScanForNewDevices();
@@ -385,7 +388,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Handles key bindings changes
         /// </summary>
-        private void OnKeyBindingsChanged(object? sender, EventArgs e)
+        private void OnKeyBindingsChanged(object sender, EventArgs e)
         {
             // Auto-save bindings when they change
             SaveKeyBindings();
@@ -395,7 +398,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Forwards lane hit events from InputRouter
         /// </summary>
-        private void OnInputRouterLaneHit(object? sender, LaneHitEventArgs e)
+        private void OnInputRouterLaneHit(object sender, LaneHitEventArgs e)
         {
             OnLaneHit?.Invoke(this, e);
         }
@@ -431,7 +434,7 @@ namespace DTXMania.Game.Lib.Input
         /// Gets the keyboard input source
         /// </summary>
         /// <returns>Keyboard input source or null if not found</returns>
-        private KeyboardInputSource? GetKeyboardSource()
+        private KeyboardInputSource GetKeyboardSource()
         {
             foreach (var source in _inputSources)
             {

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -6,12 +8,18 @@ using System.Linq;
 namespace DTXMania.Game.Lib.Graphics
 {
     /// <summary>
-    /// Manages graphics device settings and state
+    /// Manages graphics device settings and state.
     /// </summary>
+    /// <remarks>
+    /// Handles graphics settings changes, fullscreen toggle, and device lifecycle events.
+    /// Uses specific exception types (InvalidOperationException, ArgumentException) for
+    /// better error diagnosis when graphics operations fail.
+    /// </remarks>
     public class GraphicsManager : IGraphicsManager, IDisposable
     {
         private readonly Microsoft.Xna.Framework.Game _game;
         private readonly GraphicsDeviceManager _deviceManager;
+        private readonly ILogger<GraphicsManager> _logger;
         private GraphicsSettings _currentSettings;
         private RenderTargetManager _renderTargetManager;
         private bool _disposed = false;
@@ -29,10 +37,11 @@ namespace DTXMania.Game.Lib.Graphics
         /// </summary>
         public RenderTargetManager RenderTargetManager => _renderTargetManager;
 
-        public GraphicsManager(Microsoft.Xna.Framework.Game game, GraphicsDeviceManager deviceManager)
+        public GraphicsManager(Microsoft.Xna.Framework.Game game, GraphicsDeviceManager deviceManager, ILogger<GraphicsManager>? logger = null)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
             _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
+            _logger = logger ?? NullLogger<GraphicsManager>.Instance;
             
             // Initialize with current device manager settings
             _currentSettings = new GraphicsSettings
@@ -83,23 +92,45 @@ namespace DTXMania.Game.Lib.Graphics
 
                 return true;
             }
-            catch (Exception)
+            catch (InvalidOperationException)
             {
-                // Revert to old settings on failure
-                try
-                {
-                    _deviceManager.PreferredBackBufferWidth = oldSettings.Width;
-                    _deviceManager.PreferredBackBufferHeight = oldSettings.Height;
-                    _deviceManager.IsFullScreen = oldSettings.IsFullscreen;
-                    _deviceManager.SynchronizeWithVerticalRetrace = oldSettings.VSync;
-                    _deviceManager.ApplyChanges();
-                }
-                catch
-                {
-                    // If we can't revert, we're in a bad state
-                }
-
+                // Graphics device not ready or invalid state - revert settings
+                RevertGraphicsSettings(oldSettings);
                 return false;
+            }
+            catch (ArgumentException)
+            {
+                // Invalid settings values - revert settings
+                RevertGraphicsSettings(oldSettings);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to revert graphics settings to a previous state.
+        /// </summary>
+        /// <param name="settings">The settings to revert to</param>
+        private void RevertGraphicsSettings(GraphicsSettings settings)
+        {
+            try
+            {
+                _deviceManager.PreferredBackBufferWidth = settings.Width;
+                _deviceManager.PreferredBackBufferHeight = settings.Height;
+                _deviceManager.IsFullScreen = settings.IsFullscreen;
+                _deviceManager.SynchronizeWithVerticalRetrace = settings.VSync;
+                _deviceManager.ApplyChanges();
+                
+                // Ensure current settings reflect the revert
+                _currentSettings = settings.Clone();
+            }
+            catch (Exception ex)
+            {
+                // Unable to revert - graphics device in invalid state
+                _logger.LogError(ex, "Failed to revert graphics settings. The graphics device may be in an inconsistent state.");
+                
+                // Mark current settings as potentially inconsistent by not updating them,
+                // or we could set them to null if we want to force a re-sync later.
+                // For now, we keep the previous current settings which ApplySettings was trying to change FROM.
             }
         }
 

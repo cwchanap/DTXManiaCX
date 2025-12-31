@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -37,7 +36,7 @@ namespace DTXMania.Game.Lib.UI
         public IReadOnlyList<IUIElement> Children => _children.AsReadOnly();
 
         /// <summary>
-        /// Currently focused child element
+        /// Currently focused child element. May be null if no child is focused.
         /// </summary>
         public IUIElement? FocusedChild
         {
@@ -46,13 +45,13 @@ namespace DTXMania.Game.Lib.UI
             {
                 if (_focusedChild != value)
                 {
-                    // Remove focus from previous child
+                    // Remove focus from previous child (null-safe)
                     if (_focusedChild != null)
                         _focusedChild.Focused = false;
 
                     _focusedChild = value;
 
-                    // Set focus on new child
+                    // Set focus on new child (null-safe)
                     if (_focusedChild != null)
                         _focusedChild.Focused = true;
                 }

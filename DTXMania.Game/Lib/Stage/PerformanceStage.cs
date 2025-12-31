@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
@@ -104,7 +105,7 @@ namespace DTXMania.Game.Lib.Stage
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
-        private double _readyCountdown = 1.0; // 1 second ready period
+        private double _readyCountdown = GameConstants.Performance.ReadyCountdownSeconds;
         private GameTime _currentGameTime;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
@@ -120,7 +121,6 @@ namespace DTXMania.Game.Lib.Stage
         private bool _stageCompleted = false;
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary;
-        private const double SongEndBufferSeconds = 3.0; // 3 seconds after song end
         
         // Autoplay functionality
         private bool _autoPlayEnabled = false;
@@ -504,6 +504,10 @@ namespace DTXMania.Game.Lib.Stage
                 // Check if we have a parsed chart from shared data
                 if (_parsedChart == null)
                 {
+                    // Guard against null song - can happen if shared data was missing
+                    if (_selectedSong == null)
+                        return;
+                    
                     // Fallback: parse chart if not provided (for backwards compatibility)
                     // Get the correct chart for the selected difficulty
                     var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
@@ -532,7 +536,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (!string.IsNullOrEmpty(_parsedChart.BackgroundAudioPath))
                 {
                     // Use the correct chart path for the selected difficulty
-                    var chart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
+                    // Guard against null song - _selectedSong may be null if shared data was missing
+                    var chart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
                     var chartPath = chart?.FilePath ?? _selectedSong?.DatabaseChart?.FilePath;
                     await _audioLoader.PreloadForChartAsync(chartPath, _parsedChart.BackgroundAudioPath);
                 }
@@ -1525,7 +1530,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             // Check for song end
-            if (currentTimeMs >= (_parsedChart.DurationMs + SongEndBufferSeconds * 1000))
+            if (currentTimeMs >= (_parsedChart.DurationMs + GameConstants.Performance.SongEndBufferSeconds * 1000))
             {
                 FinalizePerformance(CompletionReason.SongComplete);
             }

@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -6,9 +5,14 @@ using System;
 namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
-    /// Core interface for all UI elements in DTXMania
-    /// Inspired by DTXMania's CActivity pattern but modernized for MonoGame
+    /// Core interface for all UI elements in DTXMania.
+    /// Inspired by DTXMania's CActivity pattern but modernized for MonoGame.
     /// </summary>
+    /// <remarks>
+    /// Nullable reference types are disabled in this file. Properties that may be null
+    /// (such as Parent) should be checked before use. Callers are responsible for
+    /// null checks on properties documented as potentially null.
+    /// </remarks>
     public interface IUIElement : IDisposable
     {
         #region Properties
@@ -44,9 +48,10 @@ namespace DTXMania.Game.Lib.UI
         bool IsActive { get; }
 
         /// <summary>
-        /// Parent element, null if this is a root element
+        /// Parent element, null if this is a root element.
+        /// Callers should check for null before using.
         /// </summary>
-        IUIElement? Parent { get; set; }
+        IUIElement Parent { get; set; }
 
         /// <summary>
         /// Absolute position in screen coordinates
@@ -63,29 +68,29 @@ namespace DTXMania.Game.Lib.UI
         #region Events
 
         /// <summary>
-        /// Fired when the element gains focus
+        /// Fired when the element gains focus. May be null if no handler is attached.
         /// </summary>
-        event EventHandler? OnFocus;
+        event EventHandler OnFocus;
 
         /// <summary>
-        /// Fired when the element loses focus
+        /// Fired when the element loses focus. May be null if no handler is attached.
         /// </summary>
-        event EventHandler? OnBlur;
+        event EventHandler OnBlur;
 
         /// <summary>
-        /// Fired when the element is clicked
+        /// Fired when the element is clicked. May be null if no handler is attached.
         /// </summary>
-        event EventHandler<UIClickEventArgs>? OnClick;
+        event EventHandler<UIClickEventArgs> OnClick;
 
         /// <summary>
-        /// Fired when the element is activated
+        /// Fired when the element is activated. May be null if no handler is attached.
         /// </summary>
-        event EventHandler? OnActivated;
+        event EventHandler OnActivated;
 
         /// <summary>
-        /// Fired when the element is deactivated
+        /// Fired when the element is deactivated. May be null if no handler is attached.
         /// </summary>
-        event EventHandler? OnDeactivated;
+        event EventHandler OnDeactivated;
 
         #endregion
 

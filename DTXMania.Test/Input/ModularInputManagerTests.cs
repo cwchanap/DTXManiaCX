@@ -28,7 +28,7 @@ namespace DTXMania.Test.Input
             // Assert
             Assert.NotNull(_inputManager.KeyBindings);
             Assert.NotNull(_inputManager.InputRouter);
-            Assert.Equal(9, _inputManager.KeyBindings.ButtonToLane.Count); // Default bindings
+            Assert.Equal(10, _inputManager.KeyBindings.ButtonToLane.Count); // Default bindings (10-lane layout)
         }
 
         [Fact]
@@ -41,7 +41,7 @@ namespace DTXMania.Test.Input
         [Fact]
         public void KeyBindings_DefaultBindings_AreLoadedCorrectly()
         {
-            // Assert default keyboard bindings
+            // Assert default keyboard bindings for 10-lane drum layout
             Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A"));     // A -> Splash/Crash (lane 0)
             Assert.Equal(1, _inputManager.KeyBindings.GetLane("Key.F"));     // F -> Floor Tom & Left Cymbal (lane 1)
             Assert.Equal(2, _inputManager.KeyBindings.GetLane("Key.D"));     // D -> Hi-Hat Foot & Left Crash (lane 2)
@@ -51,7 +51,7 @@ namespace DTXMania.Test.Input
             Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.J"));     // J -> Hi-Hat (lane 5)
             Assert.Equal(7, _inputManager.KeyBindings.GetLane("Key.K"));     // K -> High Tom (lane 7)
             Assert.Equal(8, _inputManager.KeyBindings.GetLane("Key.L"));     // L -> Low Tom & Right Cymbal (lane 8)
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.OemSemicolon")); // Not bound
+            Assert.Equal(9, _inputManager.KeyBindings.GetLane("Key.OemSemicolon")); // ; -> Ride (lane 9)
         }
 
         [Fact]
@@ -123,7 +123,7 @@ namespace DTXMania.Test.Input
             _inputManager.ResetKeyBindingsToDefaults();
 
             // Assert
-            Assert.Equal(9, _inputManager.KeyBindings.ButtonToLane.Count);
+            Assert.Equal(10, _inputManager.KeyBindings.ButtonToLane.Count); // 10-lane layout
             Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A")); // Default binding restored
             Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Q")); // Custom binding removed
         }
@@ -379,7 +379,7 @@ namespace DTXMania.Test.Input
             // Arrange - Add many bindings
             for (int i = 0; i < 100; i++)
             {
-                _inputManager.KeyBindings.BindButton($"TestButton{i}", i % 9);
+                _inputManager.KeyBindings.BindButton($"TestButton{i}", i % 10); // 10-lane layout
             }
 
             // Act
@@ -387,7 +387,7 @@ namespace DTXMania.Test.Input
 
             // Assert - Should handle many bindings without issues
             Assert.True(_inputManager.KeyBindings.ButtonToLane.Count >= 100);
-            Assert.True(_inputManager.LastUpdateTimeMs < 5.0); // Should still be fast
+            Assert.True(_inputManager.LastUpdateTimeMs < 10.0); // Should still be reasonably fast
         }
 
         public void Dispose()

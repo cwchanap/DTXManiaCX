@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -6,9 +5,13 @@ using System;
 namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
-    /// Abstract base class for UI elements
-    /// Implements common functionality following DTXMania's CActivity pattern
+    /// Abstract base class for UI elements.
+    /// Implements common functionality following DTXMania's CActivity pattern.
     /// </summary>
+    /// <remarks>
+    /// Nullable reference types are disabled. The Parent property may be null
+    /// for root elements; callers should check before dereferencing.
+    /// </remarks>
     public abstract class UIElement : IUIElement
     {
         #region Private Fields
@@ -19,7 +22,7 @@ namespace DTXMania.Game.Lib.UI
         private bool _enabled = true;
         private bool _focused = false;
         private bool _isActive = false;
-        private IUIElement? _parent;
+        private IUIElement _parent;
         private bool _disposed = false;
 
         /// <summary>
@@ -88,7 +91,7 @@ namespace DTXMania.Game.Lib.UI
 
         public bool IsActive => _isActive;
 
-        public IUIElement? Parent
+        public IUIElement Parent
         {
             get => _parent;
             set => _parent = value;
@@ -117,11 +120,11 @@ namespace DTXMania.Game.Lib.UI
 
         #region Events
 
-        public event EventHandler? OnFocus;
-        public event EventHandler? OnBlur;
-        public event EventHandler<UIClickEventArgs>? OnClick;
-        public event EventHandler? OnActivated;
-        public event EventHandler? OnDeactivated;
+        public event EventHandler OnFocus;
+        public event EventHandler OnBlur;
+        public event EventHandler<UIClickEventArgs> OnClick;
+        public event EventHandler OnActivated;
+        public event EventHandler OnDeactivated;
 
         #endregion
 

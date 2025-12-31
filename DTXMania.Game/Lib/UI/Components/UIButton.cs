@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
@@ -87,12 +86,12 @@ namespace DTXMania.Game.Lib.UI.Components
         }
 
         /// <summary>
-        /// Font used for button text
+        /// Font used for button text. May be null if not set.
         /// </summary>
         public SpriteFont? Font { get; set; }
 
         /// <summary>
-        /// Image component for the button (optional)
+        /// Image component for the button (optional). May be null.
         /// </summary>
         public UIImage? ImageComponent
         {
@@ -175,7 +174,7 @@ namespace DTXMania.Game.Lib.UI.Components
         #region Events
 
         /// <summary>
-        /// Fired when the button is clicked
+        /// Fired when the button is clicked. May be null if no handler is attached.
         /// </summary>
         public event EventHandler? ButtonClicked;
 
@@ -456,12 +455,13 @@ namespace DTXMania.Game.Lib.UI.Components
         public int BorderThickness { get; set; } = 1;
 
         /// <summary>
-        /// Background texture for this state (optional)
+        /// Background texture for this state (optional). May be null if no texture is used.
         /// </summary>
         public Texture2D? BackgroundTexture { get; set; }
 
         /// <summary>
-        /// Source rectangle for background texture (null for full texture)
+        /// Source rectangle for background texture (null for full texture). 
+        /// Use HasValue to check if set.
         /// </summary>
         public Rectangle? BackgroundSourceRectangle { get; set; }
 
