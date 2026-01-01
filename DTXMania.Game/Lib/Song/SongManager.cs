@@ -93,9 +93,9 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Gets the database service instance. May be null if not initialized.
+        /// Gets the database service instance. Returns null if not initialized.
         /// </summary>
-        public SongDatabaseService DatabaseService
+        public SongDatabaseService? DatabaseService
         {
             get
             {
@@ -103,6 +103,14 @@ namespace DTXMania.Game.Lib.Song
                 {
                     return _databaseService;
                 }
+            }
+        }
+
+        private SongDatabaseService? GetDatabaseServiceSnapshot()
+        {
+            lock (_lockObject)
+            {
+                return _databaseService;
             }
         }
 
@@ -199,35 +207,40 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                // Initialize the database service if not already done (with proper synchronization)
+                // Initialize and capture a stable reference under lock to avoid races with Clear()
+                SongDatabaseService? db;
                 lock (_lockObject)
                 {
-                    if (_databaseService == null)
-                    {
-                        _databaseService = new SongDatabaseService(databasePath);
-                    }
+                    _databaseService ??= new SongDatabaseService(databasePath);
+                    db = _databaseService;
+                }
+
+                if (db == null)
+                {
+                    Debug.WriteLine("SongManager: Cannot initialize database service - service instance is null");
+                    return false;
                 }
 
                 // Check for database corruption first
-                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync().ConfigureAwait(false);
+                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db).ConfigureAwait(false);
 
                 // Purge the database only if explicitly requested OR if corruption is detected
                 if (purgeDatabaseFirst)
                 {
                     Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
-                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
+                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
                 else if (isDatabaseCorrupted)
                 {
                     Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
-                    await _databaseService.PurgeDatabaseAsync().ConfigureAwait(false);
+                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
                 else
                 {
                     Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
                 }
 
-                await _databaseService.InitializeDatabaseAsync().ConfigureAwait(false);
+                await db.InitializeDatabaseAsync().ConfigureAwait(false);
                 Debug.WriteLine("SongManager: Database service initialized successfully");
                 return true;
             }
@@ -245,7 +258,8 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null)
+                var db = GetDatabaseServiceSnapshot();
+                if (db == null)
                 {
                     Debug.WriteLine("SongManager: Cannot load score cache - database service not initialized");
                     return false;
@@ -435,11 +449,12 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<bool> DatabaseExistsAsync()
         {
-            if (_databaseService == null) return false;
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return false;
 
             try
             {
-                return await _databaseService.DatabaseExistsAsync();
+                return await db.DatabaseExistsAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -454,16 +469,23 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<bool> IsDatabaseCorruptedAsync()
         {
-            if (_databaseService == null) return false;
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return false;
+
+            return await IsDatabaseCorruptedAsync(db).ConfigureAwait(false);
+        }
+
+        private async Task<bool> IsDatabaseCorruptedAsync(SongDatabaseService db)
+        {
 
             try
             {
                 // Check if we can connect to the database
-                if (!await _databaseService.DatabaseExistsAsync())
+                if (!await db.DatabaseExistsAsync().ConfigureAwait(false))
                     return false; // Database doesn't exist, not corrupted
 
                 // Try to get basic stats to verify database integrity
-                var stats = await _databaseService.GetDatabaseStatsAsync();
+                var stats = await db.GetDatabaseStatsAsync().ConfigureAwait(false);
                 if (stats == null)
                     return true; // Can't get stats, likely corrupted
 
@@ -482,11 +504,12 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<DatabaseStats?> GetDatabaseStatsAsync()
         {
-            if (_databaseService == null) return null;
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return null;
 
             try
             {
-                return await _databaseService.GetDatabaseStatsAsync();
+                return await db.GetDatabaseStatsAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -541,10 +564,11 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Clean up stale database entries before finalizing
-                if (_databaseService != null)
+                var db = GetDatabaseServiceSnapshot();
+                if (db != null)
                 {
                     Debug.WriteLine("SongManager: Cleaning up stale database entries...");
-                    await _databaseService.CleanupStaleChartsAsync();
+                    await db.CleanupStaleChartsAsync().ConfigureAwait(false);
                 }
 
                 // Update root songs list
@@ -598,7 +622,8 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private async Task BuildSongListFromDatabaseAsync(string[] searchPaths)
         {
-            if (_databaseService == null)
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null)
             {
                 Debug.WriteLine("SongManager: Cannot build song list - database service not initialized");
                 return;
@@ -608,7 +633,7 @@ namespace DTXMania.Game.Lib.Song
             {
                 // Clean up stale database entries first to avoid processing outdated file paths
                 Debug.WriteLine("SongManager: Cleaning up stale database entries before building song list...");
-                await _databaseService.CleanupStaleChartsAsync();
+                await db.CleanupStaleChartsAsync().ConfigureAwait(false);
 
                 var newRootNodes = new List<SongListNode>();
 
@@ -621,7 +646,7 @@ namespace DTXMania.Game.Lib.Song
                     }
 
                     // Get all songs from the database
-                    var allSongs = await _databaseService.GetSongsAsync();
+                    var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
 
                     // Get all charts that belong to this search path
                     var relevantCharts = new List<(SongEntity song, SongChart chart)>();
