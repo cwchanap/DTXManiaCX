@@ -249,13 +249,7 @@ namespace DTXMania.Game.Lib.Song
         {
             get
             {
-                var maxLevel = 0;
-                foreach (var score in Scores)
-                {
-                    if (score != null && score.DifficultyLevel > maxLevel)
-                        maxLevel = score.DifficultyLevel;
-                }
-                return maxLevel;
+                return Scores.Where(score => score != null).Max(score => score!.DifficultyLevel);
             }
         }
 
@@ -333,7 +327,6 @@ namespace DTXMania.Game.Lib.Song
                     DifficultyLevel = chart.BassLevel,
                     DifficultyLabel = "BASS"
                 };
-                scoreIndex++;
             }
 
             return node;
@@ -353,16 +346,9 @@ namespace DTXMania.Game.Lib.Song
             };
 
             // Update breadcrumb path
-            if (parent != null)
-            {
-                node.BreadcrumbPath = string.IsNullOrEmpty(parent.BreadcrumbPath)
-                    ? title
-                    : $"{parent.BreadcrumbPath} > {title}";
-            }
-            else
-            {
-                node.BreadcrumbPath = title;
-            }
+            node.BreadcrumbPath = parent != null && !string.IsNullOrEmpty(parent.BreadcrumbPath)
+                ? $"{parent.BreadcrumbPath} > {title}"
+                : title;
 
             return node;
         }

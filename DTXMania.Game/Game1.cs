@@ -53,7 +53,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     private double _lastStageTransitionTime = 0.0;
     
     // Logger for debugging and diagnostics
-    private ILogger<BaseGame> _logger = null!;
+    private readonly ILogger<BaseGame> _logger = null!;
 
     // JSON-RPC server for MCP communication
     private JsonRpcServer? _jsonRpcServer;
