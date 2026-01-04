@@ -649,19 +649,12 @@ namespace DTXMania.Game.Lib.Song
                     var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
 
                     // Get all charts that belong to this search path
-                    var relevantCharts = new List<(SongEntity song, SongChart chart)>();
-
-                    foreach (var song in allSongs)
-                    {
-                        foreach (var chart in song.Charts)
-                        {
-                            if (!string.IsNullOrEmpty(chart.FilePath) &&
-                                Path.GetFullPath(chart.FilePath).StartsWith(Path.GetFullPath(searchPath), StringComparison.OrdinalIgnoreCase))
-                            {
-                                relevantCharts.Add((song, chart));
-                            }
-                        }
-                    }
+                    var relevantCharts = allSongs
+                        .SelectMany(song => song.Charts.Where(chart =>
+                            !string.IsNullOrEmpty(chart.FilePath) &&
+                            Path.GetFullPath(chart.FilePath).StartsWith(Path.GetFullPath(searchPath), StringComparison.OrdinalIgnoreCase)))
+                        .Select(chart => (chart.Song, chart))
+                        .ToList();
 
                     Debug.WriteLine($"SongManager: Found {relevantCharts.Count} charts in database for path: {searchPath}");
 
@@ -846,7 +839,6 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken)
         {
             var results = new List<SongListNode>();
-            var directory = new DirectoryInfo(directoryPath);
 
             try
             {
@@ -859,14 +851,6 @@ namespace DTXMania.Game.Lib.Song
 
                     // If set.def exists, don't process individual files in this directory
                     return results;
-                }
-
-                // Check for box.def (folder metadata)
-                BoxDefinition? boxDef = null;
-                var boxDefPath = Path.Combine(directoryPath, "box.def");
-                if (File.Exists(boxDefPath))
-                {
-                    boxDef = await ParseBoxDefinitionAsync(boxDefPath, cancellationToken);
                 }
 
                 // Process subdirectories - distinguish between BOX folders and song folders
@@ -1047,8 +1031,6 @@ namespace DTXMania.Game.Lib.Song
             
             try
             {
-                var sb = new StringBuilder(line.Length);
-                
                 // Step 1: Remove BOMs and null bytes using compiled regex (faster than multiple Replace calls)
                 string processedLine = BomPattern.Replace(line, "");
                 processedLine = NullBytePattern.Replace(processedLine, "");
@@ -1090,12 +1072,10 @@ namespace DTXMania.Game.Lib.Song
                         }
                         
                         // Handle L#LABEL and L#FILE patterns
-                        if (upperCommand.Length > 1 && char.IsDigit(upperCommand[1]))
+                        if (upperCommand.Length > 1 && char.IsDigit(upperCommand[1]) &&
+                            (upperCommand.EndsWith("LABEL") || upperCommand.EndsWith("FILE")))
                         {
-                            if (upperCommand.EndsWith("LABEL") || upperCommand.EndsWith("FILE"))
-                            {
-                                return $"#{upperCommand} {value}";
-                            }
+                            return $"#{upperCommand} {value}";
                         }
                         
                         return $"#{command} {value}";
@@ -1139,8 +1119,6 @@ namespace DTXMania.Game.Lib.Song
             var afterHash = line.Substring(hashIndex + 1).Trim();
             if (string.IsNullOrEmpty(afterHash)) return line;
             
-            // Use StringBuilder for efficient string building
-            var sb = new StringBuilder(line.Length);
             var parts = afterHash.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
             
             if (parts.Length < 2) return line;
@@ -1257,24 +1235,20 @@ namespace DTXMania.Game.Lib.Song
                             {
                                 songTitle = value;
                             }
-                            else if (command.StartsWith("L") && command.EndsWith("LABEL"))
+                            else if (command.StartsWith("L") &&
+                                     (command.EndsWith("LABEL") || command.EndsWith("FILE")))
                             {
-                                // Extract level number (L1LABEL -> 1)
-                                if (int.TryParse(command.Substring(1, command.Length - 6), out int level))
+                                // Extract level number (L1LABEL -> 1, L1FILE -> 1)
+                                int suffixLength = command.EndsWith("LABEL") ? 6 : 5;
+                                if (int.TryParse(command.Substring(1, command.Length - suffixLength), out int level))
                                 {
                                     if (!difficulties.ContainsKey(level))
                                         difficulties[level] = ("", "");
-                                    difficulties[level] = (value, difficulties[level].file);
-                                }
-                            }
-                            else if (command.StartsWith("L") && command.EndsWith("FILE"))
-                            {
-                                // Extract level number (L1FILE -> 1)
-                                if (int.TryParse(command.Substring(1, command.Length - 5), out int level))
-                                {
-                                    if (!difficulties.ContainsKey(level))
-                                        difficulties[level] = ("", "");
-                                    difficulties[level] = (difficulties[level].label, value);
+                                    
+                                    if (command.EndsWith("LABEL"))
+                                        difficulties[level] = (value, difficulties[level].file);
+                                    else
+                                        difficulties[level] = (difficulties[level].label, value);
                                 }
                             }
                         }
@@ -1294,7 +1268,7 @@ namespace DTXMania.Game.Lib.Song
                     // Find the first valid DTX file to use as the primary chart
                     foreach (var kvp in difficulties.OrderBy(d => d.Key))
                     {
-                        var (label, fileName) = kvp.Value;
+                        var (_, fileName) = kvp.Value;
                         if (!string.IsNullOrEmpty(fileName))
                         {
                             var filePath = Path.Combine(directory, fileName);
@@ -1436,9 +1410,8 @@ namespace DTXMania.Game.Lib.Song
                 var lines = await File.ReadAllLinesAsync(boxDefPath, cancellationToken);
                 var boxDef = new BoxDefinition();
 
-                foreach (var line in lines)
+                foreach (var trimmedLine in lines.Select(line => line.Trim()))
                 {
-                    var trimmedLine = line.Trim();
                     if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
                         continue;
 
@@ -1674,30 +1647,27 @@ namespace DTXMania.Game.Lib.Song
                 int updatedFiles = 0;
                 int totalFiles = 0;
 
-                foreach (var song in allSongs)
+                foreach (var song in allSongs.Where(s => s.Charts != null))
                 {
-                    if (song.Charts != null)
+                    foreach (var chart in song.Charts!)
                     {
-                        foreach (var chart in song.Charts)
+                        totalFiles++;
+                        if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                         {
-                            totalFiles++;
-                            if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
+                            // File is missing from recorded path - try to find it in new location
+                            string? newPath = await FindMovedFileAsync(chart.FilePath);
+                            
+                            if (!string.IsNullOrEmpty(newPath))
                             {
-                                // File is missing from recorded path - try to find it in new location
-                                string? newPath = await FindMovedFileAsync(chart.FilePath);
-                                
-                                if (!string.IsNullOrEmpty(newPath))
-                                {
-                                    // Found the file in a new location - update database
-                                    Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
-                                    await UpdateChartFilePathAsync(chart.Id, newPath);
-                                    updatedFiles++;
-                                }
-                                else
-                                {
-                                    missingFiles++;
-                                    Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
-                                }
+                                // Found the file in a new location - update database
+                                Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
+                                await UpdateChartFilePathAsync(chart.Id, newPath);
+                                updatedFiles++;
+                            }
+                            else
+                            {
+                                missingFiles++;
+                                Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
                             }
                         }
                     }
@@ -1739,15 +1709,12 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Search for the file in all DTX directories within search paths
-                foreach (var searchPath in searchPaths)
+                foreach (var searchPath in searchPaths.Where(Directory.Exists))
                 {
-                    if (!Directory.Exists(searchPath))
-                        continue;
-
                     // Use async enumeration to avoid blocking
-                    var foundFiles = await Task.Run(() => 
+                    var foundFiles = await Task.Run(() =>
                         Directory.EnumerateFiles(searchPath, fileName, SearchOption.AllDirectories).ToList());
-                    
+
                     foreach (var foundFile in foundFiles)
                     {
                         // Verify it's actually a DTX file and has similar content/size
@@ -1915,19 +1882,12 @@ namespace DTXMania.Game.Lib.Song
             int totalCount = 0;
             try
             {
-                foreach (var searchPath in searchPaths)
+                foreach (var searchPath in searchPaths.Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
                 {
-                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
-                        continue;
-
                     // Use async enumeration to avoid blocking
                     await Task.Run(() =>
                     {
-                        int pathCount = 0;
-                        foreach (var dtxFile in Directory.EnumerateFiles(searchPath, "*.dtx", SearchOption.AllDirectories))
-                        {
-                            pathCount++;
-                        }
+                        int pathCount = Directory.EnumerateFiles(searchPath, "*.dtx", SearchOption.AllDirectories).Count();
                         totalCount += pathCount;
                         Debug.WriteLine($"SongManager: Found {pathCount} DTX files in {searchPath}");
                     });

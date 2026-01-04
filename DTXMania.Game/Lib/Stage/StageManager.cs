@@ -181,9 +181,8 @@ namespace DTXMania.Game.Lib.Stage
             var transitionTypeName = _currentTransition?.GetType().Name ?? "Unknown";
             var finalFadeOutAlpha = _currentTransition?.GetFadeOutAlpha() ?? 0.0f;
             var finalFadeInAlpha = _currentTransition?.GetFadeInAlpha() ?? 1.0f;
-            var sharedDataCount = _pendingSharedData?.Count ?? 0;
 
-            _logger.LogDebug("Completing transition: {PreviousStage} -> {TargetStage}", 
+            _logger.LogDebug("Completing transition: {PreviousStage} -> {TargetStage}",
                 previousStageType, _targetStageType);
             _logger.LogDebug("Final transition alphas - FadeOut: {FadeOutAlpha:F3}, FadeIn: {FadeInAlpha:F3}",
                 finalFadeOutAlpha, finalFadeInAlpha);
