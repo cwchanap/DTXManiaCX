@@ -249,7 +249,11 @@ namespace DTXMania.Game.Lib.Song
         {
             get
             {
-                return Scores.Where(score => score != null).Max(score => score!.DifficultyLevel);
+                return Scores
+                    .Where(score => score != null)
+                    .Select(score => score!.DifficultyLevel)
+                    .DefaultIfEmpty(0)
+                    .Max();
             }
         }
 
