@@ -4,18 +4,18 @@
 # Git attributes files should remain LF
 .gitattributes text eol=lf
 
-# Enforce CRLF line endings to match .editorconfig
-*.cs     text eol=crlf
-*.csproj text eol=crlf
-*.sln    text eol=crlf
-*.props  text eol=crlf
-*.targets text eol=crlf
-*.config text eol=crlf
-*.ini    text eol=crlf
-*.json   text eol=crlf
-*.yml    text eol=crlf
-*.yaml   text eol=crlf
-*.md     text eol=crlf
+# Enforce LF line endings to match .editorconfig
+*.cs     text eol=lf
+*.csproj text eol=lf
+*.sln    text eol=lf
+*.props  text eol=lf
+*.targets text eol=lf
+*.config text eol=lf
+*.ini    text eol=lf
+*.json   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.md     text eol=lf
 
 # Shell scripts should remain LF
 *.sh     text eol=lf
