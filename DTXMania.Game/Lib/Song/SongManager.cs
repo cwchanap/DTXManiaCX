@@ -63,6 +63,7 @@ namespace DTXMania.Game.Lib.Song
         private readonly object _lockObject = new();
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
+        private string[] _currentSearchPaths = Array.Empty<string>();
 
         // Initialization state tracking
         private bool _isInitialized = false;
@@ -112,6 +113,14 @@ namespace DTXMania.Game.Lib.Song
             {
                 return _databaseService;
             }
+        }
+
+        private void SetCurrentSearchPaths(string[] searchPaths)
+        {
+            if (searchPaths == null || searchPaths.Length == 0)
+                return;
+
+            _currentSearchPaths = searchPaths.ToArray();
         }
 
         /// <summary>
@@ -203,7 +212,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Initializes the database service (SongListDB and SongsDB phases)
         /// </summary>
-        public async Task<bool> InitializeDatabaseServiceAsync(string databasePath = "songs.db", bool purgeDatabaseFirst = false)
+        public async Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
         {
             try
             {
@@ -211,7 +220,11 @@ namespace DTXMania.Game.Lib.Song
                 SongDatabaseService? db;
                 lock (_lockObject)
                 {
-                    _databaseService ??= new SongDatabaseService(databasePath);
+                        var resolvedDatabasePath = string.IsNullOrWhiteSpace(databasePath)
+                            ? Utilities.AppPaths.GetSongsDatabasePath()
+                            : databasePath;
+
+                        _databaseService ??= new SongDatabaseService(resolvedDatabasePath);
                     db = _databaseService;
                 }
 
@@ -258,6 +271,7 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
+                SetCurrentSearchPaths(searchPaths);
                 var db = GetDatabaseServiceSnapshot();
                 if (db == null)
                 {
@@ -407,6 +421,7 @@ namespace DTXMania.Game.Lib.Song
         public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
         {
             Debug.WriteLine($"SongManager: BuildSongListFromDatabasePublicAsync called with {searchPaths.Length} search paths");
+            SetCurrentSearchPaths(searchPaths);
             
             // Check database state before building
             var dbCount = await GetDatabaseScoreCountAsync();
@@ -547,6 +562,7 @@ namespace DTXMania.Game.Lib.Song
 
             try
             {
+                SetCurrentSearchPaths(searchPaths);
                 Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
 
                 var newRootNodes = new List<SongListNode>();
@@ -1589,6 +1605,7 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
+                SetCurrentSearchPaths(searchPaths);
                 if (forceEnumeration)
                 {
                     Debug.WriteLine("SongManager: Force enumeration requested");
@@ -1702,8 +1719,15 @@ namespace DTXMania.Game.Lib.Song
                 var searchPaths = new List<string>();
                 if (_databaseService != null)
                 {
-                    // Add default search paths
-                    searchPaths.Add("DTXFiles");
+                    // Add current search paths (fallback to defaults if none)
+                    if (_currentSearchPaths.Length > 0)
+                    {
+                        searchPaths.AddRange(_currentSearchPaths);
+                    }
+                    else
+                    {
+                        searchPaths.AddRange(Resources.Constants.SongPaths.Default);
+                    }
                     
                     // You could extend this to get search paths from config if needed
                 }

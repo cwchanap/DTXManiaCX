@@ -5,6 +5,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -23,8 +24,10 @@ namespace DTXMania.Game.Lib.Config
 
         public void LoadConfig(string filePath)
         {
+            EnsureConfigDirectory(filePath);
             if (!File.Exists(filePath))
             {
+                NormalizeConfigPaths();
                 SaveConfig(filePath); // Create default config
                 return;
             }
@@ -45,6 +48,8 @@ namespace DTXMania.Game.Lib.Config
 
                 ParseConfigLine(key, value);
             }
+
+            NormalizeConfigPaths();
 
             // Security: If Game API is enabled but no API key is set, generate one and save
             if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
@@ -179,6 +184,7 @@ namespace DTXMania.Game.Lib.Config
 
         public void SaveConfig(string filePath)
         {
+            EnsureConfigDirectory(filePath);
             var sb = new StringBuilder();
             sb.AppendLine("; DTXMania Configuration File");
             sb.AppendLine($"; Generated: {DateTime.Now}");
@@ -254,6 +260,31 @@ namespace DTXMania.Game.Lib.Config
                 return true;
             }
             return false;
+        }
+
+        private static void EnsureConfigDirectory(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            var directory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(directory))
+                return;
+
+            Directory.CreateDirectory(directory);
+        }
+
+        private void NormalizeConfigPaths()
+        {
+            var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
+            var defaultSongsPath = AppPaths.GetDefaultSongsPath();
+
+            Config.SystemSkinRoot = AppPaths.ResolvePathOrDefault(Config.SystemSkinRoot, defaultSystemSkinRoot);
+            Config.DTXPath = AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
+            Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
+
+            AppPaths.EnsureDirectory(Config.SystemSkinRoot);
+            AppPaths.EnsureDirectory(Config.DTXPath);
         }
     }
 }

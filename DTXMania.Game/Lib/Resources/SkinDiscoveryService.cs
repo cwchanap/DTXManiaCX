@@ -52,9 +52,9 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Constructor
 
-        public SkinDiscoveryService(string systemSkinRoot = "System/")
+        public SkinDiscoveryService(string? systemSkinRoot = null)
         {
-            _systemSkinRoot = NormalizePath(systemSkinRoot);
+            _systemSkinRoot = NormalizePath(systemSkinRoot ?? AppPaths.GetDefaultSystemSkinRoot());
         }
 
         #endregion

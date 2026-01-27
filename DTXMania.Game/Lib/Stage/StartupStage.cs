@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
@@ -51,12 +52,12 @@ namespace DTXMania.Game.Lib.Stage
 
         // Services for actual functionality
         private SongManager _songManager;
-        private ConfigManager _configManager;
+        private IConfigManager _configManager;
 
         // Task tracking for async operations
         private Task _currentAsyncTask;
         private CancellationTokenSource _cancellationTokenSource;
-        private readonly string[] _songPaths = Constants.SongPaths.Default;
+        private string[] _songPaths = Constants.SongPaths.Default;
 
         // Filesystem change detection result (cached to avoid duplicate checks)
         private bool? _needsEnumeration = null;
@@ -84,7 +85,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize services - use singleton for SongManager
             _songManager = SongManager.Instance;
-            _configManager = new ConfigManager();
+            _configManager = _game.ConfigManager;
 
             // Initialize cancellation token source for async operations
             _cancellationTokenSource = new CancellationTokenSource();
@@ -375,8 +376,10 @@ namespace DTXMania.Game.Lib.Stage
                     // Load and validate configuration
                     try
                     {
-                        _configManager.LoadConfig("Config.ini");
+                        _configManager.LoadConfig(AppPaths.GetConfigFilePath());
                         var config = _configManager.Config;
+
+                        _songPaths = new[] { config.DTXPath };
 
                         // Basic validation - check if config loaded successfully
                         bool isValid = config != null &&
@@ -492,7 +495,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                bool success = await _songManager.InitializeDatabaseServiceAsync("songs.db", false).ConfigureAwait(false);
+                var databasePath = AppPaths.GetSongsDatabasePath();
+                AppPaths.EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
+                bool success = await _songManager.InitializeDatabaseServiceAsync(databasePath, false).ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
             }
             catch (Exception ex)
