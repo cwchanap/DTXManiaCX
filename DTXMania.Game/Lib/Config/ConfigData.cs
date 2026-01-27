@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Game.Lib.Config
 {
@@ -6,12 +7,12 @@ namespace DTXMania.Game.Lib.Config
     {
         // System settings
         public string DTXManiaVersion { get; set; } = "NX1.5.0-MG";
-        public string SkinPath { get; set; } = "System/";
-        public string DTXPath { get; set; } = "DTXFiles/";
+        public string SkinPath { get; set; } = AppPaths.GetDefaultSystemSkinRoot();
+        public string DTXPath { get; set; } = AppPaths.GetDefaultSongsPath();
 
         // Skin settings
         public bool UseBoxDefSkin { get; set; } = true;
-        public string SystemSkinRoot { get; set; } = "System/";
+        public string SystemSkinRoot { get; set; } = AppPaths.GetDefaultSystemSkinRoot();
         public string LastUsedSkin { get; set; } = "Default";
 
         // Display settings

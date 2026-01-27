@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using DTXMania.Game.Lib.Utilities;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -546,7 +547,7 @@ namespace DTXMania.Game.Lib.Resources
         private void InitializeDefaultSkinPath()
         {
             // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
-            var defaultPath = "System/";
+            var defaultPath = AppPaths.GetDefaultSystemSkinRoot();
 
             if (ValidateSkinPath(defaultPath))
             {
@@ -568,9 +569,9 @@ namespace DTXMania.Game.Lib.Resources
         {
             try
             {
-                var systemPath = "System";
-                var graphicsPath = "System/Graphics";
-                var fontsPath = "System/Fonts";
+                var systemPath = AppPaths.GetDefaultSystemSkinRoot();
+                var graphicsPath = Path.Combine(systemPath, "Graphics");
+                var fontsPath = Path.Combine(systemPath, "Fonts");
 
                 // Create directories if they don't exist
                 if (!Directory.Exists(systemPath))

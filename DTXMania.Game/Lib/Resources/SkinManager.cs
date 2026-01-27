@@ -24,10 +24,10 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Constructor
 
-        public SkinManager(IResourceManager resourceManager, string systemSkinRoot = "System/")
+        public SkinManager(IResourceManager resourceManager, string? systemSkinRoot = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
-            _systemSkinRoot = NormalizePath(systemSkinRoot);
+            _systemSkinRoot = NormalizePath(systemSkinRoot ?? AppPaths.GetDefaultSystemSkinRoot());
             RefreshAvailableSkins();
         }
 

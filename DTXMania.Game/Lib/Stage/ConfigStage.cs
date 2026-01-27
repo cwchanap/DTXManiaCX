@@ -386,7 +386,7 @@ namespace DTXMania.Game.Lib.Stage
             // Save to file
             try
             {
-                _configManager.SaveConfig("Config.ini");
+                _configManager.SaveConfig(DTXMania.Game.Lib.Utilities.AppPaths.GetConfigFilePath());
                 _hasUnsavedChanges = false;
                 System.Diagnostics.Debug.WriteLine("Configuration saved successfully");
             }

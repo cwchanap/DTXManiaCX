@@ -7,11 +7,13 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -78,6 +80,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     public BaseGame()
     {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _graphicsDeviceManager = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
@@ -94,7 +97,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     {
         // Initialize managers
         ConfigManager = new ConfigManager();
-        ConfigManager.LoadConfig("Config.ini");
+        ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());
 
         // Initialize graphics manager
         _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>());
@@ -137,6 +140,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Initialize shared resource manager
         ResourceManager = ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
 
+        var config = ConfigManager.Config;
+        ResourceManager.SetUseBoxDefSkin(config.UseBoxDefSkin);
+        ResourceManager.SetSkinPath(config.SkinPath);
+
         // Initialize font factory after content is loaded
         ManagedFont.InitializeFontFactory(Content);
 
@@ -146,7 +153,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         StageManager?.ChangeStage(StageType.Startup);
 
         // Initialize Game API server for MCP communication if enabled
-        var config = ConfigManager.Config;
         if (config.EnableGameApi)
         {
             // Security: Validate API key is present when API is enabled

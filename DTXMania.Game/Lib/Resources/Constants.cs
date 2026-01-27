@@ -1,3 +1,5 @@
+using DTXMania.Game.Lib.Utilities;
+
 namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
@@ -18,7 +20,7 @@ namespace DTXMania.Game.Lib.Resources
             /// <summary>
             /// Default song paths array for initialization
             /// </summary>
-            public static readonly string[] Default = { DTXFiles };
+            public static readonly string[] Default = { AppPaths.GetDefaultSongsPath() };
         }
     }
 }
