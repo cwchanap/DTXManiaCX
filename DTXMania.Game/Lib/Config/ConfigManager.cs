@@ -283,8 +283,20 @@ namespace DTXMania.Game.Lib.Config
             Config.DTXPath = AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
             Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
 
-            AppPaths.EnsureDirectory(Config.SystemSkinRoot);
-            AppPaths.EnsureDirectory(Config.DTXPath);
+            void EnsureDirectorySafe(string path)
+            {
+                try
+                {
+                    AppPaths.EnsureDirectory(path);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to ensure directory for {Path}", path);
+                }
+            }
+
+            EnsureDirectorySafe(Config.SystemSkinRoot);
+            EnsureDirectorySafe(Config.DTXPath);
         }
     }
 }

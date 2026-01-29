@@ -51,8 +51,8 @@ namespace DTXMania.Game.Lib.Stage
         private StartupPhase _startupPhase = StartupPhase.SystemSounds;
 
         // Services for actual functionality
-        private SongManager _songManager;
-        private IConfigManager _configManager;
+        private readonly SongManager _songManager;
+        private readonly IConfigManager _configManager;
 
         // Task tracking for async operations
         private Task _currentAsyncTask;
@@ -374,23 +374,20 @@ namespace DTXMania.Game.Lib.Stage
 
                 case StartupPhase.ConfigValidation:
                     // Load and validate configuration
-                    try
+                    var config = _configManager.Config;
+                    if (config != null)
                     {
-                        _configManager.LoadConfig(AppPaths.GetConfigFilePath());
-                        var config = _configManager.Config;
-
                         _songPaths = new[] { config.DTXPath };
 
                         // Basic validation - check if config loaded successfully
-                        bool isValid = config != null &&
-                                    config.ScreenWidth > 0 &&
+                        bool isValid = config.ScreenWidth > 0 &&
                                     config.ScreenHeight > 0;
 
                         System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        System.Diagnostics.Debug.WriteLine($"Configuration validation error: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine("Configuration validation: FAILED (config not loaded)");
                     }
                     break;
 

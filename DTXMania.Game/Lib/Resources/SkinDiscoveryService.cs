@@ -125,8 +125,12 @@ namespace DTXMania.Game.Lib.Resources
                 };
 
                 // Check if this is the default skin (System/ path)
+                var normalizedSkinPath = fullSkinPath.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+                var normalizedSystemSkinRoot = Path.GetFullPath(_systemSkinRoot).TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+                var skinDirectoryName = Path.GetFileName(normalizedSkinPath);
                 skinInfo.IsDefault = string.Equals(skinInfo.Name, "Default", StringComparison.OrdinalIgnoreCase) ||
-                                   skinPath.TrimEnd(Path.DirectorySeparatorChar, '/').Equals("System", StringComparison.OrdinalIgnoreCase);
+                                     string.Equals(skinDirectoryName, "System", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(normalizedSkinPath, normalizedSystemSkinRoot, StringComparison.OrdinalIgnoreCase);
 
                 // Validate required files
                 var missingFiles = new List<string>();
