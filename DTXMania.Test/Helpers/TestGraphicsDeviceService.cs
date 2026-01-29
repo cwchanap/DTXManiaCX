@@ -10,13 +10,16 @@ namespace DTXMania.Test.Helpers
     /// </summary>
     public class TestGraphicsDeviceService : IDisposable
     {
-        private Microsoft.Xna.Framework.Game _game;
-        private GraphicsDeviceManager _graphicsDeviceManager;
+        private readonly Microsoft.Xna.Framework.Game? _game;
+        private readonly GraphicsDeviceManager? _graphicsDeviceManager;
 
-        public GraphicsDevice GraphicsDevice { get; private set; }
+        public GraphicsDevice? GraphicsDevice { get; private set; }
 
         public TestGraphicsDeviceService()
         {
+            _game = null;
+            _graphicsDeviceManager = null;
+
             try
             {
                 _game = new TestGame();
@@ -41,7 +44,7 @@ namespace DTXMania.Test.Helpers
 
         private class TestGame : Microsoft.Xna.Framework.Game
         {
-            private GraphicsDeviceManager _graphics;
+            private readonly GraphicsDeviceManager _graphics;
 
             public TestGame()
             {

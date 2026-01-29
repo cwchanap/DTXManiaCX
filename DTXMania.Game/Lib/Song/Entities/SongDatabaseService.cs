@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
@@ -18,6 +19,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
         private readonly object _initializationLock = new object();
+        private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
 
         /// <summary>
@@ -28,6 +30,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         public SongDatabaseService(string databasePath = "songs.db")
         {
             _databasePath = databasePath;
+
+            var databaseDirectory = Path.GetDirectoryName(_databasePath);
+            if (!string.IsNullOrWhiteSpace(databaseDirectory))
+            {
+                Directory.CreateDirectory(databaseDirectory);
+            }
 
             var optionsBuilder = new DbContextOptionsBuilder<SongDbContext>();
             // Configure SQLite with UTF-8 support for Japanese text
@@ -44,18 +52,18 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Initialize the database and ensure it exists
         public async Task InitializeDatabaseAsync()
         {
-            // Use lock to prevent multiple simultaneous initializations
-            lock (_initializationLock)
-            {
-                if (_isInitialized)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database already initialized, skipping.");
-                    return;
-                }
-            }
-
+            await _initializationSemaphore.WaitAsync();
             try
             {
+                lock (_initializationLock)
+                {
+                    if (_isInitialized)
+                    {
+                        System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database already initialized, skipping.");
+                        return;
+                    }
+                }
+
                 // Check if file exists but is not a valid SQLite database
                 if (File.Exists(_databasePath) && !await IsValidSqliteDatabaseAsync())
                 {
@@ -121,6 +129,10 @@ namespace DTXMania.Game.Lib.Song.Entities
             {
                 System.Diagnostics.Debug.WriteLine($"Unexpected error during database initialization: {ex.Message}");
                 throw;
+            }
+            finally
+            {
+                _initializationSemaphore.Release();
             }
         }
 

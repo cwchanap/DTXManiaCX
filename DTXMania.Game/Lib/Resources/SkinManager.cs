@@ -158,15 +158,19 @@ namespace DTXMania.Game.Lib.Resources
                 var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
 
                 // Handle default skin case (System/ -> "Default")
-                if (normalizedPath.Equals("System", StringComparison.OrdinalIgnoreCase))
+                // Split by both forward and backward slashes and get the last non-empty part
+                var parts = normalizedPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0)
+                    return "";
+
+                var lastSegment = parts[parts.Length - 1];
+                if (lastSegment.Equals("System", StringComparison.OrdinalIgnoreCase))
                 {
                     return "Default";
                 }
 
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
-                // Split by both forward and backward slashes and get the last non-empty part
-                var parts = normalizedPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-                return parts.Length > 0 ? parts[parts.Length - 1] : "";
+                return lastSegment;
             }
             catch
             {
