@@ -45,8 +45,6 @@ namespace DTXMania.Test.Helpers
 
         public void Dispose()
         {
-            if (GraphicsDevice == null)
-                return;
             try
             {
                 _game?.Dispose();
