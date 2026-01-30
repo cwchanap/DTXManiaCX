@@ -11,22 +11,24 @@ namespace DTXMania.Test.Helpers
     public class TestGraphicsDeviceService : IDisposable
     {
         private readonly Microsoft.Xna.Framework.Game? _game;
-        private readonly GraphicsDeviceManager? _graphicsDeviceManager;
 
         public GraphicsDevice? GraphicsDevice { get; private set; }
 
         public TestGraphicsDeviceService()
         {
             _game = null;
-            _graphicsDeviceManager = null;
+            if (!IsGraphicsTestEnabled())
+            {
+                GraphicsDevice = null;
+                return;
+            }
 
             try
             {
                 _game = new TestGame();
-                _graphicsDeviceManager = new GraphicsDeviceManager(_game);
                 _game.RunOneFrame();
 
-                GraphicsDevice = _graphicsDeviceManager.GraphicsDevice;
+                GraphicsDevice = _game.GraphicsDevice;
             }
             catch (Exception)
             {
@@ -36,10 +38,23 @@ namespace DTXMania.Test.Helpers
             }
         }
 
+        private static bool IsGraphicsTestEnabled()
+        {
+            return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
+        }
+
         public void Dispose()
         {
-            _graphicsDeviceManager?.Dispose();
-            _game?.Dispose();
+            if (GraphicsDevice == null)
+                return;
+            try
+            {
+                _game?.Dispose();
+            }
+            catch
+            {
+                // Swallow disposal errors in headless/CI environments
+            }
         }
 
         private class TestGame : Microsoft.Xna.Framework.Game

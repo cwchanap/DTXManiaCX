@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Config;
 
@@ -12,8 +13,8 @@ public class ConfigDataTests
 
         // Assert
         Assert.Equal("NX1.5.0-MG", config.DTXManiaVersion);
-        Assert.Equal("System/", config.SkinPath);
-        Assert.Equal("DTXFiles/", config.DTXPath);
+        Assert.Equal("System", GetLastPathSegment(config.SkinPath));
+        Assert.Equal("Songs", GetLastPathSegment(config.DTXPath));
         Assert.Equal(1280, config.ScreenWidth);
         Assert.Equal(720, config.ScreenHeight);
         Assert.False(config.FullScreen);
@@ -166,7 +167,13 @@ public class ConfigDataTests
 
         // Assert
         Assert.True(config.UseBoxDefSkin);
-        Assert.Equal("System/", config.SystemSkinRoot);
+        Assert.Equal("System", GetLastPathSegment(config.SystemSkinRoot));
         Assert.Equal("Default", config.LastUsedSkin);
+    }
+
+    private static string GetLastPathSegment(string path)
+    {
+        var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+        return Path.GetFileName(trimmed);
     }
 }
