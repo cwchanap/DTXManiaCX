@@ -18,6 +18,7 @@ namespace DTXMania.Test.UI
         private readonly MockResourceManager? _resourceManager;
         private readonly TestGraphicsDeviceService _graphicsService;
         private readonly SongBarRenderer? _renderer;
+        private RenderTarget2D? _sharedRenderTarget;
         private readonly SongListNode _testSongNode;
 
         public SongBarRendererTests()
@@ -26,8 +27,8 @@ namespace DTXMania.Test.UI
             if (_graphicsService.GraphicsDevice != null)
             {
                 _resourceManager = new MockResourceManager(_graphicsService.GraphicsDevice);
-                var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
-                _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, sharedRT);
+                _sharedRenderTarget = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
+                _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, _sharedRenderTarget);
             }
 
             // Create test song and chart
@@ -165,10 +166,11 @@ namespace DTXMania.Test.UI
             if (_renderer == null)
                 return;
 
-            _ = _renderer.GeneratePreviewImageTexture(_testSongNode);
+            var exception = Record.Exception(() => _renderer.GeneratePreviewImageTexture(_testSongNode));
 
             // Assert - May be null if file doesn't exist, but should not throw
             // The mock resource manager will return null for non-existent files
+            Assert.Null(exception);
         }
 
         [Fact]
@@ -291,6 +293,7 @@ namespace DTXMania.Test.UI
             // Assert
             Assert.NotNull(texture1);
             Assert.NotNull(texture2);
+            Assert.NotSame(texture1, texture2);
             // Textures should be different since font changed and cache was cleared
         }
         [Theory]
@@ -370,6 +373,8 @@ namespace DTXMania.Test.UI
         public void Dispose()
         {
             _renderer?.Dispose();
+            _sharedRenderTarget?.Dispose();
+            _sharedRenderTarget = null;
             _resourceManager?.Dispose();
             _graphicsService?.Dispose();
         }

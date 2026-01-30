@@ -5,6 +5,8 @@ using System.Linq;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Utilities;
 
+#nullable enable
+
 namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
@@ -101,11 +103,13 @@ namespace DTXMania.Game.Lib.Resources
             }
 
             return skins;
-        }        /// <summary>
-                 /// Analyze a specific skin directory
-                 /// </summary>
-                 /// <param name="skinPath">Path to skin directory</param>
-                 /// <returns>Skin information or null if invalid</returns>
+        }
+
+        /// <summary>
+        /// Analyze a specific skin directory
+        /// </summary>
+        /// <param name="skinPath">Path to skin directory</param>
+        /// <returns>Skin information or null if invalid</returns>
         public SkinInfo AnalyzeSkin(string skinPath)
         {
             if (string.IsNullOrEmpty(skinPath))
@@ -159,11 +163,13 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"SkinDiscoveryService: Error analyzing skin {skinPath}: {ex.Message}");
                 return null;
             }
-        }        /// <summary>
-                 /// Validate if a skin path contains required files
-                 /// </summary>
-                 /// <param name="skinPath">Path to validate</param>
-                 /// <returns>True if valid</returns>
+        }
+
+        /// <summary>
+        /// Validate if a skin path contains required files
+        /// </summary>
+        /// <param name="skinPath">Path to validate</param>
+        /// <returns>True if valid</returns>
         public bool ValidateSkin(string skinPath)
         {
             return PathValidator.IsValidSkinPath(skinPath, _requiredFiles);

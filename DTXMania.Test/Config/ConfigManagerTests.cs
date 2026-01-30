@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Utilities;
 using System.Text;
 
 namespace DTXMania.Test.Config;
@@ -109,8 +110,8 @@ VSyncWait=false
 
             // Assert
             Assert.Equal("TestVersion", manager.Config.DTXManiaVersion);
-            Assert.Equal("TestSkin/", manager.Config.SkinPath);
-            Assert.Equal("TestDTX/", manager.Config.DTXPath);
+            Assert.Equal("TestSkin", GetLastPathSegment(manager.Config.SkinPath));
+            Assert.Equal("TestDTX", GetLastPathSegment(manager.Config.DTXPath));
             Assert.Equal(1920, manager.Config.ScreenWidth);
             Assert.Equal(1080, manager.Config.ScreenHeight);
             Assert.True(manager.Config.FullScreen);
@@ -121,6 +122,12 @@ VSyncWait=false
             if (File.Exists(tempFile))
                 File.Delete(tempFile);
         }
+    }
+
+    private static string GetLastPathSegment(string path)
+    {
+        var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+        return Path.GetFileName(trimmed);
     }
 
     [Theory]

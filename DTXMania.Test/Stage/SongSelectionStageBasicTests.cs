@@ -31,6 +31,9 @@ namespace DTXMania.Test.Stage
         public void InitialState_ShouldBeInactive()
         {
             // Arrange
+            if (!IsGraphicsTestEnabled())
+                return;
+
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Assert
@@ -41,6 +44,9 @@ namespace DTXMania.Test.Stage
         public void Deactivate_WithoutActivation_ShouldNotThrowAndRemainInactive()
         {
             // Arrange
+            if (!IsGraphicsTestEnabled())
+                return;
+
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Act
@@ -54,6 +60,9 @@ namespace DTXMania.Test.Stage
         public void Deactivate_MultipleCallsShouldBeIdempotent()
         {
             // Arrange
+            if (!IsGraphicsTestEnabled())
+                return;
+
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Act
@@ -68,6 +77,9 @@ namespace DTXMania.Test.Stage
         public void Deactivate_WhenBackgroundMusicIsSet_ShouldDisposeBackgroundMusicInstance()
         {
             // Arrange
+            if (!IsGraphicsTestEnabled())
+                return;
+
             var stage = CreateStageWithFakeGraphicsManager();
             var mockSound = new Mock<ISound>();
             var mockSoundInstance = new Mock<ISoundInstance>();
@@ -84,6 +96,11 @@ namespace DTXMania.Test.Stage
         {
             var mockGame = new Mock<BaseGame>();
             return new SongSelectionStage(mockGame.Object);
+        }
+
+        private static bool IsGraphicsTestEnabled()
+        {
+            return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

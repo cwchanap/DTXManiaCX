@@ -5,6 +5,8 @@ using System.Linq;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Utilities;
 
+#nullable enable
+
 namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
