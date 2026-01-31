@@ -47,7 +47,9 @@ jobs:
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4
       with:
-        directory: ./TestResults
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./TestResults/**/coverage.cobertura.xml
+        flags: unit,windows
         fail_ci_if_error: false
         verbose: true
 
@@ -90,7 +92,9 @@ jobs:
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4
       with:
-        directory: ./TestResults
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./TestResults/**/coverage.cobertura.xml
+        flags: unit,macos
         fail_ci_if_error: false
         verbose: true
 
