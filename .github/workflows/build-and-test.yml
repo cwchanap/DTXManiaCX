@@ -48,7 +48,7 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./TestResults/**/coverage.cobertura.xml
+        directory: ./TestResults
         flags: unit,windows
         fail_ci_if_error: false
         verbose: true
@@ -93,7 +93,7 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./TestResults/**/coverage.cobertura.xml
+        directory: ./TestResults
         flags: unit,macos
         fail_ci_if_error: false
         verbose: true
