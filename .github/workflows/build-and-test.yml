@@ -44,11 +44,18 @@ jobs:
         name: test-results-windows
         path: ./TestResults
 
+    - name: Locate coverage report
+      shell: pwsh
+      run: |
+        $coverage = Get-ChildItem -Path TestResults -Recurse -Filter coverage.cobertura.xml | Select-Object -First 1
+        if (-not $coverage) { throw "coverage.cobertura.xml not found in TestResults" }
+        "CODECOV_FILE=$($coverage.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        directory: ./TestResults
+        files: ${{ env.CODECOV_FILE }}
         flags: unit,windows
         fail_ci_if_error: false
         verbose: true
@@ -88,15 +95,6 @@ jobs:
       with:
         name: test-results-macos
         path: ./TestResults
-
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        directory: ./TestResults
-        flags: unit,macos
-        fail_ci_if_error: false
-        verbose: true
 
   build-artifacts:
     runs-on: ${{ matrix.os }}
