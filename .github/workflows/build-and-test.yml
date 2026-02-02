@@ -47,8 +47,8 @@ jobs:
     - name: Locate coverage report
       shell: pwsh
       run: |
-        $coverage = Get-ChildItem -Path TestResults -Recurse -Filter coverage.cobertura.xml | Select-Object -First 1
-        if (-not $coverage) { throw "coverage.cobertura.xml not found in TestResults" }
+        $coverage = Get-ChildItem -Path . -Recurse -Filter coverage.cobertura.xml | Select-Object -First 1
+        if (-not $coverage) { throw "coverage.cobertura.xml not found in repository" }
         "CODECOV_FILE=$($coverage.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
     - name: Upload coverage reports to Codecov
