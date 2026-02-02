@@ -35,7 +35,7 @@ jobs:
       run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
     - name: Run tests on Windows
-      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger trx -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.OutputDirectory=TestResults
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --logger trx /p:CollectCoverage=true /p:CoverletOutput=${{ github.workspace }}/TestResults/coverage.cobertura.xml /p:CoverletOutputFormat=cobertura
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -44,18 +44,11 @@ jobs:
         name: test-results-windows
         path: ./TestResults
 
-    - name: Locate coverage report
-      shell: pwsh
-      run: |
-        $coverage = Get-ChildItem -Path . -Recurse -Filter coverage.cobertura.xml | Select-Object -First 1
-        if (-not $coverage) { throw "coverage.cobertura.xml not found in repository" }
-        "CODECOV_FILE=$($coverage.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: ${{ env.CODECOV_FILE }}
+        files: ./TestResults/coverage.cobertura.xml
         flags: unit,windows
         fail_ci_if_error: false
         verbose: true
