@@ -18,6 +18,7 @@ namespace DTXMania.Test.Stage.Performance
     /// - Disposal and resource management
     /// Note: Some tests use real audio files due to MonoGame integration complexity
     /// </summary>
+    [Trait("Category", AudioTestUtils.AudioTestCategory)]
     public class AudioLoaderTests : IClassFixture<AudioLoaderTests.TestFileFixture>, IDisposable
     {
         private readonly ITestOutputHelper _output;

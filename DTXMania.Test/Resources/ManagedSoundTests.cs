@@ -17,6 +17,7 @@ namespace DTXMania.Test.Resources
     /// - Reference counting and disposal
     /// - Interface compatibility
     /// </summary>
+    [Trait("Category", AudioTestUtils.AudioTestCategory)]
     public class ManagedSoundTests : IClassFixture<ManagedSoundTests.TestFileFixture>, IDisposable
     {
         private readonly ITestOutputHelper _output;

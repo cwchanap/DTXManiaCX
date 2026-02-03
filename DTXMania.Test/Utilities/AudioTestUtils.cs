@@ -8,6 +8,18 @@ namespace DTXMania.Test.Utilities
     /// </summary>
     public static class AudioTestUtils
     {
+        public const string AudioTestCategory = "Audio";
+
+        public static string GetAudioTestSkipReason()
+        {
+            if (string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_AUDIO_TESTS"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return "Audio tests disabled. Set DTXMANIACX_ENABLE_AUDIO_TESTS=1 to enable.";
+        }
+
         /// <summary>
         /// Creates a minimal WAV file for testing purposes
         /// </summary>
