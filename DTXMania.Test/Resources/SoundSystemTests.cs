@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Test.Utilities;
 using System;
 using System.IO;
 using Xunit;
@@ -9,6 +10,7 @@ namespace DTXMania.Test.Resources
     /// Unit tests for the sound system including OGG/WAV support and sound management
     /// Tests core functionality without requiring actual audio playback
     /// </summary>
+    [Trait("Category", AudioTestUtils.AudioTestCategory)]
     public class SoundSystemTests : IDisposable
     {
         private readonly string _testDataPath;
