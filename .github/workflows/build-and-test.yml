@@ -35,7 +35,9 @@ jobs:
       run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
     - name: Run tests on Windows
-      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity normal --logger trx --filter "TestCategory!=Audio" /p:CollectCoverage=true /p:CoverletOutput=${{ github.workspace }}/TestResults/ /p:CoverletOutputFormat=cobertura
+      env:
+        ALSOFT_DRIVERS: 'null'
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity normal --logger trx /p:CollectCoverage=true /p:CoverletOutput=${{ github.workspace }}/TestResults/ /p:CoverletOutputFormat=cobertura
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
