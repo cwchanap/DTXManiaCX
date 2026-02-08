@@ -26,7 +26,7 @@ namespace DTXMania.Game.Lib.Utilities
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                var home = GetHomeDirectory();
                 basePath = Path.Combine(home, "Library", "Application Support");
             }
             else
@@ -34,27 +34,54 @@ namespace DTXMania.Game.Lib.Utilities
                 basePath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             }
 
-            return Path.Combine(basePath, AppName);
+            if (string.IsNullOrWhiteSpace(basePath) || !Path.IsPathRooted(basePath))
+            {
+                var fallbackHome = GetHomeDirectory();
+                if (!string.IsNullOrWhiteSpace(fallbackHome))
+                {
+                    basePath = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                        ? Path.Combine(fallbackHome, "Library", "Application Support")
+                        : Path.Combine(fallbackHome, ".config");
+                }
+            }
+
+            return Path.GetFullPath(Path.Combine(basePath, AppName));
+        }
+
+        private static string GetHomeDirectory()
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrWhiteSpace(home))
+            {
+                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            }
+
+            if (string.IsNullOrWhiteSpace(home))
+            {
+                home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
+            }
+
+            return home;
         }
 
         public static string GetConfigFilePath()
         {
-            return Path.Combine(GetAppDataRoot(), "Config.ini");
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));
         }
 
         public static string GetDefaultSongsPath()
         {
-            return Path.Combine(GetAppDataRoot(), "Songs");
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "DTXFiles"));
         }
 
         public static string GetDefaultSystemSkinRoot()
         {
-            return Path.Combine(GetAppDataRoot(), "System");
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "System"));
         }
 
         public static string GetSongsDatabasePath()
         {
-            return Path.Combine(GetAppDataRoot(), "songs.db");
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "songs.db"));
         }
 
         public static string ResolvePathOrDefault(string? configuredPath, string defaultPath)
@@ -70,10 +97,44 @@ namespace DTXMania.Game.Lib.Utilities
             if (string.IsNullOrWhiteSpace(path))
                 return Path.GetFullPath(basePath);
 
+            path = ExpandHomePath(path);
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && IsMacLibraryRelativePath(path))
+            {
+                var home = GetHomeDirectory();
+                path = Path.Combine(home, path);
+            }
+
             if (Path.IsPathRooted(path))
                 return Path.GetFullPath(path);
 
             return Path.GetFullPath(Path.Combine(basePath, path));
+        }
+
+        private static bool IsMacLibraryRelativePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            return path.StartsWith("Library/", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("Library\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ExpandHomePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return path;
+
+            if (path == "~")
+                return Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+
+            if (path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal))
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                return Path.Combine(home, path.Substring(2));
+            }
+
+            return path;
         }
 
         public static void EnsureDirectory(string path)

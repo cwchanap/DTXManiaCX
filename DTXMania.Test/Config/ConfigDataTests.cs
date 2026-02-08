@@ -14,7 +14,7 @@ public class ConfigDataTests
         // Assert
         Assert.Equal("NX1.5.0-MG", config.DTXManiaVersion);
         Assert.Equal("System", GetLastPathSegment(config.SkinPath));
-        Assert.Equal("Songs", GetLastPathSegment(config.DTXPath));
+        Assert.Equal("DTXFiles", GetLastPathSegment(config.DTXPath));
         Assert.Equal(1280, config.ScreenWidth);
         Assert.Equal(720, config.ScreenHeight);
         Assert.False(config.FullScreen);

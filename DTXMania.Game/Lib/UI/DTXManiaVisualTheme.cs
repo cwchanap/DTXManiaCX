@@ -105,7 +105,7 @@ namespace DTXMania.Game.Lib.UI
         public static class Layout
         {
             // Song list dimensions
-            public static readonly int SongBarHeight = 32;
+            public static readonly int SongBarHeight = 48;
             public static readonly int SongBarSpacing = 2;
             public static readonly int SongListPadding = 10;
             public static readonly int VisibleSongCount = 13;
@@ -123,7 +123,7 @@ namespace DTXMania.Game.Lib.UI
             public static readonly int ClearLampHeight = 24;
 
             // Preview image dimensions
-            public static readonly int PreviewImageSize = 24;
+            public static readonly int PreviewImageSize = 44;
         }
 
         #endregion

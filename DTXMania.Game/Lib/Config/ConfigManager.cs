@@ -279,6 +279,15 @@ namespace DTXMania.Game.Lib.Config
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
 
+            // Migration: If the old default "Songs" is used, migrate to the new default "DTXFiles"
+            if (!string.IsNullOrWhiteSpace(Config.DTXPath) &&
+                (Config.DTXPath.EndsWith("/Songs", StringComparison.OrdinalIgnoreCase) ||
+                 Config.DTXPath.EndsWith("\\Songs", StringComparison.OrdinalIgnoreCase) ||
+                 Config.DTXPath.Equals("Songs", StringComparison.OrdinalIgnoreCase)))
+            {
+                Config.DTXPath = defaultSongsPath;
+            }
+
             Config.SystemSkinRoot = AppPaths.ResolvePathOrDefault(Config.SystemSkinRoot, defaultSystemSkinRoot);
             Config.DTXPath = AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
             Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);

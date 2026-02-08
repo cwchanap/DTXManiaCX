@@ -18,6 +18,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private SongListNode _currentSong;
         private ITexture _currentPreviewTexture;
         private ITexture _defaultPreviewTexture;
+        private ITexture _preimagePanelTexture;
         private IResourceManager _resourceManager;
         private Texture2D _whitePixel;
 
@@ -93,6 +94,7 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             _resourceManager = resourceManager;
             LoadDefaultPreviewTexture();
+            LoadPreimagePanelTexture();
         }
 
         /// <summary>
@@ -203,6 +205,24 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 // Default texture is optional
                 _defaultPreviewTexture = null;
+            }
+        }
+
+        /// <summary>
+        /// Load the ornate preimage panel frame texture (NX-authentic)
+        /// </summary>
+        private void LoadPreimagePanelTexture()
+        {
+            try
+            {
+                if (_resourceManager != null)
+                {
+                    _preimagePanelTexture = _resourceManager.LoadTexture(TexturePath.PreimagePanel);
+                }
+            }
+            catch (Exception)
+            {
+                _preimagePanelTexture = null;
             }
         }
 
@@ -364,8 +384,6 @@ namespace DTXMania.Game.Lib.Song.Components
                         System.IO.Path.GetFullPath(songDirectory), // From current directory
                         System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, songDirectory)), // From app directory
                         System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory)), // From Songs folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory)), // Parent Songs folder
                         System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
                     };
 
@@ -413,24 +431,26 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            // Use NX-authentic preimage panel frame texture if available
+            if (_preimagePanelTexture != null)
+            {
+                _preimagePanelTexture.Draw(spriteBatch, bounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                return;
+            }
+
+            // Fallback to programmatic border
             if (_whitePixel == null)
                 return;
 
-            // Draw semi-transparent background
             var backgroundColor = Color.Black * 0.8f;
             spriteBatch.Draw(_whitePixel, bounds, backgroundColor);
 
-            // Draw border
             var borderColor = Color.White * 0.4f;
             var borderThickness = 2;
 
-            // Top border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-            // Bottom border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-            // Left border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-            // Right border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
         }
 
