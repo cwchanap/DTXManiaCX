@@ -219,9 +219,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             // DTXManiaNX Current Implementation: Vertical List Layout
             // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
             // Unselected bars: Fixed X:673 (vertical list formation)
-            public const int SelectedBarX = 715;       // X position for selected song bar (center position)
+            public const int SelectedBarX = 665;       // X position for selected song bar (center position)
             public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
-            public const int UnselectedBarX = 723;     // Fixed X position for all unselected bars
+            public const int UnselectedBarX = 673;     // Fixed X position for all unselected bars
             public const int BarWidth = 510;           // Maximum width for song bars
             
             // Visual constants
@@ -252,13 +252,13 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Helper properties for easy access
             public static Vector2 SelectedBarPosition => new Vector2(SelectedBarX, SelectedBarY);
             public static Vector2 UnselectedBarPosition => new Vector2(UnselectedBarX, 0); // Y varies per bar
-            public static Vector2 BarSize => new Vector2(BarWidth, 30); // Height will be dynamic
+            public static Vector2 BarSize => new Vector2(BarWidth, BarHeight); // Height will be dynamic
             
             // Individual Song Bar Component Layout
-            public const int BarHeight = 30;           // Height of each song bar
-            public const int PreviewImageSize = 24;    // Size of preview image square
+            public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
+            public const int PreviewImageSize = 44;    // Size of preview image square (NX authentic: 44x44)
             public const int ClearLampWidth = 8;       // Width of clear lamp indicator
-            public const int ClearLampHeight = 24;     // Height of clear lamp indicator
+            public const int ClearLampHeight = 44;     // Height of clear lamp indicator (matches bar height)
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
             
@@ -278,7 +278,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             
             // Texture generation constants
             public const int TitleTextureWidth = 400;  // Width for generated title textures
-            public const int TitleTextureHeight = 24;  // Height for generated title textures
+            public const int TitleTextureHeight = 38;  // Height for generated title textures (NX authentic)
             public const int TextPositionX = 5;        // X position for text within textures
             
             /// <summary>

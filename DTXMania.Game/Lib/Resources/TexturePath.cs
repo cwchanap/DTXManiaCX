@@ -92,6 +92,24 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public const string CommentBar = "Graphics/5_comment bar.png";
 
+        // Song bar textures (NX-authentic skin textures)
+        public const string BarScore = "Graphics/5_bar score.png";
+        public const string BarScoreSelected = "Graphics/5_bar score selected.png";
+        public const string BarBox = "Graphics/5_bar box.png";
+        public const string BarBoxSelected = "Graphics/5_bar box selected.png";
+        public const string BarOther = "Graphics/5_bar other.png";
+        public const string BarOtherSelected = "Graphics/5_bar other selected.png";
+
+        /// <summary>
+        /// Preview image ornate frame panel texture
+        /// </summary>
+        public const string PreimagePanel = "Graphics/5_preimage panel.png";
+
+        /// <summary>
+        /// Scrollbar texture for song list
+        /// </summary>
+        public const string Scrollbar = "Graphics/5_scrollbar.png";
+
         #endregion
         
         #region Font Textures
@@ -380,6 +398,14 @@ namespace DTXMania.Game.Lib.Resources
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
                 CommentBar,
+                BarScore,
+                BarScoreSelected,
+                BarBox,
+                BarBoxSelected,
+                BarOther,
+                BarOtherSelected,
+                PreimagePanel,
+                Scrollbar,
                 ConsoleFont,
                 ConsoleFontSecondary,
                 LevelNumberFont,
@@ -462,10 +488,18 @@ namespace DTXMania.Game.Lib.Resources
                 DifficultyFrame,
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
-                CommentBar
+                CommentBar,
+                BarScore,
+                BarScoreSelected,
+                BarBox,
+                BarBoxSelected,
+                BarOther,
+                BarOtherSelected,
+                PreimagePanel,
+                Scrollbar
             };
         }
-        
+
         /// <summary>
         /// Gets font textures
         /// </summary>

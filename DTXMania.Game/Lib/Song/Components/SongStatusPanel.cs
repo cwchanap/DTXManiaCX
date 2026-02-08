@@ -785,7 +785,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Clamp to valid grid range (0-4) 
                 int clampedGridRow = Math.Clamp(gridRow, 0, 4);
                 
-                // Column is determined by instrument: 0=Drums, 1=Guitar, 2=Bass
+                // Column is determined by instrument: 0=Drums, 1=Bass, 2=Guitar (NX order)
                 int gridColumn = chart.InstrumentColumn;
                 
                 // Place chart at this grid position (if valid)
@@ -1282,26 +1282,26 @@ namespace DTXMania.Game.Lib.Song.Components
                     });
                 }
 
-                // Add guitar chart if available
-                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
-                {
-                    chartLevels.Add(new ChartLevelInfo
-                    {
-                        Level = chart.GuitarLevel, // Use actual difficulty level for display
-                        InstrumentColumn = 1, // Guitar column
-                        InstrumentName = "GUITAR",
-                        Chart = chart
-                    });
-                }
-
-                // Add bass chart if available
+                // Add bass chart if available (NX column order: DRUMS, BASS, GUITAR)
                 if (chart.HasBassChart && chart.BassLevel > 0)
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
-                        Level = chart.BassLevel, // Use actual difficulty level for display
-                        InstrumentColumn = 2, // Bass column
+                        Level = chart.BassLevel,
+                        InstrumentColumn = 1, // Bass column (NX: middle)
                         InstrumentName = "BASS",
+                        Chart = chart
+                    });
+                }
+
+                // Add guitar chart if available (NX column order: DRUMS, BASS, GUITAR)
+                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                {
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = chart.GuitarLevel,
+                        InstrumentColumn = 2, // Guitar column (NX: right)
+                        InstrumentName = "GUITAR",
                         Chart = chart
                     });
                 }

@@ -547,7 +547,7 @@ namespace DTXMania.Game.Lib.Resources
         private void InitializeDefaultSkinPath()
         {
             // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
-            var defaultPath = AppPaths.GetDefaultSystemSkinRoot();
+            var defaultPath = NormalizePath(AppPaths.GetDefaultSystemSkinRoot());
 
             if (ValidateSkinPath(defaultPath))
             {
@@ -611,10 +611,12 @@ namespace DTXMania.Game.Lib.Resources
             if (string.IsNullOrEmpty(path))
                 return path;
 
+            var resolvedPath = AppPaths.ResolvePath(path, AppPaths.GetAppDataRoot());
+
             // Ensure directory path ends with directory separator
-            return path.EndsWith(Path.DirectorySeparatorChar.ToString())
-                ? path
-                : path + Path.DirectorySeparatorChar;
+            return resolvedPath.EndsWith(Path.DirectorySeparatorChar.ToString())
+                ? resolvedPath
+                : resolvedPath + Path.DirectorySeparatorChar;
         }
 
         private string NormalizeFilePath(string path)
