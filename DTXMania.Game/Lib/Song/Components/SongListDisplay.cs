@@ -113,6 +113,9 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _commentBarTexture;
         private IResourceManager _resourceManager;
 
+        // NX-authentic scrollbar
+        private ITexture _scrollbarTexture;
+
         // NX-authentic skin bar textures
         private ITexture _barScoreTexture;
         private ITexture _barScoreSelectedTexture;
@@ -447,6 +450,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Load NX-authentic skin bar textures
             LoadSkinBarTextures();
+
+            // Load scrollbar texture
+            try { _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar); } catch { _scrollbarTexture = null; }
         }
 
         /// <summary>
@@ -562,6 +568,9 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw item counter (NX-authentic: "currentIndex/totalCount")
             DrawItemCounter(spriteBatch);
 
+            // Draw scrollbar (NX-authentic: 12px wide at right edge)
+            DrawScrollbar(spriteBatch);
+
             base.OnDraw(spriteBatch, deltaTime);
         }
 
@@ -591,6 +600,40 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Draw text
             spriteBatch.DrawString(_font, counterText, position, Color.White);
+        }
+
+        /// <summary>
+        /// Draw NX-authentic scrollbar at the right edge of the song list
+        /// Uses 5_scrollbar.png as the track, with a position indicator
+        /// </summary>
+        private void DrawScrollbar(SpriteBatch spriteBatch)
+        {
+            if (_currentList == null || _currentList.Count <= 1)
+                return;
+
+            // Scrollbar position: right edge of screen, matching bar list area
+            const int scrollbarX = 1268; // Right edge (1280 - 12)
+            const int scrollbarY = 5;    // Top of bar list area
+            const int scrollbarHeight = 492; // Track height
+            const int indicatorSize = 12;    // 12x12 indicator
+
+            if (_scrollbarTexture != null)
+            {
+                // Draw the scrollbar track texture
+                _scrollbarTexture.Draw(spriteBatch, new Vector2(scrollbarX, scrollbarY));
+            }
+
+            // Calculate indicator position based on current selection
+            int actualIndex = ((_selectedIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+            float progress = (float)actualIndex / Math.Max(1, _currentList.Count - 1);
+            int indicatorY = scrollbarY + (int)(progress * (scrollbarHeight - indicatorSize));
+
+            // Draw indicator
+            if (_whitePixel != null)
+            {
+                var indicatorRect = new Rectangle(scrollbarX, indicatorY, indicatorSize, indicatorSize);
+                spriteBatch.Draw(_whitePixel, indicatorRect, Color.White);
+            }
         }
 
         private void UpdateScrollTarget()
@@ -834,13 +877,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw title with perspective
+            // Draw title with perspective (NX-authentic: 2x texture displayed at 0.5x for anti-aliasing)
             if (barInfo.TitleTexture != null)
             {
                 var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - (int)(barInfo.TitleTexture.Height * scaleFactor)) / 2;
+                // Display at 0.5x scale (the texture is rendered at 2x)
+                var displayScale = SongSelectionUILayout.SongBars.TitleDisplayScale;
+                var displayHeight = barInfo.TitleTexture.Height * displayScale * scaleFactor;
+                var textY = itemBounds.Y + (itemBounds.Height - (int)displayHeight) / 2;
                 var textPosition = new Vector2(textX, textY);
-                var textScale = new Vector2(scaleFactor, scaleFactor);
+                var textScale = new Vector2(displayScale * scaleFactor, displayScale * scaleFactor);
                 barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
             }
             else if (_font != null)
@@ -1443,6 +1489,28 @@ namespace DTXMania.Game.Lib.Song.Components
                     barInfo?.Dispose();
                 }
                 _barInfoCache.Clear();
+
+                // Dispose NX-authentic skin bar textures
+                _scrollbarTexture?.Dispose();
+                _scrollbarTexture = null;
+
+                _barScoreTexture?.Dispose();
+                _barScoreTexture = null;
+                _barScoreSelectedTexture?.Dispose();
+                _barScoreSelectedTexture = null;
+                _barBoxTexture?.Dispose();
+                _barBoxTexture = null;
+                _barBoxSelectedTexture?.Dispose();
+                _barBoxSelectedTexture = null;
+                _barOtherTexture?.Dispose();
+                _barOtherTexture = null;
+                _barOtherSelectedTexture?.Dispose();
+                _barOtherSelectedTexture = null;
+                _skinBarTexturesLoaded = false;
+
+                // Dispose comment bar texture
+                _commentBarTexture?.Dispose();
+                _commentBarTexture = null;
             }
 
             base.Dispose(disposing);

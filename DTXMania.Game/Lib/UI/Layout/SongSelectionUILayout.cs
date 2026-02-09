@@ -258,7 +258,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
             public const int PreviewImageSize = 44;    // Size of preview image square (NX authentic: 44x44)
             public const int ClearLampWidth = 8;       // Width of clear lamp indicator
-            public const int ClearLampHeight = 44;     // Height of clear lamp indicator (matches bar height)
+            public const int ClearLampHeight = BarHeight - 4;  // Height of clear lamp indicator (4px padding from bar height)
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
             
@@ -276,10 +276,14 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int SelectedBorderThickness = 2; // Border thickness for center/selected bar
             public const int UnselectedBorderThickness = 1; // Border thickness for normal selected bar
             
-            // Texture generation constants
-            public const int TitleTextureWidth = 400;  // Width for generated title textures
-            public const int TitleTextureHeight = 38;  // Height for generated title textures (NX authentic)
-            public const int TextPositionX = 5;        // X position for text within textures
+            // Texture generation constants (NX-authentic 2x render / 0.5x display)
+            public const int TitleTextureWidth = 1020;  // Width for generated title textures (510 * 2 for 2x render)
+            public const int TitleTextureHeight = 76;   // Height for generated title textures (38 * 2 for 2x render)
+            public const int TitleDisplayWidth = 510;    // Max display width (texture drawn at 0.5x)
+            public const int TitleDisplayHeight = 38;    // Max display height (texture drawn at 0.5x)
+            public const float TitleRenderScale = 2.0f;  // Render at 2x for anti-aliasing
+            public const float TitleDisplayScale = 0.5f;  // Display at 0.5x (1/RenderScale)
+            public const int TextPositionX = 5;          // X position for text within textures
             
             /// <summary>
             /// Get the Y coordinate for a specific bar index

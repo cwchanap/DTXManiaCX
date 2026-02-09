@@ -280,10 +280,11 @@ namespace DTXMania.Game.Lib.Config
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
 
             // Migration: If the old default "Songs" is used, migrate to the new default "DTXFiles"
+            // Only match explicit legacy values to avoid replacing user paths like "D:\Games\CustomSongs"
             if (!string.IsNullOrWhiteSpace(Config.DTXPath) &&
-                (Config.DTXPath.EndsWith("/Songs", StringComparison.OrdinalIgnoreCase) ||
-                 Config.DTXPath.EndsWith("\\Songs", StringComparison.OrdinalIgnoreCase) ||
-                 Config.DTXPath.Equals("Songs", StringComparison.OrdinalIgnoreCase)))
+                (Config.DTXPath.Equals("Songs", StringComparison.OrdinalIgnoreCase) ||
+                 Config.DTXPath.Equals("./Songs", StringComparison.OrdinalIgnoreCase) ||
+                 Config.DTXPath.Equals(".\\Songs", StringComparison.OrdinalIgnoreCase)))
             {
                 Config.DTXPath = defaultSongsPath;
             }

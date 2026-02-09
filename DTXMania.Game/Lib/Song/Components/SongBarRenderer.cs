@@ -317,24 +317,59 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (string.IsNullOrEmpty(displayText))
                     return null;
 
+                // NX-authentic: 2x render, 0.5x display for anti-aliased text
+                var renderScale = SongSelectionUILayout.SongBars.TitleRenderScale;
+
+                // Measure text at 2x scale to determine if compression is needed
+                var textSize = _font.MeasureString(displayText);
+                var scaledTextWidth = textSize.X * renderScale;
+                var maxRenderWidth = TITLE_TEXTURE_WIDTH - (SongSelectionUILayout.SongBars.TextPositionX * 2);
+
+                // Calculate horizontal compression if text exceeds max width
+                float horizontalScale = renderScale;
+                if (scaledTextWidth > maxRenderWidth)
+                {
+                    horizontalScale = maxRenderWidth / textSize.X;
+                }
+
+                // Bind render target and render text
+                var previousRenderTarget = _graphicsDevice.GetRenderTargets();
+                _graphicsDevice.SetRenderTarget(_titleRenderTarget);
+
                 // Clear render target
                 _graphicsDevice.Clear(Color.Transparent);
 
-                // Render text
+                // Render text at 2x (or compressed) scale
                 _spriteBatch.Begin();
-                
+
                 var textColor = GetNodeTypeColor(songNode);
-                var position = new Vector2(SongSelectionUILayout.SongBars.TextPositionX, (TITLE_TEXTURE_HEIGHT - _font.LineSpacing) / 2);
-                
-                _spriteBatch.DrawString(_font, displayText, position, textColor);
-                
+                var textScale = new Vector2(horizontalScale, renderScale);
+                var scaledLineSpacing = _font.LineSpacing * renderScale;
+                var position = new Vector2(
+                    SongSelectionUILayout.SongBars.TextPositionX,
+                    (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
+
+                // Draw shadow at 2x for crisp shadow at display size
+                var shadowOffset = new Vector2(2, 2); // 2px shadow at 2x = 1px at display
+                var shadowColor = Color.Black * 0.6f;
+                _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
+                    0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
+                // Draw main text
+                _spriteBatch.DrawString(_font, displayText, position, textColor,
+                    0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
                 _spriteBatch.End();
 
-                // Create texture wrapper
+                // Restore previous render target
+                _graphicsDevice.SetRenderTargets(previousRenderTarget);
+
+                // Create texture wrapper from render target
                 var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
                 var data = new Color[TITLE_TEXTURE_WIDTH * TITLE_TEXTURE_HEIGHT];
                 _titleRenderTarget.GetData(data);
-                texture2D.SetData(data);                var cacheKey = GetTitleCacheKey(songNode);
+                texture2D.SetData(data);
+                var cacheKey = GetTitleCacheKey(songNode);
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
             }
             catch (Exception ex)
