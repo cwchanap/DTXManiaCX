@@ -37,12 +37,15 @@ namespace DTXMania.Game.Lib.Utilities
             if (string.IsNullOrWhiteSpace(basePath) || !Path.IsPathRooted(basePath))
             {
                 var fallbackHome = GetHomeDirectory();
-                if (!string.IsNullOrWhiteSpace(fallbackHome))
+                if (string.IsNullOrWhiteSpace(fallbackHome))
                 {
-                    basePath = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-                        ? Path.Combine(fallbackHome, "Library", "Application Support")
-                        : Path.Combine(fallbackHome, ".config");
+                    throw new InvalidOperationException(
+                        $"Unable to determine a valid home directory using {nameof(GetHomeDirectory)}(). " +
+                        $"Cannot resolve application data path with basePath='{basePath}' and {nameof(AppName)}='{AppName}'.");
                 }
+                basePath = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                    ? Path.Combine(fallbackHome, "Library", "Application Support")
+                    : Path.Combine(fallbackHome, ".config");
             }
 
             return Path.GetFullPath(Path.Combine(basePath, AppName));
@@ -125,12 +128,18 @@ namespace DTXMania.Game.Lib.Utilities
             if (string.IsNullOrWhiteSpace(path))
                 return path;
 
+            var home = GetHomeDirectory();
+            if (string.IsNullOrWhiteSpace(home))
+            {
+                // Fall back to returning the original path unchanged if home directory cannot be determined
+                return path;
+            }
+
             if (path == "~")
-                return Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+                return home;
 
             if (path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal))
             {
-                var home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
                 return Path.Combine(home, path.Substring(2));
             }
 
