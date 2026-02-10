@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -45,6 +46,9 @@ namespace DTXMania.Game.Lib.Song.Components
         private double _displayDelay = 0.0;
         private const double DISPLAY_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
 
+        // Configured songs root path (e.g., DTXFiles or Songs directory)
+        private string _songsRootPath;
+
         #endregion
 
         #region Properties
@@ -72,6 +76,16 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
+        }
+
+        /// <summary>
+        /// Configured songs root path (e.g., DTXFiles or Songs directory)
+        /// Used for resolving relative song directory paths
+        /// </summary>
+        public string SongsRootPath
+        {
+            get => _songsRootPath;
+            set => _songsRootPath = value;
         }
 
         #endregion
@@ -220,8 +234,9 @@ namespace DTXMania.Game.Lib.Song.Components
                     _preimagePanelTexture = _resourceManager.LoadTexture(TexturePath.PreimagePanel);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preimage panel texture: {ex.Message}");
                 _preimagePanelTexture = null;
             }
         }
@@ -379,13 +394,24 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     var workingDir = Environment.CurrentDirectory;
 
-                    var possiblePaths = new[]
+                    // Build list of possible paths, including configured songs root
+                    var possiblePaths = new List<string>
                     {
                         System.IO.Path.GetFullPath(songDirectory), // From current directory
                         System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, songDirectory)), // From app directory
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
                     };
+
+                    // Add configured songs root path if available (e.g., DTXFiles or legacy Songs)
+                    if (!string.IsNullOrEmpty(_songsRootPath))
+                    {
+                        possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory)));
+                    }
+
+                    // Add fallback paths for backward compatibility
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory))); // From DTXFiles folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory))); // Parent DTXFiles folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory))); // Legacy Songs folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory))); // Parent legacy Songs folder
 
                     foreach (var testPath in possiblePaths)
                     {
@@ -563,6 +589,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _currentPreviewTexture = null;
                 _defaultPreviewTexture = null;
+                _preimagePanelTexture?.Dispose();
+                _preimagePanelTexture = null;
             }
 
             base.Dispose(disposing);

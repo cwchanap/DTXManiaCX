@@ -452,7 +452,8 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadSkinBarTextures();
 
             // Load scrollbar texture
-            try { _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar); } catch { _scrollbarTexture = null; }
+            try { _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}"); _scrollbarTexture = null; }
         }
 
         /// <summary>
@@ -504,14 +505,22 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_resourceManager == null)
                 return;
 
-            try { _barScoreTexture = _resourceManager.LoadTexture(TexturePath.BarScore); } catch { _barScoreTexture = null; }
-            try { _barScoreSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarScoreSelected); } catch { _barScoreSelectedTexture = null; }
-            try { _barBoxTexture = _resourceManager.LoadTexture(TexturePath.BarBox); } catch { _barBoxTexture = null; }
-            try { _barBoxSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarBoxSelected); } catch { _barBoxSelectedTexture = null; }
-            try { _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther); } catch { _barOtherTexture = null; }
-            try { _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected); } catch { _barOtherSelectedTexture = null; }
+            try { _barScoreTexture = _resourceManager.LoadTexture(TexturePath.BarScore); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarScore texture: {ex.Message}"); _barScoreTexture = null; }
+            try { _barScoreSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarScoreSelected); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarScoreSelected texture: {ex.Message}"); _barScoreSelectedTexture = null; }
+            try { _barBoxTexture = _resourceManager.LoadTexture(TexturePath.BarBox); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarBox texture: {ex.Message}"); _barBoxTexture = null; }
+            try { _barBoxSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarBoxSelected); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarBoxSelected texture: {ex.Message}"); _barBoxSelectedTexture = null; }
+            try { _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarOther texture: {ex.Message}"); _barOtherTexture = null; }
+            try { _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarOtherSelected texture: {ex.Message}"); _barOtherSelectedTexture = null; }
 
-            _skinBarTexturesLoaded = _barScoreTexture != null;
+            // Require both selected and unselected textures to be loaded for consistent visuals
+            // If only one loads, we'd have inconsistent rendering (skin texture vs programmatic fallback)
+            _skinBarTexturesLoaded = _barScoreTexture != null && _barScoreSelectedTexture != null;
             System.Diagnostics.Debug.WriteLine($"SongListDisplay: Skin bar textures loaded: {_skinBarTexturesLoaded}");
         }
 
@@ -590,9 +599,9 @@ namespace DTXMania.Game.Lib.Song.Components
             int actualIndex = ((_selectedIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
             var counterText = $"{actualIndex + 1}/{_currentList.Count}";
 
-            // Right-align at NX-authentic position (1260, 620)
+            // Right-align at NX-authentic position from layout constants
             var textSize = _font.MeasureString(counterText);
-            var position = new Vector2(1260 - textSize.X, 620);
+            var position = new Vector2(SongSelectionUILayout.ItemCounter.BaseX - textSize.X, SongSelectionUILayout.ItemCounter.BaseY);
 
             // Draw shadow
             var shadowPos = position + new Vector2(1, 1);
@@ -612,10 +621,11 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
 
             // Scrollbar position: right edge of screen, matching bar list area
-            const int scrollbarX = 1268; // Right edge (1280 - 12)
-            const int scrollbarY = 5;    // Top of bar list area
-            const int scrollbarHeight = 492; // Track height
-            const int indicatorSize = 12;    // 12x12 indicator
+            // Using centralized layout constants for consistency
+            int scrollbarX = SongSelectionUILayout.Scrollbar.X;
+            int scrollbarY = SongSelectionUILayout.Scrollbar.Y;
+            int scrollbarHeight = SongSelectionUILayout.Scrollbar.Height;
+            int indicatorSize = SongSelectionUILayout.Scrollbar.IndicatorSize;
 
             if (_scrollbarTexture != null)
             {

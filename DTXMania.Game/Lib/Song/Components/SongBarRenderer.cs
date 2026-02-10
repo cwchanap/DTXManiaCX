@@ -320,7 +320,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // NX-authentic: 2x render, 0.5x display for anti-aliased text
                 var renderScale = SongSelectionUILayout.SongBars.TitleRenderScale;
 
-                // Measure text at 2x scale to determine if compression is needed
+                // Measure text at native scale, then project to 2x to determine if compression is needed
                 var textSize = _font.MeasureString(displayText);
                 var scaledTextWidth = textSize.X * renderScale;
                 var maxRenderWidth = TITLE_TEXTURE_WIDTH - (SongSelectionUILayout.SongBars.TextPositionX * 2);
@@ -334,40 +334,47 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 // Bind render target and render text
                 var previousRenderTarget = _graphicsDevice.GetRenderTargets();
-                _graphicsDevice.SetRenderTarget(_titleRenderTarget);
+                try
+                {
+                    _graphicsDevice.SetRenderTarget(_titleRenderTarget);
 
-                // Clear render target
-                _graphicsDevice.Clear(Color.Transparent);
+                    // Clear render target
+                    _graphicsDevice.Clear(Color.Transparent);
 
-                // Render text at 2x (or compressed) scale
-                _spriteBatch.Begin();
+                    // Render text at 2x (or compressed) scale
+                    _spriteBatch.Begin();
 
-                var textColor = GetNodeTypeColor(songNode);
-                var textScale = new Vector2(horizontalScale, renderScale);
-                var scaledLineSpacing = _font.LineSpacing * renderScale;
-                var position = new Vector2(
-                    SongSelectionUILayout.SongBars.TextPositionX,
-                    (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
+                    var textColor = GetNodeTypeColor(songNode);
+                    var textScale = new Vector2(horizontalScale, renderScale);
+                    var scaledLineSpacing = _font.LineSpacing * renderScale;
+                    var position = new Vector2(
+                        SongSelectionUILayout.SongBars.TextPositionX,
+                        (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
 
-                // Draw shadow at 2x for crisp shadow at display size
-                var shadowOffset = new Vector2(2, 2); // 2px shadow at 2x = 1px at display
-                var shadowColor = Color.Black * 0.6f;
-                _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
-                    0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                    // Draw shadow at 2x for crisp shadow at display size
+                    var shadowOffset = new Vector2(2, 2); // 2px offset at render resolution; appears as 1px at TitleDisplayScale (0.5x)
+                    var shadowColor = Color.Black * 0.6f;
+                    _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
+                        0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
 
-                // Draw main text
-                _spriteBatch.DrawString(_font, displayText, position, textColor,
-                    0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                    // Draw main text
+                    _spriteBatch.DrawString(_font, displayText, position, textColor,
+                        0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
 
-                _spriteBatch.End();
-
-                // Restore previous render target
-                _graphicsDevice.SetRenderTargets(previousRenderTarget);
+                    _spriteBatch.End();
+                }
+                finally
+                {
+                    _graphicsDevice.SetRenderTargets(previousRenderTarget);
+                }
 
                 // Create texture wrapper from render target
+                // Use Rectangle overload to extract only the sub-region we rendered to
+                // The render target is larger (1024x1024) than our texture (1020x76)
                 var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
                 var data = new Color[TITLE_TEXTURE_WIDTH * TITLE_TEXTURE_HEIGHT];
-                _titleRenderTarget.GetData(data);
+                var sourceRect = new Rectangle(0, 0, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
+                _titleRenderTarget.GetData(0, sourceRect, data, 0, data.Length);
                 texture2D.SetData(data);
                 var cacheKey = GetTitleCacheKey(songNode);
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
