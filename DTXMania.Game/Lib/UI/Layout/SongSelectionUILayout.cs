@@ -252,7 +252,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Helper properties for easy access
             public static Vector2 SelectedBarPosition => new Vector2(SelectedBarX, SelectedBarY);
             public static Vector2 UnselectedBarPosition => new Vector2(UnselectedBarX, 0); // Y varies per bar
-            public static Vector2 BarSize => new Vector2(BarWidth, BarHeight); // Height will be dynamic
+            public static Vector2 BarSize => new Vector2(BarWidth, BarHeight);
             
             // Individual Song Bar Component Layout
             public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
@@ -328,6 +328,41 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
+        }
+        
+        #endregion
+        
+        #region Item Counter Layout
+        
+        /// <summary>
+        /// Item counter "currentIndex/totalCount" layout (NX-authentic: right-aligned at 1260, 620)
+        /// </summary>
+        public static class ItemCounter
+        {
+            public const int BaseX = 1260;      // Right edge position (screen width - 20)
+            public const int BaseY = 620;       // Y position
+            public const int ShadowOffsetX = 1; // Text shadow X offset
+            public const int ShadowOffsetY = 1; // Text shadow Y offset
+            
+            public static Vector2 BasePosition => new Vector2(BaseX, BaseY);
+        }
+        
+        #endregion
+        
+        #region Scrollbar Layout
+        
+        /// <summary>
+        /// NX-authentic scrollbar layout (12px wide at right edge)
+        /// </summary>
+        public static class Scrollbar
+        {
+            public const int X = 1268;              // Right edge (1280 - 12)
+            public const int Y = 5;                 // Top of bar list area
+            public const int Height = 492;          // Track height
+            public const int IndicatorSize = 12;    // 12x12 indicator
+            
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Vector2 IndicatorSizeVector => new Vector2(IndicatorSize, IndicatorSize);
         }
         
         #endregion

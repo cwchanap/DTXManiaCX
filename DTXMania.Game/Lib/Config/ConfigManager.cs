@@ -279,13 +279,17 @@ namespace DTXMania.Game.Lib.Config
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
 
-            // Migration: If the old default "Songs" is used, migrate to the new default "DTXFiles"
+            // Migration: If the old relative default "Songs" is used, migrate to the new absolute default path (DTXFiles under AppData)
             // Only match explicit legacy values to avoid replacing user paths like "D:\Games\CustomSongs"
-            if (!string.IsNullOrWhiteSpace(Config.DTXPath) &&
-                (Config.DTXPath.Equals("Songs", StringComparison.OrdinalIgnoreCase) ||
-                 Config.DTXPath.Equals("./Songs", StringComparison.OrdinalIgnoreCase) ||
-                 Config.DTXPath.Equals(".\\Songs", StringComparison.OrdinalIgnoreCase)))
+            // Trim trailing separators to handle variants like "Songs/", "Songs\\", "./Songs/", etc.
+            var trimmedDtxPath = Config.DTXPath?.TrimEnd('/', '\\');
+            if (!string.IsNullOrWhiteSpace(trimmedDtxPath) &&
+                (trimmedDtxPath.Equals("Songs", StringComparison.OrdinalIgnoreCase) ||
+                 trimmedDtxPath.Equals("./Songs", StringComparison.OrdinalIgnoreCase) ||
+                 trimmedDtxPath.Equals(".\\Songs", StringComparison.OrdinalIgnoreCase)))
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"ConfigManager: Migrating DTXPath from legacy '{Config.DTXPath}' to '{defaultSongsPath}'");
                 Config.DTXPath = defaultSongsPath;
             }
 

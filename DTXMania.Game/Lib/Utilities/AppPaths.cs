@@ -15,7 +15,7 @@ namespace DTXMania.Game.Lib.Utilities
         /// Get the base application data directory for the current OS.
         /// Windows: %LOCALAPPDATA%\DTXManiaCX
         /// macOS: ~/Library/Application Support/DTXManiaCX
-        /// Other: $XDG_CONFIG_HOME/DTXManiaCX (or ~/.config/DTXManiaCX)
+        /// Other: ~/.local/share/DTXManiaCX (via SpecialFolder.ApplicationData, falls back to ~/.config/DTXManiaCX)
         /// </summary>
         public static string GetAppDataRoot()
         {
@@ -105,7 +105,10 @@ namespace DTXMania.Game.Lib.Utilities
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && IsMacLibraryRelativePath(path))
             {
                 var home = GetHomeDirectory();
-                path = Path.Combine(home, path);
+                if (!string.IsNullOrWhiteSpace(home))
+                {
+                    path = Path.Combine(home, path);
+                }
             }
 
             if (Path.IsPathRooted(path))

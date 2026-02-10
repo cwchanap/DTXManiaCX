@@ -31,6 +31,9 @@ namespace DTXMania.Game.Lib.Resources
         private bool _useBoxDefSkin = true;
         private bool _disposed = false;
 
+        // Cached app data root to avoid repeated OS checks and path calculations
+        private readonly string _cachedAppDataRoot;
+
         // Statistics tracking
         private int _cacheHits = 0;
         private int _cacheMisses = 0;
@@ -46,6 +49,9 @@ namespace DTXMania.Game.Lib.Resources
             _textureCache = new ConcurrentDictionary<string, ITexture>();
             _fontCache = new ConcurrentDictionary<string, IFont>();
             _soundCache = new ConcurrentDictionary<string, ISound>();
+
+            // Cache app data root once to avoid repeated OS checks and path calculations
+            _cachedAppDataRoot = AppPaths.GetAppDataRoot();
 
             // Initialize default skin path
             InitializeDefaultSkinPath();
@@ -611,7 +617,18 @@ namespace DTXMania.Game.Lib.Resources
             if (string.IsNullOrEmpty(path))
                 return path;
 
-            var resolvedPath = AppPaths.ResolvePath(path, AppPaths.GetAppDataRoot());
+            string resolvedPath;
+
+            // Avoid redundant resolution for already-absolute paths
+            // AppPaths.GetDefaultSystemSkinRoot() already returns Path.GetFullPath(...)
+            if (Path.IsPathRooted(path))
+            {
+                resolvedPath = Path.GetFullPath(path);
+            }
+            else
+            {
+                resolvedPath = AppPaths.ResolvePath(path, _cachedAppDataRoot);
+            }
 
             // Ensure directory path ends with directory separator
             return resolvedPath.EndsWith(Path.DirectorySeparatorChar.ToString())
