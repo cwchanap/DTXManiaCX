@@ -201,15 +201,17 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             var clearStatus = GetClearStatus(songNode, difficulty);
-            var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
-            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
-            
-            if (texture != null)
+            using (var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget))
             {
-                _clearLampCache.Add(cacheKey, texture);
-            }
+                var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
 
-            return texture;
+                if (texture != null)
+                {
+                    _clearLampCache.Add(cacheKey, texture);
+                }
+
+                return texture;
+            }
         }
 
         /// <summary>
