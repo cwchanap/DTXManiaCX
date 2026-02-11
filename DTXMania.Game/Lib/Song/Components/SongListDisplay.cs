@@ -1500,26 +1500,19 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 _barInfoCache.Clear();
 
-                // Dispose NX-authentic skin bar textures
-                _scrollbarTexture?.Dispose();
+                // Note: Resource-managed textures should NOT be manually disposed.
+                // The ResourceManager handles their lifetime via reference counting.
+                // Just null out the references to allow ResourceManager to clean up when appropriate.
                 _scrollbarTexture = null;
-
-                _barScoreTexture?.Dispose();
                 _barScoreTexture = null;
-                _barScoreSelectedTexture?.Dispose();
                 _barScoreSelectedTexture = null;
-                _barBoxTexture?.Dispose();
                 _barBoxTexture = null;
-                _barBoxSelectedTexture?.Dispose();
                 _barBoxSelectedTexture = null;
-                _barOtherTexture?.Dispose();
                 _barOtherTexture = null;
-                _barOtherSelectedTexture?.Dispose();
                 _barOtherSelectedTexture = null;
                 _skinBarTexturesLoaded = false;
 
-                // Dispose comment bar texture
-                _commentBarTexture?.Dispose();
+                // Comment bar texture is also resource-managed
                 _commentBarTexture = null;
             }
 

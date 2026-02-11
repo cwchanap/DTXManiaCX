@@ -395,10 +395,10 @@ namespace DTXMania.Game.Lib.Song.Components
                     var workingDir = Environment.CurrentDirectory;
 
                     // Build list of possible paths, including configured songs root
+                    // Note: Path.GetFullPath(songDirectory) already resolves relative to current/working directory
                     var possiblePaths = new List<string>
                     {
-                        System.IO.Path.GetFullPath(songDirectory), // From current directory
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, songDirectory)), // From app directory
+                        System.IO.Path.GetFullPath(songDirectory) // From current/working directory
                     };
 
                     // Add configured songs root path if available (e.g., DTXFiles or legacy Songs)
@@ -587,9 +587,11 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (disposing)
             {
+                // Note: Resource-managed textures should NOT be manually disposed.
+                // The ResourceManager handles their lifetime via reference counting.
+                // Just null out the references to allow ResourceManager to clean up.
                 _currentPreviewTexture = null;
                 _defaultPreviewTexture = null;
-                _preimagePanelTexture?.Dispose();
                 _preimagePanelTexture = null;
             }
 
