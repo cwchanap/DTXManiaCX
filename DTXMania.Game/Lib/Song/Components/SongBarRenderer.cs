@@ -42,7 +42,10 @@ namespace DTXMania.Game.Lib.Song.Components
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
-        private SpriteBatch _spriteBatch;        // Clear lamp colors for different difficulties
+        private SpriteBatch _spriteBatch;
+
+        // Default graphics generator for clear lamp generation - must stay alive as long as cached textures exist
+        private DefaultGraphicsGenerator _graphicsGenerator;        // Clear lamp colors for different difficulties
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
         private bool _isFastScrollMode = false;        private bool _disposed = false;
@@ -62,6 +65,10 @@ namespace DTXMania.Game.Lib.Song.Components
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
             _clearLampCache = new CacheManager<string, ITexture>();
+
+            // Create graphics generator that will live for the lifetime of SongBarRenderer
+            // This ensures generated textures remain valid while cached
+            _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
 
             Initialize();
         }
@@ -195,23 +202,23 @@ namespace DTXMania.Game.Lib.Song.Components
         public ITexture GenerateClearLampTexture(SongListNode songNode, int difficulty)
         {
             if (songNode?.Type != NodeType.Score)
-                return null;            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
+                return null;
+
+            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
+            // Note: _graphicsGenerator must stay alive for the lifetime of cached textures
             var clearStatus = GetClearStatus(songNode, difficulty);
-            using (var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget))
+            var texture = _graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
+
+            if (texture != null)
             {
-                var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
-
-                if (texture != null)
-                {
-                    _clearLampCache.Add(cacheKey, texture);
-                }
-
-                return texture;
+                _clearLampCache.Add(cacheKey, texture);
             }
+
+            return texture;
         }
 
         /// <summary>
@@ -499,11 +506,13 @@ namespace DTXMania.Game.Lib.Song.Components
             if (!_disposed)
             {
                 ClearCache();
-                
+
+                _graphicsGenerator?.Dispose();
                 _titleRenderTarget?.Dispose();
                 _clearLampRenderTarget?.Dispose();
                 _spriteBatch?.Dispose();
-                _whitePixel?.Dispose();                _disposed = true;
+                _whitePixel?.Dispose();
+                _disposed = true;
             }
         }
 
