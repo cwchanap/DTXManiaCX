@@ -393,8 +393,11 @@ namespace DTXMania.Game.Lib.Stage
             _previewImagePanel = new PreviewImagePanel
             {
                 HasStatusPanel = true, // We have a status panel, so use right-side positioning
-                WhitePixel = _whitePixel
-            };            // Initialize graphics generator for status panel
+                WhitePixel = _whitePixel,
+                SongsRootPath = _configManager?.Config?.DTXPath
+            };
+
+            // Initialize graphics generator for status panel
             _statusPanel.InitializeGraphicsGenerator(_game.GraphicsDevice, _stageRenderTarget);
 
             // Initialize DTXManiaNX authentic graphics for status panel (Phase 3)

@@ -39,7 +39,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ## 2. TITLE STAGE
 
 ### NX Layout
-```
+```text
 +--------------------------------------------------+
 | 2_background.jpg                                  |
 | vX.X.X  (2,2)                                    |
@@ -52,7 +52,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ```
 
 ### CX Layout
-```
+```text
 +--------------------------------------------------+
 | Graphics/2_background.jpg (or fallback dark navy)  |
 | DTXManiaCX v1.0.0  (2,2)                         |
@@ -91,7 +91,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ## 3. CONFIG / OPTION STAGE
 
 ### NX Layout
-```
+```text
 +--------------------------------------------------+
 | [4_header panel.png]                              |
 |   +--------+     +--------------------------+     |
@@ -117,7 +117,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 - Category-specific settings: autoplay per-pad, scroll speed, combo position, sudden/hidden/reverse, tight mode, input adjust, graph
 
 ### CX Layout
-```
+```text
 +--------------------------------------------------+
 | Background: Color(16,16,32) solid                  |
 |                                                   |
@@ -185,7 +185,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ## 4. SONG LOADING / SONG TRANSITION STAGE
 
 ### NX Layout
-```
+```text
 +--------------------------------------------------+
 | 6_background.jpg                                  |
 |      [Part: DRUMS]     (191, 52)  262x50          |
@@ -201,7 +201,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ```
 
 ### CX Layout
-```
+```text
 +--------------------------------------------------+
 | Graphics/6_background.jpg (or gradient fallback)   |
 | [Difficulty Sprite]  (191, 80)  262x50            |
@@ -240,7 +240,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ## 5. PERFORMANCE STAGE (Most Complex)
 
 ### NX Drums Layout (approximate)
-```
+```text
 +-------------------------------------------------------------+
 | [BGA/AVI area]                                               |
 |                                                              |
@@ -257,7 +257,7 @@ Stages covered: Startup, Title, Config/Option, Song Loading/Transition, Performa
 ```
 
 ### CX Drums Layout
-```
+```text
 +-------------------------------------------------------------+
 | [Score: (40,41)]                              [Progress Bar] |
 |  7 digits                                      (853,0,60,540)|
@@ -396,7 +396,7 @@ CX has a dedicated skill panel at (22, 250) showing:
 ## 6. RESULT STAGE
 
 ### NX Layout
-```
+```text
 +--------------------------------------------------+
 | [8_header panel.png] (slides in from top)         |
 |                                                   |
@@ -418,7 +418,7 @@ CX has a dedicated skill panel at (22, 250) showing:
 ```
 
 ### CX Layout
-```
+```text
 +--------------------------------------------------+
 | Graphics/8_background.jpg (or DarkBlue fallback)   |
 |                                                   |

@@ -65,7 +65,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 - **DTXManiaNX/** - Legacy codebase (reference only)
 
 ### Lib Namespace Organization
-```
+```text
 DTXMania.Game.Lib           - GameApiServer, GameApiImplementation, IGameApi, IGameContext
 DTXMania.Game.Lib.Config    - ConfigManager, ConfigData, GameConstants
 DTXMania.Game.Lib.Graphics  - GraphicsManager, GraphicsSettings, RenderTargetManager
