@@ -346,24 +346,29 @@ namespace DTXMania.Game.Lib.Song.Components
                     // Render text at 2x (or compressed) scale
                     _spriteBatch.Begin();
 
-                    var textColor = GetNodeTypeColor(songNode);
-                    var textScale = new Vector2(horizontalScale, renderScale);
-                    var scaledLineSpacing = _font.LineSpacing * renderScale;
-                    var position = new Vector2(
-                        SongSelectionUILayout.SongBars.TextPositionX,
-                        (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
+                    try
+                    {
+                        var textColor = GetNodeTypeColor(songNode);
+                        var textScale = new Vector2(horizontalScale, renderScale);
+                        var scaledLineSpacing = _font.LineSpacing * renderScale;
+                        var position = new Vector2(
+                            SongSelectionUILayout.SongBars.TextPositionX,
+                            (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
 
-                    // Draw shadow at 2x for crisp shadow at display size
-                    var shadowOffset = new Vector2(2, 2); // 2px offset at render resolution; appears as 1px at TitleDisplayScale (0.5x)
-                    var shadowColor = Color.Black * 0.6f;
-                    _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
-                        0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                        // Draw shadow at 2x for crisp shadow at display size
+                        var shadowOffset = new Vector2(2, 2); // 2px offset at render resolution; appears as 1px at TitleDisplayScale (0.5x)
+                        var shadowColor = Color.Black * 0.6f;
+                        _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
+                            0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
 
-                    // Draw main text
-                    _spriteBatch.DrawString(_font, displayText, position, textColor,
-                        0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
-
-                    _spriteBatch.End();
+                        // Draw main text
+                        _spriteBatch.DrawString(_font, displayText, position, textColor,
+                            0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                    }
+                    finally
+                    {
+                        _spriteBatch.End();
+                    }
                 }
                 finally
                 {
