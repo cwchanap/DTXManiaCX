@@ -60,8 +60,13 @@ namespace DTXMania.Test.Resources
         public void SetBoxDefSkinPath_WithRelativePath_PreservesRelativePath()
         {
             // Arrange - Create a mock graphics device
-            var mockGraphicsDevice = MockGraphicsDevice.CreateMockGraphicsDevice();
-            var resourceManager = new ResourceManager(mockGraphicsDevice);
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+            {
+                return;
+            }
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
             var relativePath = "songs/mysong/skin";
 
             // Act
@@ -69,16 +74,22 @@ namespace DTXMania.Test.Resources
 
             // Assert - Should preserve relative path (normalized separators but still relative)
             var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
-            Assert.True(Path.IsPathRooted(effectivePath) == false || effectivePath.Contains("songs"),
+            Assert.False(Path.IsPathRooted(effectivePath),
                 "Relative box.def skin paths should be preserved, not rewritten against app data root");
+            Assert.Contains("songs", effectivePath.Replace('\\', '/'));
         }
 
         [Fact]
         public void SetBoxDefSkinPath_WithAbsolutePath_NormalizesCorrectly()
         {
             // Arrange
-            var mockGraphicsDevice = MockGraphicsDevice.CreateMockGraphicsDevice();
-            var resourceManager = new ResourceManager(mockGraphicsDevice);
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+            {
+                return;
+            }
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
             var absolutePath = Path.GetFullPath(Path.Combine(_testDataPath, "CustomSkin"));
             Directory.CreateDirectory(absolutePath);
 
@@ -94,8 +105,15 @@ namespace DTXMania.Test.Resources
         public void SetBoxDefSkinPath_WithEmptyPath_ClearsPath()
         {
             // Arrange
-            var mockGraphicsDevice = MockGraphicsDevice.CreateMockGraphicsDevice();
-            var resourceManager = new ResourceManager(mockGraphicsDevice);
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+            {
+                return;
+            }
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+
+            var defaultEffectivePath = resourceManager.GetCurrentEffectiveSkinPath();
             resourceManager.SetBoxDefSkinPath("songs/test/skin");
 
             // Act
@@ -103,6 +121,7 @@ namespace DTXMania.Test.Resources
 
             // Assert
             var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+            Assert.Equal(defaultEffectivePath, effectivePath);
             Assert.DoesNotContain("songs/test/skin", effectivePath);
         }
 
