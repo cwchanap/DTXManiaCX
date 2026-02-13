@@ -183,14 +183,14 @@ namespace DTXMania.Game.Lib.Stage
             // Load navigation sound (same as TitleStage)
             LoadNavigationSound();
 
+            // Initialize stage RenderTargets for shared use
+            InitializeStageRenderTargets();
+
             // Initialize UI
             InitializeUI(uiFont);
 
             // Start song loading
             InitializeSongList();
-
-            // Initialize stage RenderTargets for shared use
-            InitializeStageRenderTargets();
 
             _currentPhase = StagePhase.FadeIn;
             _selectionPhase = SongSelectionPhase.FadeIn;
@@ -204,20 +204,33 @@ namespace DTXMania.Game.Lib.Stage
             _cancellationTokenSource?.Cancel();
 
             // Wait for task completion with timeout to avoid hanging
-            if (_songInitializationTask != null && !_songInitializationTask.IsCompleted)
+            if (_songInitializationTask != null)
             {
                 try
                 {
-                    _songInitializationTask.Wait(TimeSpan.FromMilliseconds(SongSelectionUILayout.Timing.TaskTimeoutMilliseconds));
+                    var completedTask = Task.WhenAny(
+                        _songInitializationTask,
+                        Task.Delay(SongSelectionUILayout.Timing.TaskTimeoutMilliseconds)).GetAwaiter().GetResult();
+
+                    if (ReferenceEquals(completedTask, _songInitializationTask))
+                    {
+                        try
+                        {
+                            _ = _songInitializationTask.GetAwaiter().GetResult();
+                        }
+                        catch (Exception)
+                        {
+                            // Task was cancelled or failed, which is expected during deactivation
+                        }
+                    }
                 }
-                catch (AggregateException)
+                catch (Exception)
                 {
-                    // Task was cancelled or failed, which is expected
+                    // Ignore timeout/observation failures during stage teardown
                 }
             }
 
-            // Clean up task resources
-            _songInitializationTask?.Dispose();
+            // Clean up task references
             _songInitializationTask = null;
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
@@ -445,6 +458,8 @@ namespace DTXMania.Game.Lib.Stage
                 // Check if SongManager is properly initialized
                 if (!songManager.IsInitialized)
                 {
+                    var token = _cancellationTokenSource.Token;
+
                     // Start background task to initialize SongManager and fetch song list
                     // This task only fetches data and doesn't modify shared state or UI
                     _songInitializationTask = Task.Run(async () =>
@@ -452,7 +467,7 @@ namespace DTXMania.Game.Lib.Stage
                         try
                         {
                             // Check for cancellation before starting
-                            _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                            token.ThrowIfCancellationRequested();
                             
                             // SongManager should already be initialized from StartupStage
                             // Just check if it's initialized and return the song list
@@ -462,7 +477,7 @@ namespace DTXMania.Game.Lib.Stage
                             }
                             
                             // Check for cancellation after initialization
-                            _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+                            token.ThrowIfCancellationRequested();
                             
                             // Return the song list without modifying shared state
                             return new List<SongListNode>(songManager.RootSongs);
@@ -476,7 +491,7 @@ namespace DTXMania.Game.Lib.Stage
                             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
                             return new List<SongListNode>();
                         }
-                    }, _cancellationTokenSource.Token);
+                    }, token);
 
                     // For now, initialize with empty list
                     _currentSongList = new List<SongListNode>();
@@ -484,7 +499,7 @@ namespace DTXMania.Game.Lib.Stage
                 else
                 {
                     // Initialize display with song list
-                    _currentSongList = [.. songManager.RootSongs];
+                    _currentSongList = new List<SongListNode>(songManager.RootSongs);
                 }
 
                 PopulateSongList();
@@ -548,7 +563,6 @@ namespace DTXMania.Game.Lib.Stage
                 finally
                 {
                     // Clean up the task reference
-                    _songInitializationTask?.Dispose();
                     _songInitializationTask = null;
                 }
             }
@@ -820,9 +834,6 @@ namespace DTXMania.Game.Lib.Stage
             ProcessInputCommands();
         }
 
-
-
-
         /// <summary>
         /// Process queued input commands from InputManager
         /// </summary>
@@ -1020,7 +1031,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        /// <summary>
         #endregion
 
         #region RenderTarget Management
@@ -1042,9 +1052,11 @@ namespace DTXMania.Game.Lib.Stage
                 // Fallback for non-BaseGame instances (shouldn't happen in normal operation)
                 _stageRenderTarget = new RenderTarget2D(_game.GraphicsDevice, 1024, 1024);
             }
-        }        /// <summary>
-                 /// Cleanup stage RenderTarget
-                 /// </summary>
+        }
+
+        /// <summary>
+        /// Cleanup stage RenderTarget
+        /// </summary>
         private void CleanupStageRenderTargets()
         {
             if (_stageRenderTarget == null)
@@ -1079,7 +1091,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _cursorMoveSound = null;
             }
-            
+
             try
             {
                 // Load now loading sound for song selection
@@ -1123,6 +1135,17 @@ namespace DTXMania.Game.Lib.Stage
                         // Check if preview sound instance is available and not already playing
                         if (_previewSoundInstance == null || _previewSoundInstance.State != SoundState.Playing)
                         {
+                            if (_previewSoundInstance != null)
+                            {
+                                if (_previewSoundInstance.State == SoundState.Playing)
+                                {
+                                    _previewSoundInstance.Stop();
+                                }
+
+                                _previewSoundInstance.Dispose();
+                                _previewSoundInstance = null;
+                            }
+
                             _previewSoundInstance = _previewSound.CreateInstance();
                             if (_previewSoundInstance != null)
                             {
@@ -1139,6 +1162,15 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     catch (Exception)
                     {
+                        try
+                        {
+                            _previewSoundInstance?.Dispose();
+                        }
+                        catch (Exception)
+                        {
+                            // Ignore disposal errors
+                        }
+
                         _previewSoundInstance = null;
                     }
                 }

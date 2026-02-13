@@ -42,6 +42,7 @@ namespace DTXMania.Game.Lib.Song.Components
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
+        private readonly bool _ownsSharedRenderTarget;
         private SpriteBatch _spriteBatch;
 
         // Default graphics generator for clear lamp generation - must stay alive as long as cached textures exist
@@ -54,13 +55,14 @@ namespace DTXMania.Game.Lib.Song.Components
 
         #region Constructor
 
-        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager, 
-                              RenderTarget2D sharedRenderTarget)
+        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager,
+                              RenderTarget2D sharedRenderTarget, bool ownsSharedRenderTarget = false)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _titleRenderTarget = sharedRenderTarget ?? throw new ArgumentNullException(nameof(sharedRenderTarget));
             _clearLampRenderTarget = sharedRenderTarget; // Use the same shared RenderTarget
+            _ownsSharedRenderTarget = ownsSharedRenderTarget;
 
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
@@ -190,7 +192,8 @@ namespace DTXMania.Game.Lib.Song.Components
             // Regenerate clear lamp if difficulty changed
             if (stateChanged && barInfo.SongNode?.Type == NodeType.Score)
             {
-                barInfo.ClearLamp?.Dispose();
+                barInfo.ClearLamp?.RemoveReference();
+                barInfo.ClearLamp = null;
                 barInfo.ClearLamp = GenerateClearLampTexture(barInfo.SongNode, newDifficulty);
             }
         }
@@ -508,10 +511,27 @@ namespace DTXMania.Game.Lib.Song.Components
                 ClearCache();
 
                 _graphicsGenerator?.Dispose();
-                _titleRenderTarget?.Dispose();
-                _clearLampRenderTarget?.Dispose();
+                if (_ownsSharedRenderTarget)
+                {
+                    if (ReferenceEquals(_titleRenderTarget, _clearLampRenderTarget))
+                    {
+                        _titleRenderTarget?.Dispose();
+                    }
+                    else
+                    {
+                        _titleRenderTarget?.Dispose();
+                        _clearLampRenderTarget?.Dispose();
+                    }
+                }
+
                 _spriteBatch?.Dispose();
                 _whitePixel?.Dispose();
+
+                _titleRenderTarget = null;
+                _clearLampRenderTarget = null;
+                _spriteBatch = null;
+                _whitePixel = null;
+                _graphicsGenerator = null;
                 _disposed = true;
             }
         }

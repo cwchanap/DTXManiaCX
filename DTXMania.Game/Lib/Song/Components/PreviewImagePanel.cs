@@ -133,7 +133,7 @@ namespace DTXMania.Game.Lib.Song.Components
             else
             {
                 // Clear preview immediately when not on a song
-                _currentPreviewTexture = null;
+                ReleaseCurrentPreviewTexture();
             }
         }
 
@@ -249,6 +249,24 @@ namespace DTXMania.Game.Lib.Song.Components
             _displayDelay = 0.0;
         }
 
+        private void ReleaseCurrentPreviewTexture()
+        {
+            _currentPreviewTexture?.RemoveReference();
+            _currentPreviewTexture = null;
+        }
+
+        private void AssignDefaultPreviewTexture()
+        {
+            if (_defaultPreviewTexture == null)
+            {
+                _currentPreviewTexture = null;
+                return;
+            }
+
+            _defaultPreviewTexture.AddReference();
+            _currentPreviewTexture = _defaultPreviewTexture;
+        }
+
         /// <summary>
         /// Check if preview should be displayed (after delay)
         /// </summary>
@@ -271,8 +289,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Clear current preview reference (release reference count, don't dispose)
-            _currentPreviewTexture?.RemoveReference();
-            _currentPreviewTexture = null;
+            ReleaseCurrentPreviewTexture();
 
             // If not a song (folder, back button, etc.), don't load any preview
             if (songNode?.Type != NodeType.Score)
@@ -290,7 +307,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     return;
                 }
@@ -303,7 +320,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     return;
                 }
@@ -321,12 +338,12 @@ namespace DTXMania.Game.Lib.Song.Components
                         // Verify the loaded texture is valid
                         if (false) // Texture disposal removed
                         {
-                            _currentPreviewTexture = _defaultPreviewTexture;
+                            AssignDefaultPreviewTexture();
                         }
                     }
                     catch (ObjectDisposedException)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                 }
                 else
@@ -334,7 +351,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     else
                     {
@@ -347,7 +364,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Try to use default texture as fallback, but check if it's valid first
                 if (_defaultPreviewTexture != null)
                 {
-                    _currentPreviewTexture = _defaultPreviewTexture;
+                    AssignDefaultPreviewTexture();
                 }
                 else
                 {
@@ -590,7 +607,7 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 // Release reference-counted textures before nulling references.
                 // The ResourceManager handles actual disposal via reference counting.
-                _currentPreviewTexture?.RemoveReference();
+                ReleaseCurrentPreviewTexture();
                 _defaultPreviewTexture?.RemoveReference();
                 _preimagePanelTexture?.RemoveReference();
 
