@@ -1248,7 +1248,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public class ChartLevelInfo
         {
             public float Level { get; set; }
-            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass
+            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Bass, 2=Guitar (NX column order)
             public string InstrumentName { get; set; }
             public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
         }

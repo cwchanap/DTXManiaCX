@@ -101,7 +101,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private Color _selectedItemColor = Color.Blue * 0.8f;
         private Color _textColor = Color.White;
         private Color _selectedTextColor = Color.Yellow;
-        private float _itemHeight = SongSelectionUILayout.SongBars.BarHeight;
+        private readonly float _itemHeight = SongSelectionUILayout.SongBars.BarHeight;
 
         // Enhanced Phase 4 components
         private SongBarRenderer _barRenderer;
@@ -444,6 +444,16 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
             }
+
+            // Release previous textures before loading new ones (reference counting)
+            _commentBarTexture?.RemoveReference();
+            _scrollbarTexture?.RemoveReference();
+            _barScoreTexture?.RemoveReference();
+            _barScoreSelectedTexture?.RemoveReference();
+            _barBoxTexture?.RemoveReference();
+            _barBoxSelectedTexture?.RemoveReference();
+            _barOtherTexture?.RemoveReference();
+            _barOtherSelectedTexture?.RemoveReference();
 
             // Load comment bar texture
             LoadCommentBarTexture();
@@ -1500,9 +1510,17 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 _barInfoCache.Clear();
 
-                // Note: Resource-managed textures should NOT be manually disposed.
-                // The ResourceManager handles their lifetime via reference counting.
-                // Just null out the references to allow ResourceManager to clean up when appropriate.
+                // Release reference-counted textures before nulling references.
+                // The ResourceManager handles actual disposal via reference counting.
+                _scrollbarTexture?.RemoveReference();
+                _barScoreTexture?.RemoveReference();
+                _barScoreSelectedTexture?.RemoveReference();
+                _barBoxTexture?.RemoveReference();
+                _barBoxSelectedTexture?.RemoveReference();
+                _barOtherTexture?.RemoveReference();
+                _barOtherSelectedTexture?.RemoveReference();
+                _commentBarTexture?.RemoveReference();
+
                 _scrollbarTexture = null;
                 _barScoreTexture = null;
                 _barScoreSelectedTexture = null;
@@ -1511,8 +1529,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 _barOtherTexture = null;
                 _barOtherSelectedTexture = null;
                 _skinBarTexturesLoaded = false;
-
-                // Comment bar texture is also resource-managed
                 _commentBarTexture = null;
             }
 

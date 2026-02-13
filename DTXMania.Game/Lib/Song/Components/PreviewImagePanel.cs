@@ -270,7 +270,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
-            // Clear current preview reference (don't dispose - ResourceManager handles that)
+            // Clear current preview reference (release reference count, don't dispose)
+            _currentPreviewTexture?.RemoveReference();
             _currentPreviewTexture = null;
 
             // If not a song (folder, back button, etc.), don't load any preview
@@ -587,9 +588,12 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (disposing)
             {
-                // Note: Resource-managed textures should NOT be manually disposed.
-                // The ResourceManager handles their lifetime via reference counting.
-                // Just null out the references to allow ResourceManager to clean up.
+                // Release reference-counted textures before nulling references.
+                // The ResourceManager handles actual disposal via reference counting.
+                _currentPreviewTexture?.RemoveReference();
+                _defaultPreviewTexture?.RemoveReference();
+                _preimagePanelTexture?.RemoveReference();
+
                 _currentPreviewTexture = null;
                 _defaultPreviewTexture = null;
                 _preimagePanelTexture = null;

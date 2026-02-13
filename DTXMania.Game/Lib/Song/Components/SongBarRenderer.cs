@@ -559,7 +559,14 @@ namespace DTXMania.Game.Lib.Song.Components
             
             public void Dispose()
             {
-                TitleTexture?.Dispose();
-                PreviewImage?.Dispose();                ClearLamp?.Dispose();
+                // Release reference-counted textures - don't call Dispose() directly.
+                // The ResourceManager handles actual disposal via reference counting.
+                TitleTexture?.RemoveReference();
+                PreviewImage?.RemoveReference();
+                ClearLamp?.RemoveReference();
+
+                TitleTexture = null;
+                PreviewImage = null;
+                ClearLamp = null;
             }        }
     }
