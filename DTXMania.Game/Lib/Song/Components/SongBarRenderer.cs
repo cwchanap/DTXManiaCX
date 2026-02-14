@@ -46,10 +46,13 @@ namespace DTXMania.Game.Lib.Song.Components
         private SpriteBatch _spriteBatch;
 
         // Default graphics generator for clear lamp generation - must stay alive as long as cached textures exist
-        private DefaultGraphicsGenerator _graphicsGenerator;        // Clear lamp colors for different difficulties
+        private DefaultGraphicsGenerator _graphicsGenerator;
+
+        // Clear lamp colors for different difficulties
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
-        private bool _isFastScrollMode = false;        private bool _disposed = false;
+        private bool _isFastScrollMode = false;
+        private bool _disposed = false;
 
         #endregion
 

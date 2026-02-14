@@ -48,7 +48,7 @@ DTXManiaNX is a rhythm game simulator for Konami's GITADORA (Drummania/GuitarFre
   - Guitar: 7 independent toggles (R, G, B, Y, P, Pick, Wail)
   - Bass: 7 independent toggles (same as guitar)
   - Quick presets: All Auto, Auto LP, Auto BD, 2PedalAuto, XGLaneAuto, Custom, OFF
-- **Play speed**: 0.25x–2.0x with both pitch-shift and time-stretch modes
+- **Play speed**: 0.5x–4.0x with both pitch-shift and time-stretch modes
 - **Configurable hit ranges**: Per-tier (Perfect/Great/Good/Poor), per-instrument, per-BOX folder override
 - **Ghost data system**: Auto ghost types (Perfect, Last Play, Hi Skill, Hi Score, Online) + target ghost comparison
 
@@ -299,7 +299,9 @@ Per-instrument configurable modifiers:
 
 #### Song System
 - DTXChartParser: Parses .dtx, .gda, .g2d, .bms, .bme, .bml
-- 10 NX drum lane mapping (LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)
+- 10 NX drum lane mapping (LC, HH, LP, SN, HT, BD, LT, FT, CY, RD)
+  - Note: LBD (Left Bass Drum) is intentionally excluded; channel 0x1C maps to LP lane
+  - BD abbreviation standardized (code uses "DB" internally but "BD" is the standard notation)
 - SQLite song database (via EF Core)
 - SongManager singleton, SongListNode tree, SET.def parsing
 - Song hierarchy with BOX folder support, BackBox, Random nodes

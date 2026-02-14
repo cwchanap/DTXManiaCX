@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
 using Moq;
+using Xunit;
 
 namespace DTXMania.Test.UI;
 
