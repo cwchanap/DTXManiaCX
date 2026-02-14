@@ -61,10 +61,7 @@ namespace DTXMania.Test.Resources
         {
             // Arrange - Create a mock graphics device
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-            {
-                return;
-            }
+            Assert.NotNull(graphicsDeviceService.GraphicsDevice);
 
             using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
             var relativePath = "songs/mysong/skin";
@@ -84,10 +81,7 @@ namespace DTXMania.Test.Resources
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-            {
-                return;
-            }
+            Assert.NotNull(graphicsDeviceService.GraphicsDevice);
 
             using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
             var absolutePath = Path.GetFullPath(Path.Combine(_testDataPath, "CustomSkin"));
@@ -106,10 +100,7 @@ namespace DTXMania.Test.Resources
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-            {
-                return;
-            }
+            Assert.NotNull(graphicsDeviceService.GraphicsDevice);
 
             using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
 

@@ -107,7 +107,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 **Song System** (`Lib/Song/`): DTX file parsing and song database
 - SongManager (Singleton): Central song database management
 - DTXChartParser: Parses .dtx, .gda, .g2d, .bms, .bme, .bml files
-- 10 NX drum lane mapping: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD
+- 10 NX drum lane mapping: LC, HH, LP, SN, HT, BD, LT, FT, CY, RD
 - SQLite integration via Microsoft.EntityFrameworkCore.Sqlite
 - SET.def parsing with robust regex handling
 
