@@ -196,14 +196,25 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void LoadStatusPanelGraphics()
         {
-            try
+            // Check if texture actually exists before loading
+            // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
+            // so we must use ResourceExists to detect missing skin textures
+            if (_resourceManager.ResourceExists(TexturePath.SongStatusPanel))
             {
-                // Load DTXManiaNX status panel background
-                _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
+                try
+                {
+                    // Load DTXManiaNX status panel background
+                    _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
+                    _statusPanelTexture = null;
+                }
             }
-            catch (Exception ex)
+            else
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
+                _statusPanelTexture = null;
             }
         }
 
