@@ -515,23 +515,34 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_resourceManager == null)
                 return;
 
-            try { _barScoreTexture = _resourceManager.LoadTexture(TexturePath.BarScore); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarScore texture: {ex.Message}"); _barScoreTexture = null; }
-            try { _barScoreSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarScoreSelected); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarScoreSelected texture: {ex.Message}"); _barScoreSelectedTexture = null; }
-            try { _barBoxTexture = _resourceManager.LoadTexture(TexturePath.BarBox); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarBox texture: {ex.Message}"); _barBoxTexture = null; }
-            try { _barBoxSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarBoxSelected); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarBoxSelected texture: {ex.Message}"); _barBoxSelectedTexture = null; }
-            try { _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarOther texture: {ex.Message}"); _barOtherTexture = null; }
-            try { _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load BarOtherSelected texture: {ex.Message}"); _barOtherSelectedTexture = null; }
+            // Check if textures actually exist before loading
+            // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
+            // so we must use ResourceExists to detect missing skin textures
+            bool barScoreExists = _resourceManager.ResourceExists(TexturePath.BarScore);
+            bool barScoreSelectedExists = _resourceManager.ResourceExists(TexturePath.BarScoreSelected);
+            bool barBoxExists = _resourceManager.ResourceExists(TexturePath.BarBox);
+            bool barBoxSelectedExists = _resourceManager.ResourceExists(TexturePath.BarBoxSelected);
+            bool barOtherExists = _resourceManager.ResourceExists(TexturePath.BarOther);
+            bool barOtherSelectedExists = _resourceManager.ResourceExists(TexturePath.BarOtherSelected);
+
+            // Only load textures that actually exist - null values trigger programmatic fallback
+            if (barScoreExists)
+                _barScoreTexture = _resourceManager.LoadTexture(TexturePath.BarScore);
+            if (barScoreSelectedExists)
+                _barScoreSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarScoreSelected);
+            if (barBoxExists)
+                _barBoxTexture = _resourceManager.LoadTexture(TexturePath.BarBox);
+            if (barBoxSelectedExists)
+                _barBoxSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarBoxSelected);
+            if (barOtherExists)
+                _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther);
+            if (barOtherSelectedExists)
+                _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected);
 
             // Require both selected and unselected textures to be loaded for consistent visuals
-            // If only one loads, we'd have inconsistent rendering (skin texture vs programmatic fallback)
-            _skinBarTexturesLoaded = _barScoreTexture != null && _barScoreSelectedTexture != null;
-            System.Diagnostics.Debug.WriteLine($"SongListDisplay: Skin bar textures loaded: {_skinBarTexturesLoaded}");
+            // If only one exists, we'd have inconsistent rendering (skin texture vs programmatic fallback)
+            _skinBarTexturesLoaded = barScoreExists && barScoreSelectedExists;
+            System.Diagnostics.Debug.WriteLine($"SongListDisplay: Skin bar textures loaded: {_skinBarTexturesLoaded} (BarScore: {barScoreExists}, BarScoreSelected: {barScoreSelectedExists})");
         }
 
         /// <summary>

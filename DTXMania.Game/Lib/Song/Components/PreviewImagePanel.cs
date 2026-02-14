@@ -231,7 +231,17 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 if (_resourceManager != null)
                 {
-                    _preimagePanelTexture = _resourceManager.LoadTexture(TexturePath.PreimagePanel);
+                    // Check if texture actually exists before loading
+                    // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
+                    // so we must use ResourceExists to detect missing skin textures
+                    if (_resourceManager.ResourceExists(TexturePath.PreimagePanel))
+                    {
+                        _preimagePanelTexture = _resourceManager.LoadTexture(TexturePath.PreimagePanel);
+                    }
+                    else
+                    {
+                        _preimagePanelTexture = null;
+                    }
                 }
             }
             catch (Exception ex)
@@ -442,7 +452,33 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 catch (Exception)
                 {
-                    songDirectory = System.IO.Path.GetFullPath(songDirectory); // Fallback to simple resolution
+                    // Working directory can be unavailable (e.g., deleted temp dirs in tests).
+                    // First try configured SongsRootPath, then base-directory anchored resolution.
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(_songsRootPath))
+                        {
+                            var fromSongsRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory));
+                            if (System.IO.Directory.Exists(fromSongsRoot))
+                            {
+                                songDirectory = fromSongsRoot;
+                                return songDirectory;
+                            }
+                        }
+
+                        songDirectory = System.IO.Path.GetFullPath(songDirectory);
+                    }
+                    catch (Exception)
+                    {
+                        try
+                        {
+                            songDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
+                        }
+                        catch (Exception)
+                        {
+                            // Keep original relative path as last resort.
+                        }
+                    }
                 }
             }
 

@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
 using System.Text;
 
@@ -343,5 +344,94 @@ ScreenHeight=720
             if (File.Exists(tempFile))
                 File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_EnableGameApiWithoutKey_ShouldGenerateAndPersistKey()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_ApiKey_{Guid.NewGuid():N}.ini");
+        var iniContent = @"[Api]
+EnableGameApi=true
+GameApiPort=5070
+";
+
+        try
+        {
+            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.True(manager.Config.EnableGameApi);
+            Assert.False(string.IsNullOrWhiteSpace(manager.Config.GameApiKey));
+            Assert.Equal(32, manager.Config.GameApiKey.Length);
+            Assert.All(manager.Config.GameApiKey, c => Assert.True(char.IsDigit(c) || (c >= 'a' && c <= 'f')));
+
+            var savedContent = File.ReadAllText(tempFile, Encoding.UTF8);
+            Assert.Contains($"GameApiKey={manager.Config.GameApiKey}", savedContent);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_ShouldParseValidKeyBindingsOnly()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_KeyBindings_{Guid.NewGuid():N}.ini");
+        var iniContent = @"[KeyBindings]
+Key.A=4
+Key.B=9
+Key.InvalidLane=12
+Key.Bad=abc
+";
+
+        try
+        {
+            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Single(manager.Config.KeyBindings);
+            Assert.Equal(4, manager.Config.KeyBindings["Key.A"]);
+            Assert.DoesNotContain("Key.B", manager.Config.KeyBindings.Keys);
+            Assert.DoesNotContain("Key.InvalidLane", manager.Config.KeyBindings.Keys);
+            Assert.DoesNotContain("Key.Bad", manager.Config.KeyBindings.Keys);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SaveAndLoadKeyBindings_ShouldRoundTripCustomBinding()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var sourceBindings = new KeyBindings();
+        sourceBindings.BindButton("Key.Z", 2); // non-default binding
+
+        // Act
+        manager.SaveKeyBindings(sourceBindings);
+
+        var targetBindings = new KeyBindings();
+        manager.LoadKeyBindings(targetBindings);
+
+        // Assert
+        Assert.Contains("Key.Z", manager.Config.KeyBindings.Keys);
+        Assert.Equal(2, manager.Config.KeyBindings["Key.Z"]);
+        Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys); // default binding should not be persisted
+        Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
 }
