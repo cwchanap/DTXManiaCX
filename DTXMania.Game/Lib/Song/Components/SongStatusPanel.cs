@@ -196,24 +196,19 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void LoadStatusPanelGraphics()
         {
-            // Check if texture actually exists before loading
-            // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
-            // so we must use ResourceExists to detect missing skin textures
-            if (_resourceManager.ResourceExists(TexturePath.SongStatusPanel))
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _statusPanelTexture);
+
+            try
             {
-                try
-                {
-                    // Load DTXManiaNX status panel background
-                    _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
-                    _statusPanelTexture = null;
-                }
+                // Load DTXManiaNX status panel background
+                _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
             }
-            else
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
                 _statusPanelTexture = null;
             }
         }
@@ -225,6 +220,8 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _bpmBackgroundTexture);
 
             try
             {
@@ -245,6 +242,8 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_resourceManager == null)
                 return;
 
+            ReleaseManagedTexture(ref _difficultyPanelTexture);
+
             try
             {
                 _difficultyPanelTexture = _resourceManager.LoadTexture(TexturePath.DifficultyPanel);
@@ -259,6 +258,8 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _difficultyFrameTexture);
 
             try
             {
@@ -277,6 +278,9 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _graphPanelDrumsTexture);
+            ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
 
             try
             {
@@ -385,15 +389,13 @@ namespace DTXMania.Game.Lib.Song.Components
                 _cachedBackgroundTexture = null;
                 _graphicsGenerator?.Dispose();
                 _graphicsGenerator = null;
-                _statusPanelTexture?.Dispose();
-                _statusPanelTexture = null;
-                // Note: Don't dispose _bpmBackgroundTexture as it's managed by ResourceManager
-                _bpmBackgroundTexture = null;
-                // Note: Don't dispose _difficultyPanelTexture as it's managed by ResourceManager
-                _difficultyPanelTexture = null;
-                // Note: Don't dispose graph panel textures as they're managed by ResourceManager
-                _graphPanelDrumsTexture = null;
-                _graphPanelGuitarBassTexture = null;
+                // Release reference-counted textures managed by ResourceManager.
+                ReleaseManagedTexture(ref _statusPanelTexture);
+                ReleaseManagedTexture(ref _bpmBackgroundTexture);
+                ReleaseManagedTexture(ref _difficultyPanelTexture);
+                ReleaseManagedTexture(ref _difficultyFrameTexture);
+                ReleaseManagedTexture(ref _graphPanelDrumsTexture);
+                ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
                 // Dispose level number font
                 _levelNumberFont?.Dispose();
                 _levelNumberFont = null;
@@ -433,6 +435,12 @@ namespace DTXMania.Game.Lib.Song.Components
         #endregion
 
         #region Private Methods
+
+        private static void ReleaseManagedTexture(ref ITexture texture)
+        {
+            texture?.RemoveReference();
+            texture = null;
+        }
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {

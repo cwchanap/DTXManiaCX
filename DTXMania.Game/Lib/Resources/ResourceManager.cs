@@ -335,8 +335,16 @@ namespace DTXMania.Game.Lib.Resources
 
         public bool ResourceExists(string relativePath)
         {
+            if (string.IsNullOrEmpty(relativePath))
+                return false;
+
             var resolvedPath = ResolvePath(relativePath);
-            return File.Exists(resolvedPath);
+            if (File.Exists(resolvedPath))
+                return true;
+
+            // Match LoadTexture/LoadSound semantics: allow fallback skin hits.
+            var fallbackPath = ResolvePathWithSkin(relativePath, _fallbackSkinPath);
+            return File.Exists(fallbackPath);
         }
 
         /// <summary>

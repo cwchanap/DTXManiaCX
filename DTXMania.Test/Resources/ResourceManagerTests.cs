@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Resources;
 using System;
 using System.IO;
+using System.Reflection;
 using Xunit;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Test.Helpers;
@@ -114,6 +115,50 @@ namespace DTXMania.Test.Resources
             var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
             Assert.Equal(defaultEffectivePath, effectivePath);
             Assert.DoesNotContain("songs/test/skin", effectivePath);
+        }
+
+        [Fact]
+        public void ResourceExists_WhenMissingInCurrentSkinButPresentInFallback_ShouldReturnTrue()
+        {
+            // Arrange
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            Assert.NotNull(graphicsDeviceService.GraphicsDevice);
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+
+            var currentSkinRoot = Path.Combine(_testDataPath, "System", "Custom");
+            var fallbackSkinRoot = Path.Combine(_testDataPath, "System");
+            var fallbackOnlyFile = Path.Combine(fallbackSkinRoot, "Graphics", "fallback_only.png");
+            File.WriteAllText(fallbackOnlyFile, "fake png data");
+
+            // Ensure file does not exist in current skin
+            var currentSkinFile = Path.Combine(currentSkinRoot, "Graphics", "fallback_only.png");
+            if (File.Exists(currentSkinFile))
+                File.Delete(currentSkinFile);
+
+            resourceManager.SetSkinPath(currentSkinRoot);
+            SetPrivateField(resourceManager, "_fallbackSkinPath", EnsureTrailingSeparator(fallbackSkinRoot));
+
+            // Act
+            var exists = resourceManager.ResourceExists(Path.Combine("Graphics", "fallback_only.png"));
+
+            // Assert
+            Assert.True(exists);
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field!.SetValue(target, value);
+        }
+
+        private static string EnsureTrailingSeparator(string path)
+        {
+            var fullPath = Path.GetFullPath(path);
+            return fullPath.EndsWith(Path.DirectorySeparatorChar.ToString())
+                ? fullPath
+                : fullPath + Path.DirectorySeparatorChar;
         }
 
         public void Dispose()

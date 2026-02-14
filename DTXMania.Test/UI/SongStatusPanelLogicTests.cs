@@ -123,6 +123,35 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
+    public void Dispose_ShouldReleaseManagedTexturesWithRemoveReference()
+    {
+        var panel = new SongStatusPanel();
+
+        var status = new Mock<ITexture>();
+        var bpm = new Mock<ITexture>();
+        var difficultyPanel = new Mock<ITexture>();
+        var difficultyFrame = new Mock<ITexture>();
+        var graphDrums = new Mock<ITexture>();
+        var graphGb = new Mock<ITexture>();
+
+        SetField(panel, "_statusPanelTexture", status.Object);
+        SetField(panel, "_bpmBackgroundTexture", bpm.Object);
+        SetField(panel, "_difficultyPanelTexture", difficultyPanel.Object);
+        SetField(panel, "_difficultyFrameTexture", difficultyFrame.Object);
+        SetField(panel, "_graphPanelDrumsTexture", graphDrums.Object);
+        SetField(panel, "_graphPanelGuitarBassTexture", graphGb.Object);
+
+        panel.Dispose();
+
+        status.Verify(x => x.RemoveReference(), Times.Once);
+        bpm.Verify(x => x.RemoveReference(), Times.Once);
+        difficultyPanel.Verify(x => x.RemoveReference(), Times.Once);
+        difficultyFrame.Verify(x => x.RemoveReference(), Times.Once);
+        graphDrums.Verify(x => x.RemoveReference(), Times.Once);
+        graphGb.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void FormatDuration_ShouldFormatShortAndLongDurations()
     {
         var panel = new SongStatusPanel();
