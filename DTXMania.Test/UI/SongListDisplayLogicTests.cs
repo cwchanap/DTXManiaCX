@@ -239,8 +239,7 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentDifficulty", 1);
 
         var cachedSong = display.CurrentList[9]; // offset -1 song around selection
-        // Use stable identifier (Title) instead of GetHashCode() which can be non-deterministic
-        barInfoCache[$"{cachedSong.Title}_1"] = new SongBarInfo();
+        barInfoCache[$"{cachedSong.GetHashCode()}_1"] = new SongBarInfo();
 
         InvokePrivate<object?>(display, "PreGenerateAdjacentSongTextures");
 
@@ -289,8 +288,7 @@ public class SongListDisplayLogicTests
         barInfoCache.Clear();
         foreach (var song in display.CurrentList)
         {
-            // Use stable identifier (Title) instead of GetHashCode() which can be non-deterministic
-            barInfoCache[$"{song.Title}_0"] = new SongBarInfo();
+            barInfoCache[$"{song.GetHashCode()}_0"] = new SongBarInfo();
         }
 
         InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
@@ -642,6 +640,34 @@ public class SongListDisplayLogicTests
 
         Assert.Null(nullNode);
         Assert.Null(nonNullNode);
+    }
+
+    [Fact]
+    public void SetBarInfoCacheEntry_WhenReplacingExistingEntry_ShouldDisposePreviousBarInfo()
+    {
+        var display = new SongListDisplay();
+
+        var oldTitle = new Mock<ITexture>();
+        var oldPreview = new Mock<ITexture>();
+        var oldLamp = new Mock<ITexture>();
+        var oldBarInfo = new SongBarInfo
+        {
+            TitleTexture = oldTitle.Object,
+            PreviewImage = oldPreview.Object,
+            ClearLamp = oldLamp.Object
+        };
+
+        var newBarInfo = new SongBarInfo();
+
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", oldBarInfo);
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", newBarInfo);
+
+        oldTitle.Verify(x => x.RemoveReference(), Times.Once);
+        oldPreview.Verify(x => x.RemoveReference(), Times.Once);
+        oldLamp.Verify(x => x.RemoveReference(), Times.Once);
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        Assert.Same(newBarInfo, barInfoCache["cache-key"]);
     }
 
     [Fact]

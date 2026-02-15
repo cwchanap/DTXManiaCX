@@ -245,12 +245,10 @@ namespace DTXMania.Game.Lib.Stage
             _backgroundMusic = null;
 
             // Clean up navigation sound (same as TitleStage)
-            _cursorMoveSound?.Dispose();
-            _cursorMoveSound = null;
+            ReleaseManagedSound(ref _cursorMoveSound);
             
             // Clean up game start sound
-            _gameStartSound?.Dispose();
-            _gameStartSound = null;
+            ReleaseManagedSound(ref _gameStartSound);
 
             // Clean up graphics resources
             _whitePixel?.Dispose();
@@ -1275,6 +1273,9 @@ namespace DTXMania.Game.Lib.Stage
             bool loadFailed = false;
             string currentLoadPath = null;
 
+            // Release previous preview sound reference before loading a new one.
+            ReleaseManagedSound(ref _previewSound);
+
             // Subscribe to ResourceLoadFailed event temporarily to detect load failures
             EventHandler<ResourceLoadFailedEventArgs> loadFailedHandler = (sender, args) =>
             {
@@ -1294,7 +1295,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Check if load failed (detected by event) or if sound is null
                 if (loadFailed)
                 {
-                    _previewSound = null;
+                    ReleaseManagedSound(ref _previewSound);
                     return false;
                 }
                 
@@ -1310,7 +1311,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception)
             {
-                _previewSound = null;
+                ReleaseManagedSound(ref _previewSound);
                 return false;
             }
             finally
@@ -1346,8 +1347,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            // Clear preview sound (ManagedSound handles disposal)
-            _previewSound = null;
+            // Release managed preview sound reference.
+            ReleaseManagedSound(ref _previewSound);
             
             // Reset timers
             _previewPlayDelay = 0.0;
@@ -1355,6 +1356,12 @@ namespace DTXMania.Game.Lib.Stage
             
             // Start BGM fade in
             StartBGMFade(false);
+        }
+
+        private static void ReleaseManagedSound(ref ISound sound)
+        {
+            sound?.RemoveReference();
+            sound = null;
         }
 
         /// <summary>

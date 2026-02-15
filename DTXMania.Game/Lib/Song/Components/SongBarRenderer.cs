@@ -122,7 +122,11 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_isFastScrollMode)
                 return null;
 
-            var cacheKey = previewImage;
+            var resolvedPreviewImagePath = GetResolvedPreviewImagePath(songNode);
+            if (string.IsNullOrEmpty(resolvedPreviewImagePath))
+                return null;
+
+            var cacheKey = resolvedPreviewImagePath;
             if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
             {
                 cachedTexture.AddReference();
@@ -130,25 +134,21 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Check file size before attempting to load - skip large files (>500KB)
-            var filePath = chart?.FilePath;
-            if (filePath != null)
+            if (File.Exists(resolvedPreviewImagePath))
             {
-                var songDirectory = Path.GetDirectoryName(filePath);
-                var previewImagePath = Path.Combine(songDirectory, previewImage);
-                
-                // Quick file existence and size check
-                if (!File.Exists(previewImagePath))
-                    return null;
-                
-                var fileInfo = new FileInfo(previewImagePath);
+                var fileInfo = new FileInfo(resolvedPreviewImagePath);
                 if (fileInfo.Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {previewImagePath} ({fileInfo.Length} bytes)");
+                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath} ({fileInfo.Length} bytes)");
                     return null;
                 }
             }
+            else
+            {
+                return null;
+            }
 
-            var texture = LoadPreviewImage(songNode);
+            var texture = LoadPreviewImage(resolvedPreviewImagePath);
 
             if (texture != null)
             {
@@ -424,22 +424,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
             try
             {
-                // Use EF Core entities
-                var chart = songNode?.DatabaseChart;
-                var filePath = chart?.FilePath;
-                var previewImage = chart?.PreviewImage;
-                
-                if (!string.IsNullOrEmpty(filePath) && !string.IsNullOrEmpty(previewImage))
-                {
-                    var songDirectory = Path.GetDirectoryName(filePath);
-                    var previewImagePath = Path.Combine(songDirectory, previewImage);
-
-                    // Quick file existence check - return immediately if file doesn't exist
-                    if (!File.Exists(previewImagePath))
-                        return null;
-
-                    return _resourceManager.LoadTexture(previewImagePath);
-                }
+                var resolvedPreviewImagePath = GetResolvedPreviewImagePath(songNode);
+                return LoadPreviewImage(resolvedPreviewImagePath);
             }
             catch (Exception ex)
             {
@@ -447,6 +433,30 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             return null;
+        }
+
+        private ITexture LoadPreviewImage(string resolvedPreviewImagePath)
+        {
+            if (string.IsNullOrEmpty(resolvedPreviewImagePath) || !File.Exists(resolvedPreviewImagePath))
+                return null;
+
+            return _resourceManager.LoadTexture(resolvedPreviewImagePath);
+        }
+
+        private static string GetResolvedPreviewImagePath(SongListNode songNode)
+        {
+            var chart = songNode?.DatabaseChart;
+            var filePath = chart?.FilePath;
+            var previewImage = chart?.PreviewImage;
+
+            if (string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(previewImage))
+                return null;
+
+            var songDirectory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrEmpty(songDirectory))
+                return null;
+
+            return Path.GetFullPath(Path.Combine(songDirectory, previewImage));
         }
 
         private string GetTitleCacheKey(SongListNode songNode)

@@ -244,19 +244,35 @@ public class SongBarRendererLogicTests
         var renderer = CreateUninitializedRenderer();
         var cache = new CacheManager<string, ITexture>();
         var cachedTexture = new Mock<ITexture>().Object;
-        cache.Add("preview.png", cachedTexture);
+        var testDir = Path.Combine(Path.GetTempPath(), "dtx-songbar-cached-preview", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testDir);
 
-        SetField(renderer, "_previewImageCache", cache);
-        SetField(renderer, "_isFastScrollMode", false);
-
-        var node = new SongListNode
+        try
         {
-            DatabaseChart = new SongChart { FilePath = "/tmp/song.dtx", PreviewImage = "preview.png" }
-        };
+            var previewPath = Path.Combine(testDir, "preview.png");
+            File.WriteAllText(previewPath, "x");
 
-        var result = renderer.GeneratePreviewImageTexture(node);
+            cache.Add(Path.GetFullPath(previewPath), cachedTexture);
 
-        Assert.Same(cachedTexture, result);
+            SetField(renderer, "_previewImageCache", cache);
+            SetField(renderer, "_isFastScrollMode", false);
+
+            var node = new SongListNode
+            {
+                DatabaseChart = new SongChart { FilePath = Path.Combine(testDir, "song.dtx"), PreviewImage = "preview.png" }
+            };
+
+            var result = renderer.GeneratePreviewImageTexture(node);
+
+            Assert.Same(cachedTexture, result);
+        }
+        finally
+        {
+            if (Directory.Exists(testDir))
+            {
+                Directory.Delete(testDir, true);
+            }
+        }
     }
 
     [Fact]
@@ -346,6 +362,62 @@ public class SongBarRendererLogicTests
     }
 
     [Fact]
+    public void GeneratePreviewImageTexture_WhenDifferentSongsShareFilename_ShouldNotCollideCache()
+    {
+        var renderer = CreateUninitializedRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        SetField(renderer, "_resourceManager", resourceManager.Object);
+        SetField(renderer, "_previewImageCache", new CacheManager<string, ITexture>());
+        SetField(renderer, "_isFastScrollMode", false);
+
+        var rootDir = Path.Combine(Path.GetTempPath(), "dtx-songbar-cache-key", Guid.NewGuid().ToString("N"));
+        var songDir1 = Path.Combine(rootDir, "song1");
+        var songDir2 = Path.Combine(rootDir, "song2");
+        Directory.CreateDirectory(songDir1);
+        Directory.CreateDirectory(songDir2);
+
+        try
+        {
+            var sharedFileName = "preview.png";
+            var previewPath1 = Path.Combine(songDir1, sharedFileName);
+            var previewPath2 = Path.Combine(songDir2, sharedFileName);
+            File.WriteAllText(previewPath1, "1");
+            File.WriteAllText(previewPath2, "2");
+
+            var texture1 = new Mock<ITexture>().Object;
+            var texture2 = new Mock<ITexture>().Object;
+
+            resourceManager.Setup(x => x.LoadTexture(previewPath1)).Returns(texture1);
+            resourceManager.Setup(x => x.LoadTexture(previewPath2)).Returns(texture2);
+
+            var node1 = new SongListNode
+            {
+                DatabaseChart = new SongChart { FilePath = Path.Combine(songDir1, "song.dtx"), PreviewImage = sharedFileName }
+            };
+            var node2 = new SongListNode
+            {
+                DatabaseChart = new SongChart { FilePath = Path.Combine(songDir2, "song.dtx"), PreviewImage = sharedFileName }
+            };
+
+            var first1 = renderer.GeneratePreviewImageTexture(node1);
+            var first2 = renderer.GeneratePreviewImageTexture(node2);
+
+            Assert.Same(texture1, first1);
+            Assert.Same(texture2, first2);
+
+            resourceManager.Verify(x => x.LoadTexture(previewPath1), Times.Once);
+            resourceManager.Verify(x => x.LoadTexture(previewPath2), Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDir))
+            {
+                Directory.Delete(rootDir, true);
+            }
+        }
+    }
+
+    [Fact]
     public void GenerateBarInfoWithPriority_ShouldHandleNullAndFastScrollBranches()
     {
         var renderer = CreateUninitializedRenderer();
@@ -371,13 +443,29 @@ public class SongBarRendererLogicTests
 
         var cachedTexture = new Mock<ITexture>().Object;
         var previewCache = new CacheManager<string, ITexture>();
-        previewCache.Add("preview.png", cachedTexture);
+        var previewTestDir = Path.Combine(Path.GetTempPath(), "dtx-songbar-priority-cache", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(previewTestDir);
+        var previewFile = Path.Combine(previewTestDir, "preview.png");
+        File.WriteAllText(previewFile, "x");
+        previewCache.Add(Path.GetFullPath(previewFile), cachedTexture);
+
+        fastScrollNode.DatabaseChart.FilePath = Path.Combine(previewTestDir, "song.dtx");
         SetField(renderer, "_previewImageCache", previewCache);
         SetField(renderer, "_isFastScrollMode", false);
 
-        var withPreview = renderer.GenerateBarInfoWithPriority(fastScrollNode, 1, false);
-        Assert.NotNull(withPreview);
-        Assert.Same(cachedTexture, withPreview!.PreviewImage);
+        try
+        {
+            var withPreview = renderer.GenerateBarInfoWithPriority(fastScrollNode, 1, false);
+            Assert.NotNull(withPreview);
+            Assert.Same(cachedTexture, withPreview!.PreviewImage);
+        }
+        finally
+        {
+            if (Directory.Exists(previewTestDir))
+            {
+                Directory.Delete(previewTestDir, true);
+            }
+        }
     }
 
     [Fact]
@@ -464,7 +552,7 @@ public class SongBarRendererLogicTests
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)
     {
-        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = ResolveMethod(target.GetType(), methodName, args);
         Assert.NotNull(method);
         var result = method!.Invoke(target, args);
         // For reference types, handle null results safely
@@ -483,10 +571,42 @@ public class SongBarRendererLogicTests
     /// </summary>
     private static T? InvokePrivateNullable<T>(object target, string methodName, params object[] args) where T : class
     {
-        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = ResolveMethod(target.GetType(), methodName, args);
         Assert.NotNull(method);
         var result = method!.Invoke(target, args);
         return result as T;
+    }
+
+    private static MethodInfo? ResolveMethod(Type targetType, string methodName, object[] args)
+    {
+        foreach (var method in targetType.GetMethods(BindingFlags.Instance | BindingFlags.NonPublic))
+        {
+            if (!string.Equals(method.Name, methodName, StringComparison.Ordinal))
+                continue;
+
+            var parameters = method.GetParameters();
+            if (parameters.Length != args.Length)
+                continue;
+
+            bool isMatch = true;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var arg = args[i];
+                if (arg == null)
+                    continue;
+
+                if (!parameters[i].ParameterType.IsInstanceOfType(arg))
+                {
+                    isMatch = false;
+                    break;
+                }
+            }
+
+            if (isMatch)
+                return method;
+        }
+
+        return null;
     }
 
     private static void SetField(object target, string fieldName, object? value)
