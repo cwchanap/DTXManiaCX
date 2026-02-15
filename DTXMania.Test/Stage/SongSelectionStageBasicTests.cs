@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Resources;
 using Moq;
 using System;
 using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -92,10 +93,71 @@ namespace DTXMania.Test.Stage
             mockSoundInstance.Verify(x => x.Dispose(), Times.Once);
         }
 
+        [Fact]
+        public void StopCurrentPreview_ShouldReleaseManagedPreviewSoundReference()
+        {
+            var stage = CreateUninitializedStage();
+            var previewSound = new Mock<ISound>();
+
+            SetPrivateField(stage, "_previewSound", previewSound.Object);
+
+            InvokePrivateMethod(stage, "StopCurrentPreview");
+
+            previewSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
+        }
+
+        [Fact]
+        public void ReleaseManagedSound_WhenSoundProvided_ShouldCallRemoveReferenceAndClearReference()
+        {
+            var sound = new Mock<ISound>();
+            object? soundRef = sound.Object;
+
+            var method = typeof(SongSelectionStage).GetMethod(
+                "ReleaseManagedSound",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+
+            object?[] args = { soundRef };
+            method!.Invoke(null, args);
+
+            sound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(args[0]);
+        }
+
         private static SongSelectionStage CreateStageWithFakeGraphicsManager()
         {
             var mockGame = new Mock<BaseGame>();
             return new SongSelectionStage(mockGame.Object);
+        }
+
+        private static SongSelectionStage CreateUninitializedStage()
+        {
+#pragma warning disable SYSLIB0050
+            return (SongSelectionStage)FormatterServices.GetUninitializedObject(typeof(SongSelectionStage));
+#pragma warning restore SYSLIB0050
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object? value)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field!.SetValue(target, value);
+        }
+
+        private static T? GetPrivateField<T>(object target, string fieldName)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return (T?)field!.GetValue(target);
+        }
+
+        private static void InvokePrivateMethod(object target, string methodName, params object[] args)
+        {
+            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            method!.Invoke(target, args);
         }
 
         private static bool IsGraphicsTestEnabled()

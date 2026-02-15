@@ -407,7 +407,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var barInfo = _barRenderer.GenerateBarInfo(node, difficulty, isSelected);
             if (barInfo != null)
             {
-                _barInfoCache[cacheKey] = barInfo;
+                SetBarInfoCacheEntry(cacheKey, barInfo);
             }
 
             return barInfo;
@@ -1337,7 +1337,7 @@ namespace DTXMania.Game.Lib.Song.Components
             if (barInfo != null)
             {
                 var cacheKey = $"{SelectedSong.GetHashCode()}_{_currentDifficulty}";
-                _barInfoCache[cacheKey] = barInfo;
+                SetBarInfoCacheEntry(cacheKey, barInfo);
             }
 
             // Performance metrics logging
@@ -1456,7 +1456,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (barInfo != null)
                 {
                     var cacheKey = $"{request.SongNode.GetHashCode()}_{request.Difficulty}";
-                    _barInfoCache[cacheKey] = barInfo;
+                    SetBarInfoCacheEntry(cacheKey, barInfo);
                 }
 
                 processedCount++;
@@ -1499,6 +1499,16 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Insert at the correct position to maintain sorted order
             _textureGenerationQueue.Insert(left, request);
+        }
+
+        private void SetBarInfoCacheEntry(string cacheKey, SongBarInfo barInfo)
+        {
+            if (_barInfoCache.TryGetValue(cacheKey, out var existingBarInfo) && !ReferenceEquals(existingBarInfo, barInfo))
+            {
+                existingBarInfo?.Dispose();
+            }
+
+            _barInfoCache[cacheKey] = barInfo;
         }
 
         protected override void Dispose(bool disposing)
