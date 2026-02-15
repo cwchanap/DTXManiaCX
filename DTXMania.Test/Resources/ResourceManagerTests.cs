@@ -58,7 +58,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkinPath_WithRelativePath_PreservesRelativePath()
+        public void SetBoxDefSkinPath_WithRelativePath_ShouldPreserveRelativePath()
         {
             // Arrange - Create a mock graphics device
             using var graphicsDeviceService = new TestGraphicsDeviceService();
@@ -78,7 +78,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkinPath_WithAbsolutePath_NormalizesCorrectly()
+        public void SetBoxDefSkinPath_WithAbsolutePath_ShouldNormalizeCorrectly()
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
@@ -97,7 +97,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkinPath_WithEmptyPath_ClearsPath()
+        public void SetBoxDefSkinPath_WithEmptyPath_ShouldClearPath()
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
@@ -110,6 +110,29 @@ namespace DTXMania.Test.Resources
 
             // Act
             resourceManager.SetBoxDefSkinPath("");
+
+            // Assert
+            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+            Assert.Equal(defaultEffectivePath, effectivePath);
+            Assert.DoesNotContain("songs/test/skin", effectivePath);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
+        public void SetBoxDefSkinPath_WithEmptyOrNullPath_ShouldClearPath(string path)
+        {
+            // Arrange
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            Assert.NotNull(graphicsDeviceService.GraphicsDevice);
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+
+            var defaultEffectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+            resourceManager.SetBoxDefSkinPath("songs/test/skin");
+
+            // Act
+            resourceManager.SetBoxDefSkinPath(path);
 
             // Assert
             var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();

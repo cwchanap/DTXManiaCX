@@ -173,7 +173,7 @@ namespace DTXMania.Game.Lib.Config
                 default:
                     if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
                     {
-                        if (lane >= 0 && lane <= 8)
+                        if (lane >= 0 && lane <= 9)
                         {
                             Config.KeyBindings[key] = lane;
                         }
