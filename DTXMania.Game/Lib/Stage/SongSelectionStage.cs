@@ -1461,6 +1461,21 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         public void SetBackgroundMusic(ISound backgroundMusic, ISoundInstance backgroundMusicInstance)
         {
+            // Release reference to existing background music before replacing (mirrors _previewSound handling)
+            if (_backgroundMusic != null)
+            {
+                try
+                {
+                    _backgroundMusic.RemoveReference();
+                }
+                catch (Exception ex)
+                {
+                    // Log but don't throw - cleanup should be best-effort
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongSelectionStage.SetBackgroundMusic: Error releasing previous BGM reference: {ex.Message}");
+                }
+            }
+            
             // Dispose existing instance before replacing to prevent resource leak
             if (_backgroundMusicInstance != null)
             {
