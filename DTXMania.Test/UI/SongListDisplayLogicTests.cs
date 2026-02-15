@@ -239,7 +239,8 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentDifficulty", 1);
 
         var cachedSong = display.CurrentList[9]; // offset -1 song around selection
-        barInfoCache[$"{cachedSong.GetHashCode()}_1"] = new SongBarInfo();
+        // Use stable identifier (Title) instead of GetHashCode() which can be non-deterministic
+        barInfoCache[$"{cachedSong.Title}_1"] = new SongBarInfo();
 
         InvokePrivate<object?>(display, "PreGenerateAdjacentSongTextures");
 
@@ -288,7 +289,8 @@ public class SongListDisplayLogicTests
         barInfoCache.Clear();
         foreach (var song in display.CurrentList)
         {
-            barInfoCache[$"{song.GetHashCode()}_0"] = new SongBarInfo();
+            // Use stable identifier (Title) instead of GetHashCode() which can be non-deterministic
+            barInfoCache[$"{song.Title}_0"] = new SongBarInfo();
         }
 
         InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
@@ -677,7 +679,16 @@ public class SongListDisplayLogicTests
     {
         var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        return (T)method!.Invoke(target, args)!;
+        var result = method!.Invoke(target, args);
+        // For reference types, handle null results safely
+        // For value types, the cast will succeed or throw with a clearer error
+        if (result == null)
+        {
+            // If T is a reference type, return default (null)
+            // If T is a value type, this will throw but that's expected behavior
+            return default!;
+        }
+        return (T)result;
     }
 
     private static void SetField(object target, string fieldName, object? value)

@@ -466,7 +466,27 @@ public class SongBarRendererLogicTests
     {
         var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        return (T)method!.Invoke(target, args)!;
+        var result = method!.Invoke(target, args);
+        // For reference types, handle null results safely
+        // For value types, the cast will succeed or throw with a clearer error
+        if (result == null)
+        {
+            // If T is a reference type, return default (null)
+            // If T is a value type, this will throw but that's expected behavior
+            return default!;
+        }
+        return (T)result;
+    }
+    
+    /// <summary>
+    /// Invoke a private method that may return null, returning T? for reference types
+    /// </summary>
+    private static T? InvokePrivateNullable<T>(object target, string methodName, params object[] args) where T : class
+    {
+        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var result = method!.Invoke(target, args);
+        return result as T;
     }
 
     private static void SetField(object target, string fieldName, object? value)

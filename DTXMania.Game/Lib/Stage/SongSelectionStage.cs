@@ -203,31 +203,23 @@ namespace DTXMania.Game.Lib.Stage
             // Cancel any running song initialization task
             _cancellationTokenSource?.Cancel();
 
-            // Wait for task completion with timeout to avoid hanging
+            // Use non-blocking observation to avoid hanging the UI
+            // Attach a continuation to handle exceptions without waiting synchronously
             if (_songInitializationTask != null)
             {
-                try
-                {
-                    var completedTask = Task.WhenAny(
-                        _songInitializationTask,
-                        Task.Delay(SongSelectionUILayout.Timing.TaskTimeoutMilliseconds)).GetAwaiter().GetResult();
-
-                    if (ReferenceEquals(completedTask, _songInitializationTask))
+                // Observe the task result asynchronously via continuation to prevent unobserved exceptions
+                _songInitializationTask.ContinueWith(
+                    task =>
                     {
-                        try
+                        if (task.IsFaulted)
                         {
-                            _ = _songInitializationTask.GetAwaiter().GetResult();
+                            // Log the exception for debugging but don't throw
+                            System.Diagnostics.Debug.WriteLine(
+                                $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
                         }
-                        catch (Exception)
-                        {
-                            // Task was cancelled or failed, which is expected during deactivation
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-                    // Ignore timeout/observation failures during stage teardown
-                }
+                        // If cancelled, that's expected - no action needed
+                    },
+                    TaskScheduler.Default);
             }
 
             // Clean up task references
@@ -1035,6 +1027,9 @@ namespace DTXMania.Game.Lib.Stage
 
         #region RenderTarget Management
 
+        // Track whether the render target was created outside RenderTargetManager
+        private bool _isUnmanagedRenderTarget = false;
+
         /// <summary>
         /// Initialize stage-level RenderTarget for shared use by UI components
         /// </summary>
@@ -1046,11 +1041,19 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _stageRenderTarget = baseGame.GraphicsManager.RenderTargetManager
                     .GetOrCreateRenderTarget("SongSelectionStage_Main", 1024, 1024);
+                _isUnmanagedRenderTarget = false;
             }
             else
             {
                 // Fallback for non-BaseGame instances (shouldn't happen in normal operation)
+                // Log warning that we're creating an unmanaged render target
+                System.Diagnostics.Debug.WriteLine(
+                    "WARNING: SongSelectionStage.InitializeStageRenderTargets() - " +
+                    "Creating unmanaged RenderTarget2D fallback (1024x1024). " +
+                    "This resource will need manual disposal.");
+                
                 _stageRenderTarget = new RenderTarget2D(_game.GraphicsDevice, 1024, 1024);
+                _isUnmanagedRenderTarget = true;
             }
         }
 
@@ -1064,17 +1067,21 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            if (_game is BaseGame baseGame)
+            if (_game is BaseGame baseGame && !_isUnmanagedRenderTarget)
             {
                 // Use RenderTargetManager to properly dispose the RenderTarget
                 baseGame.GraphicsManager.RenderTargetManager.RemoveRenderTarget("SongSelectionStage_Main");
             }
             else
             {
-                // Fallback cleanup for non-BaseGame instances
+                // Fallback cleanup for non-BaseGame instances or unmanaged render targets
+                System.Diagnostics.Debug.WriteLine(
+                    "SongSelectionStage.CleanupStageRenderTargets() - " +
+                    "Disposing unmanaged RenderTarget2D.");
                 _stageRenderTarget.Dispose();
             }
             _stageRenderTarget = null;
+            _isUnmanagedRenderTarget = false;
         }
 
         /// <summary>
@@ -1447,6 +1454,22 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         public void SetBackgroundMusic(ISound backgroundMusic, ISoundInstance backgroundMusicInstance)
         {
+            // Dispose existing instance before replacing to prevent resource leak
+            if (_backgroundMusicInstance != null)
+            {
+                try
+                {
+                    _backgroundMusicInstance.Stop();
+                    _backgroundMusicInstance.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    // Log but don't throw - cleanup should be best-effort
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongSelectionStage.SetBackgroundMusic: Error disposing previous BGM instance: {ex.Message}");
+                }
+            }
+            
             _backgroundMusic = backgroundMusic;
             _backgroundMusicInstance = backgroundMusicInstance;
         }

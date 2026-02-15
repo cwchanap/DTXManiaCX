@@ -38,7 +38,8 @@ public class AppPathsTests
     public void ResolvePathOrDefault_WhenConfiguredPathProvided_ShouldResolveConfiguredPath()
     {
         var defaultPath = Path.Combine(Path.GetTempPath(), "dtx-default-unused");
-        var configured = "Songs/Configured";
+        // Use platform-safe path construction
+        var configured = Path.Combine("Songs", "Configured");
 
         var resolved = AppPaths.ResolvePathOrDefault(configured, defaultPath);
 
@@ -60,10 +61,12 @@ public class AppPathsTests
     public void ResolvePath_WhenPathIsRelative_ShouldJoinWithBasePath()
     {
         var basePath = Path.Combine(Path.GetTempPath(), "base");
+        // Use platform-safe path construction instead of forward slashes
+        var relativePath = Path.Combine("Songs", "Test");
 
-        var resolved = AppPaths.ResolvePath("Songs/Test", basePath);
+        var resolved = AppPaths.ResolvePath(relativePath, basePath);
 
-        Assert.Equal(Path.GetFullPath(Path.Combine(basePath, "Songs/Test")), resolved);
+        Assert.Equal(Path.GetFullPath(Path.Combine(basePath, "Songs", "Test")), resolved);
     }
 
     [Fact]
