@@ -219,9 +219,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             // DTXManiaNX Current Implementation: Vertical List Layout
             // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
             // Unselected bars: Fixed X:673 (vertical list formation)
-            public const int SelectedBarX = 715;       // X position for selected song bar (center position)
+            public const int SelectedBarX = 665;       // X position for selected song bar (center position)
             public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
-            public const int UnselectedBarX = 723;     // Fixed X position for all unselected bars
+            public const int UnselectedBarX = 673;     // Fixed X position for all unselected bars
             public const int BarWidth = 510;           // Maximum width for song bars
             
             // Visual constants
@@ -252,13 +252,13 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Helper properties for easy access
             public static Vector2 SelectedBarPosition => new Vector2(SelectedBarX, SelectedBarY);
             public static Vector2 UnselectedBarPosition => new Vector2(UnselectedBarX, 0); // Y varies per bar
-            public static Vector2 BarSize => new Vector2(BarWidth, 30); // Height will be dynamic
+            public static Vector2 BarSize => new Vector2(BarWidth, BarHeight);
             
             // Individual Song Bar Component Layout
-            public const int BarHeight = 30;           // Height of each song bar
-            public const int PreviewImageSize = 24;    // Size of preview image square
+            public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
+            public const int PreviewImageSize = 44;    // Size of preview image square (NX authentic: 44x44)
             public const int ClearLampWidth = 8;       // Width of clear lamp indicator
-            public const int ClearLampHeight = 24;     // Height of clear lamp indicator
+            public const int ClearLampHeight = BarHeight - 4;  // Height of clear lamp indicator (4px padding from bar height)
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
             
@@ -276,10 +276,14 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int SelectedBorderThickness = 2; // Border thickness for center/selected bar
             public const int UnselectedBorderThickness = 1; // Border thickness for normal selected bar
             
-            // Texture generation constants
-            public const int TitleTextureWidth = 400;  // Width for generated title textures
-            public const int TitleTextureHeight = 24;  // Height for generated title textures
-            public const int TextPositionX = 5;        // X position for text within textures
+            // Texture generation constants (NX-authentic 2x render / 0.5x display)
+            public const int TitleTextureWidth = 1020;  // Width for generated title textures (510 * 2 for 2x render)
+            public const int TitleTextureHeight = 76;   // Height for generated title textures (38 * 2 for 2x render)
+            public const int TitleDisplayWidth = 510;    // Max display width (texture drawn at 0.5x)
+            public const int TitleDisplayHeight = 38;    // Max display height (texture drawn at 0.5x)
+            public const float TitleRenderScale = 2.0f;  // Render at 2x for anti-aliasing
+            public const float TitleDisplayScale = 0.5f;  // Display at 0.5x (1/RenderScale)
+            public const int TextPositionX = 5;          // X position for text within textures
             
             /// <summary>
             /// Get the Y coordinate for a specific bar index
@@ -324,6 +328,41 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
+        }
+        
+        #endregion
+        
+        #region Item Counter Layout
+        
+        /// <summary>
+        /// Item counter "currentIndex/totalCount" layout (NX-authentic: right-aligned at 1260, 620)
+        /// </summary>
+        public static class ItemCounter
+        {
+            public const int BaseX = 1260;      // Right edge position (screen width - 20)
+            public const int BaseY = 620;       // Y position
+            public const int ShadowOffsetX = 1; // Text shadow X offset
+            public const int ShadowOffsetY = 1; // Text shadow Y offset
+            
+            public static Vector2 BasePosition => new Vector2(BaseX, BaseY);
+        }
+        
+        #endregion
+        
+        #region Scrollbar Layout
+        
+        /// <summary>
+        /// NX-authentic scrollbar layout (12px wide at right edge)
+        /// </summary>
+        public static class Scrollbar
+        {
+            public const int X = 1268;              // Right edge (1280 - 12)
+            public const int Y = 5;                 // Top of bar list area
+            public const int Height = 492;          // Track height
+            public const int IndicatorSize = 12;    // 12x12 indicator
+            
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Vector2 IndicatorSizeVector => new Vector2(IndicatorSize, IndicatorSize);
         }
         
         #endregion

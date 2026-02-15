@@ -101,7 +101,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private Color _selectedItemColor = Color.Blue * 0.8f;
         private Color _textColor = Color.White;
         private Color _selectedTextColor = Color.Yellow;
-        private float _itemHeight = 30f;
+        private readonly float _itemHeight = SongSelectionUILayout.SongBars.BarHeight;
 
         // Enhanced Phase 4 components
         private SongBarRenderer _barRenderer;
@@ -112,6 +112,18 @@ namespace DTXMania.Game.Lib.Song.Components
         // Comment bar components for song comments
         private ITexture _commentBarTexture;
         private IResourceManager _resourceManager;
+
+        // NX-authentic scrollbar
+        private ITexture _scrollbarTexture;
+
+        // NX-authentic skin bar textures
+        private ITexture _barScoreTexture;
+        private ITexture _barScoreSelectedTexture;
+        private ITexture _barBoxTexture;
+        private ITexture _barBoxSelectedTexture;
+        private ITexture _barOtherTexture;
+        private ITexture _barOtherSelectedTexture;
+        private bool _skinBarTexturesLoaded;
 
         // Phase 2 enhancements: Bar information caching
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
@@ -433,8 +445,25 @@ namespace DTXMania.Game.Lib.Song.Components
                 songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
             }
 
+            // Release previous textures before loading new ones (reference counting)
+            _commentBarTexture?.RemoveReference();
+            _scrollbarTexture?.RemoveReference();
+            _barScoreTexture?.RemoveReference();
+            _barScoreSelectedTexture?.RemoveReference();
+            _barBoxTexture?.RemoveReference();
+            _barBoxSelectedTexture?.RemoveReference();
+            _barOtherTexture?.RemoveReference();
+            _barOtherSelectedTexture?.RemoveReference();
+
             // Load comment bar texture
             LoadCommentBarTexture();
+
+            // Load NX-authentic skin bar textures
+            LoadSkinBarTextures();
+
+            // Load scrollbar texture
+            try { _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}"); _scrollbarTexture = null; }
         }
 
         /// <summary>
@@ -477,6 +506,62 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        /// <summary>
+        /// Load NX-authentic skin bar textures for song list display
+        /// Falls back to programmatic rendering if textures are missing
+        /// </summary>
+        private void LoadSkinBarTextures()
+        {
+            if (_resourceManager == null)
+                return;
+
+            // Check if textures actually exist before loading
+            // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
+            // so we must use ResourceExists to detect missing skin textures
+            bool barScoreExists = _resourceManager.ResourceExists(TexturePath.BarScore);
+            bool barScoreSelectedExists = _resourceManager.ResourceExists(TexturePath.BarScoreSelected);
+            bool barBoxExists = _resourceManager.ResourceExists(TexturePath.BarBox);
+            bool barBoxSelectedExists = _resourceManager.ResourceExists(TexturePath.BarBoxSelected);
+            bool barOtherExists = _resourceManager.ResourceExists(TexturePath.BarOther);
+            bool barOtherSelectedExists = _resourceManager.ResourceExists(TexturePath.BarOtherSelected);
+
+            // Only load textures that actually exist - null values trigger programmatic fallback
+            if (barScoreExists)
+                _barScoreTexture = _resourceManager.LoadTexture(TexturePath.BarScore);
+            if (barScoreSelectedExists)
+                _barScoreSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarScoreSelected);
+            if (barBoxExists)
+                _barBoxTexture = _resourceManager.LoadTexture(TexturePath.BarBox);
+            if (barBoxSelectedExists)
+                _barBoxSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarBoxSelected);
+            if (barOtherExists)
+                _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther);
+            if (barOtherSelectedExists)
+                _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected);
+
+            // Require both selected and unselected textures to be loaded for consistent visuals
+            // If only one exists, we'd have inconsistent rendering (skin texture vs programmatic fallback)
+            _skinBarTexturesLoaded = barScoreExists && barScoreSelectedExists;
+            System.Diagnostics.Debug.WriteLine($"SongListDisplay: Skin bar textures loaded: {_skinBarTexturesLoaded} (BarScore: {barScoreExists}, BarScoreSelected: {barScoreSelectedExists})");
+        }
+
+        /// <summary>
+        /// Get the appropriate skin bar texture for a bar type and selection state
+        /// </summary>
+        private ITexture GetSkinBarTexture(BarType barType, bool isSelected)
+        {
+            if (!_skinBarTexturesLoaded)
+                return null;
+
+            return barType switch
+            {
+                BarType.Score => isSelected ? _barScoreSelectedTexture : _barScoreTexture,
+                BarType.Box => isSelected ? (_barBoxSelectedTexture ?? _barScoreSelectedTexture) : (_barBoxTexture ?? _barScoreTexture),
+                BarType.Other => isSelected ? (_barOtherSelectedTexture ?? _barScoreSelectedTexture) : (_barOtherTexture ?? _barScoreTexture),
+                _ => isSelected ? _barScoreSelectedTexture : _barScoreTexture
+            };
+        }
+
         #endregion
 
         #region Protected Methods
@@ -510,12 +595,77 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw song items
             DrawSongItems(spriteBatch, bounds);
 
+            // Draw item counter (NX-authentic: "currentIndex/totalCount")
+            DrawItemCounter(spriteBatch);
+
+            // Draw scrollbar (NX-authentic: 12px wide at right edge)
+            DrawScrollbar(spriteBatch);
+
             base.OnDraw(spriteBatch, deltaTime);
         }
 
         #endregion
 
         #region Private Methods
+
+        /// <summary>
+        /// Draw item counter "currentIndex/totalCount" at NX-authentic position (1260, 620)
+        /// </summary>
+        private void DrawItemCounter(SpriteBatch spriteBatch)
+        {
+            if (_currentList == null || _currentList.Count == 0 || _font == null)
+                return;
+
+            // Calculate actual display index (1-based, wrapping)
+            int actualIndex = ((_selectedIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+            var counterText = $"{actualIndex + 1}/{_currentList.Count}";
+
+            // Right-align at NX-authentic position from layout constants
+            var textSize = _font.MeasureString(counterText);
+            var position = new Vector2(SongSelectionUILayout.ItemCounter.BaseX - textSize.X, SongSelectionUILayout.ItemCounter.BaseY);
+
+            // Draw shadow
+            var shadowPos = position + new Vector2(1, 1);
+            spriteBatch.DrawString(_font, counterText, shadowPos, Color.Black * 0.8f);
+
+            // Draw text
+            spriteBatch.DrawString(_font, counterText, position, Color.White);
+        }
+
+        /// <summary>
+        /// Draw NX-authentic scrollbar at the right edge of the song list
+        /// Uses 5_scrollbar.png as the track, with a position indicator
+        /// </summary>
+        private void DrawScrollbar(SpriteBatch spriteBatch)
+        {
+            if (_currentList == null || _currentList.Count <= 1)
+                return;
+
+            // Scrollbar position: right edge of screen, matching bar list area
+            // Using centralized layout constants for consistency
+            int scrollbarX = SongSelectionUILayout.Scrollbar.X;
+            int scrollbarY = SongSelectionUILayout.Scrollbar.Y;
+            int scrollbarHeight = SongSelectionUILayout.Scrollbar.Height;
+            int indicatorSize = SongSelectionUILayout.Scrollbar.IndicatorSize;
+
+            if (_scrollbarTexture != null)
+            {
+                // Draw the scrollbar track texture
+                _scrollbarTexture.Draw(spriteBatch, new Vector2(scrollbarX, scrollbarY));
+            }
+
+            // Calculate indicator position based on current selection
+            int actualIndex = ((_selectedIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+            float progress = (float)actualIndex / Math.Max(1, _currentList.Count - 1);
+            int indicatorY = scrollbarY + (int)(progress * (scrollbarHeight - indicatorSize));
+
+            // Draw indicator
+            if (_whitePixel != null)
+            {
+                var indicatorRect = new Rectangle(scrollbarX, indicatorY, indicatorSize, indicatorSize);
+                spriteBatch.Draw(_whitePixel, indicatorRect, Color.White);
+            }
+        }
 
         private void UpdateScrollTarget()
         {
@@ -723,8 +873,15 @@ namespace DTXMania.Game.Lib.Song.Components
             // Apply opacity to all colors
             var opacity = Color.White * opacityFactor;
 
-            // Draw background using Phase 2 bar type specific graphics generator with perspective
-            if (_graphicsGenerator != null)
+            // Draw background: prefer NX-authentic skin bar textures, fall back to programmatic
+            var skinBarTexture = GetSkinBarTexture(barInfo.BarType, isCenter);
+            if (skinBarTexture != null)
+            {
+                // Draw skin bar texture stretched to bar bounds
+                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                skinBarTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+            else if (_graphicsGenerator != null)
             {
                 var backgroundTexture = _graphicsGenerator.GenerateBarTypeBackground(itemBounds.Width, itemBounds.Height, barInfo.BarType, isSelected, isCenter);
                 if (backgroundTexture != null)
@@ -751,13 +908,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw title with perspective
+            // Draw title with perspective (NX-authentic: 2x texture displayed at 0.5x for anti-aliasing)
             if (barInfo.TitleTexture != null)
             {
                 var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - (int)(barInfo.TitleTexture.Height * scaleFactor)) / 2;
+                // Display at 0.5x scale (the texture is rendered at 2x)
+                var displayScale = SongSelectionUILayout.SongBars.TitleDisplayScale;
+                var displayHeight = barInfo.TitleTexture.Height * displayScale * scaleFactor;
+                var textY = itemBounds.Y + (itemBounds.Height - (int)displayHeight) / 2;
                 var textPosition = new Vector2(textX, textY);
-                var textScale = new Vector2(scaleFactor, scaleFactor);
+                var textScale = new Vector2(displayScale * scaleFactor, displayScale * scaleFactor);
                 barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
             }
             else if (_font != null)
@@ -787,14 +947,26 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawBasicSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
         {
-            // Draw item background with DTXManiaNX curved layout styling and perspective effects
-            if (_whitePixel != null)
+            // Draw item background: prefer NX-authentic skin bar textures
+            var basicBarType = node.Type switch
             {
-                // Use different colors for center vs selected vs normal bars with opacity
+                NodeType.Score => BarType.Score,
+                NodeType.Box => BarType.Box,
+                _ => BarType.Other
+            };
+            var basicSkinTexture = GetSkinBarTexture(basicBarType, isCenter);
+            if (basicSkinTexture != null)
+            {
+                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            }
+            else if (_whitePixel != null)
+            {
+                // Fallback to programmatic colors
                 Color backgroundColor;
                 if (isCenter)
                 {
-                    backgroundColor = Color.Gold * 0.8f * opacityFactor; // Center bar gets gold highlight
+                    backgroundColor = Color.Gold * 0.8f * opacityFactor;
                 }
                 else if (isSelected)
                 {
@@ -802,24 +974,20 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 else
                 {
-                    backgroundColor = Color.DarkBlue * 0.3f * opacityFactor; // Normal bars get subtle background
+                    backgroundColor = Color.DarkBlue * 0.3f * opacityFactor;
                 }
 
                 spriteBatch.Draw(_whitePixel, itemBounds, backgroundColor);
 
                 // Draw border for center bar with perspective
-                if (isCenter && _whitePixel != null)
+                if (isCenter)
                 {
                     var borderColor = Color.Yellow * opacityFactor;
                     var borderThickness = Math.Max(1, (int)(2 * scaleFactor));
 
-                    // Top border
                     spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, borderThickness), borderColor);
-                    // Bottom border
                     spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Bottom - borderThickness, itemBounds.Width, borderThickness), borderColor);
-                    // Left border
                     spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
-                    // Right border
                     spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.Right - borderThickness, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
                 }
             }
@@ -1352,6 +1520,27 @@ namespace DTXMania.Game.Lib.Song.Components
                     barInfo?.Dispose();
                 }
                 _barInfoCache.Clear();
+
+                // Release reference-counted textures before nulling references.
+                // The ResourceManager handles actual disposal via reference counting.
+                _scrollbarTexture?.RemoveReference();
+                _barScoreTexture?.RemoveReference();
+                _barScoreSelectedTexture?.RemoveReference();
+                _barBoxTexture?.RemoveReference();
+                _barBoxSelectedTexture?.RemoveReference();
+                _barOtherTexture?.RemoveReference();
+                _barOtherSelectedTexture?.RemoveReference();
+                _commentBarTexture?.RemoveReference();
+
+                _scrollbarTexture = null;
+                _barScoreTexture = null;
+                _barScoreSelectedTexture = null;
+                _barBoxTexture = null;
+                _barBoxSelectedTexture = null;
+                _barOtherTexture = null;
+                _barOtherSelectedTexture = null;
+                _skinBarTexturesLoaded = false;
+                _commentBarTexture = null;
             }
 
             base.Dispose(disposing);

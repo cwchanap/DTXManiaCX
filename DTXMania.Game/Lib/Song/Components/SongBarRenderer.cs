@@ -42,26 +42,38 @@ namespace DTXMania.Game.Lib.Song.Components
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
-        private SpriteBatch _spriteBatch;        // Clear lamp colors for different difficulties
+        private readonly bool _ownsSharedRenderTarget;
+        private SpriteBatch _spriteBatch;
+
+        // Default graphics generator for clear lamp generation - must stay alive as long as cached textures exist
+        private DefaultGraphicsGenerator _graphicsGenerator;
+
+        // Clear lamp colors for different difficulties
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
-        private bool _isFastScrollMode = false;        private bool _disposed = false;
+        private bool _isFastScrollMode = false;
+        private bool _disposed = false;
 
         #endregion
 
         #region Constructor
 
-        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager, 
-                              RenderTarget2D sharedRenderTarget)
+        public SongBarRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager,
+                              RenderTarget2D sharedRenderTarget, bool ownsSharedRenderTarget = false)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _titleRenderTarget = sharedRenderTarget ?? throw new ArgumentNullException(nameof(sharedRenderTarget));
             _clearLampRenderTarget = sharedRenderTarget; // Use the same shared RenderTarget
+            _ownsSharedRenderTarget = ownsSharedRenderTarget;
 
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
             _clearLampCache = new CacheManager<string, ITexture>();
+
+            // Create graphics generator that will live for the lifetime of SongBarRenderer
+            // This ensures generated textures remain valid while cached
+            _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
 
             Initialize();
         }
@@ -183,7 +195,8 @@ namespace DTXMania.Game.Lib.Song.Components
             // Regenerate clear lamp if difficulty changed
             if (stateChanged && barInfo.SongNode?.Type == NodeType.Score)
             {
-                barInfo.ClearLamp?.Dispose();
+                barInfo.ClearLamp?.RemoveReference();
+                barInfo.ClearLamp = null;
                 barInfo.ClearLamp = GenerateClearLampTexture(barInfo.SongNode, newDifficulty);
             }
         }
@@ -195,15 +208,17 @@ namespace DTXMania.Game.Lib.Song.Components
         public ITexture GenerateClearLampTexture(SongListNode songNode, int difficulty)
         {
             if (songNode?.Type != NodeType.Score)
-                return null;            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
+                return null;
+
+            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
                 return cachedTexture;
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
+            // Note: _graphicsGenerator must stay alive for the lifetime of cached textures
             var clearStatus = GetClearStatus(songNode, difficulty);
-            var graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
-            var texture = graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
-            
+            var texture = _graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
+
             if (texture != null)
             {
                 _clearLampCache.Add(cacheKey, texture);
@@ -317,24 +332,71 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (string.IsNullOrEmpty(displayText))
                     return null;
 
-                // Clear render target
-                _graphicsDevice.Clear(Color.Transparent);
+                // NX-authentic: 2x render, 0.5x display for anti-aliased text
+                var renderScale = SongSelectionUILayout.SongBars.TitleRenderScale;
 
-                // Render text
-                _spriteBatch.Begin();
-                
-                var textColor = GetNodeTypeColor(songNode);
-                var position = new Vector2(SongSelectionUILayout.SongBars.TextPositionX, (TITLE_TEXTURE_HEIGHT - _font.LineSpacing) / 2);
-                
-                _spriteBatch.DrawString(_font, displayText, position, textColor);
-                
-                _spriteBatch.End();
+                // Measure text at native scale, then project to 2x to determine if compression is needed
+                var textSize = _font.MeasureString(displayText);
+                var scaledTextWidth = textSize.X * renderScale;
+                var maxRenderWidth = TITLE_TEXTURE_WIDTH - (SongSelectionUILayout.SongBars.TextPositionX * 2);
 
-                // Create texture wrapper
+                // Calculate horizontal compression if text exceeds max width
+                float horizontalScale = renderScale;
+                if (scaledTextWidth > maxRenderWidth)
+                {
+                    horizontalScale = maxRenderWidth / textSize.X;
+                }
+
+                // Bind render target and render text
+                var previousRenderTarget = _graphicsDevice.GetRenderTargets();
+                try
+                {
+                    _graphicsDevice.SetRenderTarget(_titleRenderTarget);
+
+                    // Clear render target
+                    _graphicsDevice.Clear(Color.Transparent);
+
+                    // Render text at 2x (or compressed) scale
+                    _spriteBatch.Begin();
+
+                    try
+                    {
+                        var textColor = GetNodeTypeColor(songNode);
+                        var textScale = new Vector2(horizontalScale, renderScale);
+                        var scaledLineSpacing = _font.LineSpacing * renderScale;
+                        var position = new Vector2(
+                            SongSelectionUILayout.SongBars.TextPositionX,
+                            (TITLE_TEXTURE_HEIGHT - scaledLineSpacing) / 2);
+
+                        // Draw shadow at 2x for crisp shadow at display size
+                        var shadowOffset = new Vector2(2, 2); // 2px offset at render resolution; appears as 1px at TitleDisplayScale (0.5x)
+                        var shadowColor = Color.Black * 0.6f;
+                        _spriteBatch.DrawString(_font, displayText, position + shadowOffset, shadowColor,
+                            0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+
+                        // Draw main text
+                        _spriteBatch.DrawString(_font, displayText, position, textColor,
+                            0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+                    }
+                    finally
+                    {
+                        _spriteBatch.End();
+                    }
+                }
+                finally
+                {
+                    _graphicsDevice.SetRenderTargets(previousRenderTarget);
+                }
+
+                // Create texture wrapper from render target
+                // Use Rectangle overload to extract only the sub-region we rendered to
+                // The render target is larger (1024x1024) than our texture (1020x76)
                 var texture2D = new Texture2D(_graphicsDevice, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
                 var data = new Color[TITLE_TEXTURE_WIDTH * TITLE_TEXTURE_HEIGHT];
-                _titleRenderTarget.GetData(data);
-                texture2D.SetData(data);                var cacheKey = GetTitleCacheKey(songNode);
+                var sourceRect = new Rectangle(0, 0, TITLE_TEXTURE_WIDTH, TITLE_TEXTURE_HEIGHT);
+                _titleRenderTarget.GetData(0, sourceRect, data, 0, data.Length);
+                texture2D.SetData(data);
+                var cacheKey = GetTitleCacheKey(songNode);
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
             }
             catch (Exception ex)
@@ -450,11 +512,30 @@ namespace DTXMania.Game.Lib.Song.Components
             if (!_disposed)
             {
                 ClearCache();
-                
-                _titleRenderTarget?.Dispose();
-                _clearLampRenderTarget?.Dispose();
+
+                _graphicsGenerator?.Dispose();
+                if (_ownsSharedRenderTarget)
+                {
+                    if (ReferenceEquals(_titleRenderTarget, _clearLampRenderTarget))
+                    {
+                        _titleRenderTarget?.Dispose();
+                    }
+                    else
+                    {
+                        _titleRenderTarget?.Dispose();
+                        _clearLampRenderTarget?.Dispose();
+                    }
+                }
+
                 _spriteBatch?.Dispose();
-                _whitePixel?.Dispose();                _disposed = true;
+                _whitePixel?.Dispose();
+
+                _titleRenderTarget = null;
+                _clearLampRenderTarget = null;
+                _spriteBatch = null;
+                _whitePixel = null;
+                _graphicsGenerator = null;
+                _disposed = true;
             }
         }
 
@@ -501,7 +582,14 @@ namespace DTXMania.Game.Lib.Song.Components
             
             public void Dispose()
             {
-                TitleTexture?.Dispose();
-                PreviewImage?.Dispose();                ClearLamp?.Dispose();
+                // Release reference-counted textures - don't call Dispose() directly.
+                // The ResourceManager handles actual disposal via reference counting.
+                TitleTexture?.RemoveReference();
+                PreviewImage?.RemoveReference();
+                ClearLamp?.RemoveReference();
+
+                TitleTexture = null;
+                PreviewImage = null;
+                ClearLamp = null;
             }        }
     }

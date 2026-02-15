@@ -196,6 +196,11 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void LoadStatusPanelGraphics()
         {
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _statusPanelTexture);
+
             try
             {
                 // Load DTXManiaNX status panel background
@@ -204,6 +209,7 @@ namespace DTXMania.Game.Lib.Song.Components
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
+                _statusPanelTexture = null;
             }
         }
 
@@ -214,6 +220,8 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _bpmBackgroundTexture);
 
             try
             {
@@ -234,6 +242,8 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_resourceManager == null)
                 return;
 
+            ReleaseManagedTexture(ref _difficultyPanelTexture);
+
             try
             {
                 _difficultyPanelTexture = _resourceManager.LoadTexture(TexturePath.DifficultyPanel);
@@ -248,6 +258,8 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _difficultyFrameTexture);
 
             try
             {
@@ -266,6 +278,9 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (_resourceManager == null)
                 return;
+
+            ReleaseManagedTexture(ref _graphPanelDrumsTexture);
+            ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
 
             try
             {
@@ -374,15 +389,13 @@ namespace DTXMania.Game.Lib.Song.Components
                 _cachedBackgroundTexture = null;
                 _graphicsGenerator?.Dispose();
                 _graphicsGenerator = null;
-                _statusPanelTexture?.Dispose();
-                _statusPanelTexture = null;
-                // Note: Don't dispose _bpmBackgroundTexture as it's managed by ResourceManager
-                _bpmBackgroundTexture = null;
-                // Note: Don't dispose _difficultyPanelTexture as it's managed by ResourceManager
-                _difficultyPanelTexture = null;
-                // Note: Don't dispose graph panel textures as they're managed by ResourceManager
-                _graphPanelDrumsTexture = null;
-                _graphPanelGuitarBassTexture = null;
+                // Release reference-counted textures managed by ResourceManager.
+                ReleaseManagedTexture(ref _statusPanelTexture);
+                ReleaseManagedTexture(ref _bpmBackgroundTexture);
+                ReleaseManagedTexture(ref _difficultyPanelTexture);
+                ReleaseManagedTexture(ref _difficultyFrameTexture);
+                ReleaseManagedTexture(ref _graphPanelDrumsTexture);
+                ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
                 // Dispose level number font
                 _levelNumberFont?.Dispose();
                 _levelNumberFont = null;
@@ -422,6 +435,12 @@ namespace DTXMania.Game.Lib.Song.Components
         #endregion
 
         #region Private Methods
+
+        private static void ReleaseManagedTexture(ref ITexture texture)
+        {
+            texture?.RemoveReference();
+            texture = null;
+        }
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
@@ -785,7 +804,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Clamp to valid grid range (0-4) 
                 int clampedGridRow = Math.Clamp(gridRow, 0, 4);
                 
-                // Column is determined by instrument: 0=Drums, 1=Guitar, 2=Bass
+                // Column is determined by instrument: 0=Drums, 1=Bass, 2=Guitar (NX order)
                 int gridColumn = chart.InstrumentColumn;
                 
                 // Place chart at this grid position (if valid)
@@ -1248,7 +1267,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public class ChartLevelInfo
         {
             public float Level { get; set; }
-            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass
+            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Bass, 2=Guitar (NX column order)
             public string InstrumentName { get; set; }
             public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
         }
@@ -1282,26 +1301,26 @@ namespace DTXMania.Game.Lib.Song.Components
                     });
                 }
 
-                // Add guitar chart if available
-                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
-                {
-                    chartLevels.Add(new ChartLevelInfo
-                    {
-                        Level = chart.GuitarLevel, // Use actual difficulty level for display
-                        InstrumentColumn = 1, // Guitar column
-                        InstrumentName = "GUITAR",
-                        Chart = chart
-                    });
-                }
-
-                // Add bass chart if available
+                // Add bass chart if available (NX column order: DRUMS, BASS, GUITAR)
                 if (chart.HasBassChart && chart.BassLevel > 0)
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
-                        Level = chart.BassLevel, // Use actual difficulty level for display
-                        InstrumentColumn = 2, // Bass column
+                        Level = chart.BassLevel,
+                        InstrumentColumn = 1, // Bass column (NX: middle)
                         InstrumentName = "BASS",
+                        Chart = chart
+                    });
+                }
+
+                // Add guitar chart if available (NX column order: DRUMS, BASS, GUITAR)
+                if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                {
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = chart.GuitarLevel,
+                        InstrumentColumn = 2, // Guitar column (NX: right)
+                        InstrumentName = "GUITAR",
                         Chart = chart
                     });
                 }

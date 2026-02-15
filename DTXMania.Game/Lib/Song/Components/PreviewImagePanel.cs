@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -18,6 +19,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private SongListNode _currentSong;
         private ITexture _currentPreviewTexture;
         private ITexture _defaultPreviewTexture;
+        private ITexture _preimagePanelTexture;
         private IResourceManager _resourceManager;
         private Texture2D _whitePixel;
 
@@ -43,6 +45,9 @@ namespace DTXMania.Game.Lib.Song.Components
         // Display delay timing (moved from SongSelectionStage)
         private double _displayDelay = 0.0;
         private const double DISPLAY_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
+
+        // Configured songs root path (e.g., DTXFiles or Songs directory)
+        private string _songsRootPath;
 
         #endregion
 
@@ -73,6 +78,16 @@ namespace DTXMania.Game.Lib.Song.Components
             set => _whitePixel = value;
         }
 
+        /// <summary>
+        /// Configured songs root path (e.g., DTXFiles or Songs directory)
+        /// Used for resolving relative song directory paths
+        /// </summary>
+        public string SongsRootPath
+        {
+            get => _songsRootPath;
+            set => _songsRootPath = value;
+        }
+
         #endregion
 
         #region Constructor
@@ -93,6 +108,7 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             _resourceManager = resourceManager;
             LoadDefaultPreviewTexture();
+            LoadPreimagePanelTexture();
         }
 
         /// <summary>
@@ -117,7 +133,7 @@ namespace DTXMania.Game.Lib.Song.Components
             else
             {
                 // Clear preview immediately when not on a song
-                _currentPreviewTexture = null;
+                ReleaseCurrentPreviewTexture();
             }
         }
 
@@ -207,11 +223,58 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Load the ornate preimage panel frame texture (NX-authentic)
+        /// </summary>
+        private void LoadPreimagePanelTexture()
+        {
+            try
+            {
+                if (_resourceManager != null)
+                {
+                    // Check if texture actually exists before loading
+                    // ResourceManager.LoadTexture returns a fallback texture instead of throwing,
+                    // so we must use ResourceExists to detect missing skin textures
+                    if (_resourceManager.ResourceExists(TexturePath.PreimagePanel))
+                    {
+                        _preimagePanelTexture = _resourceManager.LoadTexture(TexturePath.PreimagePanel);
+                    }
+                    else
+                    {
+                        _preimagePanelTexture = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preimage panel texture: {ex.Message}");
+                _preimagePanelTexture = null;
+            }
+        }
+
+        /// <summary>
         /// Reset display delay when selection changes
         /// </summary>
         private void ResetDisplayDelay()
         {
             _displayDelay = 0.0;
+        }
+
+        private void ReleaseCurrentPreviewTexture()
+        {
+            _currentPreviewTexture?.RemoveReference();
+            _currentPreviewTexture = null;
+        }
+
+        private void AssignDefaultPreviewTexture()
+        {
+            if (_defaultPreviewTexture == null)
+            {
+                _currentPreviewTexture = null;
+                return;
+            }
+
+            _defaultPreviewTexture.AddReference();
+            _currentPreviewTexture = _defaultPreviewTexture;
         }
 
         /// <summary>
@@ -235,8 +298,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
-            // Clear current preview reference (don't dispose - ResourceManager handles that)
-            _currentPreviewTexture = null;
+            // Clear current preview reference (release reference count, don't dispose)
+            ReleaseCurrentPreviewTexture();
 
             // If not a song (folder, back button, etc.), don't load any preview
             if (songNode?.Type != NodeType.Score)
@@ -254,7 +317,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     return;
                 }
@@ -267,7 +330,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     return;
                 }
@@ -285,12 +348,12 @@ namespace DTXMania.Game.Lib.Song.Components
                         // Verify the loaded texture is valid
                         if (false) // Texture disposal removed
                         {
-                            _currentPreviewTexture = _defaultPreviewTexture;
+                            AssignDefaultPreviewTexture();
                         }
                     }
                     catch (ObjectDisposedException)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                 }
                 else
@@ -298,7 +361,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     // Use default texture if available and not disposed
                     if (_defaultPreviewTexture != null)
                     {
-                        _currentPreviewTexture = _defaultPreviewTexture;
+                        AssignDefaultPreviewTexture();
                     }
                     else
                     {
@@ -311,7 +374,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Try to use default texture as fallback, but check if it's valid first
                 if (_defaultPreviewTexture != null)
                 {
-                    _currentPreviewTexture = _defaultPreviewTexture;
+                    AssignDefaultPreviewTexture();
                 }
                 else
                 {
@@ -359,15 +422,24 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     var workingDir = Environment.CurrentDirectory;
 
-                    var possiblePaths = new[]
+                    // Build list of possible paths, including configured songs root
+                    // Note: Path.GetFullPath(songDirectory) already resolves relative to current/working directory
+                    var possiblePaths = new List<string>
                     {
-                        System.IO.Path.GetFullPath(songDirectory), // From current directory
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, songDirectory)), // From app directory
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory)), // From DTXFiles folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory)), // From Songs folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory)), // Parent Songs folder
-                        System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory)) // Parent DTXFiles folder
+                        System.IO.Path.GetFullPath(songDirectory) // From current/working directory
                     };
+
+                    // Add configured songs root path if available (e.g., DTXFiles or legacy Songs)
+                    if (!string.IsNullOrEmpty(_songsRootPath))
+                    {
+                        possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory)));
+                    }
+
+                    // Add fallback paths for backward compatibility
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory))); // From DTXFiles folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory))); // Parent DTXFiles folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory))); // Legacy Songs folder
+                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory))); // Parent legacy Songs folder
 
                     foreach (var testPath in possiblePaths)
                     {
@@ -380,7 +452,33 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 catch (Exception)
                 {
-                    songDirectory = System.IO.Path.GetFullPath(songDirectory); // Fallback to simple resolution
+                    // Working directory can be unavailable (e.g., deleted temp dirs in tests).
+                    // First try configured SongsRootPath, then base-directory anchored resolution.
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(_songsRootPath))
+                        {
+                            var fromSongsRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory));
+                            if (System.IO.Directory.Exists(fromSongsRoot))
+                            {
+                                songDirectory = fromSongsRoot;
+                                return songDirectory;
+                            }
+                        }
+
+                        songDirectory = System.IO.Path.GetFullPath(songDirectory);
+                    }
+                    catch (Exception)
+                    {
+                        try
+                        {
+                            songDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
+                        }
+                        catch (Exception)
+                        {
+                            // Keep original relative path as last resort.
+                        }
+                    }
                 }
             }
 
@@ -413,24 +511,26 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
+            // Use NX-authentic preimage panel frame texture if available
+            if (_preimagePanelTexture != null)
+            {
+                _preimagePanelTexture.Draw(spriteBatch, bounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                return;
+            }
+
+            // Fallback to programmatic border
             if (_whitePixel == null)
                 return;
 
-            // Draw semi-transparent background
             var backgroundColor = Color.Black * 0.8f;
             spriteBatch.Draw(_whitePixel, bounds, backgroundColor);
 
-            // Draw border
             var borderColor = Color.White * 0.4f;
             var borderThickness = 2;
 
-            // Top border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-            // Bottom border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-            // Left border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-            // Right border
             spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
         }
 
@@ -541,8 +641,15 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (disposing)
             {
+                // Release reference-counted textures before nulling references.
+                // The ResourceManager handles actual disposal via reference counting.
+                ReleaseCurrentPreviewTexture();
+                _defaultPreviewTexture?.RemoveReference();
+                _preimagePanelTexture?.RemoveReference();
+
                 _currentPreviewTexture = null;
                 _defaultPreviewTexture = null;
+                _preimagePanelTexture = null;
             }
 
             base.Dispose(disposing);

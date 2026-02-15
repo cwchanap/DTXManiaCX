@@ -158,7 +158,29 @@ namespace DTXMania.Test.Helpers
 
         public void SetBoxDefSkinPath(string boxDefSkinPath)
         {
-            _boxDefSkinPath = boxDefSkinPath ?? "";
+            var path = boxDefSkinPath ?? "";
+            if (string.IsNullOrEmpty(path))
+            {
+                _boxDefSkinPath = "";
+            }
+            else if (System.IO.Path.IsPathRooted(path))
+            {
+                // Absolute paths: normalize with trailing separator
+                _boxDefSkinPath = path.TrimEnd(System.IO.Path.DirectorySeparatorChar, '/')
+                                   + System.IO.Path.DirectorySeparatorChar;
+            }
+            else
+            {
+                // Relative paths: preserve as-is, just ensure proper separators
+                _boxDefSkinPath = path.Replace('\\', System.IO.Path.DirectorySeparatorChar)
+                                      .Replace('/', System.IO.Path.DirectorySeparatorChar);
+
+                // Ensure trailing separator for consistency
+                if (!_boxDefSkinPath.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString()))
+                {
+                    _boxDefSkinPath += System.IO.Path.DirectorySeparatorChar;
+                }
+            }
         }
 
         public void SetUseBoxDefSkin(bool useBoxDefSkin)

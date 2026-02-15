@@ -29,7 +29,8 @@ namespace DTXMania.Game.Lib.Resources
         public SkinManager(IResourceManager resourceManager, string? systemSkinRoot = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
-            _systemSkinRoot = NormalizePath(systemSkinRoot ?? AppPaths.GetDefaultSystemSkinRoot());
+            var resolvedSystemSkinRoot = AppPaths.ResolvePath(systemSkinRoot ?? AppPaths.GetDefaultSystemSkinRoot(), AppPaths.GetAppDataRoot());
+            _systemSkinRoot = NormalizePath(resolvedSystemSkinRoot);
             RefreshAvailableSkins();
         }
 
@@ -219,9 +220,7 @@ namespace DTXMania.Game.Lib.Resources
 
                 foreach (var directory in directories)
                 {
-                    // Convert back to relative path for consistency
-                    var relativePath = Path.GetRelativePath(Environment.CurrentDirectory, directory);
-                    var normalizedPath = NormalizePath(relativePath);
+                    var normalizedPath = NormalizePath(Path.GetFullPath(directory));
 
                     if (ValidateSkinPath(normalizedPath))
                     {
