@@ -47,7 +47,7 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void ResolvePath_WhenPathIsBlank_ReturnsBasePath()
+    public void ResolvePath_WhenPathIsBlank_ShouldReturnBasePath()
     {
         var basePath = Path.Combine(Path.GetTempPath(), "base");
 
@@ -57,7 +57,7 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void ResolvePath_WhenPathIsRelative_JoinsWithBasePath()
+    public void ResolvePath_WhenPathIsRelative_ShouldJoinWithBasePath()
     {
         var basePath = Path.Combine(Path.GetTempPath(), "base");
 
@@ -67,7 +67,7 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void ResolvePath_WhenPathIsAbsolute_ReturnsAbsolutePath()
+    public void ResolvePath_WhenPathIsAbsolute_ShouldReturnAbsolutePath()
     {
         var absolute = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "absolute-path"));
 
@@ -77,7 +77,7 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void ResolvePath_WhenUsingHomeTilde_ExpandsToHomeDirectory()
+    public void ResolvePath_WhenUsingHomeTilde_ShouldExpandToHomeDirectory()
     {
         var home = GetHomeDirectory();
         if (string.IsNullOrWhiteSpace(home))

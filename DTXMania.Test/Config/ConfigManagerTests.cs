@@ -400,10 +400,10 @@ Key.Bad=abc
             // Act
             manager.LoadConfig(tempFile);
 
-            // Assert
-            Assert.Single(manager.Config.KeyBindings);
+            // Assert - lanes 0-9 are valid (matching KeyBindings.BindButton contract)
+            Assert.Equal(2, manager.Config.KeyBindings.Count);
             Assert.Equal(4, manager.Config.KeyBindings["Key.A"]);
-            Assert.DoesNotContain("Key.B", manager.Config.KeyBindings.Keys);
+            Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
             Assert.DoesNotContain("Key.InvalidLane", manager.Config.KeyBindings.Keys);
             Assert.DoesNotContain("Key.Bad", manager.Config.KeyBindings.Keys);
         }

@@ -90,8 +90,12 @@ namespace DTXMania.Game.Lib.Song.Components
             if (songNode == null)
                 return null;
 
-            var cacheKey = GetTitleCacheKey(songNode);            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
+            var cacheKey = GetTitleCacheKey(songNode);
+            if (_titleTextureCache.TryGet(cacheKey, out var cachedTexture))
+            {
+                cachedTexture.AddReference();
                 return cachedTexture;
+            }
 
             var texture = CreateTitleTexture(songNode);
 
@@ -120,7 +124,10 @@ namespace DTXMania.Game.Lib.Song.Components
 
             var cacheKey = previewImage;
             if (_previewImageCache.TryGet(cacheKey, out var cachedTexture))
+            {
+                cachedTexture.AddReference();
                 return cachedTexture;
+            }
 
             // Check file size before attempting to load - skip large files (>500KB)
             var filePath = chart?.FilePath;
@@ -212,7 +219,10 @@ namespace DTXMania.Game.Lib.Song.Components
 
             var cacheKey = GetClearLampCacheKey(songNode, difficulty);
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
+            {
+                cachedTexture.AddReference();
                 return cachedTexture;
+            }
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             // Note: _graphicsGenerator must stay alive for the lifetime of cached textures
