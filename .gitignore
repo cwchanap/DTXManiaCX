@@ -11,3 +11,5 @@ Font/
 *.db
 
 TestResults/
+
+.claude/settings.local.json
