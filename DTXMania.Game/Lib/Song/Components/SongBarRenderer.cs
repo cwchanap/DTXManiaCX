@@ -13,10 +13,8 @@ namespace DTXMania.Game.Lib.Song.Components
     /// Song bar texture generation and caching system
     /// Equivalent to DTXManiaNX song bar generation methods
     ///
-    /// CRITICAL FIX: Added draw phase safety checks to prevent screen blackouts
-    /// - IsInDrawPhase property prevents texture generation during draw operations
-    /// - RenderTarget switching during draw phase causes screen blackouts
-    /// - All texture generation methods now return cached/null during draw phase
+    /// Texture generation is performed in the Update phase (not Draw) to prevent
+    /// screen blackouts from RenderTarget switching during draw operations.
     /// </summary>
     public class SongBarRenderer : IDisposable
     {
@@ -47,8 +45,6 @@ namespace DTXMania.Game.Lib.Song.Components
 
         // Default graphics generator for clear lamp generation - must stay alive as long as cached textures exist
         private DefaultGraphicsGenerator _graphicsGenerator;
-
-        // Clear lamp colors for different difficulties
 
         // Fast scroll mode flag to skip preview image loading during active scrolling
         private bool _isFastScrollMode = false;
@@ -101,7 +97,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             if (texture != null)
             {
-                _titleTextureCache.Add(cacheKey, texture);            }
+                _titleTextureCache.Add(cacheKey, texture);
+                texture.AddReference(); // Cache holds one reference, caller gets another
+            }
 
             return texture;
         }
@@ -153,6 +151,7 @@ namespace DTXMania.Game.Lib.Song.Components
             if (texture != null)
             {
                 _previewImageCache.Add(cacheKey, texture);
+                texture.AddReference(); // Cache holds one reference, caller gets another
             }
 
             return texture;
@@ -232,6 +231,7 @@ namespace DTXMania.Game.Lib.Song.Components
             if (texture != null)
             {
                 _clearLampCache.Add(cacheKey, texture);
+                texture.AddReference(); // Cache holds one reference, caller gets another
             }
 
             return texture;
@@ -247,7 +247,7 @@ namespace DTXMania.Game.Lib.Song.Components
             _clearLampCache.Clear();
         }        /// <summary>
         /// Priority texture generation method for immediate processing of selected items
-        /// Generates texture immediately with performance metrics (IsInDrawPhase check removed per senior engineer feedback)
+        /// Generates texture immediately with performance metrics
         /// </summary>
         public SongBarInfo GenerateBarInfoWithPriority(SongListNode songNode, int difficulty, bool isSelected = false)
         {

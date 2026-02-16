@@ -434,4 +434,84 @@ Key.Bad=abc
         Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys); // default binding should not be persisted
         Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
+
+    [Theory]
+    [InlineData("Songs")]
+    [InlineData("./Songs")]
+    [InlineData(".\\Songs")]
+    [InlineData("Songs/")]
+    [InlineData("Songs\\")]
+    [InlineData("songs")]
+    public void ConfigManager_LoadConfig_LegacyDTXPath_ShouldMigrateToDTXFiles(string legacyPath)
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Migration_{Guid.NewGuid():N}.ini");
+        var iniContent = $"[System]\nDTXPath={legacyPath}\n";
+        File.WriteAllText(tempFile, iniContent);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert - DTXPath should be migrated to the new DTXFiles path
+            var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            Assert.Equal("DTXFiles", dtxPathDir);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_CustomDTXPath_ShouldNotMigrate()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_NoMigration_{Guid.NewGuid():N}.ini");
+        var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
+        var iniContent = $"[System]\nDTXPath={customPath}\n";
+        File.WriteAllText(tempFile, iniContent);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert - Custom path should NOT be migrated
+            Assert.Contains("CustomSongs", manager.Config.DTXPath);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_KeyBindingLane10_ShouldBeRejected()
+    {
+        // Arrange - lane 9 is the max valid lane (0-indexed for 10 NX drum lanes)
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Lane10_{Guid.NewGuid():N}.ini");
+        var iniContent = "[System]\n[KeyBindings]\nKey.A=10\nKey.B=9\n";
+        File.WriteAllText(tempFile, iniContent);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert - Lane 10 should be rejected, lane 9 accepted
+            Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys);
+            Assert.Contains("Key.B", manager.Config.KeyBindings.Keys);
+            Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }

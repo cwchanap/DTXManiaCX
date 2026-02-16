@@ -248,8 +248,10 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _difficultyPanelTexture = _resourceManager.LoadTexture(TexturePath.DifficultyPanel);
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongStatusPanel: Failed to load difficulty panel texture: {ex.Message}");
                 _difficultyPanelTexture = null;
             }
         }
@@ -265,8 +267,10 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _difficultyFrameTexture = _resourceManager.LoadTexture(TexturePath.DifficultyFrame);
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongStatusPanel: Failed to load difficulty frame texture: {ex.Message}");
                 _difficultyFrameTexture = null;
             }
         }
