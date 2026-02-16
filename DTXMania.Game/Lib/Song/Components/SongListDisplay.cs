@@ -446,14 +446,23 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Release previous textures before loading new ones (reference counting)
+            // Null immediately after RemoveReference to prevent dangling references if new skin lacks textures
             _commentBarTexture?.RemoveReference();
+            _commentBarTexture = null;
             _scrollbarTexture?.RemoveReference();
+            _scrollbarTexture = null;
             _barScoreTexture?.RemoveReference();
+            _barScoreTexture = null;
             _barScoreSelectedTexture?.RemoveReference();
+            _barScoreSelectedTexture = null;
             _barBoxTexture?.RemoveReference();
+            _barBoxTexture = null;
             _barBoxSelectedTexture?.RemoveReference();
+            _barBoxSelectedTexture = null;
             _barOtherTexture?.RemoveReference();
+            _barOtherTexture = null;
             _barOtherSelectedTexture?.RemoveReference();
+            _barOtherSelectedTexture = null;
 
             // Load comment bar texture
             LoadCommentBarTexture();
