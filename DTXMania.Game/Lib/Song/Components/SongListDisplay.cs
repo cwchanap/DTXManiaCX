@@ -446,23 +446,14 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Release previous textures before loading new ones (reference counting)
-            // Null immediately after RemoveReference to prevent dangling references if new skin lacks textures
-            _commentBarTexture?.RemoveReference();
-            _commentBarTexture = null;
-            _scrollbarTexture?.RemoveReference();
-            _scrollbarTexture = null;
-            _barScoreTexture?.RemoveReference();
-            _barScoreTexture = null;
-            _barScoreSelectedTexture?.RemoveReference();
-            _barScoreSelectedTexture = null;
-            _barBoxTexture?.RemoveReference();
-            _barBoxTexture = null;
-            _barBoxSelectedTexture?.RemoveReference();
-            _barBoxSelectedTexture = null;
-            _barOtherTexture?.RemoveReference();
-            _barOtherTexture = null;
-            _barOtherSelectedTexture?.RemoveReference();
-            _barOtherSelectedTexture = null;
+            ReleaseManagedTexture(ref _commentBarTexture);
+            ReleaseManagedTexture(ref _scrollbarTexture);
+            ReleaseManagedTexture(ref _barScoreTexture);
+            ReleaseManagedTexture(ref _barScoreSelectedTexture);
+            ReleaseManagedTexture(ref _barBoxTexture);
+            ReleaseManagedTexture(ref _barBoxSelectedTexture);
+            ReleaseManagedTexture(ref _barOtherTexture);
+            ReleaseManagedTexture(ref _barOtherSelectedTexture);
 
             // Load comment bar texture
             LoadCommentBarTexture();
@@ -471,8 +462,15 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadSkinBarTextures();
 
             // Load scrollbar texture
-            try { _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}"); _scrollbarTexture = null; }
+            try
+            {
+                _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}");
+                _scrollbarTexture = null;
+            }
         }
 
         /// <summary>
@@ -1458,7 +1456,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 var request = _textureGenerationQueue[0];
                 _textureGenerationQueue.RemoveAt(0);
 
-                // Generate textures for this bar (always safe now - IsInDrawPhase checks removed)
+                // Generate textures for this bar
                 var barInfo = _barRenderer.GenerateBarInfo(request.SongNode, request.Difficulty, request.IsSelected);
 
                 // Cache the bar info if generation succeeded
@@ -1510,6 +1508,12 @@ namespace DTXMania.Game.Lib.Song.Components
             _textureGenerationQueue.Insert(left, request);
         }
 
+        private static void ReleaseManagedTexture(ref ITexture texture)
+        {
+            texture?.RemoveReference();
+            texture = null;
+        }
+
         private void SetBarInfoCacheEntry(string cacheKey, SongBarInfo barInfo)
         {
             if (_barInfoCache.TryGetValue(cacheKey, out var existingBarInfo) && !ReferenceEquals(existingBarInfo, barInfo))
@@ -1540,26 +1544,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 _barInfoCache.Clear();
 
-                // Release reference-counted textures before nulling references.
-                // The ResourceManager handles actual disposal via reference counting.
-                _scrollbarTexture?.RemoveReference();
-                _barScoreTexture?.RemoveReference();
-                _barScoreSelectedTexture?.RemoveReference();
-                _barBoxTexture?.RemoveReference();
-                _barBoxSelectedTexture?.RemoveReference();
-                _barOtherTexture?.RemoveReference();
-                _barOtherSelectedTexture?.RemoveReference();
-                _commentBarTexture?.RemoveReference();
-
-                _scrollbarTexture = null;
-                _barScoreTexture = null;
-                _barScoreSelectedTexture = null;
-                _barBoxTexture = null;
-                _barBoxSelectedTexture = null;
-                _barOtherTexture = null;
-                _barOtherSelectedTexture = null;
+                // Release reference-counted textures
+                ReleaseManagedTexture(ref _scrollbarTexture);
+                ReleaseManagedTexture(ref _barScoreTexture);
+                ReleaseManagedTexture(ref _barScoreSelectedTexture);
+                ReleaseManagedTexture(ref _barBoxTexture);
+                ReleaseManagedTexture(ref _barBoxSelectedTexture);
+                ReleaseManagedTexture(ref _barOtherTexture);
+                ReleaseManagedTexture(ref _barOtherSelectedTexture);
+                ReleaseManagedTexture(ref _commentBarTexture);
                 _skinBarTexturesLoaded = false;
-                _commentBarTexture = null;
             }
 
             base.Dispose(disposing);

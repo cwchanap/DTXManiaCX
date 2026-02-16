@@ -98,28 +98,6 @@ namespace DTXMania.Test.Resources
             Assert.True(Path.IsPathRooted(effectivePath), "Absolute paths should remain rooted after normalization");
         }
 
-        [Fact]
-        public void SetBoxDefSkinPath_WithEmptyPath_ShouldClearPath()
-        {
-            // Arrange
-            using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
-
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
-
-            var defaultEffectivePath = resourceManager.GetCurrentEffectiveSkinPath();
-            resourceManager.SetBoxDefSkinPath("songs/test/skin");
-
-            // Act
-            resourceManager.SetBoxDefSkinPath("");
-
-            // Assert
-            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
-            Assert.Equal(defaultEffectivePath, effectivePath);
-            Assert.DoesNotContain("songs/test/skin", effectivePath);
-        }
-
         [Theory]
         [InlineData("")]
         [InlineData(null)]

@@ -344,12 +344,6 @@ namespace DTXMania.Game.Lib.Song.Components
                     try
                     {
                         _currentPreviewTexture = _resourceManager.LoadTexture(previewPath);
-
-                        // Verify the loaded texture is valid
-                        if (false) // Texture disposal removed
-                        {
-                            AssignDefaultPreviewTexture();
-                        }
                     }
                     catch (ObjectDisposedException)
                     {
@@ -369,8 +363,10 @@ namespace DTXMania.Game.Lib.Song.Components
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"PreviewImagePanel: Failed to load preview image: {ex.Message}");
                 // Try to use default texture as fallback, but check if it's valid first
                 if (_defaultPreviewTexture != null)
                 {
@@ -450,10 +446,12 @@ namespace DTXMania.Game.Lib.Song.Components
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     // Working directory can be unavailable (e.g., deleted temp dirs in tests).
                     // First try configured SongsRootPath, then base-directory anchored resolution.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"PreviewImagePanel: Primary path resolution failed for '{songDirectory}': {ex.Message}");
                     try
                     {
                         if (!string.IsNullOrEmpty(_songsRootPath))
@@ -468,15 +466,18 @@ namespace DTXMania.Game.Lib.Song.Components
 
                         songDirectory = System.IO.Path.GetFullPath(songDirectory);
                     }
-                    catch (Exception)
+                    catch (Exception ex2)
                     {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"PreviewImagePanel: SongsRootPath fallback failed for '{songDirectory}': {ex2.Message}");
                         try
                         {
                             songDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
                         }
-                        catch (Exception)
+                        catch (Exception ex3)
                         {
-                            // Keep original relative path as last resort.
+                            System.Diagnostics.Debug.WriteLine(
+                                $"PreviewImagePanel: All resolution attempts failed for '{songDirectory}': {ex3.Message}");
                         }
                     }
                 }

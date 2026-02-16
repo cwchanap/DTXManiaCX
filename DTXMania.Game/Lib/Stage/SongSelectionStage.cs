@@ -207,6 +207,10 @@ namespace DTXMania.Game.Lib.Stage
             // Attach a continuation to handle exceptions without waiting synchronously
             if (_songInitializationTask != null)
             {
+                // Capture the token source so we can dispose it after the task completes
+                var cts = _cancellationTokenSource;
+                _cancellationTokenSource = null;
+
                 // Observe the task result asynchronously via continuation to prevent unobserved exceptions
                 _songInitializationTask.ContinueWith(
                     task =>
@@ -217,15 +221,19 @@ namespace DTXMania.Game.Lib.Stage
                             System.Diagnostics.Debug.WriteLine(
                                 $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
                         }
-                        // If cancelled, that's expected - no action needed
+                        // Dispose the token source after the task has completed
+                        cts?.Dispose();
                     },
                     TaskScheduler.Default);
+            }
+            else
+            {
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
             }
 
             // Clean up task references
             _songInitializationTask = null;
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
 
             // Clean up UI
             _uiManager?.Dispose();
@@ -1142,11 +1150,6 @@ namespace DTXMania.Game.Lib.Stage
                         {
                             if (_previewSoundInstance != null)
                             {
-                                if (_previewSoundInstance.State == SoundState.Playing)
-                                {
-                                    _previewSoundInstance.Stop();
-                                }
-
                                 _previewSoundInstance.Dispose();
                                 _previewSoundInstance = null;
                             }
@@ -1165,15 +1168,18 @@ namespace DTXMania.Game.Lib.Stage
                             }
                         }
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: Failed to play preview sound: {ex.Message}");
                         try
                         {
                             _previewSoundInstance?.Dispose();
                         }
-                        catch (Exception)
+                        catch (Exception disposeEx)
                         {
-                            // Ignore disposal errors
+                            System.Diagnostics.Debug.WriteLine(
+                                $"SongSelectionStage: Failed to dispose preview sound instance: {disposeEx.Message}");
                         }
 
                         _previewSoundInstance = null;
@@ -1199,9 +1205,11 @@ namespace DTXMania.Game.Lib.Stage
                         float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
                         _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
-                        // BGM fade failed, continue
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: BGM fade out failed: {ex.Message}");
+                        _isBgmFadingOut = false; // Stop retrying on error
                     }
                 }
             }
@@ -1224,9 +1232,11 @@ namespace DTXMania.Game.Lib.Stage
                         float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
                         _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
-                        // BGM fade failed, continue
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: BGM fade in failed: {ex.Message}");
+                        _isBgmFadingIn = false; // Stop retrying on error
                     }
                 }
             }
@@ -1309,8 +1319,10 @@ namespace DTXMania.Game.Lib.Stage
                 _isPreviewDelayActive = true;
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: Failed to load preview sound: {ex.Message}");
                 ReleaseManagedSound(ref _previewSound);
                 return false;
             }
@@ -1337,9 +1349,10 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     _previewSoundInstance.Dispose();
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Ignore disposal errors
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongSelectionStage: Error stopping preview sound: {ex.Message}");
                 }
                 finally
                 {
