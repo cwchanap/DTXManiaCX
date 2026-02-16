@@ -352,44 +352,44 @@ namespace DTXMania.Game.Lib.Resources
         /// Based on DTXMania's box.def skin system
         /// </summary>
         /// <param name="boxDefSkinPath">Path to box.def skin directory</param>
-    public void SetBoxDefSkinPath(string boxDefSkinPath)
-    {
-        lock (_lockObject)
+        public void SetBoxDefSkinPath(string boxDefSkinPath)
         {
-            var oldPath = _boxDefSkinPath;
+            lock (_lockObject)
+            {
+                var oldPath = _boxDefSkinPath;
 
-            // Don't use NormalizePath for box.def skins - preserve relative paths
-            // so they resolve relative to the current working directory (song location)
-            var path = boxDefSkinPath ?? "";
-            if (string.IsNullOrEmpty(path))
-            {
-                _boxDefSkinPath = "";
-            }
-            else if (Path.IsPathRooted(path))
-            {
-                // Absolute paths: normalize normally
-                _boxDefSkinPath = NormalizePath(path);
-            }
-            else
-            {
-                // Relative paths: preserve as-is, just ensure proper separators
-                // Path.GetFullPath will resolve them relative to current directory when used
-                _boxDefSkinPath = path.Replace('\\', Path.DirectorySeparatorChar)
-                                      .Replace('/', Path.DirectorySeparatorChar);
-
-                // Ensure trailing separator for consistency
-                if (!_boxDefSkinPath.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                // Don't use NormalizePath for box.def skins - preserve relative paths
+                // so they resolve relative to the current working directory (song location)
+                var path = boxDefSkinPath ?? "";
+                if (string.IsNullOrEmpty(path))
                 {
-                    _boxDefSkinPath += Path.DirectorySeparatorChar;
+                    _boxDefSkinPath = "";
+                }
+                else if (Path.IsPathRooted(path))
+                {
+                    // Absolute paths: normalize normally
+                    _boxDefSkinPath = NormalizePath(path);
+                }
+                else
+                {
+                    // Relative paths: preserve as-is, just ensure proper separators
+                    // Path.GetFullPath will resolve them relative to current directory when used
+                    _boxDefSkinPath = path.Replace('\\', Path.DirectorySeparatorChar)
+                                          .Replace('/', Path.DirectorySeparatorChar);
+
+                    // Ensure trailing separator for consistency
+                    if (!_boxDefSkinPath.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                    {
+                        _boxDefSkinPath += Path.DirectorySeparatorChar;
+                    }
+                }
+
+                if (oldPath != _boxDefSkinPath)
+                {
+                    Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
                 }
             }
-
-            if (oldPath != _boxDefSkinPath)
-            {
-                Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
-            }
         }
-    }
 
         /// <summary>
         /// Enable or disable box.def skin usage
