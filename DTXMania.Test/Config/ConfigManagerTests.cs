@@ -435,43 +435,12 @@ Key.Bad=abc
         Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
 
-    [Theory]
-    [InlineData("Songs")]
-    [InlineData("./Songs")]
-    [InlineData(".\\Songs")]
-    [InlineData("Songs/")]
-    [InlineData("Songs\\")]
-    [InlineData("songs")]
-    public void ConfigManager_LoadConfig_LegacyDTXPath_ShouldMigrateToDTXFiles(string legacyPath)
-    {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Migration_{Guid.NewGuid():N}.ini");
-        var iniContent = $"[System]\nDTXPath={legacyPath}\n";
-        File.WriteAllText(tempFile, iniContent);
-
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert - DTXPath should be migrated to the new DTXFiles path
-            var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            Assert.Equal("DTXFiles", dtxPathDir);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
-    }
-
     [Fact]
-    public void ConfigManager_LoadConfig_CustomDTXPath_ShouldNotMigrate()
+    public void ConfigManager_LoadConfig_CustomDTXPath_ShouldBeHonored()
     {
         // Arrange
         var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_NoMigration_{Guid.NewGuid():N}.ini");
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_CustomPath_{Guid.NewGuid():N}.ini");
         var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
         var iniContent = $"[System]\nDTXPath={customPath}\n";
         File.WriteAllText(tempFile, iniContent);
@@ -481,8 +450,33 @@ Key.Bad=abc
             // Act
             manager.LoadConfig(tempFile);
 
-            // Assert - Custom path should NOT be migrated
+            // Assert - Custom path should be honored
             Assert.Contains("CustomSongs", manager.Config.DTXPath);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_EmptyDTXPath_ShouldUseDefault()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_EmptyPath_{Guid.NewGuid():N}.ini");
+        var iniContent = "[System]\nDTXPath=\n";
+        File.WriteAllText(tempFile, iniContent);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert - Empty path should use default DTXFiles
+            var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            Assert.Equal("DTXFiles", dtxPathDir);
         }
         finally
         {
