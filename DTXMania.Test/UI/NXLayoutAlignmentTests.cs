@@ -893,5 +893,68 @@ namespace DTXMania.Test.UI
         }
 
         #endregion
+
+        #region BPM and Difficulty Grid Alignment (D3, D4, D5)
+
+        [Fact]
+        public void DifficultyGrid_BaseX_ShouldBe130()
+        {
+            Assert.Equal(130, SongSelectionUILayout.DifficultyGrid.BaseX);
+        }
+
+        [Fact]
+        public void DifficultyGrid_BaseY_ShouldBe391()
+        {
+            // NX uses (391 + (4-i)*60 - 2); BaseY drives the formula, should be 391
+            Assert.Equal(391, SongSelectionUILayout.DifficultyGrid.BaseY);
+        }
+
+        [Fact]
+        public void BPMSection_X_ShouldBe90()
+        {
+            Assert.Equal(90, SongSelectionUILayout.BPMSection.X);
+        }
+
+        [Fact]
+        public void BPMSection_Y_ShouldBe275()
+        {
+            Assert.Equal(275, SongSelectionUILayout.BPMSection.Y);
+        }
+
+        [Fact]
+        public void BPMSection_LengthTextPosition_ShouldMatchNX()
+        {
+            // NX: nBPM位置X + 42, nBPM位置Y - 7 = (132, 268)
+            var pos = SongSelectionUILayout.BPMSection.LengthTextPosition;
+            Assert.Equal(132, (int)pos.X);
+            Assert.Equal(268, (int)pos.Y);
+        }
+
+        [Fact]
+        public void BPMSection_BPMTextPosition_ShouldMatchNX()
+        {
+            // NX: nBPM位置X + 45, nBPM位置Y + 23 = (135, 298)
+            var pos = SongSelectionUILayout.BPMSection.BPMTextPosition;
+            Assert.Equal(135, (int)pos.X);
+            Assert.Equal(298, (int)pos.Y);
+        }
+
+        [Fact]
+        public void DifficultyGrid_GetCellPosition_DrumsCol_ShouldUseBaseX130()
+        {
+            // instrument=0: nBoxX = 130 + 561 + (187 * (0 - 3)) = 130
+            var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+            Assert.Equal(130, (int)pos.X);
+        }
+
+        [Fact]
+        public void DifficultyGrid_GetCellPosition_HighestRow_ShouldUseBaseY391()
+        {
+            // diffLevel=4: nBoxY = 391 + (4-4)*60 - 2 = 389
+            var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+            Assert.Equal(389, (int)pos.Y);
+        }
+
+        #endregion
     }
 }
