@@ -956,5 +956,46 @@ namespace DTXMania.Test.UI
         }
 
         #endregion
+
+        #region Note Distribution Bars (D7)
+
+        [Fact]
+        public void NoteDistributionBars_Drums_StartX_ShouldBe46()
+        {
+            // NX: nGraphBaseX(15) + 31 = 46
+            Assert.Equal(46, SongSelectionUILayout.NoteDistributionBars.Drums.StartX);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_Drums_GetBarPosition_Lane0_ShouldStartAt46()
+        {
+            var pos = SongSelectionUILayout.NoteDistributionBars.Drums.GetBarPosition(0);
+            Assert.Equal(46, (int)pos.X);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_Drums_GetBarPosition_Lane1_ShouldBeAt54()
+        {
+            // 46 + 1 * (4 + 4) = 54
+            var pos = SongSelectionUILayout.NoteDistributionBars.Drums.GetBarPosition(1);
+            Assert.Equal(54, (int)pos.X);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_GuitarBass_BarSpacing_ShouldBe6()
+        {
+            // NX interval = 10; BarWidth=4; BarSpacing = 10 - 4 = 6
+            Assert.Equal(6, SongSelectionUILayout.NoteDistributionBars.GuitarBass.BarSpacing);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_GuitarBass_GetBarPosition_Lane1_ShouldBeAt63()
+        {
+            // StartX=53, interval=BarWidth(4)+BarSpacing(6)=10; lane1 = 53+10 = 63
+            var pos = SongSelectionUILayout.NoteDistributionBars.GuitarBass.GetBarPosition(1);
+            Assert.Equal(63, (int)pos.X);
+        }
+
+        #endregion
     }
 }
