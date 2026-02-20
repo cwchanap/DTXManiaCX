@@ -884,8 +884,8 @@ namespace DTXMania.Game.Lib.Song.Components
             var skinBarTexture = GetSkinBarTexture(barInfo.BarType, isCenter);
             if (skinBarTexture != null)
             {
-                // Draw skin bar texture stretched to bar bounds
-                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                // NX: selected bar skin texture is drawn 30px above the bar; title/lamp/preview stay at itemBounds.Y
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter);
                 skinBarTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_graphicsGenerator != null)
@@ -1058,6 +1058,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 default:
                     return node.DisplayTitle ?? "Unknown Song";
             }
+        }
+
+        /// <summary>
+        /// Calculate the destination rectangle for the skin bar texture.
+        /// NX: selected bar texture draws 30px higher than the bar bounds; title/lamp/preview stay at itemBounds.Y.
+        /// </summary>
+        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected)
+        {
+            int yOffset = isSelected ? SongSelectionUILayout.SongBars.SelectedBarTextureYOffset : 0;
+            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, itemBounds.Width, itemBounds.Height);
         }
 
         /// <summary>

@@ -692,6 +692,32 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void CalculateBarTextureBounds_WhenSelected_ShouldApplyYOffset()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(665, 269, 510, 48);
+
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true);
+
+        // NX: bar texture drawn at itemBounds.Y + SelectedBarTextureYOffset (-30) = 239
+        Assert.Equal(itemBounds.Y + SongSelectionUILayout.SongBars.SelectedBarTextureYOffset, textureBounds.Y);
+        Assert.Equal(itemBounds.X, textureBounds.X);
+        Assert.Equal(itemBounds.Width, textureBounds.Width);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenNotSelected_ShouldUseOriginalY()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(673, 100, 510, 48);
+
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false);
+
+        Assert.Equal(itemBounds.Y, textureBounds.Y);
+        Assert.Equal(itemBounds.X, textureBounds.X);
+    }
+
+    [Fact]
     public void CalculateArtistNamePosition_ShouldUseAbsoluteNXCoordinates()
     {
         var display = new SongListDisplay();
