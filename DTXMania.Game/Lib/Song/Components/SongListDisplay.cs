@@ -1061,6 +1061,17 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Calculate the absolute NX-authentic position for the artist name.
+        /// NX: x = 1260 - 25 - textWidth, y = 320 (right-aligned at absolute coordinate).
+        /// </summary>
+        private Vector2 CalculateArtistNamePosition(float textWidth)
+        {
+            return new Vector2(
+                SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth,
+                SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
+        }
+
+        /// <summary>
         /// Draw artist name for the currently selected song using SpriteFont
         /// </summary>
         private void DrawArtistName(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
@@ -1068,37 +1079,11 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _font == null)
                 return;
 
-            // Measure the artist text size
             var artistTextSize = _font.MeasureString(artistName);
-
-            // Calculate position using layout constants - right-aligned with padding
-            // Position artist name BELOW the song bar, not at the bottom edge of the bar
-            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * textScale.X);
-            var artistY = itemBounds.Bottom + (8 * textScale.Y); // Position below the bar with 8px spacing
-            var artistPosition = new Vector2(artistX, artistY);
-
-            // Ensure artist name doesn't exceed maximum width
-            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
-            var scaledWidth = artistTextSize.X * textScale.X;
-            var finalTextScale = textScale;
-
-            if (scaledWidth > maxWidth)
-            {
-                // Scale down to fit within maximum width
-                var widthScale = maxWidth / scaledWidth;
-                finalTextScale = new Vector2(textScale.X * widthScale, textScale.Y * widthScale);
-                
-                // Recalculate position with new scale
-                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * finalTextScale.X);
-                artistY = itemBounds.Bottom + (8 * finalTextScale.Y); // Keep consistent spacing below the bar
-                artistPosition = new Vector2(artistX, artistY);
-            }
-
-            // Use subtle gray color for artist name with opacity
+            var artistPos = CalculateArtistNamePosition(artistTextSize.X * textScale.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            // Draw artist name
-            spriteBatch.DrawString(_font, artistName, artistPosition, artistColor, 0f, Vector2.Zero, finalTextScale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_font, artistName, artistPos, artistColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
         }
 
         /// <summary>
@@ -1109,35 +1094,11 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _managedFont == null)
                 return;
 
-            // Measure the artist text size
             var artistTextSize = _managedFont.MeasureString(artistName);
-
-            // Calculate position using layout constants - right-aligned with padding
-            // Position artist name BELOW the song bar, not at the bottom edge of the bar
-            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
-            var artistY = itemBounds.Bottom + 8; // Position below the bar with 8px spacing
-            var artistPosition = new Vector2(artistX, artistY);
-
-            // Ensure artist name doesn't exceed maximum width
-            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
-            if (artistTextSize.X > maxWidth)
-            {
-                // For ManagedFont, we'll truncate the text if it's too long
-                // Note: ManagedFont scaling may not be supported, so we truncate instead
-                var truncatedText = TruncateTextToWidth(artistName, maxWidth, _managedFont);
-                artistName = truncatedText;
-                
-                // Recalculate position with truncated text
-                artistTextSize = _managedFont.MeasureString(artistName);
-                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
-                artistPosition = new Vector2(artistX, artistY);
-            }
-
-            // Use subtle gray color for artist name with opacity
+            var artistPos = CalculateArtistNamePosition(artistTextSize.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            // Draw artist name using ManagedFont
-            _managedFont.DrawString(spriteBatch, artistName, artistPosition, artistColor);
+            _managedFont.DrawString(spriteBatch, artistName, artistPos, artistColor);
         }
 
         /// <summary>
