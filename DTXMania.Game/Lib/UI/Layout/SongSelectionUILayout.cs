@@ -168,7 +168,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Drums configuration (10 lanes)
             public static class Drums
             {
-                public const int StartX = 50;  // Start position X (15 + 31)
+                public const int StartX = 46;  // NX authentic: nGraphBaseX(15) + 31 = 46
                 public const int StartY = 400; // Start position Y (368 + 21)
                 public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
@@ -189,7 +189,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             {
                 public const int StartX = 53;  // Start position X (15 + 38)
                 public const int StartY = 389; // Start position Y (368 + 21)
-                public const int BarSpacing = 10; // Space between bars
+                public const int BarSpacing = 6;  // NX authentic: interval=10, BarWidth=4, so spacing=6
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
                 public const int LaneCount = 6;   // Number of guitar/bass lanes
