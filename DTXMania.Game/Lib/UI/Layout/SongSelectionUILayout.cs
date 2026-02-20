@@ -34,20 +34,18 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class BPMSection
         {
-            public const int X = 32;  // Relative to status panel
-            public const int Y = 258; // Absolute Y position
+            public const int X = 90;  // NX authentic: nBPM位置X = 90
+            public const int Y = 275; // NX authentic: nBPM位置Y = 275
             public const int Width = 200;
             public const int Height = 50;
-            public const int LineSpacing = 20; // Space between Length and BPM text
-            public const int TextXOffset = 75; // Additional X offset for both Length and BPM text positioning
-            
+
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
-            
-            // Individual text positions
-            public static Vector2 LengthTextPosition => new Vector2(X + TextXOffset, Y);
-            public static Vector2 BPMTextPosition => new Vector2(X + TextXOffset, Y + LineSpacing);
+
+            // NX authentic: nBPM位置X+42, nBPM位置Y-7 and nBPM位置X+45, nBPM位置Y+23
+            public static Vector2 LengthTextPosition => new Vector2(X + 42, Y - 7);
+            public static Vector2 BPMTextPosition => new Vector2(X + 45, Y + 23);
         }
         
         #endregion
@@ -59,8 +57,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class DifficultyGrid
         {
-            public const int BaseX = 150;  // Main panel X position
-            public const int BaseY = 400;  // Main panel Y position
+            public const int BaseX = 130;  // NX authentic: nBaseX = 130
+            public const int BaseY = 391;  // NX authentic: nBoxY = 391 + (4-i)*60 - 2
             public const int GridX = 140;  // Grid base X position (relative to main panel)
             public const int GridY = 52;   // Grid base Y position (relative to main panel)
             public const int CellWidth = 187;  // Panel width per difficulty cell
