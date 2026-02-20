@@ -997,5 +997,30 @@ namespace DTXMania.Test.UI
         }
 
         #endregion
+
+        #region Artist Name and Selected Bar (D2, D6)
+
+        [Fact]
+        public void SongBars_ArtistNameAbsoluteRightEdge_ShouldBe1235()
+        {
+            // NX: 1260 - 25 = 1235 (right-aligned artist name edge)
+            Assert.Equal(1235, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge);
+        }
+
+        [Fact]
+        public void SongBars_ArtistNameAbsoluteY_ShouldBe320()
+        {
+            // NX: y = 320 (absolute Y for artist name)
+            Assert.Equal(320, SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
+        }
+
+        [Fact]
+        public void SongBars_SelectedBarTextureYOffset_ShouldBeMinus30()
+        {
+            // NX: bar texture drawn at y - 30; title/lamp stay at y
+            Assert.Equal(-30, SongSelectionUILayout.SongBars.SelectedBarTextureYOffset);
+        }
+
+        #endregion
     }
 }

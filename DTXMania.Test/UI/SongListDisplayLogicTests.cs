@@ -6,6 +6,7 @@ using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Moq;
 
@@ -688,6 +689,30 @@ public class SongListDisplayLogicTests
 
         Assert.False(GetField<bool>(display, "_skinBarTexturesLoaded"));
         Assert.Null(GetField<ITexture?>(display, "_barScoreTexture"));
+    }
+
+    [Fact]
+    public void CalculateArtistNamePosition_ShouldUseAbsoluteNXCoordinates()
+    {
+        var display = new SongListDisplay();
+        float textWidth = 150f;
+
+        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+
+        // NX: x = 1260 - 25 - textWidth = 1235 - textWidth
+        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth, pos.X);
+        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteY, (int)pos.Y);
+    }
+
+    [Fact]
+    public void CalculateArtistNamePosition_WhenTextWider_ShouldStillUseAbsoluteEdge()
+    {
+        var display = new SongListDisplay();
+        float textWidth = 400f;
+
+        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+
+        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth, pos.X);
     }
 
     private static List<SongListNode> CreateSongs(int count)

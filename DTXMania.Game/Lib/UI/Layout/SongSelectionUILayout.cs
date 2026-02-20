@@ -260,10 +260,12 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
             
-            // Artist name display layout (for currently selected song)
-            public const int ArtistNameRightMargin = 10;  // Margin from right edge of song bar
-            public const int ArtistNameLeftPadding = 5;   // Padding from song title text area
-            public const int ArtistNameMaxWidth = 200;    // Maximum width for artist name text
+            // Artist name display layout (absolute NX-authentic coordinates)
+            public const int ArtistNameAbsoluteRightEdge = 1235; // NX: 1260 - 25 (right-aligned)
+            public const int ArtistNameAbsoluteY = 320;           // NX: y = 320 (absolute)
+
+            // Selected bar skin texture vertical offset
+            public const int SelectedBarTextureYOffset = -30;     // NX: bar texture at y-30, title/lamp stay at y
             
             // Spacing and positioning within bars
             public const int PreviewImageMargin = 5;   // Margin around preview image
