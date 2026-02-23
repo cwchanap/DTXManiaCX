@@ -513,9 +513,13 @@ namespace DTXMania.Game.Lib.Song.Components
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
             // Use NX-authentic preimage panel frame texture if available
+            // Draw at natural texture size (matching NX's tDraw2D behavior), not scaled to bounds.
+            // The texture is designed for the natural panel size and has a transparent right portion.
             if (_preimagePanelTexture != null)
             {
-                _preimagePanelTexture.Draw(spriteBatch, bounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                var naturalBounds = new Rectangle(bounds.X, bounds.Y,
+                    _preimagePanelTexture.Width, _preimagePanelTexture.Height);
+                _preimagePanelTexture.Draw(spriteBatch, naturalBounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 return;
             }
 
@@ -541,22 +545,23 @@ namespace DTXMania.Game.Lib.Song.Components
             Rectangle contentBounds;
             if (_hasStatusPanel)
             {
-                // With status panel: X+8, Y+8 offset
+                // With status panel: NX n差X=8, n差Y=8, n表示ジャケットサイズ=292
+                // Content origin at panel + (8,8), size is the jacket constant (NOT bounds minus 2×offset)
                 contentBounds = new Rectangle(
                     bounds.X + CONTENT_OFFSET_WITH_STATUS,
                     bounds.Y + CONTENT_OFFSET_WITH_STATUS,
-                    bounds.Width - (CONTENT_OFFSET_WITH_STATUS * 2),
-                    bounds.Height - (CONTENT_OFFSET_WITH_STATUS * 2)
+                    WITH_STATUS_PANEL_SIZE,
+                    WITH_STATUS_PANEL_SIZE
                 );
             }
             else
             {
-                // Without status panel: X+37, Y+24 offset
+                // Without status panel: NX n差X=37, n差Y=24, n表示ジャケットサイズ=368
                 contentBounds = new Rectangle(
                     bounds.X + CONTENT_OFFSET_WITHOUT_STATUS,
                     bounds.Y + CONTENT_OFFSET_Y_WITHOUT_STATUS,
-                    bounds.Width - (CONTENT_OFFSET_WITHOUT_STATUS * 2),
-                    bounds.Height - (CONTENT_OFFSET_Y_WITHOUT_STATUS * 2)
+                    WITHOUT_STATUS_PANEL_SIZE,
+                    WITHOUT_STATUS_PANEL_SIZE
                 );
             }
 
