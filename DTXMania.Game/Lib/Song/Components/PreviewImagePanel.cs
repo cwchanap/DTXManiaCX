@@ -576,26 +576,10 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 try
                 {
-                    // Maintain aspect ratio and center the image
-                    var sourceSize = new Vector2(textureToUse.Width, textureToUse.Height);
-                    var targetSize = new Vector2(contentBounds.Width, contentBounds.Height);
-
-                    var scale = Math.Min(targetSize.X / sourceSize.X, targetSize.Y / sourceSize.Y);
-                    var scaledSize = sourceSize * scale;
-
-                    var centeredPosition = new Vector2(
-                        contentBounds.X + (contentBounds.Width - scaledSize.X) / 2,
-                        contentBounds.Y + (contentBounds.Height - scaledSize.Y) / 2
-                    );
-
-                    var destRect = new Rectangle(
-                        (int)centeredPosition.X,
-                        (int)centeredPosition.Y,
-                        (int)scaledSize.X,
-                        (int)scaledSize.Y
-                    );
-
-                    textureToUse.Draw(spriteBatch, destRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    // Stretch to fill the content area (matching NX behavior - no letterboxing).
+                    // The frame texture's opaque interior would otherwise show as gray gaps
+                    // around non-square images.
+                    textureToUse.Draw(spriteBatch, contentBounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 }
                 catch (ObjectDisposedException)
                 {
