@@ -202,6 +202,71 @@ public class GameInteractionMcpToolHandlers
         return BuildResult(success, message, payload);
     }
 
+    [McpServerTool(Name = "game_launch", Title = "Launch Game")]
+    public async Task<CallToolResult> LaunchAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var (success, message) = await _interactionService.LaunchGameAsync(cancellationToken);
+        return BuildResult(success, message, new { action = "launch" });
+    }
+
+    [McpServerTool(Name = "game_restart", Title = "Restart Game")]
+    public async Task<CallToolResult> RestartAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var (success, message) = await _interactionService.RestartGameAsync(cancellationToken);
+        return BuildResult(success, message, new { action = "restart" });
+    }
+
+    [McpServerTool(Name = "game_screenshot", Title = "Take Screenshot")]
+    public async Task<CallToolResult> TakeScreenshotAsync(
+        string client_id,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(client_id))
+            return BuildResult(false, "client_id is required", null);
+
+        var (success, message, imageData, mimeType) = await _interactionService.TakeScreenshotAsync(client_id, cancellationToken);
+
+        if (!success || imageData == null)
+            return BuildResult(false, message, new { action = "screenshot", client_id });
+
+        var result = new CallToolResult
+        {
+            IsError = false,
+            Content = new List<ContentBlock>
+            {
+                new TextContentBlock { Text = message },
+                new ImageContentBlock { Data = imageData, MimeType = mimeType ?? "image/png" }
+            }
+        };
+        return result;
+    }
+
+    [McpServerTool(Name = "game_change_stage", Title = "Change Game Stage")]
+    public async Task<CallToolResult> ChangeStageAsync(
+        string client_id,
+        string stage_name,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(client_id))
+            return BuildResult(false, "client_id is required", null);
+
+        if (string.IsNullOrWhiteSpace(stage_name))
+            return BuildResult(false, "stage_name is required. Valid values: Startup, Title, Config, SongSelect, SongTransition, Performance, Result", null);
+
+        var (success, message) = await _interactionService.ChangeStageAsync(client_id, stage_name, cancellationToken);
+        return BuildResult(success, message, new { action = "change_stage", client_id, stage_name });
+    }
+
     private static CallToolResult BuildResult(bool success, string message, object? payload)
     {
         var result = new CallToolResult

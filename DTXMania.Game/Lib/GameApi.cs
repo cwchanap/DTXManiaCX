@@ -26,6 +26,19 @@ public interface IGameApi
     Task<GameWindowInfo> GetWindowInfoAsync();
 
     /// <summary>
+    /// Capture a screenshot of the current frame as a PNG byte array.
+    /// This is fulfilled on the game's main thread during the next Draw() call.
+    /// </summary>
+    Task<byte[]?> TakeScreenshotAsync();
+
+    /// <summary>
+    /// Request a stage transition to the named stage.
+    /// The actual transition is queued and executed on the game's main Update() thread.
+    /// </summary>
+    /// <param name="stageName">The stage name (e.g. "Title", "SongSelect"). Case-insensitive.</param>
+    Task<bool> ChangeStageAsync(string stageName);
+
+    /// <summary>
     /// Check if game is running
     /// </summary>
     bool IsRunning { get; }
