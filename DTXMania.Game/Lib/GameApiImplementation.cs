@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using System.Text.Json;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Input;
 
@@ -18,6 +19,18 @@ public interface IGameContext
     IStageManager? StageManager { get; }
     IConfigManager? ConfigManager { get; }
     IInputManagerCompat? InputManager { get; }
+    IGraphicsManager? GraphicsManager { get; }
+
+    /// <summary>
+    /// Queues an action to run on the game's main thread during the next Update() tick.
+    /// </summary>
+    void QueueMainThreadAction(Action action);
+
+    /// <summary>
+    /// Schedules a screenshot capture to occur on the next Draw() call.
+    /// Returns PNG bytes when fulfilled on the main thread.
+    /// </summary>
+    Task<byte[]?> CaptureScreenshotAsync();
 }
 
 /// <summary>
@@ -195,6 +208,27 @@ public class GameApiImplementation : IGameApi
     public async Task<GameWindowInfo> GetWindowInfoAsync()
     {
         return await Task.FromResult(GetWindowInfoSafe());
+    }
+
+    public Task<byte[]?> TakeScreenshotAsync()
+    {
+        return _game.CaptureScreenshotAsync();
+    }
+
+    public Task<bool> ChangeStageAsync(string stageName)
+    {
+        if (!Enum.TryParse<StageType>(stageName, ignoreCase: true, out var stageType))
+        {
+            _logger?.LogWarning("Game API: Unknown stage name '{StageName}'", stageName);
+            return Task.FromResult(false);
+        }
+
+        _game.QueueMainThreadAction(() =>
+        {
+            _game.StageManager?.ChangeStage(stageType, new DTXManiaFadeTransition());
+        });
+
+        return Task.FromResult(true);
     }
 
     private GameWindowInfo GetWindowInfoSafe()

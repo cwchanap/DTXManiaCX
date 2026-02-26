@@ -285,11 +285,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 case "sendInput":
                     return await HandleSendInput(request);
                 
+                case "takeScreenshot":
+                    return await HandleTakeScreenshot(request);
+
+                case "changeStage":
+                    return await HandleChangeStage(request);
+
                 case "ping":
                     return CreateSuccessResponse(request.Id, new { pong = true, timestamp = DateTime.UtcNow });
-                
+
                 default:
-                    return CreateErrorResponse(request.Id, JsonRpcErrorCodes.MethodNotFound, 
+                    return CreateErrorResponse(request.Id, JsonRpcErrorCodes.MethodNotFound,
                         $"Method '{request.Method}' not found");
             }
         }
@@ -384,6 +390,80 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams, 
                 $"Invalid input format: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Handle takeScreenshot method
+    /// </summary>
+    private async Task<JsonRpcResponse> HandleTakeScreenshot(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        var pngBytes = await _gameApi.TakeScreenshotAsync();
+        if (pngBytes == null)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InternalError,
+                "Screenshot capture failed (render target unavailable or already pending)");
+        }
+
+        var base64 = Convert.ToBase64String(pngBytes);
+        return CreateSuccessResponse(request.Id, new
+        {
+            imageData = base64,
+            mimeType = "image/png"
+        });
+    }
+
+    /// <summary>
+    /// Handle changeStage method
+    /// </summary>
+    private async Task<JsonRpcResponse> HandleChangeStage(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        if (request.Params == null)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "stageName parameter is required");
+        }
+
+        string? stageName = null;
+        try
+        {
+            if (request.Params is JsonElement paramsElement)
+            {
+                if (paramsElement.TryGetProperty("stageName", out var stageNameProp))
+                    stageName = stageNameProp.GetString();
+            }
+        }
+        catch (JsonException ex)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                $"Invalid params format: {ex.Message}");
+        }
+
+        if (string.IsNullOrWhiteSpace(stageName))
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "stageName must be a non-empty string");
+        }
+
+        var success = await _gameApi.ChangeStageAsync(stageName);
+        if (!success)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                $"Unknown stage name '{stageName}'. Valid values: Startup, Title, Config, SongSelect, SongTransition, Performance, Result");
+        }
+
+        return CreateSuccessResponse(request.Id, new { success = true, stageName });
     }
 
     /// <summary>
