@@ -217,7 +217,8 @@ public class GameApiImplementation : IGameApi
 
     public Task<bool> ChangeStageAsync(string stageName)
     {
-        if (!Enum.TryParse<StageType>(stageName, ignoreCase: true, out var stageType))
+        if (!Enum.TryParse<StageType>(stageName, ignoreCase: true, out var stageType)
+            || !Enum.IsDefined(typeof(StageType), stageType))
         {
             _logger?.LogWarning("Game API: Unknown stage name '{StageName}'", stageName);
             return Task.FromResult(false);

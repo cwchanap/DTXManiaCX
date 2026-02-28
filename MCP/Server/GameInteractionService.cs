@@ -560,11 +560,20 @@ public class GameInteractionService : IDisposable
 
         while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
         {
+            // If the process we spawned has already exited, it failed (e.g. port conflict)
+            if (_gameProcess != null && _gameProcess.HasExited)
+                return false;
+
             try
             {
                 var response = await httpClient.GetAsync(healthUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
+                {
+                    // Confirm our process is still alive — health may come from a pre-existing instance
+                    if (_gameProcess != null && _gameProcess.HasExited)
+                        return false;
                     return true;
+                }
             }
             catch
             {

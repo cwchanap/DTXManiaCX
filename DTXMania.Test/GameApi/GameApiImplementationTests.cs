@@ -358,6 +358,26 @@ namespace DTXMania.Test.GameApi
         }
 
         [Theory]
+        [InlineData("99")]
+        [InlineData("100")]
+        [InlineData("-1")]
+        [InlineData("7")]
+        public async Task ChangeStageAsync_WithNumericString_ShouldReturnFalse(string numericStageName)
+        {
+            // Enum.TryParse accepts numeric strings even when the value is not a defined enum member.
+            // A numeric like "99" would parse to (StageType)99, which is undefined and would throw
+            // inside GetOrCreateStage on the main thread. Verify we reject such inputs up front.
+            var gameContext = new Mock<IGameContext>();
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.ChangeStageAsync(numericStageName);
+
+            Assert.False(result);
+            gameContext.Verify(g => g.QueueMainThreadAction(It.IsAny<Action>()), Times.Never);
+        }
+
+        [Theory]
         [InlineData("title")]
         [InlineData("TITLE")]
         [InlineData("Title")]
