@@ -525,6 +525,190 @@ namespace DTXMania.Test.JsonRpc
             Assert.Contains("-32602", responseContent); // Invalid params error code
         }
 
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_TakeScreenshot_WhenGameRunning_ShouldReturnBase64ImageData()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            var pngBytes = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }; // PNG magic bytes
+            _mockGameApi.Setup(api => api.TakeScreenshotAsync()).ReturnsAsync(pngBytes);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new JsonRpcRequest { Id = 1, Method = "takeScreenshot" };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.True(response.IsSuccessStatusCode);
+            Assert.Contains("imageData", responseContent);
+            Assert.Contains("image/png", responseContent);
+            var expectedBase64 = Convert.ToBase64String(pngBytes);
+            Assert.Contains(expectedBase64, responseContent);
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_TakeScreenshot_WhenGameNotRunning_ShouldReturnGameNotRunningError()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _mockGameApi.Setup(api => api.IsRunning).Returns(false);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new JsonRpcRequest { Id = 1, Method = "takeScreenshot" };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Contains("-32001", responseContent); // GameNotRunning error code
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_TakeScreenshot_WhenCaptureReturnsNull_ShouldReturnInternalError()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _mockGameApi.Setup(api => api.TakeScreenshotAsync()).ReturnsAsync((byte[]?)null);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new JsonRpcRequest { Id = 1, Method = "takeScreenshot" };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Contains("-32603", responseContent); // InternalError code
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_ChangeStage_WithValidStage_ShouldReturnSuccess()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _mockGameApi.Setup(api => api.ChangeStageAsync("SongSelect")).ReturnsAsync(true);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "changeStage",
+                @params = new { stageName = "SongSelect" }
+            };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.True(response.IsSuccessStatusCode);
+            Assert.Contains("true", responseContent); // success: true
+            Assert.Contains("SongSelect", responseContent);
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_ChangeStage_WithInvalidStage_ShouldReturnInvalidParamsError()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _mockGameApi.Setup(api => api.ChangeStageAsync("NonExistent")).ReturnsAsync(false);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "changeStage",
+                @params = new { stageName = "NonExistent" }
+            };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Contains("-32602", responseContent); // InvalidParams error code
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_ChangeStage_WithMissingParams_ShouldReturnInvalidParamsError()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new JsonRpcRequest { Id = 1, Method = "changeStage", Params = null };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Contains("-32602", responseContent); // InvalidParams error code
+        }
+
+        [Fact(Skip = "Integration test - requires server infrastructure")]
+        public async Task JsonRpcEndpoint_ChangeStage_WhenGameNotRunning_ShouldReturnGameNotRunningError()
+        {
+            // Arrange
+            var port = GetRandomPort();
+            _mockGameApi.Setup(api => api.IsRunning).Returns(false);
+
+            _server = new JsonRpcServer(_mockGameApi.Object, port: port);
+            await _server.StartAsync();
+
+            using var client = new HttpClient();
+            var request = new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "changeStage",
+                @params = new { stageName = "Title" }
+            };
+            var json = JsonSerializer.Serialize(request);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await client.PostAsync($"http://localhost:{port}/jsonrpc", content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Contains("-32001", responseContent); // GameNotRunning error code
+        }
+
         #endregion
 
         #region Helper Methods
