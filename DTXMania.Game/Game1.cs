@@ -13,6 +13,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
+using System.Collections.Concurrent;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,6 +49,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     public InputManagerCompat InputManager { get; protected set; } = null!;
     IInputManagerCompat? IGameContext.InputManager => InputManager;
     public IGraphicsManager GraphicsManager => _graphicsManager;
+    IGraphicsManager? IGameContext.GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; } = null!;
 
     
@@ -61,6 +64,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     private JsonRpcServer? _jsonRpcServer;
     private GameApiImplementation? _gameApiImplementation;
     private CancellationTokenSource? _gameApiCancellation;
+
+    // Main-thread action queue for thread-safe game API calls
+    private readonly ConcurrentQueue<Action> _mainThreadActions = new();
+
+    // Screenshot capture: set by a background thread, fulfilled during Draw()
+    private TaskCompletionSource<byte[]?>? _pendingScreenshot;
     
     /// <summary>
     /// Checks if enough time has passed since the last stage transition to allow a new one
@@ -76,6 +85,24 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     public void MarkStageTransition()
     {
         _lastStageTransitionTime = _totalGameTime;
+    }
+
+    void IGameContext.QueueMainThreadAction(Action action)
+    {
+        _mainThreadActions.Enqueue(action);
+    }
+
+    Task<byte[]?> IGameContext.CaptureScreenshotAsync()
+    {
+        var tcs = new TaskCompletionSource<byte[]?>();
+        // Use Interlocked.CompareExchange to allow only one pending screenshot at a time
+        var previous = Interlocked.CompareExchange(ref _pendingScreenshot, tcs, null);
+        if (previous != null)
+        {
+            // Another screenshot is already pending; return a failure immediately
+            return Task.FromResult<byte[]?>(null);
+        }
+        return tcs.Task;
     }
 
     public BaseGame()
@@ -223,13 +250,25 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Update stage manager after config is loaded
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
+        // Drain the main-thread action queue (used by the Game API for stage transitions etc.)
+        while (_mainThreadActions.TryDequeue(out var action))
+        {
+            try { action(); }
+            catch (Exception ex) { _logger.LogError(ex, "Main-thread action from Game API threw an exception"); }
+        }
+
         base.Update(gameTime);
     }
 
     protected override void Draw(GameTime gameTime)
     {
         if (!_graphicsManager.IsDeviceAvailable)
+        {
+            // Fulfill any pending screenshot with null so callers are not blocked indefinitely
+            var skippedScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
+            skippedScreenshot?.TrySetResult(null);
             return;
+        }
 
         // Ensure render target is valid before using it
         if (_renderTarget == null || _renderTarget.IsDisposed)
@@ -247,6 +286,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
         StageManager?.Draw(gameTime.ElapsedGameTime.TotalSeconds);
 
+        // Fulfill any pending screenshot request (render target is fully rendered at this point)
+        var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
+        if (pendingScreenshot != null)
+        {
+            try
+            {
+                pendingScreenshot.SetResult(CaptureRenderTargetAsPng(_renderTarget));
+            }
+            catch (Exception ex)
+            {
+                pendingScreenshot.SetException(ex);
+            }
+        }
+
         // Draw render target to screen
         GraphicsDevice.SetRenderTarget(null);
         GraphicsDevice.Clear(Color.Black);
@@ -261,6 +314,16 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         }
 
         base.Draw(gameTime);
+    }
+
+    private static byte[]? CaptureRenderTargetAsPng(RenderTarget2D? renderTarget)
+    {
+        if (renderTarget == null || renderTarget.IsDisposed)
+            return null;
+
+        using var stream = new MemoryStream();
+        renderTarget.SaveAsPng(stream, renderTarget.Width, renderTarget.Height);
+        return stream.ToArray();
     }
 
     private void OnGraphicsSettingsChanged(object? sender, GraphicsSettingsChangedEventArgs e)
