@@ -263,7 +263,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     protected override void Draw(GameTime gameTime)
     {
         if (!_graphicsManager.IsDeviceAvailable)
+        {
+            // Fulfill any pending screenshot with null so callers are not blocked indefinitely
+            var skippedScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
+            skippedScreenshot?.TrySetResult(null);
             return;
+        }
 
         // Ensure render target is valid before using it
         if (_renderTarget == null || _renderTarget.IsDisposed)

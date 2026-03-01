@@ -494,9 +494,14 @@ public class GameInteractionService : IDisposable
                 CreateNoWindow = false
             };
 
-            _gameProcess = Process.Start(startInfo);
-            if (_gameProcess == null)
+            if (_gameProcess != null && !_gameProcess.HasExited)
+                return (false, $"Game is already running (PID: {_gameProcess.Id}). Use restart to relaunch.");
+
+            var newProcess = Process.Start(startInfo);
+            if (newProcess == null)
                 return (false, "Failed to start the game process");
+
+            _gameProcess = newProcess;
 
             _logger.LogInformation("Game process started (PID: {Pid}). Waiting for API readiness...", _gameProcess.Id);
 
