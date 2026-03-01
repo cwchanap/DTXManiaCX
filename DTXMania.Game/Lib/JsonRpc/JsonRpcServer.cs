@@ -459,8 +459,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         var success = await _gameApi.ChangeStageAsync(stageName);
         if (!success)
         {
+            var validNames = string.Join(", ", Enum.GetNames(typeof(DTXMania.Game.Lib.Stage.StageType)));
             return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
-                $"Unknown stage name '{stageName}'. Valid values: Startup, Title, Config, SongSelect, SongTransition, Performance, Result");
+                $"Unknown stage name '{stageName}'. Valid values: {validNames}");
         }
 
         return CreateSuccessResponse(request.Id, new { success = true, stageName });
