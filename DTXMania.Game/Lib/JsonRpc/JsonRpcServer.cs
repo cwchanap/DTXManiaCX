@@ -79,7 +79,11 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
 
             try
             {
-                _host = Host.CreateDefaultBuilder()
+                // Use HostBuilder directly (instead of Host.CreateDefaultBuilder) to avoid
+                // calling Directory.GetCurrentDirectory(), which can fail when the process
+                // working directory is deleted (e.g. in parallel test runs).
+                _host = new HostBuilder()
+                    .UseContentRoot(AppContext.BaseDirectory)
                     .ConfigureWebHostDefaults(webBuilder =>
                     {
                         webBuilder.UseKestrel(options =>

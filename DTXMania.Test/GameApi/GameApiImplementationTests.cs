@@ -106,6 +106,32 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
+        public async Task SendInputAsync_WithNullInput_ShouldReturnFalse()
+        {
+            var gameContext = new Mock<IGameContext>();
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.SendInputAsync(null!);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task GetWindowInfoAsync_WhenContextThrows_ShouldReturnFallback()
+        {
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.ConfigManager).Throws(new InvalidOperationException("crash"));
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.GetWindowInfoAsync();
+
+            Assert.NotNull(result);
+            Assert.Contains("Error", result.Title);
+            Assert.False(result.IsVisible);
+        }
+
+        [Fact]
         public async Task GetGameStateAsync_WhenContextThrows_ShouldReturnSanitizedError_AndLog()
         {
             var logger = new Mock<ILogger<GameApiImplementation>>();
