@@ -416,6 +416,9 @@ public class GameInteractionService : IDisposable
                 return (false, "No imageData in response", null, null);
 
             var imageData = imageDataProp.GetString();
+            if (string.IsNullOrEmpty(imageData))
+                return (false, "imageData is null or empty", null, null);
+
             var mimeType = resultElement.TryGetProperty("mimeType", out var mimeTypeProp)
                 ? mimeTypeProp.GetString() ?? "image/png"
                 : "image/png";
@@ -611,7 +614,7 @@ public class GameInteractionService : IDisposable
 
             try
             {
-                var response = await httpClient.GetAsync(healthUrl, cancellationToken);
+                using var response = await httpClient.GetAsync(healthUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     // Confirm our process is still alive — health may come from a pre-existing instance
@@ -620,9 +623,13 @@ public class GameInteractionService : IDisposable
                     return true;
                 }
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Not ready yet
+                throw; // Propagate caller's cancellation
+            }
+            catch (HttpRequestException)
+            {
+                // Transient network error - not ready yet
             }
 
             await Task.Delay(1000, cancellationToken);

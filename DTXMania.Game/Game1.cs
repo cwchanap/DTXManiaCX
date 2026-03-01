@@ -94,7 +94,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     Task<byte[]?> IGameContext.CaptureScreenshotAsync()
     {
-        var tcs = new TaskCompletionSource<byte[]?>();
+        var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
         // Use Interlocked.CompareExchange to allow only one pending screenshot at a time
         var previous = Interlocked.CompareExchange(ref _pendingScreenshot, tcs, null);
         if (previous != null)
