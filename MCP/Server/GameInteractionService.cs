@@ -40,6 +40,7 @@ public class GameInteractionService : IDisposable
     private readonly string _gameApiUrl;
     private readonly string? _gameProjectPath;
     private Process? _gameProcess;
+    private readonly SemaphoreSlim _gameOpLock = new(1, 1);
     private static readonly JsonSerializerOptions ResponseDeserializationOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -477,10 +478,65 @@ public class GameInteractionService : IDisposable
     /// </summary>
     public async Task<(bool Success, string Message)> LaunchGameAsync(CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_gameProjectPath))
+        await _gameOpLock.WaitAsync(cancellationToken);
+        try
         {
-            return (false, "Game project path is not configured. Set DTXMANIA_PROJECT_PATH environment variable.");
+            return await LaunchGameCoreAsync(cancellationToken);
         }
+        finally
+        {
+            _gameOpLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Restart the game: kill the tracked process (if any) then launch a fresh instance.
+    /// </summary>
+    public async Task<(bool Success, string Message)> RestartGameAsync(CancellationToken cancellationToken = default)
+    {
+        await _gameOpLock.WaitAsync(cancellationToken);
+        try
+        {
+            _logger.LogInformation("Restarting game...");
+
+            // Kill existing tracked process
+            if (_gameProcess != null && !_gameProcess.HasExited)
+            {
+                try
+                {
+                    _logger.LogInformation("Killing existing game process (PID: {Pid})", _gameProcess.Id);
+                    _gameProcess.Kill(entireProcessTree: true);
+                    await _gameProcess.WaitForExitAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error killing game process; continuing with relaunch");
+                }
+                finally
+                {
+                    _gameProcess.Dispose();
+                    _gameProcess = null;
+                }
+            }
+
+            // Brief pause to allow port release
+            await Task.Delay(500, cancellationToken);
+
+            return await LaunchGameCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _gameOpLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Core launch logic. Must be called with _gameOpLock held.
+    /// </summary>
+    private async Task<(bool Success, string Message)> LaunchGameCoreAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_gameProjectPath))
+            return (false, "Game project path is not configured. Set DTXMANIA_PROJECT_PATH environment variable.");
 
         _logger.LogInformation("Launching game from project path: {ProjectPath}", _gameProjectPath);
 
@@ -507,7 +563,24 @@ public class GameInteractionService : IDisposable
 
             var ready = await WaitForGameReadyAsync(timeoutSeconds: 60, cancellationToken);
             if (!ready)
+            {
+                // Process is unresponsive — kill and clear it so the user can retry
+                try
+                {
+                    if (_gameProcess != null && !_gameProcess.HasExited)
+                        _gameProcess.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error killing unresponsive game process after timeout");
+                }
+                finally
+                {
+                    _gameProcess?.Dispose();
+                    _gameProcess = null;
+                }
                 return (false, "Game process started but did not become ready within 60 seconds");
+            }
 
             return (true, $"Game launched and ready (PID: {_gameProcess.Id})");
         }
@@ -516,39 +589,6 @@ public class GameInteractionService : IDisposable
             _logger.LogError(ex, "Failed to launch game");
             return (false, $"Error launching game: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Restart the game: kill the tracked process (if any) then launch a fresh instance.
-    /// </summary>
-    public async Task<(bool Success, string Message)> RestartGameAsync(CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("Restarting game...");
-
-        // Kill existing tracked process
-        if (_gameProcess != null && !_gameProcess.HasExited)
-        {
-            try
-            {
-                _logger.LogInformation("Killing existing game process (PID: {Pid})", _gameProcess.Id);
-                _gameProcess.Kill(entireProcessTree: true);
-                await _gameProcess.WaitForExitAsync(cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error killing game process; continuing with relaunch");
-            }
-            finally
-            {
-                _gameProcess.Dispose();
-                _gameProcess = null;
-            }
-        }
-
-        // Brief pause to allow port release
-        await Task.Delay(500, cancellationToken);
-
-        return await LaunchGameAsync(cancellationToken);
     }
 
     /// <summary>
@@ -592,12 +632,30 @@ public class GameInteractionService : IDisposable
     }
 
     /// <summary>
-    /// Dispose of JSON-RPC client resources
+    /// Dispose of JSON-RPC client resources and terminate any launched game process.
     /// </summary>
     public void Dispose()
     {
         _jsonRpcClient?.Dispose();
-        _gameProcess?.Dispose();
-        _gameProcess = null;
+
+        if (_gameProcess != null)
+        {
+            try
+            {
+                if (!_gameProcess.HasExited)
+                {
+                    try { _gameProcess.Kill(entireProcessTree: true); } catch { }
+                    _gameProcess.WaitForExit(3000);
+                }
+            }
+            catch { }
+            finally
+            {
+                try { _gameProcess.Dispose(); } catch { }
+                _gameProcess = null;
+            }
+        }
+
+        _gameOpLock.Dispose();
     }
 }

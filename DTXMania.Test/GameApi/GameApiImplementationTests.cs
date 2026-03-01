@@ -357,6 +357,19 @@ namespace DTXMania.Test.GameApi
             gameContext.Verify(g => g.QueueMainThreadAction(It.IsAny<Action>()), Times.Never);
         }
 
+        [Fact]
+        public async Task ChangeStageAsync_WithNullStageName_ShouldReturnFalse()
+        {
+            var gameContext = new Mock<IGameContext>();
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.ChangeStageAsync(null!);
+
+            Assert.False(result);
+            gameContext.Verify(g => g.QueueMainThreadAction(It.IsAny<Action>()), Times.Never);
+        }
+
         [Theory]
         [InlineData("99")]
         [InlineData("100")]
