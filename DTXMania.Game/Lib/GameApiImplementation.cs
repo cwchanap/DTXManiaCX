@@ -167,7 +167,7 @@ public class GameApiImplementation : IGameApi
 
             if (modularInput == null)
             {
-                System.Diagnostics.Debug.WriteLine("Game API: InputManager/ModularInputManager unavailable - cannot route MCP input");
+                _logger?.LogWarning("Game API: InputManager/ModularInputManager unavailable - cannot route MCP input");
                 return false;
             }
 
@@ -179,7 +179,7 @@ public class GameApiImplementation : IGameApi
                     var buttonId = ParseButtonId(input.Data);
                     if (string.IsNullOrWhiteSpace(buttonId))
                     {
-                        System.Diagnostics.Debug.WriteLine("Game API: Missing or invalid key data for MCP input");
+                        _logger?.LogWarning("Game API: Missing or invalid key data for MCP input");
                         return false;
                     }
 
@@ -190,17 +190,17 @@ public class GameApiImplementation : IGameApi
                 case InputType.MouseClick:
                 case InputType.MouseMove:
                     // TODO: When mouse routing is added, translate to UI input. For now, report unsupported.
-                    System.Diagnostics.Debug.WriteLine($"Game API: Mouse input not yet supported ({input.Type})");
+                    _logger?.LogWarning("Game API: Mouse input not yet supported ({InputType})", input.Type);
                     return false;
 
                 default:
-                    System.Diagnostics.Debug.WriteLine($"Game API: Unknown input type: {input.Type}");
+                    _logger?.LogWarning("Game API: Unknown input type: {InputType}", input.Type);
                     return false;
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Game API: Error processing input: {ex.Message}");
+            _logger?.LogError(ex, "Game API: Error processing input of type {InputType}", input.Type);
             return false;
         }
     }
@@ -226,7 +226,12 @@ public class GameApiImplementation : IGameApi
 
         _game.QueueMainThreadAction(() =>
         {
-            _game.StageManager?.ChangeStage(stageType, new DTXManiaFadeTransition());
+            if (_game.StageManager == null)
+            {
+                _logger?.LogError("Game API: StageManager is null - cannot execute queued stage transition to {StageType}", stageType);
+                return;
+            }
+            _game.StageManager.ChangeStage(stageType, new DTXManiaFadeTransition());
         });
 
         return Task.FromResult(true);
@@ -254,7 +259,7 @@ public class GameApiImplementation : IGameApi
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Game API: Error getting window info: {ex.Message}");
+                _logger?.LogError(ex, "Game API: Error getting window info");
                 // Return safe fallback window info if access fails
                 return new GameWindowInfo
                 {
