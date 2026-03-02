@@ -444,6 +444,12 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         {
             if (request.Params is JsonElement paramsElement)
             {
+                if (paramsElement.ValueKind != JsonValueKind.Object)
+                {
+                    return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                        "params must be an object");
+                }
+
                 if (paramsElement.TryGetProperty("stageName", out var stageNameProp))
                 {
                     if (stageNameProp.ValueKind != JsonValueKind.String)
