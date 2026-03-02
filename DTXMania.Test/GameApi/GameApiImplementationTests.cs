@@ -17,6 +17,7 @@ namespace DTXMania.Test.GameApi
     /// exercising the implementation behavior while avoiding the need to spin up a full game runtime.
     /// Full integration tests would still require a graphics-capable BaseGame/MonoGame fixture.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class GameApiImplementationTests
     {
         #region Constructor Tests

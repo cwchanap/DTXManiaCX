@@ -252,10 +252,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
         // Drain the main-thread action queue (used by the Game API for stage transitions etc.)
-        while (_mainThreadActions.TryDequeue(out var action))
+        // Cap at 64 actions per frame to prevent frame starvation
+        const int MaxMainThreadActionsPerFrame = 64;
+        int actionsProcessed = 0;
+        while (actionsProcessed < MaxMainThreadActionsPerFrame && _mainThreadActions.TryDequeue(out var action))
         {
             try { action(); }
             catch (Exception ex) { _logger.LogError(ex, "Main-thread action from Game API threw an exception"); }
+            actionsProcessed++;
         }
 
         base.Update(gameTime);
@@ -440,6 +444,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                     _jsonRpcServer.Dispose();
                     _jsonRpcServer = null;
                 }
+            }
+
+            // Complete any pending screenshot task to prevent callers from blocking indefinitely
+            var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
+            if (pendingScreenshot != null)
+            {
+                try { pendingScreenshot.TrySetCanceled(); }
+                catch { /* Best effort - task may already be completed */ }
             }
 
             // Dispose other resources

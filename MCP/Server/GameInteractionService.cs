@@ -556,6 +556,13 @@ public class GameInteractionService : IDisposable
             if (_gameProcess != null && !_gameProcess.HasExited)
                 return (false, $"Game is already running (PID: {_gameProcess.Id}). Use restart to relaunch.");
 
+            // Clean up stale exited process handle before starting a new one
+            if (_gameProcess != null && _gameProcess.HasExited)
+            {
+                _gameProcess.Dispose();
+                _gameProcess = null;
+            }
+
             var newProcess = Process.Start(startInfo);
             if (newProcess == null)
                 return (false, "Failed to start the game process");
@@ -672,6 +679,23 @@ public class GameInteractionService : IDisposable
             }
         }
 
+        // Wait for any in-flight operations to complete before disposing the semaphore
+        // Use a timeout to avoid blocking indefinitely if something goes wrong
+        if (_gameOpLock.Wait(5000))
+        {
+            try
+            {
+                _gameOpLock.Release();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to release semaphore during dispose");
+            }
+        }
+        else
+        {
+            _logger.LogWarning("Timeout waiting for game operation lock during dispose");
+        }
         _gameOpLock.Dispose();
     }
 }

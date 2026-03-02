@@ -15,6 +15,7 @@ namespace DTXMania.Test.JsonRpc
     /// the HTTP handling, routing, and all method handlers end-to-end.
     /// These tests use a mocked IGameApi so no game process is required.
     /// </summary>
+    [Trait("Category", "Integration")]
     public class JsonRpcServerIntegrationTests : IAsyncDisposable
     {
         private JsonRpcServer? _server;
