@@ -89,6 +89,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     void IGameContext.QueueMainThreadAction(Action action)
     {
+        ArgumentNullException.ThrowIfNull(action);
         _mainThreadActions.Enqueue(action);
     }
 

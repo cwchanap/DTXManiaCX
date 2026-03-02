@@ -187,8 +187,13 @@ public class JsonRpcClient : IDisposable
             var response = await SendRequestAsync("ping");
             return response.Result != null;
         }
-        catch
+        catch (OperationCanceledException)
         {
+            throw; // Propagate cancellation to callers
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "Ping failed (server may not be ready)");
             return false;
         }
     }

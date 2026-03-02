@@ -627,6 +627,10 @@ public class GameInteractionService : IDisposable
             {
                 throw; // Propagate caller's cancellation
             }
+            catch (TaskCanceledException)
+            {
+                // HttpClient per-request timeout fired - game not ready yet, keep polling
+            }
             catch (HttpRequestException)
             {
                 // Transient network error - not ready yet
@@ -651,14 +655,19 @@ public class GameInteractionService : IDisposable
             {
                 if (!_gameProcess.HasExited)
                 {
-                    try { _gameProcess.Kill(entireProcessTree: true); } catch { }
+                    try { _gameProcess.Kill(entireProcessTree: true); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Failed to kill game process during dispose"); }
                     _gameProcess.WaitForExit(3000);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking/waiting for game process exit during dispose");
+            }
             finally
             {
-                try { _gameProcess.Dispose(); } catch { }
+                try { _gameProcess.Dispose(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to dispose game process object"); }
                 _gameProcess = null;
             }
         }

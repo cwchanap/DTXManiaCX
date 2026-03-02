@@ -486,6 +486,77 @@ namespace DTXMania.Test.GameApi
             Assert.Null(ex);
         }
 
+        [Fact]
+        public async Task ChangeStageAsync_WhenStageManagerIsNull_ShouldLogError_WhenActionExecutes()
+        {
+            var capturedActions = new List<Action>();
+            var logger = new Mock<ILogger<GameApiImplementation>>();
+            var gameContext = new Mock<IGameContext>();
+            gameContext.Setup(g => g.QueueMainThreadAction(It.IsAny<Action>()))
+                       .Callback<Action>(a => capturedActions.Add(a));
+            gameContext.SetupGet(g => g.StageManager).Returns((IStageManager?)null);
+
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+            await api.ChangeStageAsync("Title");
+
+            // Execute the queued action — this is when the null StageManager is detected
+            capturedActions[0]();
+
+            logger.Verify(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("StageManager")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
+        #endregion
+
+        #region Logging Tests
+
+        [Fact]
+        public async Task SendInputAsync_WhenInputManagerUnavailable_ShouldLogWarning()
+        {
+            var logger = new Mock<ILogger<GameApiImplementation>>();
+            var gameContext = new Mock<IGameContext>();
+            // InputManager returns null by default from Moq (not set up)
+
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+
+            var input = new GameInput { Type = InputType.KeyPress, Data = System.Text.Json.JsonSerializer.SerializeToElement("Enter") };
+            var result = await api.SendInputAsync(input);
+
+            Assert.False(result);
+            logger.Verify(l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("unavailable")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task GetWindowInfoAsync_WhenContextThrows_ShouldLogError()
+        {
+            var logger = new Mock<ILogger<GameApiImplementation>>();
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.ConfigManager).Throws(new InvalidOperationException("crash"));
+
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+
+            await api.GetWindowInfoAsync();
+
+            logger.Verify(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<InvalidOperationException>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
         #endregion
     }
 }
