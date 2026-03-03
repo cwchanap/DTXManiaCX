@@ -41,6 +41,7 @@ public class GameInteractionService : IDisposable
     private readonly string? _gameProjectPath;
     private Process? _gameProcess;
     private readonly SemaphoreSlim _gameOpLock = new(1, 1);
+    private int _disposed;
     private static readonly JsonSerializerOptions ResponseDeserializationOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -481,9 +482,11 @@ public class GameInteractionService : IDisposable
     /// </summary>
     public async Task<(bool Success, string Message)> LaunchGameAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfDisposed();
         await _gameOpLock.WaitAsync(cancellationToken);
         try
         {
+            ThrowIfDisposed();
             return await LaunchGameCoreAsync(cancellationToken);
         }
         finally
@@ -497,9 +500,11 @@ public class GameInteractionService : IDisposable
     /// </summary>
     public async Task<(bool Success, string Message)> RestartGameAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfDisposed();
         await _gameOpLock.WaitAsync(cancellationToken);
         try
         {
+            ThrowIfDisposed();
             _logger.LogInformation("Restarting game...");
 
             // Kill existing tracked process
@@ -602,13 +607,14 @@ public class GameInteractionService : IDisposable
     }
 
     /// <summary>
-    /// Polls the game's /health endpoint until it responds or times out.
+    /// Polls the game's /health endpoint until it responds from the launched process or times out.
     /// </summary>
     private async Task<bool> WaitForGameReadyAsync(int timeoutSeconds, CancellationToken cancellationToken)
     {
         // Derive health URL from the JSON-RPC URL (same host/port, /health path)
         var uri = new Uri(_gameApiUrl);
         var healthUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}/health";
+        var expectedProcessId = _gameProcess?.Id;
 
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
@@ -624,10 +630,26 @@ public class GameInteractionService : IDisposable
                 using var response = await httpClient.GetAsync(healthUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
-                    // Confirm our process is still alive — health may come from a pre-existing instance
-                    if (_gameProcess != null && _gameProcess.HasExited)
-                        return false;
-                    return true;
+                    // Confirm readiness comes from the process we just launched.
+                    // Another running instance may already be serving /health on this port.
+                    if (!expectedProcessId.HasValue)
+                        return true;
+
+                    var healthProcessId = await TryReadHealthProcessIdAsync(response, cancellationToken);
+                    if (healthProcessId == expectedProcessId.Value)
+                        return true;
+
+                    if (healthProcessId.HasValue)
+                    {
+                        _logger.LogDebug(
+                            "Health endpoint responded from PID {HealthPid}, waiting for launched PID {ExpectedPid}",
+                            healthProcessId.Value,
+                            expectedProcessId.Value);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Health endpoint response missing processId; waiting for launched PID {ExpectedPid}", expectedProcessId.Value);
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -649,11 +671,43 @@ public class GameInteractionService : IDisposable
         return false;
     }
 
+    private static async Task<int?> TryReadHealthProcessIdAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.Content == null)
+            return null;
+
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(body))
+                return null;
+
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("processId", out var processIdElement))
+                return null;
+
+            if (processIdElement.ValueKind == JsonValueKind.Number && processIdElement.TryGetInt32(out var numericPid))
+                return numericPid;
+
+            if (processIdElement.ValueKind == JsonValueKind.String && int.TryParse(processIdElement.GetString(), out var stringPid))
+                return stringPid;
+        }
+        catch (JsonException)
+        {
+            // Ignore malformed health payloads and keep polling.
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Dispose of JSON-RPC client resources and terminate any launched game process.
     /// </summary>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         _jsonRpcClient?.Dispose();
 
         if (_gameProcess != null)
@@ -696,6 +750,13 @@ public class GameInteractionService : IDisposable
         {
             _logger.LogWarning("Timeout waiting for game operation lock during dispose");
         }
-        _gameOpLock.Dispose();
+        // Intentionally do not dispose _gameOpLock here to avoid races with in-flight
+        // launch/restart methods releasing it in finally blocks.
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(GameInteractionService));
     }
 }

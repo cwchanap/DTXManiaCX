@@ -160,11 +160,6 @@ public class JsonRpcClient : IDisposable
             _logger?.LogDebug("Received JSON-RPC response for ID: {Id}", response.Id);
             return response;
         }
-        catch (OperationCanceledException)
-        {
-            // Rethrow cancellation exceptions so callers like PingAsync can handle them
-            throw;
-        }
         catch (JsonException ex)
         {
             _logger?.LogError(ex, "JSON serialization error");
@@ -175,10 +170,15 @@ public class JsonRpcClient : IDisposable
             _logger?.LogError(ex, "HTTP request error");
             throw new JsonRpcException($"HTTP request error: {ex.Message}", ex);
         }
-        catch (TaskCanceledException ex)
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger?.LogError(ex, "Request timeout");
             throw new JsonRpcException($"Request timeout: {ex.Message}", ex);
+        }
+        catch (OperationCanceledException)
+        {
+            // Rethrow cancellation exceptions so callers like PingAsync can handle them
+            throw;
         }
     }
 

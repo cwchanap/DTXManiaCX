@@ -59,11 +59,14 @@ namespace DTXMania.Test.JsonRpc
 
             var response = await client.GetAsync("/health");
             var body = await response.Content.ReadAsStringAsync();
+            using var healthJson = JsonDocument.Parse(body);
 
             Assert.True(response.IsSuccessStatusCode);
             Assert.Contains("\"status\"", body);
             Assert.Contains("ok", body);
             Assert.Contains("gameRunning", body);
+            Assert.True(healthJson.RootElement.TryGetProperty("processId", out var processId));
+            Assert.Equal(Environment.ProcessId, processId.GetInt32());
         }
 
         [Fact]

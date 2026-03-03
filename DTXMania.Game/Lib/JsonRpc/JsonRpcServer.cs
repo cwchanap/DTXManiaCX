@@ -105,6 +105,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                                         status = "ok",
                                         protocol = "JSON-RPC 2.0",
                                         gameRunning = _gameApi.IsRunning,
+                                        processId = Environment.ProcessId,
                                         timestamp = DateTime.UtcNow
                                     };
                                     context.Response.ContentType = "application/json";
