@@ -550,6 +550,7 @@ public class GameInteractionService : IDisposable
 
         try
         {
+            var expectedLaunchToken = Guid.NewGuid().ToString("N");
             var startInfo = new ProcessStartInfo("dotnet", $"run --project \"{_gameProjectPath}\"")
             {
                 UseShellExecute = false,
@@ -557,6 +558,7 @@ public class GameInteractionService : IDisposable
                 RedirectStandardError = false,
                 CreateNoWindow = false
             };
+            startInfo.Environment["DTXMANIA_LAUNCH_TOKEN"] = expectedLaunchToken;
 
             if (_gameProcess != null && !_gameProcess.HasExited)
                 return (false, $"Game is already running (PID: {_gameProcess.Id}). Use restart to relaunch.");
@@ -576,7 +578,7 @@ public class GameInteractionService : IDisposable
 
             _logger.LogInformation("Game process started (PID: {Pid}). Waiting for API readiness...", _gameProcess.Id);
 
-            var ready = await WaitForGameReadyAsync(timeoutSeconds: 60, cancellationToken);
+            var ready = await WaitForGameReadyAsync(timeoutSeconds: 60, expectedLaunchToken, cancellationToken);
             if (!ready)
             {
                 // Process is unresponsive — kill and clear it so the user can retry
@@ -609,7 +611,7 @@ public class GameInteractionService : IDisposable
     /// <summary>
     /// Polls the game's /health endpoint until it responds from the launched process or times out.
     /// </summary>
-    private async Task<bool> WaitForGameReadyAsync(int timeoutSeconds, CancellationToken cancellationToken)
+    private async Task<bool> WaitForGameReadyAsync(int timeoutSeconds, string? expectedLaunchToken, CancellationToken cancellationToken)
     {
         // Derive health URL from the JSON-RPC URL (same host/port, /health path)
         var uri = new Uri(_gameApiUrl);
@@ -632,11 +634,18 @@ public class GameInteractionService : IDisposable
                 {
                     // Confirm readiness comes from the process we just launched.
                     // Another running instance may already be serving /health on this port.
-                    if (!expectedProcessId.HasValue)
+                    var (healthProcessId, healthLaunchToken) = await TryReadHealthIdentityAsync(response, cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(expectedLaunchToken)
+                        && string.Equals(healthLaunchToken, expectedLaunchToken, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+
+                    if (expectedProcessId.HasValue && healthProcessId == expectedProcessId.Value)
                         return true;
 
-                    var healthProcessId = await TryReadHealthProcessIdAsync(response, cancellationToken);
-                    if (healthProcessId == expectedProcessId.Value)
+                    if (!expectedProcessId.HasValue && string.IsNullOrWhiteSpace(expectedLaunchToken))
                         return true;
 
                     if (healthProcessId.HasValue)
@@ -644,11 +653,19 @@ public class GameInteractionService : IDisposable
                         _logger.LogDebug(
                             "Health endpoint responded from PID {HealthPid}, waiting for launched PID {ExpectedPid}",
                             healthProcessId.Value,
-                            expectedProcessId.Value);
+                            expectedProcessId);
                     }
                     else
                     {
-                        _logger.LogDebug("Health endpoint response missing processId; waiting for launched PID {ExpectedPid}", expectedProcessId.Value);
+                        _logger.LogDebug("Health endpoint response missing processId; waiting for launched PID {ExpectedPid}", expectedProcessId);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(expectedLaunchToken))
+                    {
+                        _logger.LogDebug(
+                            "Health endpoint responded with launchToken '{HealthLaunchToken}', waiting for expected launchToken '{ExpectedLaunchToken}'",
+                            healthLaunchToken,
+                            expectedLaunchToken);
                     }
                 }
             }
@@ -671,33 +688,43 @@ public class GameInteractionService : IDisposable
         return false;
     }
 
-    private static async Task<int?> TryReadHealthProcessIdAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<(int? ProcessId, string? LaunchToken)> TryReadHealthIdentityAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.Content == null)
-            return null;
+            return (null, null);
 
         try
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrWhiteSpace(body))
-                return null;
+                return (null, null);
 
             using var document = JsonDocument.Parse(body);
-            if (!document.RootElement.TryGetProperty("processId", out var processIdElement))
-                return null;
+            int? parsedProcessId = null;
+            string? parsedLaunchToken = null;
 
-            if (processIdElement.ValueKind == JsonValueKind.Number && processIdElement.TryGetInt32(out var numericPid))
-                return numericPid;
+            if (document.RootElement.TryGetProperty("processId", out var processIdElement))
+            {
+                if (processIdElement.ValueKind == JsonValueKind.Number && processIdElement.TryGetInt32(out var numericPid))
+                    parsedProcessId = numericPid;
+                else if (processIdElement.ValueKind == JsonValueKind.String && int.TryParse(processIdElement.GetString(), out var stringPid))
+                    parsedProcessId = stringPid;
+            }
 
-            if (processIdElement.ValueKind == JsonValueKind.String && int.TryParse(processIdElement.GetString(), out var stringPid))
-                return stringPid;
+            if (document.RootElement.TryGetProperty("launchToken", out var launchTokenElement)
+                && launchTokenElement.ValueKind == JsonValueKind.String)
+            {
+                parsedLaunchToken = launchTokenElement.GetString();
+            }
+
+            return (parsedProcessId, parsedLaunchToken);
         }
         catch (JsonException)
         {
             // Ignore malformed health payloads and keep polling.
         }
 
-        return null;
+        return (null, null);
     }
 
     /// <summary>
