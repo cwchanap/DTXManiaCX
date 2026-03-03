@@ -67,6 +67,8 @@ namespace DTXMania.Test.JsonRpc
             Assert.Contains("gameRunning", body);
             Assert.True(healthJson.RootElement.TryGetProperty("processId", out var processId));
             Assert.Equal(Environment.ProcessId, processId.GetInt32());
+            Assert.True(healthJson.RootElement.TryGetProperty("launchToken", out var launchToken));
+            Assert.True(launchToken.ValueKind is JsonValueKind.Null or JsonValueKind.String);
         }
 
         [Fact]

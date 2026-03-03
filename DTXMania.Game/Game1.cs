@@ -291,7 +291,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
         StageManager?.Draw(gameTime.ElapsedGameTime.TotalSeconds);
 
-        // Fulfill any pending screenshot request (render target is fully rendered at this point)
+        // Draw render target to screen
+        GraphicsDevice.SetRenderTarget(null);
+        GraphicsDevice.Clear(Color.Black);
+
+        // Fulfill any pending screenshot request after unbinding the render target.
         var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
         if (pendingScreenshot != null)
         {
@@ -304,10 +308,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                 pendingScreenshot.SetException(ex);
             }
         }
-
-        // Draw render target to screen
-        GraphicsDevice.SetRenderTarget(null);
-        GraphicsDevice.Clear(Color.Black);
 
         if (_renderTarget != null && !_renderTarget.IsDisposed)
         {

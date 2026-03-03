@@ -106,6 +106,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                                         protocol = "JSON-RPC 2.0",
                                         gameRunning = _gameApi.IsRunning,
                                         processId = Environment.ProcessId,
+                                        launchToken = Environment.GetEnvironmentVariable("DTXMANIA_LAUNCH_TOKEN"),
                                         timestamp = DateTime.UtcNow
                                     };
                                     context.Response.ContentType = "application/json";
