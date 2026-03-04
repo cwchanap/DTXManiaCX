@@ -608,6 +608,12 @@ public class GameInteractionService : IDisposable
 
             return (true, $"Game launched and ready (PID: {_gameProcess.Id})");
         }
+        catch (OperationCanceledException)
+        {
+            // Caller cancelled the wait — the game process may still be starting normally; leave it running.
+            _logger.LogInformation("Game launch wait was cancelled; game process (if started) remains running.");
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to launch game");
