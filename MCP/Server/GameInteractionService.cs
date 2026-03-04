@@ -554,8 +554,9 @@ public class GameInteractionService : IDisposable
             var startInfo = new ProcessStartInfo("dotnet", $"run --project \"{_gameProjectPath}\"")
             {
                 UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
+                // Redirect stdio to prevent child process output from corrupting the MCP stdio transport
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 CreateNoWindow = false
             };
             startInfo.Environment["DTXMANIA_LAUNCH_TOKEN"] = expectedLaunchToken;
@@ -573,6 +574,12 @@ public class GameInteractionService : IDisposable
             var newProcess = Process.Start(startInfo);
             if (newProcess == null)
                 return (false, "Failed to start the game process");
+
+            // Drain redirected streams to prevent the child from blocking on full pipe buffers
+            newProcess.OutputDataReceived += (_, _) => { };
+            newProcess.ErrorDataReceived += (_, _) => { };
+            newProcess.BeginOutputReadLine();
+            newProcess.BeginErrorReadLine();
 
             _gameProcess = newProcess;
 
