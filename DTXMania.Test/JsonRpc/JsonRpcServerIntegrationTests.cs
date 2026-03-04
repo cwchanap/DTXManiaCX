@@ -40,7 +40,7 @@ namespace DTXMania.Test.JsonRpc
         {
             _server = new JsonRpcServer(_mockGameApi.Object, port: port, apiKey: apiKey);
             await _server.StartAsync();
-            return new HttpClient { BaseAddress = new Uri($"http://localhost:{port}") };
+            return new HttpClient(new SocketsHttpHandler { UseCookies = false }) { BaseAddress = new Uri($"http://localhost:{port}") };
         }
 
         private static StringContent RpcBody(object request) =>

@@ -604,6 +604,21 @@ public class GameInteractionService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to launch game");
+            // Clean up any process that was started before the exception occurred
+            try
+            {
+                if (_gameProcess != null && !_gameProcess.HasExited)
+                    _gameProcess.Kill(entireProcessTree: true);
+            }
+            catch (Exception killEx)
+            {
+                _logger.LogWarning(killEx, "Error killing game process during launch failure cleanup");
+            }
+            finally
+            {
+                _gameProcess?.Dispose();
+                _gameProcess = null;
+            }
             return (false, $"Error launching game: {ex.Message}");
         }
     }
@@ -618,7 +633,7 @@ public class GameInteractionService : IDisposable
         var healthUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}/health";
         var expectedProcessId = _gameProcess?.Id;
 
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false }) { Timeout = TimeSpan.FromSeconds(2) };
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
 
         while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
