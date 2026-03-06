@@ -448,52 +448,36 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Use DTXManiaNX authentic status panel background (Phase 3)
-            if (_statusPanelTexture != null)
-            {
-                // Scale the authentic background to fit the panel bounds
-                var sourceRect = new Rectangle(0, 0, _statusPanelTexture.Width, _statusPanelTexture.Height);
-                var destRect = bounds;
-
-                spriteBatch.Draw(_statusPanelTexture.Texture, destRect, sourceRect, Color.White);
-                return;
-            }
-
-            // Performance optimization: Use cached generated background
+            // Always draw a visible background first (generated or solid color fallback),
+            // then overlay the skin texture. This ensures the panel is visible even when
+            // the skin's 5_status panel.png is fully transparent.
             if (_graphicsGenerator != null)
             {
-                // Check if we need to regenerate the cached texture
                 if (_cachedBackgroundTexture == null || _cachedBackgroundSize != bounds)
                 {
                     _cachedBackgroundTexture?.Dispose();
                     _cachedBackgroundTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
                     _cachedBackgroundSize = bounds;
                 }
-
-                if (_cachedBackgroundTexture != null)
-                {
-                    _cachedBackgroundTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
-                    return;
-                }
+                _cachedBackgroundTexture?.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
             }
-
-            // Final fallback to simple background
-            if (_whitePixel != null)
+            else if (_whitePixel != null)
             {
                 spriteBatch.Draw(_whitePixel, bounds, DTXManiaVisualTheme.SongSelection.StatusBackground);
 
-                // Draw border using layout constants
                 var borderColor = DTXManiaVisualTheme.SongSelection.StatusBorder;
                 var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
-
-                // Top border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-                // Bottom border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-                // Left border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-                // Right border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
+            }
+
+            // Overlay skin texture on top (transparent skin has no visual effect)
+            if (_statusPanelTexture != null)
+            {
+                var sourceRect = new Rectangle(0, 0, _statusPanelTexture.Width, _statusPanelTexture.Height);
+                spriteBatch.Draw(_statusPanelTexture.Texture, bounds, sourceRect, Color.White);
             }
         }
 
@@ -785,12 +769,15 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw difficulty panel background texture if available
             if (_difficultyPanelTexture != null)
             {
-                // Position the difficulty panel texture to match the top-left corner of the grid
-                // In DTXManiaNX, difficulty 4 (hardest) appears at the top, difficulty 0 (easiest) at bottom
+                // In DTXManiaNX, the difficulty panel texture includes a header row (DRUMS/GUITAR/BASS labels)
+                // above the 5 cell rows. The texture must be drawn with the header ABOVE the first cell row.
+                // Header height = texture height - (5 rows × cellHeight) = 321 - 300 = 21px
                 var topLeftCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
-                
-                // Draw texture aligned with the actual top-left cell of the grid
-                _difficultyPanelTexture.Draw(spriteBatch, topLeftCellPosition);
+                int cellRows = 5;
+                int cellHeight = SongSelectionUILayout.DifficultyGrid.CellHeight;
+                int headerHeight = _difficultyPanelTexture.Height - (cellRows * cellHeight);
+                var texturePosition = new Vector2(topLeftCellPosition.X, topLeftCellPosition.Y - headerHeight);
+                _difficultyPanelTexture.Draw(spriteBatch, texturePosition);
             }
 
             // Get all available charts for this song
@@ -955,13 +942,15 @@ namespace DTXMania.Game.Lib.Song.Components
             var notesCounterPosition = SongSelectionUILayout.GraphPanel.NotesCounterPosition;
             var progressBarPosition = SongSelectionUILayout.GraphPanel.ProgressBarPosition;
 
-            // Align graph panel background Y coordinate and height with difficulty panel background
-            var difficultyPanelTopLeft = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
-            // Calculate exact height: 5 difficulty levels × cell height = total height
-            var difficultyPanelHeight = 5 * SongSelectionUILayout.DifficultyGrid.CellSize.Y;
-            
-            var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, difficultyPanelTopLeft.Y);
-            var alignedGraphPanelSize = new Vector2(graphPanelSize.X, difficultyPanelHeight);
+            // Use DTXManiaNX authentic Y position (BaseY=368) and match height to difficulty panel texture
+            // including its header row, so the graph panel aligns with the full difficulty panel.
+            int cellRows = 5;
+            int cellHeight = SongSelectionUILayout.DifficultyGrid.CellHeight;
+            int difficultyTextureHeight = _graphPanelDrumsTexture?.Height
+                ?? _graphPanelGuitarBassTexture?.Height
+                ?? (cellRows * cellHeight + 21); // fallback: 321px
+            var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, graphPanelPosition.Y);
+            var alignedGraphPanelSize = new Vector2(graphPanelSize.X, difficultyTextureHeight);
 
             // Draw graph panel background using authentic DTXManiaNX texture with matching height
             DrawGraphPanelBackground(spriteBatch, alignedGraphPanelPosition, alignedGraphPanelSize);
