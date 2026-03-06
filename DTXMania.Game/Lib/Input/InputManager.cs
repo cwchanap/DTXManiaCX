@@ -157,6 +157,24 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Enqueue a navigation command directly (for use by subclasses injecting virtual input)
+        /// </summary>
+        protected void EnqueueCommand(InputCommand command)
+        {
+            _inputCommandQueue.Enqueue(command);
+        }
+
+        /// <summary>
+        /// Gets the key mapping (for use by subclasses)
+        /// </summary>
+        protected IReadOnlyDictionary<Keys, InputCommandType> KeyMapping => _keyMapping;
+
+        /// <summary>
+        /// Gets the current time (for use by subclasses)
+        /// </summary>
+        protected double CurrentTime => _currentTime;
+
+        /// <summary>
         /// Gets the next input command from the queue, if any
         /// </summary>
         /// <returns>The next input command, or null if none available</returns>

@@ -357,12 +357,7 @@ public class GameInteractionService : IDisposable
             var inputParams = new
             {
                 Type = 2, // KeyPress
-                Data = new
-                {
-                    key = key,
-                    holdDurationMs = holdDurationMs,
-                    clientId = clientId
-                }
+                Data = key
             };
 
             var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams, cancellationToken);
