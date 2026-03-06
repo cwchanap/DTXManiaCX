@@ -44,9 +44,23 @@ namespace DTXMania.Game.Lib.Input
         {
             // Update the modular input manager
             _modularInputManager?.Update(deltaTime);
-            
-            // Also call base update for compatibility
+
+            // Also call base update for compatibility (reads hardware keyboard)
             base.Update(deltaTime);
+
+            // Supplement navigation commands from injected keys not visible to hardware keyboard.
+            // This allows MCP/API callers to inject navigation via sendInput.
+            if (_modularInputManager != null)
+            {
+                foreach (var kvp in KeyMapping)
+                {
+                    var keyCode = (int)kvp.Key;
+                    if (_modularInputManager.IsKeyPressed(keyCode))
+                    {
+                        EnqueueCommand(new InputCommand(kvp.Value, CurrentTime, false));
+                    }
+                }
+            }
         }
 
         public override bool IsKeyPressed(int keyCode)

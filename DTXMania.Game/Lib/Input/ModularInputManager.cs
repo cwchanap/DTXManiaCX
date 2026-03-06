@@ -421,10 +421,6 @@ namespace DTXMania.Game.Lib.Input
 
             velocity = Math.Clamp(velocity, 0.0f, 1.0f);
 
-            var lane = _keyBindings.GetLane(buttonId);
-            if (lane < 0)
-                return false;
-
             var state = new ButtonState(buttonId, isPressed, velocity);
             _injectedButtonQueue.Enqueue(state);
             return true;

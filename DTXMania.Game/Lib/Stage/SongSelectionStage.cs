@@ -114,7 +114,7 @@ namespace DTXMania.Game.Lib.Stage
         public SongSelectionStage(BaseGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
-            _inputManager = new InputManager();
+            _inputManager = game.InputManager ?? new InputManager();
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
@@ -126,8 +126,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             base.Activate(sharedData);
 
-            // Recreate disposed resources
-            _inputManager = new InputManager();
+            // Use game's shared InputManager (supports MCP key injection)
+            _inputManager = (_game as BaseGame)?.InputManager ?? new InputManager();
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Get config manager from game
@@ -238,8 +238,7 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
-            // Clean up input manager
-            _inputManager?.Dispose();
+            // Don't dispose the shared game InputManager (owned by BaseGame)
             _inputManager = null;
 
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
