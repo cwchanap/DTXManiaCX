@@ -893,38 +893,24 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         private void DrawDifficultyText(SpriteBatch spriteBatch, string text, int x, int y, int cellWidth, int cellHeight, Color color)
         {
-            const int rightPadding = 4;
-            
-            
-            // Determine if we should use bitmap font (when enabled and available)
+            // NX-authentic position: nX = cellLeft + nPanelW - 77 (= cellLeft + 110),
+            // nY = cellTop + nPanelH - 35 (≈ cellTop + 23).
+            // x,y are GetCellContentPosition coords = (cellLeft, cellTop+20), so:
+            //   textY = y + 3  →  cellTop + 23  (matches NX)
+            //   textX = x + cellWidth - 77  →  cellLeft + 110
+            const int nxRightOffset = 77; // NX: nPanelW - 77
+            const int nxTopOffset = 3;    // contentPos is cellTop+20, NX text is cellTop+23
+
             bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
-            
+
             if (useBitmapFont)
             {
-                // Use bitmap font rendering
-                var textSize = _levelNumberFont.MeasureText(text);
-                var textOffsetY = cellHeight - (int)textSize.Y;
-                var textX = x + cellWidth - (int)textSize.X - rightPadding;
-                
-                _levelNumberFont.DrawText(spriteBatch, text, textX, y + textOffsetY, color);
+                _levelNumberFont.DrawText(spriteBatch, text, x + cellWidth - nxRightOffset, y + nxTopOffset, color);
             }
             else
             {
-                if (!USE_SPRITE_FONT)
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (FALLBACK - bitmap font not available)");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (USE_SPRITE_FONT=true)");
-                }
-                
-                // Use sprite font rendering (original logic or fallback)
-                var textOffsetY = cellHeight - 16; // Assuming 16px font height
                 var textWidth = (_smallFont ?? _font)?.MeasureString(text).X ?? 0;
-                var textX = x + cellWidth - textWidth - rightPadding;
-                
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(textX, y + textOffsetY), color);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + cellWidth - textWidth - 4, y + nxTopOffset), color);
             }
         }
 
