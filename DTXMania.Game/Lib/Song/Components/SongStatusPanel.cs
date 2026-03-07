@@ -998,7 +998,10 @@ namespace DTXMania.Game.Lib.Song.Components
 
             if (useBitmapFont)
             {
-                _levelNumberFont.DrawText(spriteBatch, text, x + cellWidth - nxRightOffset, y + nxTopOffset, color);
+                // Right-justify within the cell: end 10px from the right edge
+                var textSize = _levelNumberFont.MeasureText(text);
+                int drawX = x + cellWidth - 10 - (int)textSize.X;
+                _levelNumberFont.DrawText(spriteBatch, text, drawX, y + nxTopOffset, color);
             }
             else
             {
