@@ -63,9 +63,15 @@ namespace DTXMania.Game.Lib.Resources
         public const string SongStatusPanel = "Graphics/5_status panel.png";
         
         /// <summary>
-        /// BPM background texture for status panel
+        /// BPM background texture for status panel (187x67 natural size)
         /// </summary>
         public const string BpmBackground = "Graphics/5_BPM.png";
+
+        /// <summary>
+        /// Skill point panel background texture (187x64 natural size).
+        /// NX: drawn at (32,180); skill value text at (32+60, 200).
+        /// </summary>
+        public const string SkillPointPanel = "Graphics/5_skill point panel.png";
         
         /// <summary>
         /// Difficulty panel texture for song status panel

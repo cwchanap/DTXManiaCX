@@ -58,6 +58,9 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _graphPanelDrumsTexture;
         private ITexture _graphPanelGuitarBassTexture;
 
+        // Skill point panel background texture (5_skill point panel.png)
+        private ITexture _skillPointPanelTexture;
+
         // Skill/rank icon texture for 5_skill icon.png support (D8: performance history)
         private ITexture _skillIconTexture;
         private const int RankIconWidth = 35; // NX: nRankW = 35; 10 icons x 35px = 350px total width
@@ -194,6 +197,7 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadDifficultyPanelTexture();
             LoadDifficultyFrameTexture();
             LoadGraphPanelTextures();
+            LoadSkillPointPanelTexture();
             LoadSkillIconTexture();
             // Level number font will be loaded when graphics generator is initialized
             
@@ -314,6 +318,27 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Load skill point panel background texture (5_skill point panel.png 187x64)
+        /// </summary>
+        private void LoadSkillPointPanelTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _skillPointPanelTexture);
+
+            try
+            {
+                _skillPointPanelTexture = _resourceManager.LoadTexture(TexturePath.SkillPointPanel);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill point panel texture: {ex.Message}");
+                _skillPointPanelTexture = null;
+            }
+        }
+
+        /// <summary>
         /// Load skill/rank icon texture for performance history display in difficulty grid (D8)
         /// </summary>
         private void LoadSkillIconTexture()
@@ -427,6 +452,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _difficultyFrameTexture);
                 ReleaseManagedTexture(ref _graphPanelDrumsTexture);
                 ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
+                ReleaseManagedTexture(ref _skillPointPanelTexture);
                 ReleaseManagedTexture(ref _skillIconTexture);
                 // Dispose level number font
                 _levelNumberFont?.Dispose();
@@ -640,19 +666,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 size = SongSelectionUILayout.BPMSection.Size;
             }
 
-            // Try to use the authentic 5_BPM.png texture first
+            // Draw 5_BPM.png at natural size (187x67) so the text positions align with icon areas.
+            // NX draws at (nBPM位置X, nBPM位置Y) without scaling.
             if (_bpmBackgroundTexture != null)
             {
                 try
                 {
-                    // Scale the texture to fit the panel bounds
-                    var sourceRect = new Rectangle(0, 0, _bpmBackgroundTexture.Width, _bpmBackgroundTexture.Height);
-                    var destinationRect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
-                    _bpmBackgroundTexture.Draw(spriteBatch, destinationRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    _bpmBackgroundTexture.Draw(spriteBatch, position);
                 }
                 catch (ObjectDisposedException)
                 {
-                    // Texture was disposed, clear reference
                     _bpmBackgroundTexture = null;
                 }
             }
@@ -775,19 +798,22 @@ namespace DTXMania.Game.Lib.Song.Components
             if (score == null)
                 return;
 
-            // Use positioning from SongSelectionUILayout
+            // NX: txSkillPointPanel.tDraw2D(device, 32, 180) — natural size 187x64
             var skillPanelPosition = SongSelectionUILayout.SkillPointSection.Position;
-            var skillPanelSize = SongSelectionUILayout.SkillPointSection.Size;
-            var skillValuePosition = SongSelectionUILayout.SkillPointSection.ValuePosition;
 
-            // Draw skill point background panel (if available)
-            if (_whitePixel != null)
+            if (_skillPointPanelTexture != null)
             {
+                _skillPointPanelTexture.Draw(spriteBatch, skillPanelPosition);
+            }
+            else if (_whitePixel != null)
+            {
+                var skillPanelSize = SongSelectionUILayout.SkillPointSection.Size;
                 var skillPanelRect = new Rectangle((int)skillPanelPosition.X, (int)skillPanelPosition.Y, (int)skillPanelSize.X, (int)skillPanelSize.Y);
                 spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
             }
 
-            // Draw highest skill point value (DTXManiaNX format: "##0.00")
+            // NX: skill value at (32+60, 200)
+            var skillValuePosition = SongSelectionUILayout.SkillPointSection.ValuePosition;
             var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
             DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, skillValuePosition, Color.Yellow);
         }
