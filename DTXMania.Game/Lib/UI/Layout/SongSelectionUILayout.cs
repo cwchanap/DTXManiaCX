@@ -109,14 +109,14 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class SkillPointSection
         {
-            public const int X = 32;   // Panel X position
-            public const int Y = 180;  // Panel Y position
-            public const int Width = 120;
-            public const int Height = 20;
-            
-            // Skill value text position
-            public const int ValueX = 92;  // X position for skill value text
-            public const int ValueY = 200; // Y position for skill value text
+            public const int X = 32;   // NX: txSkillPointPanel at (32, 180)
+            public const int Y = 180;
+            public const int Width = 187;  // Natural texture size (5_skill point panel.png 187x64)
+            public const int Height = 64;
+
+            // NX: skill value at (32+60, 200)
+            public const int ValueX = 92;  // 32 + 60
+            public const int ValueY = 200;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
