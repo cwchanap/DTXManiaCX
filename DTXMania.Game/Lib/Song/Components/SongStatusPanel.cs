@@ -9,6 +9,7 @@ using System.Linq;
 
 // Type alias for SongScore to use the EF Core entity
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
+using EInstrumentPart = DTXMania.Game.Lib.Song.Entities.EInstrumentPart;
 
 namespace DTXMania.Game.Lib.Song.Components
 {
@@ -56,6 +57,10 @@ namespace DTXMania.Game.Lib.Song.Components
         // Graph panel textures for 5_graph panel drums.png and 5_graph panel guitar bass.png support
         private ITexture _graphPanelDrumsTexture;
         private ITexture _graphPanelGuitarBassTexture;
+
+        // Skill/rank icon texture for 5_skill icon.png support (D8: performance history)
+        private ITexture _skillIconTexture;
+        private const int RankIconWidth = 35; // NX: nRankW = 35; 10 icons x 35px = 350px total width
 
         // Level number bitmap font for difficulty level display
         private BitmapFont _levelNumberFont;
@@ -189,6 +194,7 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadDifficultyPanelTexture();
             LoadDifficultyFrameTexture();
             LoadGraphPanelTextures();
+            LoadSkillIconTexture();
             // Level number font will be loaded when graphics generator is initialized
             
             System.Diagnostics.Debug.WriteLine("SongStatusPanel: InitializeAuthenticGraphics completed. Waiting for graphics generator...");
@@ -308,6 +314,27 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Load skill/rank icon texture for performance history display in difficulty grid (D8)
+        /// </summary>
+        private void LoadSkillIconTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _skillIconTexture);
+
+            try
+            {
+                _skillIconTexture = _resourceManager.LoadTexture(TexturePath.SkillIcon);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill icon texture: {ex.Message}");
+                _skillIconTexture = null;
+            }
+        }
+
+        /// <summary>
         /// Load the level number bitmap font for difficulty level display
         /// </summary>
         private void LoadLevelNumberFont(GraphicsDevice graphicsDevice)
@@ -400,6 +427,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _difficultyFrameTexture);
                 ReleaseManagedTexture(ref _graphPanelDrumsTexture);
                 ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
+                ReleaseManagedTexture(ref _skillIconTexture);
                 // Dispose level number font
                 _levelNumberFont?.Dispose();
                 _levelNumberFont = null;
@@ -880,12 +908,51 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             // Display the actual chart level from SET.def (divide by 10 for proper decimal format)
             var levelText = (chartInfo.Level / 10.0f).ToString("F2"); // Show 38 as "3.80", 60 as "6.00", etc.
-            
+
             // Determine if this chart is currently selected
             var isSelected = IsChartSelected(chartInfo);
             var textColor = isSelected ? Color.Yellow : Color.White;
-            
+
             DrawDifficultyText(spriteBatch, levelText, x, y, cellWidth, cellHeight, textColor);
+
+            // D8: draw rank and FC badge if player has history for this cell
+            DrawRankSymbol(spriteBatch, x, y, chartInfo, instrument);
+        }
+
+        /// <summary>
+        /// Draws the rank/FC badge icons for a difficulty cell (D8: performance history).
+        /// Matches NX: rank at nBoxX+7,nBoxY+5; FC badge at nBoxX+42,nBoxY+5.
+        /// </summary>
+        private void DrawRankSymbol(SpriteBatch spriteBatch, int x, int y, ChartLevelInfo chartInfo, int instrumentColumn)
+        {
+            if (_skillIconTexture == null) return;
+
+            var instrumentPart = instrumentColumn switch
+            {
+                0 => EInstrumentPart.DRUMS,
+                1 => EInstrumentPart.BASS,
+                2 => EInstrumentPart.GUITAR,
+                _ => EInstrumentPart.DRUMS
+            };
+
+            var score = chartInfo.Chart.Scores?.FirstOrDefault(s => s.Instrument == instrumentPart);
+            if (score == null || score.PlayCount == 0) return;
+
+            // x,y = GetCellContentPosition = (cellLeft, cellTop+20); NX draws at cellTop+5 → y-15
+            int rankY = y - 15;
+            int iconH = _skillIconTexture.Height;
+
+            // Rank symbol (clamp to valid range 0-7: SS through F)
+            int rankIndex = Math.Clamp(score.BestRank, 0, 7);
+            _skillIconTexture.Draw(spriteBatch, new Vector2(x + 7, rankY),
+                new Rectangle(RankIconWidth * rankIndex, 0, RankIconWidth, iconH));
+
+            // FC badge (index 8) if full combo achieved
+            if (score.FullCombo)
+            {
+                _skillIconTexture.Draw(spriteBatch, new Vector2(x + 42, rankY),
+                    new Rectangle(RankIconWidth * 8, 0, RankIconWidth, iconH));
+            }
         }
 
         /// <summary>

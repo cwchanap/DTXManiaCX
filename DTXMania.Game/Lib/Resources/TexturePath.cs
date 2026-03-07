@@ -134,7 +134,14 @@ namespace DTXMania.Game.Lib.Resources
         /// Contains difficulty labels: Master(6th), Basic(7th), Advanced(8th), Extreme(9th), Real(12th)
         /// </summary>
         public const string DifficultySprite = "Graphics/6_Difficulty.png";
-        
+
+        /// <summary>
+        /// Rank/skill icon texture (350x53) for song selection difficulty grid.
+        /// 10 icons x 35px each: SS(0), S(1), A(2), B(3), C(4), D(5), E(6), F(7), FC badge(8), Excellent badge(9)
+        /// Matches NX's txランク drawn at nBoxX+7, nBoxY+5 per difficulty cell.
+        /// </summary>
+        public const string SkillIcon = "Graphics/5_skill icon.png";
+
         #endregion
         
         #region Preview and Default Textures
