@@ -294,8 +294,8 @@ public class SongStatusPanelLogicTests
         var levels = InvokePrivate<List<SongStatusPanel.ChartLevelInfo>>(panel, "GetAvailableChartsWithLevels");
 
         Assert.Contains(levels, x => x.InstrumentColumn == 0 && x.InstrumentName == "DRUMS");
-        Assert.Contains(levels, x => x.InstrumentColumn == 1 && x.InstrumentName == "BASS");
-        Assert.Contains(levels, x => x.InstrumentColumn == 2 && x.InstrumentName == "GUITAR");
+        Assert.Contains(levels, x => x.InstrumentColumn == 1 && x.InstrumentName == "GUITAR");
+        Assert.Contains(levels, x => x.InstrumentColumn == 2 && x.InstrumentName == "BASS");
 
         var duplicateKeyCount = levels.GroupBy(x => new { x.Chart.DifficultyLevel, x.InstrumentColumn }).Max(g => g.Count());
         Assert.Equal(1, duplicateKeyCount);
