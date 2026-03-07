@@ -24,13 +24,13 @@ namespace DTXMania.Test.UI
         [Fact]
         public void SelectedBarX_ShouldMatchNXValue()
         {
-            Assert.Equal(665, SongSelectionUILayout.SongBars.SelectedBarX);
+            Assert.Equal(701, SongSelectionUILayout.SongBars.SelectedBarX);
         }
 
         [Fact]
         public void UnselectedBarX_ShouldMatchNXValue()
         {
-            Assert.Equal(673, SongSelectionUILayout.SongBars.UnselectedBarX);
+            Assert.Equal(709, SongSelectionUILayout.SongBars.UnselectedBarX);
         }
 
         [Fact]
@@ -43,7 +43,7 @@ namespace DTXMania.Test.UI
         public void SelectedBarPosition_ShouldCombineXY()
         {
             var pos = SongSelectionUILayout.SongBars.SelectedBarPosition;
-            Assert.Equal(665, (int)pos.X);
+            Assert.Equal(701, (int)pos.X);
             Assert.Equal(269, (int)pos.Y);
         }
 
@@ -51,7 +51,7 @@ namespace DTXMania.Test.UI
         public void GetBarPosition_CenterIndex_ShouldReturnSelectedPosition()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(SongSelectionUILayout.SongBars.CenterIndex);
-            Assert.Equal(665, (int)pos.X);
+            Assert.Equal(701, (int)pos.X);
             Assert.Equal(269, (int)pos.Y);
         }
 
@@ -59,7 +59,7 @@ namespace DTXMania.Test.UI
         public void GetBarPosition_NonCenterIndex_ShouldUseUnselectedX()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(0);
-            Assert.Equal(673, (int)pos.X);
+            Assert.Equal(709, (int)pos.X);
         }
 
         [Fact]
@@ -924,19 +924,19 @@ namespace DTXMania.Test.UI
         [Fact]
         public void BPMSection_LengthTextPosition_ShouldMatchNX()
         {
-            // NX: nBPM位置X + 42, nBPM位置Y - 7 = (132, 268)
+            // Text inside row-1 dark box of 5_BPM.png (texture_y≈16, 16px font → Y+8)
             var pos = SongSelectionUILayout.BPMSection.LengthTextPosition;
             Assert.Equal(132, (int)pos.X);
-            Assert.Equal(268, (int)pos.Y);
+            Assert.Equal(283, (int)pos.Y);
         }
 
         [Fact]
         public void BPMSection_BPMTextPosition_ShouldMatchNX()
         {
-            // NX: nBPM位置X + 45, nBPM位置Y + 23 = (135, 298)
+            // Text inside row-2 dark box of 5_BPM.png (texture_y≈50, 16px font → Y+42)
             var pos = SongSelectionUILayout.BPMSection.BPMTextPosition;
             Assert.Equal(135, (int)pos.X);
-            Assert.Equal(298, (int)pos.Y);
+            Assert.Equal(317, (int)pos.Y);
         }
 
         [Fact]

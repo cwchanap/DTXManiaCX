@@ -43,9 +43,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
-            // NX authentic: nBPM位置X+42, nBPM位置Y-7 and nBPM位置X+45, nBPM位置Y+23
-            public static Vector2 LengthTextPosition => new Vector2(X + 42, Y - 7);
-            public static Vector2 BPMTextPosition => new Vector2(X + 45, Y + 23);
+            // Text positions inside the dark value boxes of 5_BPM.png (187x67, two rows ~33px each)
+            // Row 1 dark box center: texture_y≈16 → screen_y=Y+16; for 16px font: Y+8
+            // Row 2 dark box center: texture_y≈50 → screen_y=Y+50; for 16px font: Y+42
+            public static Vector2 LengthTextPosition => new Vector2(X + 42, Y + 8);
+            public static Vector2 BPMTextPosition => new Vector2(X + 45, Y + 42);
         }
         
         #endregion
@@ -217,9 +219,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             // DTXManiaNX Current Implementation: Vertical List Layout
             // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
             // Unselected bars: Fixed X:673 (vertical list formation)
-            public const int SelectedBarX = 665;       // X position for selected song bar (center position)
+            public const int SelectedBarX = 701;       // X position for selected song bar; gap from difficulty panel (BASS right edge ~691)
             public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
-            public const int UnselectedBarX = 673;     // Fixed X position for all unselected bars
+            public const int UnselectedBarX = 709;     // Fixed X position for all unselected bars; 18px gap from difficulty panel
             public const int BarWidth = 510;           // Maximum width for song bars
             
             // Visual constants
