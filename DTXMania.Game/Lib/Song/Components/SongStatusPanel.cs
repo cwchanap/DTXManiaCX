@@ -930,8 +930,8 @@ namespace DTXMania.Game.Lib.Song.Components
             var instrumentPart = instrumentColumn switch
             {
                 0 => EInstrumentPart.DRUMS,
-                1 => EInstrumentPart.BASS,
-                2 => EInstrumentPart.GUITAR,
+                1 => EInstrumentPart.GUITAR,
+                2 => EInstrumentPart.BASS,
                 _ => EInstrumentPart.DRUMS
             };
 
@@ -1313,7 +1313,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public class ChartLevelInfo
         {
             public float Level { get; set; }
-            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Bass, 2=Guitar (NX column order)
+            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass (NX column order: DM/GF/BA)
             public string InstrumentName { get; set; }
             public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
         }
@@ -1347,26 +1347,26 @@ namespace DTXMania.Game.Lib.Song.Components
                     });
                 }
 
-                // Add bass chart if available (NX column order: DRUMS, BASS, GUITAR)
-                if (chart.HasBassChart && chart.BassLevel > 0)
-                {
-                    chartLevels.Add(new ChartLevelInfo
-                    {
-                        Level = chart.BassLevel,
-                        InstrumentColumn = 1, // Bass column (NX: middle)
-                        InstrumentName = "BASS",
-                        Chart = chart
-                    });
-                }
-
-                // Add guitar chart if available (NX column order: DRUMS, BASS, GUITAR)
+                // Add guitar chart if available (NX column order: DRUMS, GUITAR, BASS)
                 if (chart.HasGuitarChart && chart.GuitarLevel > 0)
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
                         Level = chart.GuitarLevel,
-                        InstrumentColumn = 2, // Guitar column (NX: right)
+                        InstrumentColumn = 1, // Guitar column (NX: middle / GF)
                         InstrumentName = "GUITAR",
+                        Chart = chart
+                    });
+                }
+
+                // Add bass chart if available (NX column order: DRUMS, GUITAR, BASS)
+                if (chart.HasBassChart && chart.BassLevel > 0)
+                {
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = chart.BassLevel,
+                        InstrumentColumn = 2, // Bass column (NX: right / BA)
+                        InstrumentName = "BASS",
                         Chart = chart
                     });
                 }
