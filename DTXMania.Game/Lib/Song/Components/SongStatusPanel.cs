@@ -1145,8 +1145,14 @@ namespace DTXMania.Game.Lib.Song.Components
                 textColor = Color.Cyan;
             }
 
-            // Draw main notes text
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, position, textColor);
+            // Center the number at the NX-authentic center point (position.X is the center, not left edge)
+            var font = _smallFont ?? _font;
+            if (font != null)
+            {
+                var textSize = font.MeasureString(notesText);
+                var centeredPos = new Vector2(position.X - textSize.X / 2, position.Y);
+                DrawTextWithShadow(spriteBatch, font, notesText, centeredPos, textColor);
+            }
         }
 
         #endregion

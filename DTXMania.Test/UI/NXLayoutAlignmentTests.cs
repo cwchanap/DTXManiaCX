@@ -910,9 +910,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void BPMSection_X_ShouldBe90()
+        public void BPMSection_X_ShouldBe32()
         {
-            Assert.Equal(90, SongSelectionUILayout.BPMSection.X);
+            Assert.Equal(32, SongSelectionUILayout.BPMSection.X);
         }
 
         [Fact]
@@ -924,9 +924,9 @@ namespace DTXMania.Test.UI
         [Fact]
         public void BPMSection_LengthTextPosition_ShouldMatchNX()
         {
-            // Text inside row-1 dark box of 5_BPM.png (texture_y≈16, 16px font → Y+8)
+            // Text inside row-1 dark box of 5_BPM.png (dark box starts at texture x≈63, inner padding → X+70)
             var pos = SongSelectionUILayout.BPMSection.LengthTextPosition;
-            Assert.Equal(132, (int)pos.X);
+            Assert.Equal(102, (int)pos.X);
             Assert.Equal(283, (int)pos.Y);
         }
 
@@ -935,7 +935,7 @@ namespace DTXMania.Test.UI
         {
             // Text inside row-2 dark box of 5_BPM.png (texture_y≈50, 16px font → Y+42)
             var pos = SongSelectionUILayout.BPMSection.BPMTextPosition;
-            Assert.Equal(135, (int)pos.X);
+            Assert.Equal(102, (int)pos.X);
             Assert.Equal(317, (int)pos.Y);
         }
 

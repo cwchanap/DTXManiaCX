@@ -34,7 +34,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class BPMSection
         {
-            public const int X = 90;  // NX authentic: nBPM位置X = 90
+            public const int X = 32;  // Left-aligned with SkillPointSection (NX: 90, CX: 32)
             public const int Y = 275; // NX authentic: nBPM位置Y = 275
             public const int Width = 200;
             public const int Height = 50;
@@ -44,10 +44,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
             // Text positions inside the dark value boxes of 5_BPM.png (187x67, two rows ~33px each)
+            // Dark box starts at texture x≈63 → screen x = X+63 = 95; use X+70 for inner padding
             // Row 1 dark box center: texture_y≈16 → screen_y=Y+16; for 16px font: Y+8
             // Row 2 dark box center: texture_y≈50 → screen_y=Y+50; for 16px font: Y+42
-            public static Vector2 LengthTextPosition => new Vector2(X + 42, Y + 8);
-            public static Vector2 BPMTextPosition => new Vector2(X + 45, Y + 42);
+            public static Vector2 LengthTextPosition => new Vector2(X + 70, Y + 8);
+            public static Vector2 BPMTextPosition => new Vector2(X + 70, Y + 42);
         }
         
         #endregion
