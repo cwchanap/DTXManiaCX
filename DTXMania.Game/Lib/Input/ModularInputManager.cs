@@ -28,6 +28,9 @@ namespace DTXMania.Game.Lib.Input
         private readonly List<IInputSource> _inputSources;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
+        private readonly Dictionary<int, bool> _previousInjectedKeyStates;
+        // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch)
+        private readonly Queue<int> _injectedPressEvents;
         private bool _disposed = false;
 
         // Legacy compatibility fields
@@ -89,6 +92,8 @@ namespace DTXMania.Game.Lib.Input
             _inputSources = new List<IInputSource>();
             _injectedButtonQueue = new ConcurrentQueue<ButtonState>();
             _injectedKeyStates = new Dictionary<int, bool>();
+            _previousInjectedKeyStates = new Dictionary<int, bool>();
+            _injectedPressEvents = new Queue<int>();
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
@@ -310,8 +315,21 @@ namespace DTXMania.Game.Lib.Input
         {
             var currentPressed = _keyStates.TryGetValue(keyCode, out var current) && current;
             var previousPressed = _previousKeyStates.TryGetValue(keyCode, out var previous) && previous;
-            
+
             return currentPressed && !previousPressed;
+        }
+
+        /// <summary>
+        /// Drains and returns all injected key-press events that arrived this frame.
+        /// Each entry is a key code corresponding to a press (not release) event from MCP/API injection.
+        /// Used by InputManagerCompat to fire exactly one navigation command per injected press,
+        /// without double-counting physical keyboard input that base.Update() already handles.
+        /// </summary>
+        public Queue<int> DrainInjectedPressEvents()
+        {
+            var copy = new Queue<int>(_injectedPressEvents);
+            _injectedPressEvents.Clear();
+            return copy;
         }
 
         /// <summary>
@@ -465,6 +483,13 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void ProcessInjectedInputs()
         {
+            // Snapshot previous injected states before processing new events (for edge detection)
+            _previousInjectedKeyStates.Clear();
+            foreach (var kvp in _injectedKeyStates)
+                _previousInjectedKeyStates[kvp.Key] = kvp.Value;
+
+            _injectedPressEvents.Clear();
+
             while (_injectedButtonQueue.TryDequeue(out var injected))
             {
                 // Map to lane with current bindings
@@ -480,6 +505,9 @@ namespace DTXMania.Game.Lib.Input
                     if (injected.IsPressed)
                     {
                         _injectedKeyStates[keyCode] = true;
+                        // Record every press event so InputManagerCompat can fire one command per inject,
+                        // regardless of how many frames the key stays held.
+                        _injectedPressEvents.Enqueue(keyCode);
                     }
                     else
                     {
