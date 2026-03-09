@@ -884,8 +884,10 @@ namespace DTXMania.Game.Lib.Song.Components
             var skinBarTexture = GetSkinBarTexture(barInfo.BarType, isCenter);
             if (skinBarTexture != null)
             {
-                // NX: selected bar skin texture is drawn 30px above the bar; title/lamp/preview stay at itemBounds.Y
-                var destRect = CalculateBarTextureBounds(itemBounds, isCenter);
+                // NX: selected bar skin texture (96px tall) is drawn 30px above the bar at natural height
+                // so content at itemBounds.Y sits within the texture bounds (Y-30 .. Y-30+96 = Y+66).
+                // Unselected bars are drawn at natural height within the item bounds.
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, skinBarTexture.Height);
                 skinBarTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_graphicsGenerator != null)
@@ -1064,10 +1066,11 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Calculate the destination rectangle for the skin bar texture.
         /// NX: selected bar texture draws 30px higher than the bar bounds; title/lamp/preview stay at itemBounds.Y.
         /// </summary>
-        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected)
+        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected, int textureHeight = -1)
         {
             int yOffset = isSelected ? SongSelectionUILayout.SongBars.SelectedBarTextureYOffset : 0;
-            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, itemBounds.Width, itemBounds.Height);
+            int height = textureHeight > 0 ? textureHeight : itemBounds.Height;
+            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, itemBounds.Width, height);
         }
 
         /// <summary>
