@@ -225,6 +225,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             // Note: _graphicsGenerator must stay alive for the lifetime of cached textures
+            if (_graphicsGenerator == null)
+                return null;
+
             var clearStatus = GetClearStatus(songNode, difficulty);
             var texture = _graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
 

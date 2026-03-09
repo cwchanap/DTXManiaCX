@@ -924,8 +924,9 @@ namespace DTXMania.Game.Lib.Song.Components
             int selectedRow = currentChartInfo.Chart.DifficultyLevel - 1; // L1 → row 0, L2 → row 1, L3 → row 2, L5 → row 4, etc.
             selectedRow = Math.Clamp(selectedRow, 0, 4); // Clamp to valid grid range
             
-            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(selectedRow, selectedColumn);
-            
+            // Frame must align with the panel cell background, not content (which is +20px offset)
+            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(selectedRow, selectedColumn);
+
             // Draw the frame texture aligned exactly with the selected cell
             _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }

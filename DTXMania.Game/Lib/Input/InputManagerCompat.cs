@@ -48,16 +48,20 @@ namespace DTXMania.Game.Lib.Input
             // Also call base update for compatibility (reads hardware keyboard)
             base.Update(deltaTime);
 
-            // Supplement navigation commands from injected keys not visible to hardware keyboard.
-            // This allows MCP/API callers to inject navigation via sendInput.
+            // Dispatch navigation commands for injected (MCP/API) key-press events only.
+            // base.Update() already handles physical keyboard input via UpdateKeyRepeatStates().
+            // We use event-driven dispatch (one command per press event) to correctly handle
+            // rapid successive injections without relying on frame-by-frame state edge detection.
             if (_modularInputManager != null)
             {
-                foreach (var kvp in KeyMapping)
+                var pressEvents = _modularInputManager.DrainInjectedPressEvents();
+                while (pressEvents.Count > 0)
                 {
-                    var keyCode = (int)kvp.Key;
-                    if (_modularInputManager.IsKeyPressed(keyCode))
+                    var keyCode = pressEvents.Dequeue();
+                    var key = (Microsoft.Xna.Framework.Input.Keys)keyCode;
+                    if (KeyMapping.TryGetValue(key, out var commandType))
                     {
-                        EnqueueCommand(new InputCommand(kvp.Value, CurrentTime, false));
+                        EnqueueCommand(new InputCommand(commandType, CurrentTime, false));
                     }
                 }
             }

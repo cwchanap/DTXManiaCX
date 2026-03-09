@@ -43,12 +43,12 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
-            // Text positions inside the dark value boxes of 5_BPM.png (187x67, two rows ~33px each)
-            // Dark box starts at texture x≈63 → screen x = X+63 = 95; use X+70 for inner padding
-            // Row 1 dark box center: texture_y≈16 → screen_y=Y+16; for 16px font: Y+8
-            // Row 2 dark box center: texture_y≈50 → screen_y=Y+50; for 16px font: Y+42
-            public static Vector2 LengthTextPosition => new Vector2(X + 70, Y + 8);
-            public static Vector2 BPMTextPosition => new Vector2(X + 70, Y + 42);
+            // Text positions inside the dark value boxes of 5_BPM.png (187x67, two rows ~24px each)
+            // Dark box starts at texture x≈63 → screen x = X+63 = 95; use X+71 for 8px inner padding
+            // Row 1 dark box: texture_y=8..31 (24px) → screen_y=Y+8..Y+31; center for 16px font: Y+12
+            // Row 2 dark box: texture_y=38..61 (24px) → screen_y=Y+38..Y+61; center for 16px font: Y+42
+            public static Vector2 LengthTextPosition => new Vector2(X + 71, Y + 12);
+            public static Vector2 BPMTextPosition => new Vector2(X + 71, Y + 42);
         }
         
         #endregion
@@ -117,9 +117,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int Width = 187;  // Natural texture size (5_skill point panel.png 187x64)
             public const int Height = 64;
 
-            // NX: skill value at (32+60, 200)
-            public const int ValueX = 92;  // 32 + 60
-            public const int ValueY = 200;
+            // NX: skill value at (32+60, 200); vertically centered in dark box (texture y=11..56, 46px tall)
+            // Dark box screen x=92..218; use 8px left padding → x=100
+            // Dark box screen y=191..236; center for 16px font: 191+(46-16)/2 = 206
+            public const int ValueX = 100;  // 32 + 68 (8px padding from dark box left edge)
+            public const int ValueY = 206;  // vertically centered in 46px dark box
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -172,7 +174,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static class Drums
             {
                 public const int StartX = 46;  // NX authentic: nGraphBaseX(15) + 31 = 46
-                public const int StartY = 400; // Start position Y (368 + 21)
+                public const int StartY = 389; // Start position Y (368 + 21) - aligns with dark area top in texture
                 public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
