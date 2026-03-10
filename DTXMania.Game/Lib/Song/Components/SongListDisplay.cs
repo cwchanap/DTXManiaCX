@@ -884,10 +884,9 @@ namespace DTXMania.Game.Lib.Song.Components
             var skinBarTexture = GetSkinBarTexture(barInfo.BarType, isCenter);
             if (skinBarTexture != null)
             {
-                // NX: selected bar skin texture (96px tall) is drawn 30px above the bar at natural height
-                // so content at itemBounds.Y sits within the texture bounds (Y-30 .. Y-30+96 = Y+66).
-                // Unselected bars are drawn at natural height within the item bounds.
-                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, skinBarTexture.Height);
+                // NX: draw skin at natural size (1:1 pixels, not scaled to BAR_WIDTH).
+                // Selected skin (640x96) drawn at Y-30; unselected skin (620x48) at Y+0.
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, skinBarTexture.Width, skinBarTexture.Height);
                 skinBarTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_graphicsGenerator != null)
@@ -899,32 +898,53 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
             }
 
-            // Draw clear lamp with perspective
+            // Draw clear lamp (NX-authentic position and size: 7x41)
             if (barInfo.ClearLamp != null)
             {
-                var lampWidth = (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor);
-                var lampDestRect = new Rectangle(itemBounds.X, itemBounds.Y, lampWidth, itemBounds.Height);
+                int lampOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarClearLampOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarClearLampOffsetX;
+                int lampOffsetY = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarClearLampOffsetY
+                    : SongSelectionUILayout.SongBars.UnselectedBarClearLampOffsetY;
+                var lampDestRect = new Rectangle(
+                    itemBounds.X + lampOffsetX,
+                    itemBounds.Y + lampOffsetY,
+                    SongSelectionUILayout.SongBars.ClearLampWidth,
+                    SongSelectionUILayout.SongBars.ClearLampHeight);
                 barInfo.ClearLamp.Draw(spriteBatch, lampDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw preview image with perspective
+            // Draw preview image (NX-authentic position: selected barX+7/barY-3, unselected barX+31/barY+2)
             if (barInfo.PreviewImage != null)
             {
-                var imageSize = (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor);
-                var imageX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + 5;
-                var imageY = itemBounds.Y + (itemBounds.Height - imageSize) / 2;
-                var imageDestRect = new Rectangle(imageX, imageY, imageSize, imageSize);
+                int previewOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
+                int previewOffsetY = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
+                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
+                int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
+                var imageDestRect = new Rectangle(
+                    itemBounds.X + previewOffsetX,
+                    itemBounds.Y + previewOffsetY,
+                    imageSize,
+                    imageSize);
                 barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw title with perspective (NX-authentic: 2x texture displayed at 0.5x for anti-aliasing)
+            // Draw title (NX-authentic X offset: selected=barX+55, unselected=barX+78)
             if (barInfo.TitleTexture != null)
             {
-                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
+                int titleOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
+                int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
+                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
                 // Display at 0.5x scale (the texture is rendered at 2x)
                 var displayScale = SongSelectionUILayout.SongBars.TitleDisplayScale;
                 var displayHeight = barInfo.TitleTexture.Height * displayScale * scaleFactor;
-                var textY = itemBounds.Y + (itemBounds.Height - (int)displayHeight) / 2;
+                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)displayHeight) / 2;
                 var textPosition = new Vector2(textX, textY);
                 var textScale = new Vector2(displayScale * scaleFactor, displayScale * scaleFactor);
                 barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
@@ -932,8 +952,12 @@ namespace DTXMania.Game.Lib.Song.Components
             else if (_font != null)
             {
                 // Fallback to direct text rendering with perspective
-                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - (int)(_font.LineSpacing * scaleFactor)) / 2;
+                int titleOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
+                int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
+                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
+                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)(_font.LineSpacing * scaleFactor)) / 2;
                 var textPosition = new Vector2(textX, textY);
                 var textScale = new Vector2(scaleFactor, scaleFactor);
 
@@ -1066,11 +1090,12 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Calculate the destination rectangle for the skin bar texture.
         /// NX: selected bar texture draws 30px higher than the bar bounds; title/lamp/preview stay at itemBounds.Y.
         /// </summary>
-        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected, int textureHeight = -1)
+        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected, int textureWidth = -1, int textureHeight = -1)
         {
             int yOffset = isSelected ? SongSelectionUILayout.SongBars.SelectedBarTextureYOffset : 0;
+            int width = textureWidth > 0 ? textureWidth : itemBounds.Width;
             int height = textureHeight > 0 ? textureHeight : itemBounds.Height;
-            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, itemBounds.Width, height);
+            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, width, height);
         }
 
         /// <summary>
