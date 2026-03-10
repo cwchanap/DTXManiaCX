@@ -43,12 +43,18 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
-            // Text positions inside the dark value boxes of 5_BPM.png (187x67, two rows ~24px each)
-            // Dark box starts at texture x≈63 → screen x = X+63 = 95; use X+71 for 8px inner padding
-            // Row 1 dark box: texture_y=8..31 (24px) → screen_y=Y+8..Y+31; center for 16px font: Y+12
-            // Row 2 dark box: texture_y=38..61 (24px) → screen_y=Y+38..Y+61; center for 16px font: Y+42
-            public static Vector2 LengthTextPosition => new Vector2(X + 71, Y + 12);
-            public static Vector2 BPMTextPosition => new Vector2(X + 71, Y + 42);
+            // Dark box pixel offsets within 5_BPM.png texture (measured from pixel analysis)
+            // Dark box X: texture x=63..175 (113px wide); use 8px left padding → textX = X+71
+            // Dark box 1 (length): texture y=8..31 (24px tall)
+            // Dark box 2 (BPM):    texture y=38..61 (24px tall)
+            public const int TextX = 71;            // X+63 (dark box left) + 8px padding
+            public const int LengthBoxTop = 8;      // texture y where length box starts
+            public const int BPMBoxTop = 38;        // texture y where BPM box starts
+            public const int DarkBoxHeight = 24;    // height of each dark box
+
+            // Static fallback positions (centered for 16px font — use DrawBPMSection for dynamic centering)
+            public static Vector2 LengthTextPosition => new Vector2(X + TextX, Y + LengthBoxTop + (DarkBoxHeight - 16) / 2);
+            public static Vector2 BPMTextPosition    => new Vector2(X + TextX, Y + BPMBoxTop    + (DarkBoxHeight - 16) / 2);
         }
         
         #endregion
@@ -117,11 +123,14 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int Width = 187;  // Natural texture size (5_skill point panel.png 187x64)
             public const int Height = 64;
 
-            // NX: skill value at (32+60, 200); vertically centered in dark box (texture y=11..56, 46px tall)
-            // Dark box screen x=92..218; use 8px left padding → x=100
-            // Dark box screen y=191..236; center for 16px font: 191+(46-16)/2 = 206
-            public const int ValueX = 100;  // 32 + 68 (8px padding from dark box left edge)
-            public const int ValueY = 206;  // vertically centered in 46px dark box
+            // Dark box pixel offsets within 5_skill point panel.png (measured from pixel analysis)
+            // Dark box X: texture x=60..176; use 8px left padding → textX = X+68
+            // Dark box Y: texture y=11..56 (46px tall)
+            public const int DarkBoxLeft = 60;   // texture x where dark box starts
+            public const int DarkBoxTop = 11;    // texture y where dark box starts
+            public const int DarkBoxHeight = 46; // height of dark box
+            public const int ValueX = 100;       // X + DarkBoxLeft + 8px padding
+            public const int ValueY = 206;       // fallback for 16px font; use dynamic centering in draw code
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -260,18 +269,33 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Individual Song Bar Component Layout
             public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
             public const int PreviewImageSize = 44;    // Size of preview image square (NX authentic: 44x44)
-            public const int ClearLampWidth = 8;       // Width of clear lamp indicator
-            public const int ClearLampHeight = BarHeight - 4;  // Height of clear lamp indicator (4px padding from bar height)
+            public const int ClearLampWidth = 7;       // Width of clear lamp indicator (NX authentic: 7px)
+            public const int ClearLampHeight = 41;     // Height of clear lamp indicator (NX authentic: 41px)
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
-            
+
             // Artist name display layout (absolute NX-authentic coordinates)
             public const int ArtistNameAbsoluteRightEdge = 1235; // NX: 1260 - 25 (right-aligned)
             public const int ArtistNameAbsoluteY = 320;           // NX: y = 320 (absolute)
 
-            // Selected bar skin texture vertical offset
-            public const int SelectedBarTextureYOffset = -30;     // NX: bar texture at y-30, title/lamp stay at y
-            
+            // Selected bar skin texture vertical offset (NX authentic: skin drawn at Y-30, natural size)
+            public const int SelectedBarTextureYOffset = -30;
+
+            // NX-authentic content offsets within bars (skin drawn at natural 1:1 size)
+            // Selected bar (640x96 skin): preview at (barX+7, barY-3), lamp at (barX, barY+1), title at (barX+55, barY+centered)
+            public const int SelectedBarPreviewImageOffsetX = 7;
+            public const int SelectedBarPreviewImageOffsetY = -3;
+            public const int SelectedBarClearLampOffsetX = 0;
+            public const int SelectedBarClearLampOffsetY = 1;
+            public const int SelectedBarTitleOffsetX = 55;
+            // Unselected bar (620x48 skin): preview at (barX+31, barY+2), lamp at (barX+24, barY+6), title at (barX+78, barY+5+centered)
+            public const int UnselectedBarPreviewImageOffsetX = 31;
+            public const int UnselectedBarPreviewImageOffsetY = 2;
+            public const int UnselectedBarClearLampOffsetX = 24;
+            public const int UnselectedBarClearLampOffsetY = 6;
+            public const int UnselectedBarTitleOffsetX = 78;
+            public const int UnselectedBarTitleOffsetY = 5;
+
             // Spacing and positioning within bars
             public const int PreviewImageMargin = 5;   // Margin around preview image
             public const int TextMarginWithImage = 10; // Text margin when preview image present

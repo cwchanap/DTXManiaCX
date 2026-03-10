@@ -624,23 +624,28 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw BMP background texture first (5_BPM.png or fallback)
             DrawBPMBackground(spriteBatch);
 
-            // Use positioning from SongSelectionUILayout
-            var lengthPosition = SongSelectionUILayout.BPMSection.LengthTextPosition;
-            var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
+            // Compute text positions using actual font metrics for precise vertical centering
+            var font = _smallFont ?? _font;
+            float lineH = font?.LineSpacing ?? 16f;
+            float textX = SongSelectionUILayout.BPMSection.X + SongSelectionUILayout.BPMSection.TextX;
+            float lengthY = SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.LengthBoxTop
+                            + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
+            float bpmY    = SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.BPMBoxTop
+                            + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
 
             // When using authentic 5_BPM.png, don't draw redundant labels
             bool useAuthenticTexture = _bpmBackgroundTexture != null;
 
-            // Draw song duration (DTXManiaNX format: "Length: 2:34" or just "2:34")
+            // Draw song duration
             var formattedDuration = FormatDuration(chart.Duration);
             var durationText = useAuthenticTexture ? formattedDuration : $"Length: {formattedDuration}";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, lengthPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
+            DrawTextWithShadow(spriteBatch, font, durationText, new Vector2(textX, lengthY), DTXManiaVisualTheme.SongSelection.StatusValueText);
 
-            // Draw BPM value (DTXManiaNX format: "BPM: 145" or just "145")
+            // Draw BPM value
             if (chart.Bpm > 0)
             {
                 var bpmText = useAuthenticTexture ? $"{chart.Bpm:F0}" : $"BPM: {chart.Bpm:F0}";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, bpmPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
+                DrawTextWithShadow(spriteBatch, font, bpmText, new Vector2(textX, bpmY), DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
         }
 
@@ -812,10 +817,14 @@ namespace DTXMania.Game.Lib.Song.Components
                 spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
             }
 
-            // NX: skill value at (32+60, 200)
-            var skillValuePosition = SongSelectionUILayout.SkillPointSection.ValuePosition;
+            // Compute skill text position dynamically using actual font metrics
+            var skillFont = _smallFont ?? _font;
+            float skillLineH = skillFont?.LineSpacing ?? 16f;
+            float skillTextX = SongSelectionUILayout.SkillPointSection.X + SongSelectionUILayout.SkillPointSection.DarkBoxLeft + 8f;
+            float skillTextY = SongSelectionUILayout.SkillPointSection.Y + SongSelectionUILayout.SkillPointSection.DarkBoxTop
+                               + (SongSelectionUILayout.SkillPointSection.DarkBoxHeight - skillLineH) / 2f;
             var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, skillValuePosition, Color.Yellow);
+            DrawTextWithShadow(spriteBatch, skillFont, skillValue, new Vector2(skillTextX, skillTextY), Color.Yellow);
         }
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
@@ -1029,11 +1038,13 @@ namespace DTXMania.Game.Lib.Song.Components
             // including its header row, so the graph panel aligns with the full difficulty panel.
             int cellRows = 5;
             int cellHeight = SongSelectionUILayout.DifficultyGrid.CellHeight;
-            int difficultyTextureHeight = _graphPanelDrumsTexture?.Height
-                ?? _graphPanelGuitarBassTexture?.Height
-                ?? (cellRows * cellHeight + 21); // fallback: 321px
+            // Use texture's natural dimensions (NX: tDraw2D at 1:1 scale, no stretching)
+            var graphTexture = GetInstrumentFromDifficulty(_currentDifficulty) == "DRUMS"
+                ? _graphPanelDrumsTexture : _graphPanelGuitarBassTexture;
+            int difficultyTextureWidth = graphTexture?.Width ?? (int)graphPanelSize.X;
+            int difficultyTextureHeight = graphTexture?.Height ?? (cellRows * cellHeight + 21);
             var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, graphPanelPosition.Y);
-            var alignedGraphPanelSize = new Vector2(graphPanelSize.X, difficultyTextureHeight);
+            var alignedGraphPanelSize = new Vector2(difficultyTextureWidth, difficultyTextureHeight);
 
             // Draw graph panel background using authentic DTXManiaNX texture with matching height
             DrawGraphPanelBackground(spriteBatch, alignedGraphPanelPosition, alignedGraphPanelSize);
