@@ -157,6 +157,14 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Clears any queued input commands without returning them.
+        /// </summary>
+        public virtual void ClearPendingCommands()
+        {
+            _inputCommandQueue.Clear();
+        }
+
+        /// <summary>
         /// Enqueue a navigation command directly (for use by subclasses injecting virtual input)
         /// </summary>
         protected void EnqueueCommand(InputCommand command)

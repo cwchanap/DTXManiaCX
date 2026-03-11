@@ -484,6 +484,34 @@ Key.Bad=abc
         }
     }
 
+    [Theory]
+    [InlineData("Songs")]
+    [InlineData("./Songs")]
+    [InlineData(".\\Songs")]
+    [InlineData("Songs/")]
+    [InlineData("Songs\\")]
+    public void ConfigManager_LoadConfig_LegacySongsDTXPath_ShouldUseDefault(string legacyPath)
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_LegacySongsPath_{Guid.NewGuid():N}.ini");
+        var iniContent = $"[System]\nDTXPath={legacyPath}\n";
+        File.WriteAllText(tempFile, iniContent);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
     [Fact]
     public void ConfigManager_LoadConfig_KeyBindingLane10_ShouldBeRejected()
     {
