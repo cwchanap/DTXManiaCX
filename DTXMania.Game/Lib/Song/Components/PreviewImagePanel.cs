@@ -40,6 +40,11 @@ namespace DTXMania.Game.Lib.Song.Components
         private const int CONTENT_OFFSET_Y_WITHOUT_STATUS = 24;
         private const int CONTENT_OFFSET_WITH_STATUS = 8; // X+8, Y+8
 
+        private const int WITHOUT_STATUS_PANEL_WIDTH = WITHOUT_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITHOUT_STATUS * 2);
+        private const int WITHOUT_STATUS_PANEL_HEIGHT = WITHOUT_STATUS_PANEL_SIZE + (CONTENT_OFFSET_Y_WITHOUT_STATUS * 2);
+        private const int WITH_STATUS_PANEL_WIDTH = WITH_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITH_STATUS * 2);
+        private const int WITH_STATUS_PANEL_HEIGHT = WITH_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITH_STATUS * 2);
+
         private bool _hasStatusPanel = true; // Default to with status panel
 
         // Display delay timing (moved from SongSelectionStage)
@@ -162,7 +167,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
-            var bounds = Bounds;
+            var bounds = GetPanelBounds();
 
             // Draw background panel
             DrawBackground(spriteBatch, bounds);
@@ -179,18 +184,73 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void UpdatePositionAndSize()
         {
+            var (frameWidth, frameHeight, _, _, _) = GetPanelMetrics();
             if (_hasStatusPanel)
             {
-                // With status panel: X:250, Y:34 (292×292 pixels)
+                // With status panel: X:250, Y:34
                 Position = new Vector2(WITH_STATUS_PANEL_X, WITH_STATUS_PANEL_Y);
-                Size = new Vector2(WITH_STATUS_PANEL_SIZE, WITH_STATUS_PANEL_SIZE);
+                Size = new Vector2(frameWidth, frameHeight);
             }
             else
             {
-                // Without status panel: X:18, Y:88 (368×368 pixels)
+                // Without status panel: X:18, Y:88
                 Position = new Vector2(WITHOUT_STATUS_PANEL_X, WITHOUT_STATUS_PANEL_Y);
-                Size = new Vector2(WITHOUT_STATUS_PANEL_SIZE, WITHOUT_STATUS_PANEL_SIZE);
+                Size = new Vector2(frameWidth, frameHeight);
             }
+        }
+
+        private Rectangle GetPanelBounds()
+        {
+            var (frameWidth, frameHeight, _, _, _) = GetPanelMetrics();
+            return new Rectangle((int)Position.X, (int)Position.Y, frameWidth, frameHeight);
+        }
+
+        private Rectangle GetContentBounds(Rectangle panelBounds)
+        {
+            var (_, _, contentOffsetX, contentOffsetY, contentSize) = GetPanelMetrics();
+            return new Rectangle(
+                panelBounds.X + contentOffsetX,
+                panelBounds.Y + contentOffsetY,
+                contentSize,
+                contentSize);
+        }
+
+        private (int FrameWidth, int FrameHeight, int ContentOffsetX, int ContentOffsetY, int ContentSize) GetPanelMetrics()
+        {
+            int contentOffsetX;
+            int contentOffsetY;
+            int fallbackFrameWidth;
+            int fallbackFrameHeight;
+            int fallbackContentSize;
+
+            if (_hasStatusPanel)
+            {
+                contentOffsetX = CONTENT_OFFSET_WITH_STATUS;
+                contentOffsetY = CONTENT_OFFSET_WITH_STATUS;
+                fallbackFrameWidth = WITH_STATUS_PANEL_WIDTH;
+                fallbackFrameHeight = WITH_STATUS_PANEL_HEIGHT;
+                fallbackContentSize = WITH_STATUS_PANEL_SIZE;
+            }
+            else
+            {
+                contentOffsetX = CONTENT_OFFSET_WITHOUT_STATUS;
+                contentOffsetY = CONTENT_OFFSET_Y_WITHOUT_STATUS;
+                fallbackFrameWidth = WITHOUT_STATUS_PANEL_WIDTH;
+                fallbackFrameHeight = WITHOUT_STATUS_PANEL_HEIGHT;
+                fallbackContentSize = WITHOUT_STATUS_PANEL_SIZE;
+            }
+
+            if (_preimagePanelTexture != null)
+            {
+                int frameWidth = _preimagePanelTexture.Width;
+                int frameHeight = _preimagePanelTexture.Height;
+                int availableWidth = Math.Max(0, frameWidth - (contentOffsetX * 2));
+                int availableHeight = Math.Max(0, frameHeight - (contentOffsetY * 2));
+                int contentSize = Math.Min(availableWidth, availableHeight);
+                return (frameWidth, frameHeight, contentOffsetX, contentOffsetY, contentSize);
+            }
+
+            return (fallbackFrameWidth, fallbackFrameHeight, contentOffsetX, contentOffsetY, fallbackContentSize);
         }
 
         /// <summary>
@@ -249,6 +309,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preimage panel texture: {ex.Message}");
                 _preimagePanelTexture = null;
             }
+
+            UpdatePositionAndSize();
         }
 
         /// <summary>
@@ -541,29 +603,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawPreviewContent(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Calculate content area with DTXManiaNX offsets
-            Rectangle contentBounds;
-            if (_hasStatusPanel)
-            {
-                // With status panel: NX n差X=8, n差Y=8, n表示ジャケットサイズ=292
-                // Content origin at panel + (8,8), size is the jacket constant (NOT bounds minus 2×offset)
-                contentBounds = new Rectangle(
-                    bounds.X + CONTENT_OFFSET_WITH_STATUS,
-                    bounds.Y + CONTENT_OFFSET_WITH_STATUS,
-                    WITH_STATUS_PANEL_SIZE,
-                    WITH_STATUS_PANEL_SIZE
-                );
-            }
-            else
-            {
-                // Without status panel: NX n差X=37, n差Y=24, n表示ジャケットサイズ=368
-                contentBounds = new Rectangle(
-                    bounds.X + CONTENT_OFFSET_WITHOUT_STATUS,
-                    bounds.Y + CONTENT_OFFSET_Y_WITHOUT_STATUS,
-                    WITHOUT_STATUS_PANEL_SIZE,
-                    WITHOUT_STATUS_PANEL_SIZE
-                );
-            }
+            var contentBounds = GetContentBounds(bounds);
 
             // Only show preview image if delay has passed and we should display it
             ITexture textureToUse = null;
@@ -583,8 +623,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 catch (ObjectDisposedException)
                 {
-                    // Texture was disposed during draw, clear the reference
-                    _currentPreviewTexture = null;
+                    ClearDisposedTextureReference(textureToUse);
                 }
                 catch (Exception)
                 {
@@ -596,6 +635,19 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 // Draw placeholder when no image is available or delay hasn't passed
                 DrawPlaceholder(spriteBatch, contentBounds);
+            }
+        }
+
+        private void ClearDisposedTextureReference(ITexture textureToUse)
+        {
+            if (ReferenceEquals(_currentPreviewTexture, textureToUse))
+            {
+                _currentPreviewTexture = null;
+            }
+
+            if (ReferenceEquals(_defaultPreviewTexture, textureToUse))
+            {
+                _defaultPreviewTexture = null;
             }
         }
 

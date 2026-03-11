@@ -354,31 +354,30 @@ public class GameInteractionService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Attempting to send key '{Key}' to client {ClientId}", key, clientId);
 
-            var inputParams = new
+            var pressParams = CreateKeyInputParams(2, key);
+            _logger.LogInformation("Sending key press '{Key}' to client {ClientId}", key, clientId);
+            var pressResult = await SendInputAsync("sendInput", pressParams, clientId, $"Key '{key}' pressed successfully", cancellationToken);
+            if (!pressResult.Success)
             {
-                Type = 2, // KeyPress
-                Data = key
-            };
-
-            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams, cancellationToken);
-            
-            if (response.Result != null)
-            {
-                var resultElement = (JsonElement)response.Result;
-                var success = resultElement.GetProperty("success").GetBoolean();
-                
-                if (success)
-                {
-                    _logger.LogInformation("Successfully sent key input to game");
-                    return (true, $"Key '{key}' sent successfully");
-                }
-                else
-                {
-                    return (false, "Game rejected the input");
-                }
+                return pressResult;
             }
-            
-            return (false, "No result returned from game");
+
+            int effectiveHoldDurationMs = holdDurationMs < 0 ? 0 : holdDurationMs;
+            if (effectiveHoldDurationMs > 0)
+            {
+                await Task.Delay(effectiveHoldDurationMs, cancellationToken);
+            }
+
+            var releaseParams = CreateKeyInputParams(3, key);
+            _logger.LogInformation("Sending key release '{Key}' to client {ClientId}", key, clientId);
+            var releaseResult = await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", cancellationToken);
+            if (!releaseResult.Success)
+            {
+                return releaseResult;
+            }
+
+            _logger.LogInformation("Successfully sent key press and release for '{Key}' to client {ClientId}", key, clientId);
+            return (true, $"Key '{key}' sent successfully");
         }
         catch (JsonRpcException ex)
         {
@@ -390,6 +389,15 @@ public class GameInteractionService : IDisposable
             _logger.LogError(ex, "Error sending key to client {ClientId}", clientId);
             return (false, $"Error: {ex.Message}");
         }
+    }
+
+    private static object CreateKeyInputParams(int inputType, string key)
+    {
+        return new
+        {
+            Type = inputType,
+            Data = key
+        };
     }
     
     /// <summary>

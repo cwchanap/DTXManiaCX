@@ -23,6 +23,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         // Set to false to use bitmap font for level numbers, true to use sprite font
         private const bool USE_SPRITE_FONT = false;
+        private static readonly Vector2 StandaloneBpmOrigin = new(490, 385);
 
         #endregion
 
@@ -627,10 +628,11 @@ namespace DTXMania.Game.Lib.Song.Components
             // Compute text positions using actual font metrics for precise vertical centering
             var font = _smallFont ?? _font;
             float lineH = font?.LineSpacing ?? 16f;
-            float textX = SongSelectionUILayout.BPMSection.X + SongSelectionUILayout.BPMSection.TextX;
-            float lengthY = SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.LengthBoxTop
+            var bpmOrigin = GetBpmBackgroundOrigin();
+            float textX = bpmOrigin.X + SongSelectionUILayout.BPMSection.TextX;
+            float lengthY = bpmOrigin.Y + SongSelectionUILayout.BPMSection.LengthBoxTop
                             + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
-            float bpmY    = SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.BPMBoxTop
+            float bpmY    = bpmOrigin.Y + SongSelectionUILayout.BPMSection.BPMBoxTop
                             + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
 
             // When using authentic 5_BPM.png, don't draw redundant labels
@@ -655,21 +657,8 @@ namespace DTXMania.Game.Lib.Song.Components
         private void DrawBPMBackground(SpriteBatch spriteBatch)
         {
             // Determine position and size based on standalone mode
-            Vector2 position;
-            Vector2 size;
-            
-            if (UseStandaloneBPMBackground)
-            {
-                // X:490, Y:385 (standalone mode from DTXManiaNX)
-                position = new Vector2(490, 385);
-                size = SongSelectionUILayout.BPMSection.Size;
-            }
-            else
-            {
-                // X:90, Y:275 (with panel mode from DTXManiaNX)
-                position = SongSelectionUILayout.BPMSection.Position;
-                size = SongSelectionUILayout.BPMSection.Size;
-            }
+            Vector2 position = GetBpmBackgroundOrigin();
+            Vector2 size = SongSelectionUILayout.BPMSection.Size;
 
             // Draw 5_BPM.png at natural size (187x67) so the text positions align with icon areas.
             // NX draws at (nBPM位置X, nBPM位置Y) without scaling.
@@ -707,6 +696,11 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Draw simple background when no graphics generator is available
                 DrawSimpleBPMBackground(spriteBatch, position, size);
             }
+        }
+
+        private Vector2 GetBpmBackgroundOrigin()
+        {
+            return UseStandaloneBPMBackground ? StandaloneBpmOrigin : SongSelectionUILayout.BPMSection.Position;
         }
 
         /// <summary>
@@ -979,7 +973,7 @@ namespace DTXMania.Game.Lib.Song.Components
             int iconH = _skillIconTexture.Height;
 
             // Rank symbol (clamp to valid range 0-7: SS through F)
-            int rankIndex = Math.Clamp(score.BestRank, 0, 7);
+            int rankIndex = SongScore.ComputeRankIndex(score.BestRank);
             _skillIconTexture.Draw(spriteBatch, new Vector2(x + 7, rankY),
                 new Rectangle(RankIconWidth * rankIndex, 0, RankIconWidth, iconH));
 
@@ -1158,10 +1152,13 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Center the number at the NX-authentic center point (position.X is the center, not left edge)
-            var font = _smallFont ?? _font;
-            if (font != null)
+            var font = _smallFont ?? _font ?? _managedFont?.SpriteFont;
+            var textSize = font != null
+                ? font.MeasureString(notesText)
+                : _managedFont?.MeasureString(notesText) ?? Vector2.Zero;
+
+            if (font != null || _managedFont != null)
             {
-                var textSize = font.MeasureString(notesText);
                 var centeredPos = new Vector2(position.X - textSize.X / 2, position.Y);
                 DrawTextWithShadow(spriteBatch, font, notesText, centeredPos, textColor);
             }

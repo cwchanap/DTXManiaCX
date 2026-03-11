@@ -6,6 +6,8 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -59,6 +61,24 @@ public class PreviewImagePanelTests
 
         var shouldDisplay = InvokePrivate<bool>(panel, "ShouldDisplayPreview");
         Assert.True(shouldDisplay);
+    }
+
+    [Fact]
+    public void GetPanelBounds_WhenFrameTextureLoaded_ShouldUseTextureMetrics()
+    {
+        var panel = new PreviewImagePanel();
+        var frameTexture = new Mock<ITexture>();
+        frameTexture.SetupGet(x => x.Width).Returns(308);
+        frameTexture.SetupGet(x => x.Height).Returns(308);
+
+        SetField(panel, "_preimagePanelTexture", frameTexture.Object);
+        InvokePrivateVoid(panel, "UpdatePositionAndSize");
+
+        var panelBounds = InvokePrivate<Rectangle>(panel, "GetPanelBounds");
+        var contentBounds = InvokePrivate<Rectangle>(panel, "GetContentBounds", panelBounds);
+
+        Assert.Equal(new Rectangle(250, 34, 308, 308), panelBounds);
+        Assert.Equal(new Rectangle(258, 42, 292, 292), contentBounds);
     }
 
     [Fact]
@@ -197,6 +217,33 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void DrawPreviewContent_WhenDefaultTextureIsDisposed_ShouldClearDefaultReference()
+    {
+        var panel = new PreviewImagePanel();
+        var disposedTexture = new Mock<ITexture>();
+        disposedTexture
+            .Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Throws(new ObjectDisposedException("preview"));
+
+        SetField(panel, "_currentSong", new SongListNode { Type = NodeType.Score, Title = "Song" });
+        SetField(panel, "_displayDelay", 0.5);
+        SetField(panel, "_defaultPreviewTexture", disposedTexture.Object);
+
+        InvokePrivateVoid(panel, "DrawPreviewContent", null!, new Rectangle(250, 34, 308, 308));
+
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+        Assert.False(InvokePrivate<bool>(panel, "ShouldDisplayPreview"));
+    }
+
+    [Fact]
     public void GetSongDirectoryFromNode_ShouldPreferChartPath_ThenFallbackToDirectoryPath()
     {
         var panel = new PreviewImagePanel();
@@ -282,6 +329,13 @@ public class PreviewImagePanelTests
         return (T)method!.Invoke(target, args)!;
     }
 
+    private static void InvokePrivateVoid(object target, string methodName, params object?[] args)
+    {
+        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(target, args);
+    }
+
     private static void SetField(object target, string fieldName, object? value)
     {
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
@@ -294,5 +348,12 @@ public class PreviewImagePanelTests
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (T)field!.GetValue(target)!;
+    }
+
+    private static object? GetFieldValue(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return field!.GetValue(target);
     }
 }

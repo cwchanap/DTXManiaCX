@@ -443,7 +443,7 @@ Key.Bad=abc
         var tempFile = Path.Combine(Path.GetTempPath(), $"Test_CustomPath_{Guid.NewGuid():N}.ini");
         var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
         var iniContent = $"[System]\nDTXPath={customPath}\n";
-        File.WriteAllText(tempFile, iniContent);
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {
@@ -466,7 +466,7 @@ Key.Bad=abc
         var manager = new ConfigManager();
         var tempFile = Path.Combine(Path.GetTempPath(), $"Test_EmptyPath_{Guid.NewGuid():N}.ini");
         var iniContent = "[System]\nDTXPath=\n";
-        File.WriteAllText(tempFile, iniContent);
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {
@@ -496,7 +496,7 @@ Key.Bad=abc
         var manager = new ConfigManager();
         var tempFile = Path.Combine(Path.GetTempPath(), $"Test_LegacySongsPath_{Guid.NewGuid():N}.ini");
         var iniContent = $"[System]\nDTXPath={legacyPath}\n";
-        File.WriteAllText(tempFile, iniContent);
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {
@@ -519,7 +519,7 @@ Key.Bad=abc
         var manager = new ConfigManager();
         var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Lane10_{Guid.NewGuid():N}.ini");
         var iniContent = "[System]\n[KeyBindings]\nKey.A=10\nKey.B=9\n";
-        File.WriteAllText(tempFile, iniContent);
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {

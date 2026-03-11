@@ -21,6 +21,20 @@ Source: `DTXManiaNX/DTXMania/Code/Stage/05.SongSelection/CActSelectStatusPanel.c
 3. Position rank symbols within the existing difficulty grid area, matching NX layout
 4. Handle missing data gracefully (no history = no symbols)
 
+## Acceptance criteria
+
+1. **Visual alignment**
+   `SongStatusPanel` must render each historical rank symbol inside the NX difficulty-grid cell for the matching difficulty/instrument, with a maximum tolerance of `±2px` from the NX reference anchor in `DTXManiaNX`.
+   Pass when the symbol, FC badge, and level text all fit without overlap or border clipping; fail if any icon drifts beyond that tolerance or collides with neighboring UI.
+
+2. **Missing data behavior**
+   When no matching `SongScore`/`PerformanceHistory` exists, or the score has no meaningful play history, `SongStatusPanel` must render no historical rank symbol and no placeholder/tooltip.
+   Pass when the grid remains visually unchanged apart from the missing symbol; fail if stale icons, placeholder glyphs, or empty-state artifacts are rendered.
+
+3. **Required validation**
+   Coverage must include unit tests for `SongStatusPanel` rank-texture source-rect/position mapping, integration tests that load best-rank data per difficulty from `SongScore`/`PerformanceHistory`, and a visual regression check against the NX layout reference.
+   Pass when all three validation layers succeed; fail if any layer is missing or the rendered output no longer matches the expected NX-aligned layout.
+
 ## Notes
 
 - Score data model (`SongScore`, `PerformanceHistory`) already exists in CX

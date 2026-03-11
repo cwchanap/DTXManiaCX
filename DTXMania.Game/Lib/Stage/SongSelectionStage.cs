@@ -58,6 +58,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Input tracking using InputManager
         private InputManager _inputManager;
+        private bool _ownsInputManager;
         private IConfigManager _configManager;
 
         // Navigation state
@@ -114,7 +115,7 @@ namespace DTXMania.Game.Lib.Stage
         public SongSelectionStage(BaseGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
-            _inputManager = game.InputManager ?? new InputManager();
+            AssignInputManager(game.InputManager);
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
@@ -127,7 +128,7 @@ namespace DTXMania.Game.Lib.Stage
             base.Activate(sharedData);
 
             // Use game's shared InputManager (supports MCP key injection)
-            _inputManager = (_game as BaseGame)?.InputManager ?? new InputManager();
+            AssignInputManager((_game as BaseGame)?.InputManager);
             _inputManager.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
 
@@ -239,8 +240,14 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
-            // Don't dispose the shared game InputManager (owned by BaseGame)
+            if (_ownsInputManager)
+            {
+                _inputManager?.ClearPendingCommands();
+                _inputManager?.Dispose();
+            }
+
             _inputManager = null;
+            _ownsInputManager = false;
 
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
             _headerPanelTexture?.RemoveReference();
@@ -274,6 +281,18 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region Font Management
+
+        private void AssignInputManager(InputManager inputManager)
+        {
+            if (_ownsInputManager)
+            {
+                _inputManager?.ClearPendingCommands();
+                _inputManager?.Dispose();
+            }
+
+            _inputManager = inputManager ?? new InputManager();
+            _ownsInputManager = inputManager == null;
+        }
 
         /// <summary>
         /// Create a fallback font when the font factory is not available

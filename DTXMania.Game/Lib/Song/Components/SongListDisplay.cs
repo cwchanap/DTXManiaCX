@@ -1105,7 +1105,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private Vector2 CalculateArtistNamePosition(float textWidth)
         {
             return new Vector2(
-                SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth,
+                Math.Max(0f, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth),
                 SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
         }
 
@@ -1117,11 +1117,13 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _font == null)
                 return;
 
-            var artistTextSize = _font.MeasureString(artistName);
+            float maxTextWidth = SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge / Math.Max(textScale.X, 0.001f);
+            var displayArtistName = TruncateTextToWidth(artistName, maxTextWidth, _font);
+            var artistTextSize = _font.MeasureString(displayArtistName);
             var artistPos = CalculateArtistNamePosition(artistTextSize.X * textScale.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            spriteBatch.DrawString(_font, artistName, artistPos, artistColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_font, displayArtistName, artistPos, artistColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
         }
 
         /// <summary>
@@ -1132,11 +1134,46 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _managedFont == null)
                 return;
 
-            var artistTextSize = _managedFont.MeasureString(artistName);
+            var displayArtistName = TruncateTextToWidth(artistName, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge, _managedFont);
+            var artistTextSize = _managedFont.MeasureString(displayArtistName);
             var artistPos = CalculateArtistNamePosition(artistTextSize.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            _managedFont.DrawString(spriteBatch, artistName, artistPos, artistColor);
+            _managedFont.DrawString(spriteBatch, displayArtistName, artistPos, artistColor);
+        }
+
+        /// <summary>
+        /// Truncate text to fit within specified width using binary search
+        /// </summary>
+        private string TruncateTextToWidth(string text, float maxWidth, SpriteFont font)
+        {
+            if (string.IsNullOrEmpty(text) || font == null)
+                return text;
+
+            if (font.MeasureString(text).X <= maxWidth)
+                return text;
+
+            int left = 0;
+            int right = text.Length;
+            string bestFit = "";
+
+            while (left <= right)
+            {
+                int mid = left + (right - left) / 2;
+                string candidate = text.Substring(0, mid) + "...";
+
+                if (font.MeasureString(candidate).X <= maxWidth)
+                {
+                    bestFit = candidate;
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid - 1;
+                }
+            }
+
+            return bestFit;
         }
 
         /// <summary>
