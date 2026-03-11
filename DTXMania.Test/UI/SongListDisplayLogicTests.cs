@@ -697,7 +697,7 @@ public class SongListDisplayLogicTests
         var display = new SongListDisplay();
         var itemBounds = new Rectangle(665, 269, 510, 48);
 
-        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true);
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true, -1, -1);
 
         // NX: bar texture drawn at itemBounds.Y + SelectedBarTextureYOffset (-30) = 239
         Assert.Equal(itemBounds.Y + SongSelectionUILayout.SongBars.SelectedBarTextureYOffset, textureBounds.Y);
@@ -711,7 +711,7 @@ public class SongListDisplayLogicTests
         var display = new SongListDisplay();
         var itemBounds = new Rectangle(673, 100, 510, 48);
 
-        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false);
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, -1, -1);
 
         Assert.Equal(itemBounds.Y, textureBounds.Y);
         Assert.Equal(itemBounds.X, textureBounds.X);

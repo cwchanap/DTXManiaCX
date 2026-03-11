@@ -274,14 +274,35 @@ namespace DTXMania.Game.Lib.Config
             Directory.CreateDirectory(directory);
         }
 
+        private static bool IsLegacyDefaultSongsPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            var normalized = path.Trim().Replace('\\', '/').TrimEnd('/');
+            return string.Equals(normalized, "Songs", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void NormalizeConfigPaths()
         {
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
+            var shouldMigrateLegacySongsPath = IsLegacyDefaultSongsPath(Config.DTXPath);
+
+            if (shouldMigrateLegacySongsPath)
+            {
+                _logger.LogInformation(
+                    "Migrating legacy DTXPath '{LegacyPath}' to '{DefaultSongsPath}'",
+                    Config.DTXPath,
+                    defaultSongsPath);
+            }
 
             // Honor configured paths first, fallback to defaults if not set
             Config.SystemSkinRoot = AppPaths.ResolvePathOrDefault(Config.SystemSkinRoot, defaultSystemSkinRoot);
-            Config.DTXPath = AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
+            Config.DTXPath = shouldMigrateLegacySongsPath
+                ? defaultSongsPath
+                : AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
             Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
 
             void EnsureDirectorySafe(string path)

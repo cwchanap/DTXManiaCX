@@ -128,6 +128,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Use game's shared InputManager (supports MCP key injection)
             _inputManager = (_game as BaseGame)?.InputManager ?? new InputManager();
+            _inputManager.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Get config manager from game
@@ -767,9 +768,6 @@ namespace DTXMania.Game.Lib.Stage
 
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
-
-            // Update input manager
-            _inputManager?.Update(deltaTime);
 
             // Update phase
             UpdatePhase(deltaTime);

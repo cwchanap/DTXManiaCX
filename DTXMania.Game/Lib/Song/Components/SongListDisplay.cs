@@ -990,7 +990,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var basicSkinTexture = GetSkinBarTexture(basicBarType, isCenter);
             if (basicSkinTexture != null)
             {
-                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, basicSkinTexture.Width, basicSkinTexture.Height);
                 basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_whitePixel != null)
