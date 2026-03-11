@@ -3,6 +3,7 @@
 using System;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Game.Lib.Input
 {
@@ -61,12 +62,18 @@ namespace DTXMania.Game.Lib.Input
             if (_modularInputManager != null)
             {
                 var pressEvents = _modularInputManager.DrainInjectedPressEvents();
+                var hardwareKeyboardState = Keyboard.GetState();
                 while (pressEvents.Count > 0)
                 {
                     var keyCode = pressEvents.Dequeue();
-                    var key = (Microsoft.Xna.Framework.Input.Keys)keyCode;
+                    var key = (Keys)keyCode;
                     if (KeyMapping.TryGetValue(key, out var commandType))
                     {
+                        if (hardwareKeyboardState.IsKeyDown(key))
+                        {
+                            continue;
+                        }
+
                         EnqueueCommand(new InputCommand(commandType, CurrentTime, false));
                     }
                 }

@@ -696,13 +696,16 @@ public class SongListDisplayLogicTests
     {
         var display = new SongListDisplay();
         var itemBounds = new Rectangle(665, 269, 510, 48);
+        const int selectedTextureWidth = 640;
+        const int selectedTextureHeight = 96;
 
-        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true, -1, -1);
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true, selectedTextureWidth, selectedTextureHeight);
 
-        // NX: bar texture drawn at itemBounds.Y + SelectedBarTextureYOffset (-30) = 239
+        // NX selected skin renders at natural 640x96, shifted upward by 30px.
         Assert.Equal(itemBounds.Y + SongSelectionUILayout.SongBars.SelectedBarTextureYOffset, textureBounds.Y);
         Assert.Equal(itemBounds.X, textureBounds.X);
-        Assert.Equal(itemBounds.Width, textureBounds.Width);
+        Assert.Equal(selectedTextureWidth, textureBounds.Width);
+        Assert.Equal(selectedTextureHeight, textureBounds.Height);
     }
 
     [Fact]
@@ -715,6 +718,7 @@ public class SongListDisplayLogicTests
 
         Assert.Equal(itemBounds.Y, textureBounds.Y);
         Assert.Equal(itemBounds.X, textureBounds.X);
+        Assert.Equal(itemBounds.Height, textureBounds.Height);
     }
 
     [Fact]
@@ -731,14 +735,14 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void CalculateArtistNamePosition_WhenTextWider_ShouldStillUseAbsoluteEdge()
+    public void CalculateArtistNamePosition_WhenTextWouldOverflow_ShouldClampToZero()
     {
         var display = new SongListDisplay();
-        float textWidth = 400f;
+        float textWidth = 1400f;
 
         var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
 
-        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth, pos.X);
+        Assert.Equal(0f, pos.X);
     }
 
     private static List<SongListNode> CreateSongs(int count)

@@ -506,7 +506,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 var score = songNode.Scores[difficulty];
                 if (score.FullCombo)
                     return ClearStatus.FullCombo;
-                else if (score.BestRank >= 80)
+                else if (DTXMania.Game.Lib.Song.Entities.SongScore.ComputeRankIndex(score.BestRank) <= 2)
                     return ClearStatus.Clear;
                 else if (score.PlayCount > 0)
                     return ClearStatus.Failed;

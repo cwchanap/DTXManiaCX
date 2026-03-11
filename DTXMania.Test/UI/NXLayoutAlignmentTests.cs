@@ -17,6 +17,7 @@ namespace DTXMania.Test.UI
     /// Covers bar positioning, sizing, texture paths, column order,
     /// title text rendering constants, and scrollbar/counter features.
     /// </summary>
+    [Trait("Category", "UI")]
     public class NXLayoutAlignmentTests
     {
         #region Bar Position Constants (Step 1)
@@ -213,6 +214,8 @@ namespace DTXMania.Test.UI
             Assert.Contains(TexturePath.BarBoxSelected, allPaths);
             Assert.Contains(TexturePath.BarOther, allPaths);
             Assert.Contains(TexturePath.BarOtherSelected, allPaths);
+            Assert.Contains(TexturePath.SkillPointPanel, allPaths);
+            Assert.Contains(TexturePath.SkillIcon, allPaths);
             Assert.Contains(TexturePath.PreimagePanel, allPaths);
             Assert.Contains(TexturePath.Scrollbar, allPaths);
         }
@@ -223,6 +226,7 @@ namespace DTXMania.Test.UI
             var panelPaths = TexturePath.GetPanelTextures();
             Assert.Contains(TexturePath.BarScore, panelPaths);
             Assert.Contains(TexturePath.BarScoreSelected, panelPaths);
+            Assert.Contains(TexturePath.SkillPointPanel, panelPaths);
             Assert.Contains(TexturePath.PreimagePanel, panelPaths);
             Assert.Contains(TexturePath.Scrollbar, panelPaths);
         }

@@ -41,17 +41,17 @@ namespace DTXMania.Test.Song
             var score = new SongScore
             {
                 BestScore = 800000,
-                BestRank = 3,
+                BestRank = 70,
                 PlayCount = 5
             };
 
             // Act
-            var result = score.UpdateScore(900000, 2, false, 80, 15, 5, 0, 0);
+            var result = score.UpdateScore(900000, 80, false, 80, 15, 5, 0, 0);
 
             // Assert
             Assert.True(result);
             Assert.Equal(900000, score.BestScore);
-            Assert.Equal(2, score.BestRank);
+            Assert.Equal(80, score.BestRank);
             Assert.Equal(6, score.PlayCount);
             Assert.NotNull(score.LastPlayedAt);
             Assert.True(score.IsNewRecord);
@@ -64,17 +64,17 @@ namespace DTXMania.Test.Song
             var score = new SongScore
             {
                 BestScore = 900000,
-                BestRank = 2,
+                BestRank = 80,
                 PlayCount = 5
             };
 
             // Act
-            var result = score.UpdateScore(800000, 3, false, 70, 20, 10, 0, 0);
+            var result = score.UpdateScore(800000, 70, false, 70, 20, 10, 0, 0);
 
             // Assert
             Assert.False(result);
             Assert.Equal(900000, score.BestScore); // Should not change
-            Assert.Equal(2, score.BestRank); // Should not change
+            Assert.Equal(80, score.BestRank); // Should not change
             Assert.Equal(6, score.PlayCount); // Should increment
             Assert.NotNull(score.LastPlayedAt);
             Assert.False(score.IsNewRecord);
@@ -91,7 +91,7 @@ namespace DTXMania.Test.Song
             };
 
             // Act
-            var result = score.UpdateScore(850000, 2, true, 100, 0, 0, 0, 0);
+            var result = score.UpdateScore(850000, 80, true, 100, 0, 0, 0, 0);
 
             // Assert
             Assert.True(result);
@@ -101,7 +101,7 @@ namespace DTXMania.Test.Song
 
         [Theory]
         [InlineData(1000000, 85, 1.0, 85.0)] // Perfect score, SS rank
-        [InlineData(950000, 85, 0.95, 76.71)] // S rank (adjusted for actual calculation)
+        [InlineData(950000, 85, 0.95, 76.71)] // S rank
         [InlineData(900000, 85, 0.9, 68.85)] // A rank
         [InlineData(0, 85, 0.5, 0.0)] // No score
         [InlineData(1000000, 0, 1.0, 0.0)] // No difficulty
@@ -112,7 +112,7 @@ namespace DTXMania.Test.Song
             {
                 BestScore = bestScore,
                 DifficultyLevel = difficultyLevel,
-                BestRank = GetRankFromMultiplier(rankMultiplier)
+                BestRank = GetRankPercentageFromMultiplier(rankMultiplier)
             };
 
             // Act
@@ -127,19 +127,30 @@ namespace DTXMania.Test.Song
             }
         }
 
-        private int GetRankFromMultiplier(double multiplier)
+        [Theory]
+        [InlineData(92, 1, "S", 0.95)]
+        [InlineData(80, 2, "A", 0.9)]
+        [InlineData(2, 2, "A", 0.9)]
+        public void RankHelpers_ShouldAcceptPercentageAndOrdinal(int rankValue, int expectedRankIndex, string expectedRankName, double expectedMultiplier)
+        {
+            Assert.Equal(expectedRankIndex, SongScore.ComputeRankIndex(rankValue));
+            Assert.Equal(expectedRankName, SongScore.RankString(rankValue));
+            Assert.Equal(expectedMultiplier, SongScore.RankMultiplier(rankValue), 3);
+        }
+
+        private int GetRankPercentageFromMultiplier(double multiplier)
         {
             return multiplier switch
             {
-                1.0 => 0,   // SS
-                0.95 => 1,  // S
-                0.9 => 2,   // A
-                0.85 => 3,  // B
-                0.8 => 4,   // C
-                0.75 => 5,  // D
-                0.7 => 6,   // E
-                0.65 => 7,  // F
-                _ => 8
+                1.0 => 95,  // SS
+                0.95 => 90, // S
+                0.9 => 80,  // A
+                0.85 => 70, // B
+                0.8 => 60,  // C
+                0.75 => 50, // D
+                0.7 => 40,  // E
+                0.65 => 0,  // F
+                _ => 0
             };
         }
 
