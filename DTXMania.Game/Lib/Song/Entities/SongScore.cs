@@ -218,12 +218,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             LastPlayedAt = DateTime.Now;
             int normalizedRank = NormalizeRankPercentage(rank);
             bool hadPreviousPlays = PlayCount > 1;
-            int currentBestRank = hadPreviousPlays ? NormalizeRankPercentage(BestRank) : 0;
-
-            if (hadPreviousPlays && BestRank != currentBestRank)
-            {
-                BestRank = currentBestRank;
-            }
+            int currentBestRank = hadPreviousPlays ? BestRank : 0;
             
             // Check if this is a new best score
             if (score > BestScore)
