@@ -274,21 +274,35 @@ namespace DTXMania.Game.Lib.Config
             Directory.CreateDirectory(directory);
         }
 
-        private static bool IsLegacyDefaultSongsPath(string? path)
+        private static string NormalizePathForComparison(string path)
+        {
+            return path.Trim().Replace('\\', '/').TrimEnd('/');
+        }
+
+        private static bool IsLegacyDefaultSongsPath(string? path, string defaultSongsPath)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return false;
 
-            var normalized = path.Trim().Replace('\\', '/').TrimEnd('/');
-            return string.Equals(normalized, "Songs", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
+            var normalized = NormalizePathForComparison(path);
+            var legacyDefaultSongsPath = NormalizePathForComparison(
+                Path.Combine(Path.GetDirectoryName(defaultSongsPath) ?? string.Empty, "Songs"));
+            var lastSeparatorIndex = normalized.LastIndexOf('/');
+            var lastSegment = lastSeparatorIndex >= 0
+                ? normalized.Substring(lastSeparatorIndex + 1)
+                : normalized;
+
+            return string.Equals(lastSegment, "Songs", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith("/Songs", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, legacyDefaultSongsPath, StringComparison.OrdinalIgnoreCase)
+                || legacyDefaultSongsPath.EndsWith(normalized, StringComparison.OrdinalIgnoreCase);
         }
 
         private void NormalizeConfigPaths()
         {
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
-            var shouldMigrateLegacySongsPath = IsLegacyDefaultSongsPath(Config.DTXPath);
+            var shouldMigrateLegacySongsPath = IsLegacyDefaultSongsPath(Config.DTXPath, defaultSongsPath);
 
             if (shouldMigrateLegacySongsPath)
             {

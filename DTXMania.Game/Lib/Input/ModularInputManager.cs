@@ -437,9 +437,9 @@ namespace DTXMania.Game.Lib.Input
             if (string.IsNullOrWhiteSpace(buttonId))
                 return false;
 
-            bool haslaneMapping = _keyBindings.GetLane(buttonId) >= 0;
+            bool hasLaneMapping = _keyBindings.GetLane(buttonId) >= 0;
             bool isKeyCode = TryGetKeyCode(buttonId, out _);
-            if (!haslaneMapping && !isKeyCode)
+            if (!hasLaneMapping && !isKeyCode)
                 return false;
 
             velocity = Math.Clamp(velocity, 0.0f, 1.0f);

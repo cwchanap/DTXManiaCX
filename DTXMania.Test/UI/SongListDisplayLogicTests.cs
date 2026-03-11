@@ -758,7 +758,36 @@ public class SongListDisplayLogicTests
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)
     {
-        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? method = null;
+        foreach (var candidate in target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic))
+        {
+            if (candidate.Name != methodName)
+                continue;
+
+            var parameters = candidate.GetParameters();
+            if (parameters.Length != args.Length)
+                continue;
+
+            bool isMatch = true;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (args[i] == null)
+                    continue;
+
+                if (!parameters[i].ParameterType.IsInstanceOfType(args[i]))
+                {
+                    isMatch = false;
+                    break;
+                }
+            }
+
+            if (isMatch)
+            {
+                method = candidate;
+                break;
+            }
+        }
+
         Assert.NotNull(method);
         var result = method!.Invoke(target, args);
         // For reference types, handle null results safely

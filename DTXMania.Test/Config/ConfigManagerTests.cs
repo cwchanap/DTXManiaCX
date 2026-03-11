@@ -451,7 +451,7 @@ Key.Bad=abc
             manager.LoadConfig(tempFile);
 
             // Assert - Custom path should be honored
-            Assert.Contains("CustomSongs", manager.Config.DTXPath);
+            Assert.Equal(Path.GetFullPath(customPath), manager.Config.DTXPath);
         }
         finally
         {
@@ -505,6 +505,30 @@ Key.Bad=abc
 
             // Assert
             Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_AbsoluteLegacySongsDTXPath_ShouldUseDefault()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_AbsoluteLegacySongsPath_{Guid.NewGuid():N}.ini");
+        var legacyAbsolutePath = Path.Combine(Path.GetDirectoryName(AppPaths.GetDefaultSongsPath())!, "Songs");
+        var iniContent = $"[System]\nDTXPath={legacyAbsolutePath}\n";
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.DTXPath);
         }
         finally
         {
