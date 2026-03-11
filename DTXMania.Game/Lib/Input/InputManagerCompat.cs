@@ -40,6 +40,12 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public ModularInputManager ModularInputManager => _modularInputManager;
 
+        public override void ClearPendingCommands()
+        {
+            base.ClearPendingCommands();
+            _modularInputManager?.ClearInjectedState();
+        }
+
         public override void Update(double deltaTime)
         {
             // Update the modular input manager
