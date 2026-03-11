@@ -437,11 +437,28 @@ namespace DTXMania.Game.Lib.Input
             if (string.IsNullOrWhiteSpace(buttonId))
                 return false;
 
+            bool haslaneMapping = _keyBindings.GetLane(buttonId) >= 0;
+            bool isKeyCode = TryGetKeyCode(buttonId, out _);
+            if (!haslaneMapping && !isKeyCode)
+                return false;
+
             velocity = Math.Clamp(velocity, 0.0f, 1.0f);
 
             var state = new ButtonState(buttonId, isPressed, velocity);
             _injectedButtonQueue.Enqueue(state);
             return true;
+        }
+
+        /// <summary>
+        /// Clears all pending injected state: the button queue, injected key states, and press events.
+        /// Call this when switching stages to prevent stale injected inputs from leaking in.
+        /// </summary>
+        public void ClearInjectedState()
+        {
+            while (_injectedButtonQueue.TryDequeue(out _)) { }
+            _injectedKeyStates.Clear();
+            _previousInjectedKeyStates.Clear();
+            _injectedPressEvents.Clear();
         }
 
         /// <summary>
