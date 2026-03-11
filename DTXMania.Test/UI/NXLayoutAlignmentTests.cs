@@ -123,9 +123,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void ClearLampHeight_ShouldBe44()
+        public void ClearLampHeight_ShouldBe41()
         {
-            Assert.Equal(44, SongSelectionUILayout.SongBars.ClearLampHeight);
+            Assert.Equal(41, SongSelectionUILayout.SongBars.ClearLampHeight);
         }
 
         #endregion
