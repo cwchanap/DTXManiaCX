@@ -292,10 +292,10 @@ namespace DTXMania.Game.Lib.Config
                 ? normalized.Substring(lastSeparatorIndex + 1)
                 : normalized;
 
-            return string.Equals(lastSegment, "Songs", StringComparison.OrdinalIgnoreCase)
-                || normalized.EndsWith("/Songs", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, legacyDefaultSongsPath, StringComparison.OrdinalIgnoreCase)
-                || legacyDefaultSongsPath.EndsWith(normalized, StringComparison.OrdinalIgnoreCase);
+            // Only match the specific legacy defaults, not every path ending in "Songs".
+            return string.Equals(normalized, legacyDefaultSongsPath, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "Songs", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
         }
 
         private void NormalizeConfigPaths()
