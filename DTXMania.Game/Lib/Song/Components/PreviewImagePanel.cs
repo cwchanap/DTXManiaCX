@@ -40,11 +40,6 @@ namespace DTXMania.Game.Lib.Song.Components
         private const int CONTENT_OFFSET_Y_WITHOUT_STATUS = 24;
         private const int CONTENT_OFFSET_WITH_STATUS = 8; // X+8, Y+8
 
-        private const int WITHOUT_STATUS_PANEL_WIDTH = WITHOUT_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITHOUT_STATUS * 2);
-        private const int WITHOUT_STATUS_PANEL_HEIGHT = WITHOUT_STATUS_PANEL_SIZE + (CONTENT_OFFSET_Y_WITHOUT_STATUS * 2);
-        private const int WITH_STATUS_PANEL_WIDTH = WITH_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITH_STATUS * 2);
-        private const int WITH_STATUS_PANEL_HEIGHT = WITH_STATUS_PANEL_SIZE + (CONTENT_OFFSET_WITH_STATUS * 2);
-
         private bool _hasStatusPanel = true; // Default to with status panel
 
         // Display delay timing (moved from SongSelectionStage)
@@ -227,18 +222,20 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 contentOffsetX = CONTENT_OFFSET_WITH_STATUS;
                 contentOffsetY = CONTENT_OFFSET_WITH_STATUS;
-                fallbackFrameWidth = WITH_STATUS_PANEL_WIDTH;
-                fallbackFrameHeight = WITH_STATUS_PANEL_HEIGHT;
-                fallbackContentSize = WITH_STATUS_PANEL_SIZE;
+                fallbackFrameWidth = WITH_STATUS_PANEL_SIZE;
+                fallbackFrameHeight = WITH_STATUS_PANEL_SIZE;
             }
             else
             {
                 contentOffsetX = CONTENT_OFFSET_WITHOUT_STATUS;
                 contentOffsetY = CONTENT_OFFSET_Y_WITHOUT_STATUS;
-                fallbackFrameWidth = WITHOUT_STATUS_PANEL_WIDTH;
-                fallbackFrameHeight = WITHOUT_STATUS_PANEL_HEIGHT;
-                fallbackContentSize = WITHOUT_STATUS_PANEL_SIZE;
+                fallbackFrameWidth = WITHOUT_STATUS_PANEL_SIZE;
+                fallbackFrameHeight = WITHOUT_STATUS_PANEL_SIZE;
             }
+
+            fallbackContentSize = Math.Min(
+                Math.Max(0, fallbackFrameWidth - (contentOffsetX * 2)),
+                Math.Max(0, fallbackFrameHeight - (contentOffsetY * 2)));
 
             if (_preimagePanelTexture != null)
             {

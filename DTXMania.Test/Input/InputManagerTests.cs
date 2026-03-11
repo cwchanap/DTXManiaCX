@@ -4,6 +4,7 @@ namespace DTXMania.Test.Input;
 
 public class InputManagerTests
 {
+    [Trait("Category", "Unit")]
     [Fact]
     public void ClearPendingCommands_WhenCommandsAreQueued_ShouldEmptyQueue()
     {
