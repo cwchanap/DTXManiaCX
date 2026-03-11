@@ -788,6 +788,10 @@ namespace DTXMania.Game.Lib.Stage
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
 
+            // Update owned fallback input manager (shared one is updated by BaseGame)
+            if (_ownsInputManager)
+                _inputManager?.Update(deltaTime);
+
             // Update phase
             UpdatePhase(deltaTime);
 
