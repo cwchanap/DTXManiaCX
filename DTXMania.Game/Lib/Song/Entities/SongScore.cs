@@ -293,12 +293,9 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         public static int ComputeRankIndex(int rankValue)
         {
-            if (rankValue >= 1 && rankValue <= 7)
-            {
-                return rankValue;
-            }
-
-            int percentage = Math.Clamp(rankValue, 0, 100);
+            // NormalizeRankPercentage converts legacy ordinal 0-7 to percentages,
+            // so both old DB values and new percentage values are handled uniformly.
+            int percentage = NormalizeRankPercentage(rankValue);
             return percentage switch
             {
                 >= 95 => 0,
