@@ -995,7 +995,6 @@ namespace DTXMania.Game.Lib.Song.Components
             // x,y are GetCellContentPosition coords = (cellLeft, cellTop+20), so:
             //   textY = y + 3  →  cellTop + 23  (matches NX)
             //   textX = x + cellWidth - 77  →  cellLeft + 110
-            const int nxRightOffset = 77; // NX: nPanelW - 77
             const int nxTopOffset = 3;    // contentPos is cellTop+20, NX text is cellTop+23
 
             bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
