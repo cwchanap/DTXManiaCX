@@ -504,12 +504,16 @@ namespace DTXMania.Game.Lib.Song.Components
             if (songNode.Scores?.Length > difficulty && songNode.Scores[difficulty] != null)
             {
                 var score = songNode.Scores[difficulty];
+                if (score.PlayCount <= 0)
+                    return ClearStatus.NotPlayed;
+
                 if (score.FullCombo)
                     return ClearStatus.FullCombo;
-                else if (DTXMania.Game.Lib.Song.Entities.SongScore.ComputeRankIndex(score.BestRank) <= 2)
+                else if (DTXMania.Game.Lib.Song.Entities.SongScore.ComputeRankIndex(
+                    DTXMania.Game.Lib.Song.Entities.SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2)
                     return ClearStatus.Clear;
-                else if (score.PlayCount > 0)
-                    return ClearStatus.Failed;
+
+                return ClearStatus.Failed;
             }
             
             return ClearStatus.NotPlayed;

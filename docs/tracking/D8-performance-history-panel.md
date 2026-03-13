@@ -4,13 +4,15 @@
 
 ## Description
 
-DTXManiaNX renders a performance history panel in the status panel area showing past skill/rank results per difficulty level. DTXManiaCX now renders rank symbols (SS–F) and FC badges inside each difficulty grid cell via `DrawRankSymbol` in `SongStatusPanel`, matching the NX per-cell icon positions (rank at nBoxX+7, FC at nBoxX+42). A dedicated full-height history panel in the status panel bounds (nBaseX=130, nBaseY=350) is not yet implemented.
+DTXManiaNX renders a performance history panel in the status panel area showing past skill/rank results per difficulty level.
+DTXManiaCX now renders rank symbols (SS–F) and FC badges inside each difficulty grid cell via `DrawRankSymbol` in `SongStatusPanel`, matching the NX per-cell icon positions (rank at nBoxX+7, FC at nBoxX+42).
+A dedicated full-height history panel in the status panel bounds (nBaseX=130, nBaseY=350) is not yet implemented.
 
 ## NX Reference
 
 Source: `DTXManiaNX/DTXMania/Code/Stage/05.SongSelection/CActSelectStatusPanel.cs`
 
-- Panel shows historical best rank symbols (SS/S/A/B/C) per difficulty
+- Panel shows historical best rank symbols (SS/S/A/B/C/D/E/F) per difficulty
 - Drawn within the status panel bounds (nBaseX=130, nBaseY=350)
 - Uses `txランク` rank textures and historical score data from the song database
 

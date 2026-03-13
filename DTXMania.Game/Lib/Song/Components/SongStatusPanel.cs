@@ -65,6 +65,9 @@ namespace DTXMania.Game.Lib.Song.Components
         // Skill/rank icon texture for 5_skill icon.png support (D8: performance history)
         private ITexture _skillIconTexture;
         private const int RankIconWidth = 35; // NX: nRankW = 35; 10 icons x 35px = 350px total width
+        private const int RankIconOffsetX = 7; // NX: rank icon anchor = nBoxX + 7
+        private const int FCBadgeOffsetX = 42; // NX: FC badge anchor = nBoxX + 42
+        private const int RankIconOffsetY = 15; // NX: GetCellContentPosition uses cellTop + 20; icon anchor is cellTop + 5
 
         // Level number bitmap font for difficulty level display
         private BitmapFont _levelNumberFont;
@@ -969,18 +972,19 @@ namespace DTXMania.Game.Lib.Song.Components
             if (score == null || score.PlayCount == 0) return;
 
             // x,y = GetCellContentPosition = (cellLeft, cellTop+20); NX draws at cellTop+5 → y-15
-            int rankY = y - 15;
+            int rankY = y - RankIconOffsetY;
             int iconH = _skillIconTexture.Height;
 
             // Rank symbol (clamp to valid range 0-7: SS through F)
-            int rankIndex = SongScore.ComputeRankIndex(score.BestRank);
-            _skillIconTexture.Draw(spriteBatch, new Vector2(x + 7, rankY),
+            int normalizedBestRank = SongScore.NormalizeStoredBestRank(score.BestRank);
+            int rankIndex = SongScore.ComputeRankIndex(normalizedBestRank);
+            _skillIconTexture.Draw(spriteBatch, new Vector2(x + RankIconOffsetX, rankY),
                 new Rectangle(RankIconWidth * rankIndex, 0, RankIconWidth, iconH));
 
             // FC badge (index 8) if full combo achieved
             if (score.FullCombo)
             {
-                _skillIconTexture.Draw(spriteBatch, new Vector2(x + 42, rankY),
+                _skillIconTexture.Draw(spriteBatch, new Vector2(x + FCBadgeOffsetX, rankY),
                     new Rectangle(RankIconWidth * 8, 0, RankIconWidth, iconH));
             }
         }

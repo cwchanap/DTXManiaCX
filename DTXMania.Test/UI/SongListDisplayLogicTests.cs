@@ -9,9 +9,11 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Moq;
+using Xunit;
 
 namespace DTXMania.Test.UI;
 
+[Trait("Category", "UI")]
 public class SongListDisplayLogicTests
 {
     [Theory]

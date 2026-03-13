@@ -435,6 +435,7 @@ Key.Bad=abc
         Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void ConfigManager_LoadConfig_CustomDTXPath_ShouldBeHonored()
     {
@@ -459,6 +460,7 @@ Key.Bad=abc
         }
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void ConfigManager_LoadConfig_EmptyDTXPath_ShouldUseDefault()
     {
@@ -484,6 +486,7 @@ Key.Bad=abc
         }
     }
 
+    [Trait("Category", "Unit")]
     [Theory]
     [InlineData("Songs")]
     [InlineData("./Songs")]
@@ -512,6 +515,7 @@ Key.Bad=abc
         }
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void ConfigManager_LoadConfig_AbsoluteLegacySongsDTXPath_ShouldUseDefault()
     {
