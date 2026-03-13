@@ -12,6 +12,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for SongScore class
     /// Tests score tracking, rank calculation, and skill computation
     /// </summary>
+    [Trait("Category", "SongScore")]
     public class SongScoreTests
     {
         #region Basic Property Tests
@@ -99,6 +100,34 @@ namespace DTXMania.Test.Song
             Assert.True(score.IsNewRecord);
         }
 
+        [Fact]
+        public void UpdateScore_WithPercentageRank_ShouldStoreNormalizedRankBucket()
+        {
+            var score = new SongScore();
+
+            var result = score.UpdateScore(900000, 92, false, 90, 5, 3, 1, 1);
+
+            Assert.True(result);
+            Assert.Equal(90, score.BestRank);
+        }
+
+        [Fact]
+        public void UpdateScore_WithLegacyStoredBestRank_ShouldNormalizeBeforeComparing()
+        {
+            var score = new SongScore
+            {
+                BestScore = 900000,
+                BestRank = 2,
+                PlayCount = 5
+            };
+
+            var result = score.UpdateScore(850000, 70, false, 70, 20, 10, 0, 0);
+
+            Assert.False(result);
+            Assert.Equal(80, score.BestRank);
+            Assert.Equal(6, score.PlayCount);
+        }
+
         [Theory]
         [InlineData(1000000, 85, 1.0, 85.0)] // Perfect score, SS rank
         [InlineData(950000, 85, 0.95, 76.71)] // S rank
@@ -130,8 +159,8 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData(92, 1, "S", 0.95)]
         [InlineData(80, 2, "A", 0.9)]
-        [InlineData(2, 2, "A", 0.9)]
-        public void RankHelpers_ShouldAcceptPercentageAndOrdinal(int rankValue, int expectedRankIndex, string expectedRankName, double expectedMultiplier)
+        [InlineData(2, 7, "F", 0.65)]
+        public void RankHelpers_ShouldUseNormalizedPercentageDomain(int rankValue, int expectedRankIndex, string expectedRankName, double expectedMultiplier)
         {
             Assert.Equal(expectedRankIndex, SongScore.ComputeRankIndex(rankValue));
             Assert.Equal(expectedRankName, SongScore.RankString(rankValue));

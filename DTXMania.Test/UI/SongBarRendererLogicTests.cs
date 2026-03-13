@@ -71,7 +71,7 @@ public class SongBarRendererLogicTests
                 new SongScore { FullCombo = true, BestRank = 90, PlayCount = 3 },
                 new SongScore { FullCombo = false, BestRank = 85, PlayCount = 3 },
                 new SongScore { FullCombo = false, BestRank = 10, PlayCount = 1 },
-                null,
+                new SongScore { FullCombo = false, BestRank = 0, PlayCount = 0 },
                 null,
             ]
         };
@@ -80,6 +80,7 @@ public class SongBarRendererLogicTests
         Assert.Equal(ClearStatus.Clear, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", node, 1));
         Assert.Equal(ClearStatus.Failed, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", node, 2));
         Assert.Equal(ClearStatus.NotPlayed, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", node, 3));
+        Assert.Equal(ClearStatus.NotPlayed, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", node, 4));
     }
 
     [Theory]
@@ -104,7 +105,7 @@ public class SongBarRendererLogicTests
         var node = new SongListNode
         {
             Type = NodeType.Score,
-            Scores = [new SongScore { FullCombo = true }]
+            Scores = [new SongScore { FullCombo = true, PlayCount = 1 }]
         };
 
         var key = InvokePrivate<string>(renderer, "GetClearLampCacheKey", node, 0);

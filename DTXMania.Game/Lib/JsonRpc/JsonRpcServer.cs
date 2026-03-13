@@ -517,7 +517,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 if (input.Data.Value.ValueKind == JsonValueKind.String)
                 {
                     var keyData = input.Data.Value.GetString();
-                    if (string.IsNullOrEmpty(keyData) || keyData.Length > 50)
+                    if (string.IsNullOrWhiteSpace(keyData) || keyData.Length > 50)
                         return (false, "Invalid key data format");
                 }
                 else if (input.Data.Value.ValueKind == JsonValueKind.Number)
@@ -532,7 +532,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                         keyProp.ValueKind != JsonValueKind.String)
                         return (false, "Invalid key data format");
                     var keyString = keyProp.GetString();
-                    if (string.IsNullOrEmpty(keyString) || keyString.Length > 50)
+                    if (string.IsNullOrWhiteSpace(keyString) || keyString.Length > 50)
                         return (false, "Invalid key data format");
                 }
                 else

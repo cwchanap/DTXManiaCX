@@ -290,6 +290,38 @@ namespace DTXMania.Test.JsonRpc
             Assert.Contains("-32002", body); // InvalidInput
         }
 
+        [Fact]
+        public async Task SendInput_KeyPress_WithWhitespaceStringKey_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = "   " }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body); // InvalidInput
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_KeyPress_WithWhitespaceObjectKey_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = new { key = "   ", holdDurationMs = 50, clientId = "default" } }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body); // InvalidInput
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
         #endregion
 
         #region takeScreenshot
