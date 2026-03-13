@@ -1,10 +1,10 @@
 # D8 — Performance History Panel (Deferred)
 
-## Status: Not implemented — tracked for future sprint
+## Status: Partially implemented — rank/FC icons in difficulty grid are done; dedicated history panel deferred
 
 ## Description
 
-DTXManiaNX renders a performance history panel in the status panel area showing past skill/rank results per difficulty level. DTXManiaCX does not render this panel.
+DTXManiaNX renders a performance history panel in the status panel area showing past skill/rank results per difficulty level. DTXManiaCX now renders rank symbols (SS–F) and FC badges inside each difficulty grid cell via `DrawRankSymbol` in `SongStatusPanel`, matching the NX per-cell icon positions (rank at nBoxX+7, FC at nBoxX+42). A dedicated full-height history panel in the status panel bounds (nBaseX=130, nBaseY=350) is not yet implemented.
 
 ## NX Reference
 
@@ -14,12 +14,17 @@ Source: `DTXManiaNX/DTXMania/Code/Stage/05.SongSelection/CActSelectStatusPanel.c
 - Drawn within the status panel bounds (nBaseX=130, nBaseY=350)
 - Uses `txランク` rank textures and historical score data from the song database
 
-## What needs to be implemented in CX
+## What is implemented in CX
 
-1. Load historical performance data (best rank per difficulty) from `SongScore`/`PerformanceHistory` entities
-2. Add rank texture rendering to `SongStatusPanel`
-3. Position rank symbols within the existing difficulty grid area, matching NX layout
-4. Handle missing data gracefully (no history = no symbols)
+- Historical best rank/FC data loaded from `SongScore` entities (PlayCount, BestRank, FullCombo)
+- Rank symbols (0–7: SS through F) and FC badge drawn per difficulty cell via `DrawRankSymbol`
+- NX-authentic positioning: rank at cell+7, FC badge at cell+42
+- Missing data handled gracefully (PlayCount == 0 → no icon)
+
+## What still needs to be implemented
+
+- Dedicated full-height performance history panel in the status panel area (nBaseX=130, nBaseY=350)
+- Per-difficulty history panel that mirrors NX's `CActSelectStatusPanel` layout (rank symbols stacked by difficulty level outside the grid)
 
 ## Acceptance criteria
 

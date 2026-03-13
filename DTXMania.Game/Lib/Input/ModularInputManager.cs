@@ -28,7 +28,6 @@ namespace DTXMania.Game.Lib.Input
         private readonly List<IInputSource> _inputSources;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
-        private readonly Dictionary<int, bool> _previousInjectedKeyStates;
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch)
         private readonly Queue<int> _injectedPressEvents;
         private bool _disposed = false;
@@ -92,7 +91,6 @@ namespace DTXMania.Game.Lib.Input
             _inputSources = new List<IInputSource>();
             _injectedButtonQueue = new ConcurrentQueue<ButtonState>();
             _injectedKeyStates = new Dictionary<int, bool>();
-            _previousInjectedKeyStates = new Dictionary<int, bool>();
             _injectedPressEvents = new Queue<int>();
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
@@ -457,7 +455,6 @@ namespace DTXMania.Game.Lib.Input
         {
             while (_injectedButtonQueue.TryDequeue(out _)) { }
             _injectedKeyStates.Clear();
-            _previousInjectedKeyStates.Clear();
             _injectedPressEvents.Clear();
         }
 
@@ -500,11 +497,6 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void ProcessInjectedInputs()
         {
-            // Snapshot previous injected states before processing new events (for edge detection)
-            _previousInjectedKeyStates.Clear();
-            foreach (var kvp in _injectedKeyStates)
-                _previousInjectedKeyStates[kvp.Key] = kvp.Value;
-
             _injectedPressEvents.Clear();
 
             while (_injectedButtonQueue.TryDequeue(out var injected))
