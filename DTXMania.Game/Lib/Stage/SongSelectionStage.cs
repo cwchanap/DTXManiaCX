@@ -129,7 +129,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Use game's shared InputManager (supports MCP key injection)
             AssignInputManager((_game as BaseGame)?.InputManager);
-            _inputManager.ClearPendingCommands();
+            _inputManager?.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Get config manager from game
@@ -292,6 +292,12 @@ namespace DTXMania.Game.Lib.Stage
 
             _inputManager = inputManager ?? new InputManager();
             _ownsInputManager = inputManager == null;
+            if (_ownsInputManager)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "SongSelectionStage: No shared InputManager available; MCP key injection will not work. " +
+                    "This should not occur in production — ensure _game is a BaseGame instance.");
+            }
         }
 
         /// <summary>
@@ -305,9 +311,9 @@ namespace DTXMania.Game.Lib.Stage
                 return _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
                     SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
-            catch
+            catch (Exception ex)
             {
-                // If that fails, return null - the UI components will handle this gracefully
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font unavailable: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
