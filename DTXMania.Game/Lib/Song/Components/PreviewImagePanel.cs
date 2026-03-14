@@ -272,9 +272,9 @@ namespace DTXMania.Game.Lib.Song.Components
                     _defaultPreviewTexture = null;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Default texture is optional
+                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Could not load default preview texture: {ex.GetType().Name}: {ex.Message}");
                 _defaultPreviewTexture = null;
             }
         }
@@ -622,9 +622,9 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     ClearDisposedTextureReference(textureToUse);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Fallback to placeholder on any other error
+                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Draw failed unexpectedly: {ex.GetType().Name}: {ex.Message}");
                     DrawPlaceholder(spriteBatch, contentBounds);
                 }
             }
