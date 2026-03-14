@@ -84,12 +84,12 @@ public class GameInteractionService : IDisposable
 
             if (response.Result is not JsonElement resultElement)
             {
-                return (false, "No result returned from game");
+                return (false, "Unexpected response format: result is not a JSON object");
             }
 
             if (!resultElement.TryGetProperty("success", out var successProperty))
             {
-                return (false, "No result returned from game");
+                return (false, "Game response missing required 'success' field");
             }
 
             var success = successProperty.GetBoolean();
