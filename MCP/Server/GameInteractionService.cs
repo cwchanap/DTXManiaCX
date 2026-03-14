@@ -362,18 +362,21 @@ public class GameInteractionService : IDisposable
                 return pressResult;
             }
 
-            int effectiveHoldDurationMs = holdDurationMs < 0 ? 0 : holdDurationMs;
-            if (effectiveHoldDurationMs > 0)
+            try
             {
-                await Task.Delay(effectiveHoldDurationMs, cancellationToken);
+                int effectiveHoldDurationMs = holdDurationMs < 0 ? 0 : holdDurationMs;
+                if (effectiveHoldDurationMs > 0)
+                {
+                    await Task.Delay(effectiveHoldDurationMs, cancellationToken);
+                }
             }
-
-            var releaseParams = CreateKeyInputParams(3, key);
-            _logger.LogInformation("Sending key release '{Key}' to client {ClientId}", key, clientId);
-            var releaseResult = await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", cancellationToken);
-            if (!releaseResult.Success)
+            finally
             {
-                return releaseResult;
+                // Always send the release, even if the hold was cancelled, to prevent stuck key state.
+                var releaseParams = CreateKeyInputParams(3, key);
+                _logger.LogInformation("Sending key release '{Key}' to client {ClientId}", key, clientId);
+                // Use CancellationToken.None so the release is not skipped when the caller cancels.
+                await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", CancellationToken.None);
             }
 
             _logger.LogInformation("Successfully sent key press and release for '{Key}' to client {ClientId}", key, clientId);
