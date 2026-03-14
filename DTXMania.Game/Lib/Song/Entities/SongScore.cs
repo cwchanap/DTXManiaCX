@@ -355,9 +355,12 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         private static int ConvertLegacyOrdinalToBucket(int rankValue)
         {
+            // Legacy ordinals range: 1 (S) through 7 (F).
+            // Note: ordinal 0 (SS in the old system) is excluded from IsLegacyOrdinal — a stored
+            // value of 0 is treated as the F bucket on the new percentage scale. Legacy SS data
+            // cannot be recovered without a separate migration flag.
             return rankValue switch
             {
-                0 => 95,
                 1 => 90,
                 2 => 80,
                 3 => 70,
@@ -365,7 +368,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 5 => 50,
                 6 => 40,
                 7 => 0,
-                _ => throw new ArgumentOutOfRangeException(nameof(rankValue), "Legacy rank ordinals must be between 0 and 7.")
+                _ => throw new ArgumentOutOfRangeException(nameof(rankValue), "Legacy rank ordinals must be between 1 and 7.")
             };
         }
 
