@@ -160,11 +160,51 @@ namespace DTXMania.Test.Song
         [InlineData(92, 1, "S", 0.95)]
         [InlineData(80, 2, "A", 0.9)]
         [InlineData(2, 7, "F", 0.65)]
+        [InlineData(95, 0, "SS", 1.0)]   // SS boundary
+        [InlineData(100, 0, "SS", 1.0)]  // above SS
+        [InlineData(40, 6, "E", 0.7)]    // E bucket
+        [InlineData(0, 7, "F", 0.65)]    // F bucket (new scale — below 40)
+        [InlineData(39, 7, "F", 0.65)]   // just below E
         public void RankHelpers_ShouldUseNormalizedPercentageDomain(int rankValue, int expectedRankIndex, string expectedRankName, double expectedMultiplier)
         {
             Assert.Equal(expectedRankIndex, SongScore.ComputeRankIndex(rankValue));
             Assert.Equal(expectedRankName, SongScore.RankString(rankValue));
             Assert.Equal(expectedMultiplier, SongScore.RankMultiplier(rankValue), 3);
+        }
+
+        [Fact]
+        public void NormalizeStoredBestRank_WithZero_ShouldReturnFBucket()
+        {
+            // 0 is the F bucket on the new percentage scale.
+            // There is no way to distinguish a persisted legacy ordinal SS (0) from
+            // a new-system F bucket (0) — 0 is treated as F.
+            Assert.Equal(0, SongScore.NormalizeStoredBestRank(0));
+        }
+
+        [Fact]
+        public void NormalizeStoredBestRank_WithLegacyOrdinals_ShouldMapToBuckets()
+        {
+            Assert.Equal(90, SongScore.NormalizeStoredBestRank(1));  // legacy S
+            Assert.Equal(80, SongScore.NormalizeStoredBestRank(2));  // legacy A
+            Assert.Equal(70, SongScore.NormalizeStoredBestRank(3));  // legacy B
+            Assert.Equal(60, SongScore.NormalizeStoredBestRank(4));  // legacy C
+            Assert.Equal(50, SongScore.NormalizeStoredBestRank(5));  // legacy D
+            Assert.Equal(40, SongScore.NormalizeStoredBestRank(6));  // legacy E
+            Assert.Equal(0,  SongScore.NormalizeStoredBestRank(7));  // legacy F
+        }
+
+        [Fact]
+        public void RankName_WhenNotPlayed_ShouldReturnDashes()
+        {
+            var score = new SongScore { PlayCount = 0, BestRank = 95 };
+            Assert.Equal("---", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithLegacyOrdinalA_ShouldReturnA()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 2 }; // legacy ordinal 2 = A
+            Assert.Equal("A", score.RankName);
         }
 
         private int GetRankPercentageFromMultiplier(double multiplier)
