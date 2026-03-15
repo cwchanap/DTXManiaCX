@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using System;
 using System.IO;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Game.Lib.Song.Components
 {
@@ -509,8 +510,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 if (score.FullCombo)
                     return ClearStatus.FullCombo;
-                else if (DTXMania.Game.Lib.Song.Entities.SongScore.ComputeRankIndex(
-                    DTXMania.Game.Lib.Song.Entities.SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2)
+                else if (SongScore.ComputeRankIndex(
+                    SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2)
                     return ClearStatus.Clear;
 
                 return ClearStatus.Failed;

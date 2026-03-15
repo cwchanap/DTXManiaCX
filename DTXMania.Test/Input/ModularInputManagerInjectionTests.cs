@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using Xunit;
@@ -9,14 +8,11 @@ namespace DTXMania.Test.Input;
 [Trait("Category", "Unit")]
 public class ModularInputManagerInjectionTests : IDisposable
 {
-    private readonly string _tempDir;
     private readonly ConfigManager _configManager;
     private readonly ModularInputManager _manager;
 
     public ModularInputManagerInjectionTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(_tempDir);
         _configManager = new ConfigManager();
         _manager = new ModularInputManager(_configManager);
     }
@@ -24,7 +20,6 @@ public class ModularInputManagerInjectionTests : IDisposable
     public void Dispose()
     {
         _manager.Dispose();
-        try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
     [Fact]
