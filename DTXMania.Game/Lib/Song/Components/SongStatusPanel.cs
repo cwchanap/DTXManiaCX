@@ -1000,20 +1000,21 @@ namespace DTXMania.Game.Lib.Song.Components
             //   textY = y + 3  →  cellTop + 23  (matches NX)
             //   textX = x + cellWidth - 77  →  cellLeft + 110
             const int nxTopOffset = 3;    // contentPos is cellTop+20, NX text is cellTop+23
+            const int rightPadding = 10;  // match NX-style positioning from the right edge
 
             bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
 
             if (useBitmapFont)
             {
-                // Right-justify within the cell: end 10px from the right edge
+                // Right-justify within the cell: end rightPadding px from the right edge
                 var textSize = _levelNumberFont.MeasureText(text);
-                int drawX = x + cellWidth - 10 - (int)textSize.X;
+                int drawX = x + cellWidth - rightPadding - (int)textSize.X;
                 _levelNumberFont.DrawText(spriteBatch, text, drawX, y + nxTopOffset, color);
             }
             else
             {
                 var textWidth = (_smallFont ?? _font)?.MeasureString(text).X ?? 0;
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + cellWidth - textWidth - 4, y + nxTopOffset), color);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + cellWidth - textWidth - rightPadding, y + nxTopOffset), color);
             }
         }
 

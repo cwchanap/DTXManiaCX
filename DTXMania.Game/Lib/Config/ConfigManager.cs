@@ -287,10 +287,6 @@ namespace DTXMania.Game.Lib.Config
             var normalized = NormalizePathForComparison(path);
             var legacyDefaultSongsPath = NormalizePathForComparison(
                 Path.Combine(Path.GetDirectoryName(defaultSongsPath) ?? string.Empty, "Songs"));
-            var lastSeparatorIndex = normalized.LastIndexOf('/');
-            var lastSegment = lastSeparatorIndex >= 0
-                ? normalized.Substring(lastSeparatorIndex + 1)
-                : normalized;
 
             // Only match the specific legacy defaults, not every path ending in "Songs".
             return string.Equals(normalized, legacyDefaultSongsPath, StringComparison.OrdinalIgnoreCase)
