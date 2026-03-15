@@ -621,6 +621,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 catch (ObjectDisposedException)
                 {
                     ClearDisposedTextureReference(textureToUse);
+                    DrawPlaceholder(spriteBatch, contentBounds);
                 }
                 catch (Exception ex)
                 {

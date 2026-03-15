@@ -219,10 +219,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             int normalizedRank = NormalizeRankPercentage(rank);
             bool hadPreviousPlays = PlayCount > 1;
             int currentBestRank = hadPreviousPlays ? NormalizeStoredBestRank(BestRank) : 0;
-            if (hadPreviousPlays && BestRank != currentBestRank)
-            {
-                BestRank = currentBestRank;
-            }
             
             // Check if this is a new best score
             if (score > BestScore)

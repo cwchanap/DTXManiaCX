@@ -1,6 +1,6 @@
 # D8 — Performance History Panel (Deferred)
 
-## Status: Partially implemented — rank/FC icons in difficulty grid are done; dedicated history panel deferred
+## Status: Partially implemented — rank/FC icons within the difficulty grid are done; dedicated history panel deferred
 
 ## Description
 
