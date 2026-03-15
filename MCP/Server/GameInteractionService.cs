@@ -362,6 +362,7 @@ public class GameInteractionService : IDisposable
                 return pressResult;
             }
 
+            (bool Success, string Message) releaseResult = default;
             try
             {
                 int effectiveHoldDurationMs = holdDurationMs < 0 ? 0 : holdDurationMs;
@@ -376,7 +377,16 @@ public class GameInteractionService : IDisposable
                 var releaseParams = CreateKeyInputParams(3, key);
                 _logger.LogInformation("Sending key release '{Key}' to client {ClientId}", key, clientId);
                 // Use CancellationToken.None so the release is not skipped when the caller cancels.
-                await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", CancellationToken.None);
+                releaseResult = await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", CancellationToken.None);
+                if (!releaseResult.Success)
+                {
+                    _logger.LogWarning("Key release '{Key}' for client {ClientId} failed: {Message}", key, clientId, releaseResult.Message);
+                }
+            }
+
+            if (!releaseResult.Success)
+            {
+                return (false, $"Key '{key}' press succeeded but release failed: {releaseResult.Message}");
             }
 
             _logger.LogInformation("Successfully sent key press and release for '{Key}' to client {ClientId}", key, clientId);

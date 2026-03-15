@@ -940,13 +940,13 @@ namespace DTXMania.Game.Lib.Song.Components
                     ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
                     : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
                 int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
-                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
+                var textX = itemBounds.X + titleOffsetX;
                 // Display at 0.5x scale (the texture is rendered at 2x)
                 var displayScale = SongSelectionUILayout.SongBars.TitleDisplayScale;
-                var displayHeight = barInfo.TitleTexture.Height * displayScale * scaleFactor;
+                var displayHeight = barInfo.TitleTexture.Height * displayScale;
                 var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)displayHeight) / 2;
                 var textPosition = new Vector2(textX, textY);
-                var textScale = new Vector2(displayScale * scaleFactor, displayScale * scaleFactor);
+                var textScale = new Vector2(displayScale, displayScale);
                 barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
             }
             else if (_font != null)
@@ -956,13 +956,13 @@ namespace DTXMania.Game.Lib.Song.Components
                     ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
                     : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
                 int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
-                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
-                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)(_font.LineSpacing * scaleFactor)) / 2;
+                var textX = itemBounds.X + titleOffsetX;
+                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - _font.LineSpacing) / 2;
                 var textPosition = new Vector2(textX, textY);
-                var textScale = new Vector2(scaleFactor, scaleFactor);
+                var textScale = Vector2.One;
 
                 // Draw shadow first with perspective
-                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset * scaleFactor;
+                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset;
                 var shadowColor = DTXManiaVisualTheme.FontEffects.SongTextShadowColor * opacityFactor;
                 spriteBatch.DrawString(_font, barInfo.TitleString, shadowPosition, shadowColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
 

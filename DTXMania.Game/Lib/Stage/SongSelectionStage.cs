@@ -282,7 +282,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Font Management
 
-        private void AssignInputManager(InputManager inputManager)
+        private void AssignInputManager(InputManager? inputManager)
         {
             if (_ownsInputManager)
             {
