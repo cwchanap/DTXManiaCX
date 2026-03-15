@@ -6,11 +6,14 @@ using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Moq;
+using Xunit;
 
 namespace DTXMania.Test.UI;
 
+[Trait("Category", "UI")]
 public class SongListDisplayLogicTests
 {
     [Theory]
@@ -690,6 +693,60 @@ public class SongListDisplayLogicTests
         Assert.Null(GetField<ITexture?>(display, "_barScoreTexture"));
     }
 
+    [Fact]
+    public void CalculateBarTextureBounds_WhenSelected_ShouldApplyYOffset()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(665, 269, 510, 48);
+        const int selectedTextureWidth = 640;
+        const int selectedTextureHeight = 96;
+
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, true, selectedTextureWidth, selectedTextureHeight);
+
+        // NX selected skin renders at natural 640x96, shifted upward by 30px.
+        Assert.Equal(itemBounds.Y + SongSelectionUILayout.SongBars.SelectedBarTextureYOffset, textureBounds.Y);
+        Assert.Equal(itemBounds.X, textureBounds.X);
+        Assert.Equal(selectedTextureWidth, textureBounds.Width);
+        Assert.Equal(selectedTextureHeight, textureBounds.Height);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenNotSelected_ShouldUseOriginalY()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(673, 100, 510, 48);
+
+        var textureBounds = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, -1, -1);
+
+        Assert.Equal(itemBounds.Y, textureBounds.Y);
+        Assert.Equal(itemBounds.X, textureBounds.X);
+        Assert.Equal(itemBounds.Height, textureBounds.Height);
+    }
+
+    [Fact]
+    public void CalculateArtistNamePosition_ShouldUseAbsoluteNXCoordinates()
+    {
+        var display = new SongListDisplay();
+        float textWidth = 150f;
+
+        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+
+        // NX: x = 1260 - 25 - textWidth = 1235 - textWidth
+        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth, pos.X);
+        Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteY, (int)pos.Y);
+    }
+
+    [Fact]
+    public void CalculateArtistNamePosition_WhenTextWouldOverflow_ShouldClampToZero()
+    {
+        var display = new SongListDisplay();
+        float textWidth = 1400f;
+
+        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+
+        Assert.Equal(0f, pos.X);
+    }
+
     private static List<SongListNode> CreateSongs(int count)
     {
         var songs = new List<SongListNode>();
@@ -703,7 +760,36 @@ public class SongListDisplayLogicTests
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)
     {
-        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? method = null;
+        foreach (var candidate in target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic))
+        {
+            if (candidate.Name != methodName)
+                continue;
+
+            var parameters = candidate.GetParameters();
+            if (parameters.Length != args.Length)
+                continue;
+
+            bool isMatch = true;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (args[i] == null)
+                    continue;
+
+                if (!parameters[i].ParameterType.IsInstanceOfType(args[i]))
+                {
+                    isMatch = false;
+                    break;
+                }
+            }
+
+            if (isMatch)
+            {
+                method = candidate;
+                break;
+            }
+        }
+
         Assert.NotNull(method);
         var result = method!.Invoke(target, args);
         // For reference types, handle null results safely

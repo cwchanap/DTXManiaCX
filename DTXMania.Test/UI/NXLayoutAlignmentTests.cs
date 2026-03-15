@@ -17,6 +17,7 @@ namespace DTXMania.Test.UI
     /// Covers bar positioning, sizing, texture paths, column order,
     /// title text rendering constants, and scrollbar/counter features.
     /// </summary>
+    [Trait("Category", "UI")]
     public class NXLayoutAlignmentTests
     {
         #region Bar Position Constants (Step 1)
@@ -24,13 +25,13 @@ namespace DTXMania.Test.UI
         [Fact]
         public void SelectedBarX_ShouldMatchNXValue()
         {
-            Assert.Equal(665, SongSelectionUILayout.SongBars.SelectedBarX);
+            Assert.Equal(701, SongSelectionUILayout.SongBars.SelectedBarX);
         }
 
         [Fact]
         public void UnselectedBarX_ShouldMatchNXValue()
         {
-            Assert.Equal(673, SongSelectionUILayout.SongBars.UnselectedBarX);
+            Assert.Equal(709, SongSelectionUILayout.SongBars.UnselectedBarX);
         }
 
         [Fact]
@@ -43,7 +44,7 @@ namespace DTXMania.Test.UI
         public void SelectedBarPosition_ShouldCombineXY()
         {
             var pos = SongSelectionUILayout.SongBars.SelectedBarPosition;
-            Assert.Equal(665, (int)pos.X);
+            Assert.Equal(701, (int)pos.X);
             Assert.Equal(269, (int)pos.Y);
         }
 
@@ -51,7 +52,7 @@ namespace DTXMania.Test.UI
         public void GetBarPosition_CenterIndex_ShouldReturnSelectedPosition()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(SongSelectionUILayout.SongBars.CenterIndex);
-            Assert.Equal(665, (int)pos.X);
+            Assert.Equal(701, (int)pos.X);
             Assert.Equal(269, (int)pos.Y);
         }
 
@@ -59,7 +60,7 @@ namespace DTXMania.Test.UI
         public void GetBarPosition_NonCenterIndex_ShouldUseUnselectedX()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(0);
-            Assert.Equal(673, (int)pos.X);
+            Assert.Equal(709, (int)pos.X);
         }
 
         [Fact]
@@ -122,9 +123,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void ClearLampHeight_ShouldBe44()
+        public void ClearLampHeight_ShouldBe41()
         {
-            Assert.Equal(44, SongSelectionUILayout.SongBars.ClearLampHeight);
+            Assert.Equal(41, SongSelectionUILayout.SongBars.ClearLampHeight);
         }
 
         #endregion
@@ -213,6 +214,8 @@ namespace DTXMania.Test.UI
             Assert.Contains(TexturePath.BarBoxSelected, allPaths);
             Assert.Contains(TexturePath.BarOther, allPaths);
             Assert.Contains(TexturePath.BarOtherSelected, allPaths);
+            Assert.Contains(TexturePath.SkillPointPanel, allPaths);
+            Assert.Contains(TexturePath.SkillIcon, allPaths);
             Assert.Contains(TexturePath.PreimagePanel, allPaths);
             Assert.Contains(TexturePath.Scrollbar, allPaths);
         }
@@ -223,6 +226,7 @@ namespace DTXMania.Test.UI
             var panelPaths = TexturePath.GetPanelTextures();
             Assert.Contains(TexturePath.BarScore, panelPaths);
             Assert.Contains(TexturePath.BarScoreSelected, panelPaths);
+            Assert.Contains(TexturePath.SkillPointPanel, panelPaths);
             Assert.Contains(TexturePath.PreimagePanel, panelPaths);
             Assert.Contains(TexturePath.Scrollbar, panelPaths);
         }
@@ -890,6 +894,139 @@ namespace DTXMania.Test.UI
 
             Assert.Equal(song, args.Song);
             Assert.Equal(1, args.Difficulty);
+        }
+
+        #endregion
+
+        #region BPM and Difficulty Grid Alignment (D3, D4, D5)
+
+        [Fact]
+        public void DifficultyGrid_BaseX_ShouldBe130()
+        {
+            Assert.Equal(130, SongSelectionUILayout.DifficultyGrid.BaseX);
+        }
+
+        [Fact]
+        public void DifficultyGrid_BaseY_ShouldBe391()
+        {
+            // NX uses (391 + (4-i)*60 - 2); BaseY drives the formula, should be 391
+            Assert.Equal(391, SongSelectionUILayout.DifficultyGrid.BaseY);
+        }
+
+        [Fact]
+        public void BPMSection_X_ShouldBe32()
+        {
+            Assert.Equal(32, SongSelectionUILayout.BPMSection.X);
+        }
+
+        [Fact]
+        public void BPMSection_Y_ShouldBe275()
+        {
+            Assert.Equal(275, SongSelectionUILayout.BPMSection.Y);
+        }
+
+        [Fact]
+        public void BPMSection_LengthTextPosition_ShouldMatchNX()
+        {
+            // Text inside row-1 dark box of 5_BPM.png (texture y=8..31, 23px tall)
+            // 8px left padding from dark box left edge (x≈63 → X+71=103)
+            // Vertically centered: top=283+4=287 (4px top/3px bottom in 23px box with 16px font)
+            var pos = SongSelectionUILayout.BPMSection.LengthTextPosition;
+            Assert.Equal(103, (int)pos.X);
+            Assert.Equal(287, (int)pos.Y);
+        }
+
+        [Fact]
+        public void BPMSection_BPMTextPosition_ShouldMatchNX()
+        {
+            // Text inside row-2 dark box of 5_BPM.png (texture y=38..61, 23px tall)
+            // 8px left padding from dark box left edge (x≈63 → X+71=103)
+            // Vertically centered: top=313+4=317 (4px top/3px bottom in 23px box with 16px font)
+            var pos = SongSelectionUILayout.BPMSection.BPMTextPosition;
+            Assert.Equal(103, (int)pos.X);
+            Assert.Equal(317, (int)pos.Y);
+        }
+
+        [Fact]
+        public void DifficultyGrid_GetCellPosition_DrumsCol_ShouldUseBaseX130()
+        {
+            // instrument=0: nBoxX = 130 + 561 + (187 * (0 - 3)) = 130
+            var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+            Assert.Equal(130, (int)pos.X);
+        }
+
+        [Fact]
+        public void DifficultyGrid_GetCellPosition_HighestRow_ShouldUseBaseY391()
+        {
+            // diffLevel=4: nBoxY = 391 + (4-4)*60 - 2 = 389
+            var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
+            Assert.Equal(389, (int)pos.Y);
+        }
+
+        #endregion
+
+        #region Note Distribution Bars (D7)
+
+        [Fact]
+        public void NoteDistributionBars_Drums_StartX_ShouldBe46()
+        {
+            // NX: nGraphBaseX(15) + 31 = 46
+            Assert.Equal(46, SongSelectionUILayout.NoteDistributionBars.Drums.StartX);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_Drums_GetBarPosition_Lane0_ShouldStartAt46()
+        {
+            var pos = SongSelectionUILayout.NoteDistributionBars.Drums.GetBarPosition(0);
+            Assert.Equal(46, (int)pos.X);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_Drums_GetBarPosition_Lane1_ShouldBeAt54()
+        {
+            // 46 + 1 * (4 + 4) = 54
+            var pos = SongSelectionUILayout.NoteDistributionBars.Drums.GetBarPosition(1);
+            Assert.Equal(54, (int)pos.X);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_GuitarBass_BarSpacing_ShouldBe6()
+        {
+            // NX interval = 10; BarWidth=4; BarSpacing = 10 - 4 = 6
+            Assert.Equal(6, SongSelectionUILayout.NoteDistributionBars.GuitarBass.BarSpacing);
+        }
+
+        [Fact]
+        public void NoteDistributionBars_GuitarBass_GetBarPosition_Lane1_ShouldBeAt63()
+        {
+            // StartX=53, interval=BarWidth(4)+BarSpacing(6)=10; lane1 = 53+10 = 63
+            var pos = SongSelectionUILayout.NoteDistributionBars.GuitarBass.GetBarPosition(1);
+            Assert.Equal(63, (int)pos.X);
+        }
+
+        #endregion
+
+        #region Artist Name and Selected Bar (D2, D6)
+
+        [Fact]
+        public void SongBars_ArtistNameAbsoluteRightEdge_ShouldBe1235()
+        {
+            // NX: 1260 - 25 = 1235 (right-aligned artist name edge)
+            Assert.Equal(1235, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge);
+        }
+
+        [Fact]
+        public void SongBars_ArtistNameAbsoluteY_ShouldBe320()
+        {
+            // NX: y = 320 (absolute Y for artist name)
+            Assert.Equal(320, SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
+        }
+
+        [Fact]
+        public void SongBars_SelectedBarTextureYOffset_ShouldBeMinus30()
+        {
+            // NX: bar texture drawn at y - 30; title/lamp stay at y
+            Assert.Equal(-30, SongSelectionUILayout.SongBars.SelectedBarTextureYOffset);
         }
 
         #endregion

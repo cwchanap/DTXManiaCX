@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using Moq;
 using System;
@@ -22,6 +23,15 @@ namespace DTXMania.Test.Stage
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongSelectionStage(null));
+        }
+
+        [Fact]
+        public void Constructor_WhenGameHasNoInputManager_ShouldCreateOwnedFallbackInputManager()
+        {
+            var stage = CreateStageWithFakeGraphicsManager();
+
+            Assert.True(GetPrivateField<bool>(stage, "_ownsInputManager"));
+            Assert.NotNull(GetPrivateField<InputManager>(stage, "_inputManager"));
         }
 
         #endregion
@@ -126,6 +136,34 @@ namespace DTXMania.Test.Stage
             Assert.Null(args[0]);
         }
 
+        [Fact]
+        public void Deactivate_WhenStageOwnsInputManager_ShouldDisposeOwnedInputManager()
+        {
+            var stage = CreateStageWithFakeGraphicsManager();
+            var probeInputManager = new ProbeInputManager();
+
+            SetPrivateField(stage, "_inputManager", probeInputManager);
+            SetPrivateField(stage, "_ownsInputManager", true);
+
+            stage.Deactivate();
+
+            Assert.True(probeInputManager.WasDisposed);
+        }
+
+        [Fact]
+        public void Deactivate_WhenStageUsesSharedInputManager_ShouldNotDisposeSharedInputManager()
+        {
+            var stage = CreateStageWithFakeGraphicsManager();
+            var probeInputManager = new ProbeInputManager();
+
+            SetPrivateField(stage, "_inputManager", probeInputManager);
+            SetPrivateField(stage, "_ownsInputManager", false);
+
+            stage.Deactivate();
+
+            Assert.False(probeInputManager.WasDisposed);
+        }
+
         private static SongSelectionStage CreateStageWithFakeGraphicsManager()
         {
             var mockGame = new Mock<BaseGame>();
@@ -163,6 +201,17 @@ namespace DTXMania.Test.Stage
         private static bool IsGraphicsTestEnabled()
         {
             return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class ProbeInputManager : InputManager
+        {
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+                base.Dispose(disposing);
+            }
         }
 
         #endregion

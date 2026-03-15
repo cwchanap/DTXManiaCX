@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using System;
 using System.IO;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Game.Lib.Song.Components
 {
@@ -225,6 +226,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Use Phase 2 enhanced clear lamp generation with DefaultGraphicsGenerator
             // Note: _graphicsGenerator must stay alive for the lifetime of cached textures
+            if (_graphicsGenerator == null)
+                return null;
+
             var clearStatus = GetClearStatus(songNode, difficulty);
             var texture = _graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
 
@@ -501,12 +505,16 @@ namespace DTXMania.Game.Lib.Song.Components
             if (songNode.Scores?.Length > difficulty && songNode.Scores[difficulty] != null)
             {
                 var score = songNode.Scores[difficulty];
+                if (score.PlayCount <= 0)
+                    return ClearStatus.NotPlayed;
+
                 if (score.FullCombo)
                     return ClearStatus.FullCombo;
-                else if (score.BestRank >= 80)
+                else if (SongScore.ComputeRankIndex(
+                    SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2)
                     return ClearStatus.Clear;
-                else if (score.PlayCount > 0)
-                    return ClearStatus.Failed;
+
+                return ClearStatus.Failed;
             }
             
             return ClearStatus.NotPlayed;

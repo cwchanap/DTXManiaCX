@@ -162,7 +162,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
-            var bounds = Bounds;
+            var bounds = GetPanelBounds();
 
             // Draw background panel
             DrawBackground(spriteBatch, bounds);
@@ -179,18 +179,75 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void UpdatePositionAndSize()
         {
+            var (frameWidth, frameHeight, _, _, _) = GetPanelMetrics();
             if (_hasStatusPanel)
             {
-                // With status panel: X:250, Y:34 (292×292 pixels)
+                // With status panel: X:250, Y:34
                 Position = new Vector2(WITH_STATUS_PANEL_X, WITH_STATUS_PANEL_Y);
-                Size = new Vector2(WITH_STATUS_PANEL_SIZE, WITH_STATUS_PANEL_SIZE);
+                Size = new Vector2(frameWidth, frameHeight);
             }
             else
             {
-                // Without status panel: X:18, Y:88 (368×368 pixels)
+                // Without status panel: X:18, Y:88
                 Position = new Vector2(WITHOUT_STATUS_PANEL_X, WITHOUT_STATUS_PANEL_Y);
-                Size = new Vector2(WITHOUT_STATUS_PANEL_SIZE, WITHOUT_STATUS_PANEL_SIZE);
+                Size = new Vector2(frameWidth, frameHeight);
             }
+        }
+
+        private Rectangle GetPanelBounds()
+        {
+            var (frameWidth, frameHeight, _, _, _) = GetPanelMetrics();
+            return new Rectangle((int)Position.X, (int)Position.Y, frameWidth, frameHeight);
+        }
+
+        private Rectangle GetContentBounds(Rectangle panelBounds)
+        {
+            var (_, _, contentOffsetX, contentOffsetY, contentSize) = GetPanelMetrics();
+            return new Rectangle(
+                panelBounds.X + contentOffsetX,
+                panelBounds.Y + contentOffsetY,
+                contentSize,
+                contentSize);
+        }
+
+        private (int FrameWidth, int FrameHeight, int ContentOffsetX, int ContentOffsetY, int ContentSize) GetPanelMetrics()
+        {
+            int contentOffsetX;
+            int contentOffsetY;
+            int fallbackFrameWidth;
+            int fallbackFrameHeight;
+            int fallbackContentSize;
+
+            if (_hasStatusPanel)
+            {
+                contentOffsetX = CONTENT_OFFSET_WITH_STATUS;
+                contentOffsetY = CONTENT_OFFSET_WITH_STATUS;
+                fallbackFrameWidth = WITH_STATUS_PANEL_SIZE;
+                fallbackFrameHeight = WITH_STATUS_PANEL_SIZE;
+            }
+            else
+            {
+                contentOffsetX = CONTENT_OFFSET_WITHOUT_STATUS;
+                contentOffsetY = CONTENT_OFFSET_Y_WITHOUT_STATUS;
+                fallbackFrameWidth = WITHOUT_STATUS_PANEL_SIZE;
+                fallbackFrameHeight = WITHOUT_STATUS_PANEL_SIZE;
+            }
+
+            fallbackContentSize = Math.Min(
+                Math.Max(0, fallbackFrameWidth - (contentOffsetX * 2)),
+                Math.Max(0, fallbackFrameHeight - (contentOffsetY * 2)));
+
+            if (_preimagePanelTexture != null)
+            {
+                int frameWidth = _preimagePanelTexture.Width;
+                int frameHeight = _preimagePanelTexture.Height;
+                int availableWidth = Math.Max(0, frameWidth - (contentOffsetX * 2));
+                int availableHeight = Math.Max(0, frameHeight - (contentOffsetY * 2));
+                int contentSize = Math.Min(availableWidth, availableHeight);
+                return (frameWidth, frameHeight, contentOffsetX, contentOffsetY, contentSize);
+            }
+
+            return (fallbackFrameWidth, fallbackFrameHeight, contentOffsetX, contentOffsetY, fallbackContentSize);
         }
 
         /// <summary>
@@ -215,9 +272,9 @@ namespace DTXMania.Game.Lib.Song.Components
                     _defaultPreviewTexture = null;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Default texture is optional
+                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Could not load default preview texture: {ex.GetType().Name}: {ex.Message}");
                 _defaultPreviewTexture = null;
             }
         }
@@ -249,6 +306,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preimage panel texture: {ex.Message}");
                 _preimagePanelTexture = null;
             }
+
+            UpdatePositionAndSize();
         }
 
         /// <summary>
@@ -513,9 +572,13 @@ namespace DTXMania.Game.Lib.Song.Components
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
             // Use NX-authentic preimage panel frame texture if available
+            // Draw at natural texture size (matching NX's tDraw2D behavior), not scaled to bounds.
+            // The texture is designed for the natural panel size and has a transparent right portion.
             if (_preimagePanelTexture != null)
             {
-                _preimagePanelTexture.Draw(spriteBatch, bounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                var naturalBounds = new Rectangle(bounds.X, bounds.Y,
+                    _preimagePanelTexture.Width, _preimagePanelTexture.Height);
+                _preimagePanelTexture.Draw(spriteBatch, naturalBounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 return;
             }
 
@@ -537,28 +600,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawPreviewContent(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Calculate content area with DTXManiaNX offsets
-            Rectangle contentBounds;
-            if (_hasStatusPanel)
-            {
-                // With status panel: X+8, Y+8 offset
-                contentBounds = new Rectangle(
-                    bounds.X + CONTENT_OFFSET_WITH_STATUS,
-                    bounds.Y + CONTENT_OFFSET_WITH_STATUS,
-                    bounds.Width - (CONTENT_OFFSET_WITH_STATUS * 2),
-                    bounds.Height - (CONTENT_OFFSET_WITH_STATUS * 2)
-                );
-            }
-            else
-            {
-                // Without status panel: X+37, Y+24 offset
-                contentBounds = new Rectangle(
-                    bounds.X + CONTENT_OFFSET_WITHOUT_STATUS,
-                    bounds.Y + CONTENT_OFFSET_Y_WITHOUT_STATUS,
-                    bounds.Width - (CONTENT_OFFSET_WITHOUT_STATUS * 2),
-                    bounds.Height - (CONTENT_OFFSET_Y_WITHOUT_STATUS * 2)
-                );
-            }
+            var contentBounds = GetContentBounds(bounds);
 
             // Only show preview image if delay has passed and we should display it
             ITexture textureToUse = null;
@@ -571,35 +613,19 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 try
                 {
-                    // Maintain aspect ratio and center the image
-                    var sourceSize = new Vector2(textureToUse.Width, textureToUse.Height);
-                    var targetSize = new Vector2(contentBounds.Width, contentBounds.Height);
-
-                    var scale = Math.Min(targetSize.X / sourceSize.X, targetSize.Y / sourceSize.Y);
-                    var scaledSize = sourceSize * scale;
-
-                    var centeredPosition = new Vector2(
-                        contentBounds.X + (contentBounds.Width - scaledSize.X) / 2,
-                        contentBounds.Y + (contentBounds.Height - scaledSize.Y) / 2
-                    );
-
-                    var destRect = new Rectangle(
-                        (int)centeredPosition.X,
-                        (int)centeredPosition.Y,
-                        (int)scaledSize.X,
-                        (int)scaledSize.Y
-                    );
-
-                    textureToUse.Draw(spriteBatch, destRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    // Stretch to fill the content area (matching NX behavior - no letterboxing).
+                    // The frame texture's opaque interior would otherwise show as gray gaps
+                    // around non-square images.
+                    textureToUse.Draw(spriteBatch, contentBounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 }
                 catch (ObjectDisposedException)
                 {
-                    // Texture was disposed during draw, clear the reference
-                    _currentPreviewTexture = null;
+                    ClearDisposedTextureReference(textureToUse);
+                    DrawPlaceholder(spriteBatch, contentBounds);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Fallback to placeholder on any other error
+                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Draw failed unexpectedly: {ex.GetType().Name}: {ex.Message}");
                     DrawPlaceholder(spriteBatch, contentBounds);
                 }
             }
@@ -607,6 +633,19 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 // Draw placeholder when no image is available or delay hasn't passed
                 DrawPlaceholder(spriteBatch, contentBounds);
+            }
+        }
+
+        private void ClearDisposedTextureReference(ITexture textureToUse)
+        {
+            if (ReferenceEquals(_currentPreviewTexture, textureToUse))
+            {
+                _currentPreviewTexture = null;
+            }
+
+            if (ReferenceEquals(_defaultPreviewTexture, textureToUse))
+            {
+                _defaultPreviewTexture = null;
             }
         }
 

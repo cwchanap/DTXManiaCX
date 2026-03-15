@@ -28,6 +28,8 @@ namespace DTXMania.Game.Lib.Input
         private readonly List<IInputSource> _inputSources;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
+        // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch)
+        private readonly Queue<int> _injectedPressEvents;
         private bool _disposed = false;
 
         // Legacy compatibility fields
@@ -89,6 +91,7 @@ namespace DTXMania.Game.Lib.Input
             _inputSources = new List<IInputSource>();
             _injectedButtonQueue = new ConcurrentQueue<ButtonState>();
             _injectedKeyStates = new Dictionary<int, bool>();
+            _injectedPressEvents = new Queue<int>();
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
@@ -310,8 +313,21 @@ namespace DTXMania.Game.Lib.Input
         {
             var currentPressed = _keyStates.TryGetValue(keyCode, out var current) && current;
             var previousPressed = _previousKeyStates.TryGetValue(keyCode, out var previous) && previous;
-            
+
             return currentPressed && !previousPressed;
+        }
+
+        /// <summary>
+        /// Drains and returns all injected key-press events that arrived this frame.
+        /// Each entry is a key code corresponding to a press (not release) event from MCP/API injection.
+        /// Used by InputManagerCompat to fire exactly one navigation command per injected press,
+        /// without double-counting physical keyboard input that base.Update() already handles.
+        /// </summary>
+        public Queue<int> DrainInjectedPressEvents()
+        {
+            var copy = new Queue<int>(_injectedPressEvents);
+            _injectedPressEvents.Clear();
+            return copy;
         }
 
         /// <summary>
@@ -408,26 +424,44 @@ namespace DTXMania.Game.Lib.Input
         #region Utility Methods
 
         /// <summary>
-        /// Injects a button state (e.g., from MCP/GameApi) and routes it through lane mapping.
-        /// Returns true if the button was mapped to a lane and dispatched.
+        /// Injects a button state (e.g., from MCP/GameApi).
+        /// Accepts input when <c>_keyBindings.GetLane(buttonId)</c> maps it to a lane or when
+        /// <c>TryGetKeyCode(buttonId, out _)</c> recognizes a valid <c>Key.*</c> code.
         /// </summary>
         /// <param name="buttonId">Button identifier (e.g., "Key.A")</param>
         /// <param name="isPressed">Whether the button is pressed</param>
-        /// <param name="velocity">Optional velocity/intensity (0.0-1.0)</param>
+        /// <param name="velocity">Optional velocity/intensity that is clamped to [0, 1]</param>
+        /// <returns>
+        /// <see langword="true"/> when <see cref="InjectButton"/> accepts the input via either
+        /// <c>_keyBindings.GetLane(buttonId)</c> or <c>TryGetKeyCode(buttonId, out _)</c> and enqueues it;
+        /// otherwise, <see langword="false"/>.
+        /// </returns>
         public bool InjectButton(string buttonId, bool isPressed, float velocity = 1.0f)
         {
             if (string.IsNullOrWhiteSpace(buttonId))
                 return false;
 
-            velocity = Math.Clamp(velocity, 0.0f, 1.0f);
-
-            var lane = _keyBindings.GetLane(buttonId);
-            if (lane < 0)
+            bool hasLaneMapping = _keyBindings.GetLane(buttonId) >= 0;
+            bool isKeyCode = TryGetKeyCode(buttonId, out _);
+            if (!hasLaneMapping && !isKeyCode)
                 return false;
+
+            velocity = Math.Clamp(velocity, 0.0f, 1.0f);
 
             var state = new ButtonState(buttonId, isPressed, velocity);
             _injectedButtonQueue.Enqueue(state);
             return true;
+        }
+
+        /// <summary>
+        /// Clears all pending injected state: the button queue, injected key states, and press events.
+        /// Call this when switching stages to prevent stale injected inputs from leaking in.
+        /// </summary>
+        public void ClearInjectedState()
+        {
+            while (_injectedButtonQueue.TryDequeue(out _)) { }
+            _injectedKeyStates.Clear();
+            _injectedPressEvents.Clear();
         }
 
         /// <summary>
@@ -469,6 +503,8 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void ProcessInjectedInputs()
         {
+            _injectedPressEvents.Clear();
+
             while (_injectedButtonQueue.TryDequeue(out var injected))
             {
                 // Map to lane with current bindings
@@ -484,6 +520,9 @@ namespace DTXMania.Game.Lib.Input
                     if (injected.IsPressed)
                     {
                         _injectedKeyStates[keyCode] = true;
+                        // Record every press event so InputManagerCompat can fire one command per inject,
+                        // regardless of how many frames the key stays held.
+                        _injectedPressEvents.Enqueue(keyCode);
                     }
                     else
                     {

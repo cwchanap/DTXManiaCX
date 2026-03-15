@@ -517,12 +517,22 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 if (input.Data.Value.ValueKind == JsonValueKind.String)
                 {
                     var keyData = input.Data.Value.GetString();
-                    if (string.IsNullOrEmpty(keyData) || keyData.Length > 50)
+                    if (string.IsNullOrWhiteSpace(keyData) || keyData.Length > 50)
                         return (false, "Invalid key data format");
                 }
                 else if (input.Data.Value.ValueKind == JsonValueKind.Number)
                 {
                     if (!input.Data.Value.TryGetInt32(out var keyCode) || keyCode < 0 || keyCode > 255)
+                        return (false, "Invalid key data format");
+                }
+                else if (input.Data.Value.ValueKind == JsonValueKind.Object)
+                {
+                    // Object format from MCP bridge: {"key":"Down","holdDurationMs":50,"clientId":"default"}
+                    if (!input.Data.Value.TryGetProperty("key", out var keyProp) ||
+                        keyProp.ValueKind != JsonValueKind.String)
+                        return (false, "Invalid key data format");
+                    var keyString = keyProp.GetString();
+                    if (string.IsNullOrWhiteSpace(keyString) || keyString.Length > 50)
                         return (false, "Invalid key data format");
                 }
                 else

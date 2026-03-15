@@ -9,6 +9,7 @@ using System.Linq;
 
 // Type alias for SongScore to use the EF Core entity
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
+using EInstrumentPart = DTXMania.Game.Lib.Song.Entities.EInstrumentPart;
 
 namespace DTXMania.Game.Lib.Song.Components
 {
@@ -22,6 +23,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         // Set to false to use bitmap font for level numbers, true to use sprite font
         private const bool USE_SPRITE_FONT = false;
+        private static readonly Vector2 StandaloneBpmOrigin = new(490, 385);
 
         #endregion
 
@@ -56,6 +58,16 @@ namespace DTXMania.Game.Lib.Song.Components
         // Graph panel textures for 5_graph panel drums.png and 5_graph panel guitar bass.png support
         private ITexture _graphPanelDrumsTexture;
         private ITexture _graphPanelGuitarBassTexture;
+
+        // Skill point panel background texture (5_skill point panel.png)
+        private ITexture _skillPointPanelTexture;
+
+        // Skill/rank icon texture for 5_skill icon.png support (D8: performance history)
+        private ITexture _skillIconTexture;
+        private const int RankIconWidth = 35; // NX: nRankW = 35; 10 icons x 35px = 350px total width
+        private const int RankIconOffsetX = 7; // NX: rank icon anchor = nBoxX + 7
+        private const int FCBadgeOffsetX = 42; // NX: FC badge anchor = nBoxX + 42
+        private const int RankIconOffsetY = 15; // NX: GetCellContentPosition uses cellTop + 20; icon anchor is cellTop + 5
 
         // Level number bitmap font for difficulty level display
         private BitmapFont _levelNumberFont;
@@ -189,6 +201,8 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadDifficultyPanelTexture();
             LoadDifficultyFrameTexture();
             LoadGraphPanelTextures();
+            LoadSkillPointPanelTexture();
+            LoadSkillIconTexture();
             // Level number font will be loaded when graphics generator is initialized
             
             System.Diagnostics.Debug.WriteLine("SongStatusPanel: InitializeAuthenticGraphics completed. Waiting for graphics generator...");
@@ -308,6 +322,48 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Load skill point panel background texture (5_skill point panel.png 187x64)
+        /// </summary>
+        private void LoadSkillPointPanelTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _skillPointPanelTexture);
+
+            try
+            {
+                _skillPointPanelTexture = _resourceManager.LoadTexture(TexturePath.SkillPointPanel);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill point panel texture: {ex.Message}");
+                _skillPointPanelTexture = null;
+            }
+        }
+
+        /// <summary>
+        /// Load skill/rank icon texture for performance history display in difficulty grid (D8)
+        /// </summary>
+        private void LoadSkillIconTexture()
+        {
+            if (_resourceManager == null)
+                return;
+
+            ReleaseManagedTexture(ref _skillIconTexture);
+
+            try
+            {
+                _skillIconTexture = _resourceManager.LoadTexture(TexturePath.SkillIcon);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill icon texture: {ex.Message}");
+                _skillIconTexture = null;
+            }
+        }
+
+        /// <summary>
         /// Load the level number bitmap font for difficulty level display
         /// </summary>
         private void LoadLevelNumberFont(GraphicsDevice graphicsDevice)
@@ -400,6 +456,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _difficultyFrameTexture);
                 ReleaseManagedTexture(ref _graphPanelDrumsTexture);
                 ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
+                ReleaseManagedTexture(ref _skillPointPanelTexture);
+                ReleaseManagedTexture(ref _skillIconTexture);
                 // Dispose level number font
                 _levelNumberFont?.Dispose();
                 _levelNumberFont = null;
@@ -448,52 +506,36 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void DrawBackground(SpriteBatch spriteBatch, Rectangle bounds)
         {
-            // Use DTXManiaNX authentic status panel background (Phase 3)
-            if (_statusPanelTexture != null)
-            {
-                // Scale the authentic background to fit the panel bounds
-                var sourceRect = new Rectangle(0, 0, _statusPanelTexture.Width, _statusPanelTexture.Height);
-                var destRect = bounds;
-
-                spriteBatch.Draw(_statusPanelTexture.Texture, destRect, sourceRect, Color.White);
-                return;
-            }
-
-            // Performance optimization: Use cached generated background
+            // Always draw a visible background first (generated or solid color fallback),
+            // then overlay the skin texture. This ensures the panel is visible even when
+            // the skin's 5_status panel.png is fully transparent.
             if (_graphicsGenerator != null)
             {
-                // Check if we need to regenerate the cached texture
                 if (_cachedBackgroundTexture == null || _cachedBackgroundSize != bounds)
                 {
                     _cachedBackgroundTexture?.Dispose();
                     _cachedBackgroundTexture = _graphicsGenerator.GeneratePanelBackground(bounds.Width, bounds.Height, true);
                     _cachedBackgroundSize = bounds;
                 }
-
-                if (_cachedBackgroundTexture != null)
-                {
-                    _cachedBackgroundTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
-                    return;
-                }
+                _cachedBackgroundTexture?.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
             }
-
-            // Final fallback to simple background
-            if (_whitePixel != null)
+            else if (_whitePixel != null)
             {
                 spriteBatch.Draw(_whitePixel, bounds, DTXManiaVisualTheme.SongSelection.StatusBackground);
 
-                // Draw border using layout constants
                 var borderColor = DTXManiaVisualTheme.SongSelection.StatusBorder;
                 var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
-
-                // Top border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-                // Bottom border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-                // Left border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-                // Right border
                 spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
+            }
+
+            // Overlay skin texture on top (transparent skin has no visual effect)
+            if (_statusPanelTexture != null)
+            {
+                var sourceRect = new Rectangle(0, 0, _statusPanelTexture.Width, _statusPanelTexture.Height);
+                spriteBatch.Draw(_statusPanelTexture.Texture, bounds, sourceRect, Color.White);
             }
         }
 
@@ -586,23 +628,29 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw BMP background texture first (5_BPM.png or fallback)
             DrawBPMBackground(spriteBatch);
 
-            // Use positioning from SongSelectionUILayout
-            var lengthPosition = SongSelectionUILayout.BPMSection.LengthTextPosition;
-            var bpmPosition = SongSelectionUILayout.BPMSection.BPMTextPosition;
+            // Compute text positions using actual font metrics for precise vertical centering
+            var font = _smallFont ?? _font;
+            float lineH = font?.LineSpacing ?? 16f;
+            var bpmOrigin = GetBpmBackgroundOrigin();
+            float textX = bpmOrigin.X + SongSelectionUILayout.BPMSection.TextX;
+            float lengthY = bpmOrigin.Y + SongSelectionUILayout.BPMSection.LengthBoxTop
+                            + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
+            float bpmY    = bpmOrigin.Y + SongSelectionUILayout.BPMSection.BPMBoxTop
+                            + (SongSelectionUILayout.BPMSection.DarkBoxHeight - lineH) / 2f;
 
             // When using authentic 5_BPM.png, don't draw redundant labels
             bool useAuthenticTexture = _bpmBackgroundTexture != null;
 
-            // Draw song duration (DTXManiaNX format: "Length: 2:34" or just "2:34")
+            // Draw song duration
             var formattedDuration = FormatDuration(chart.Duration);
             var durationText = useAuthenticTexture ? formattedDuration : $"Length: {formattedDuration}";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, durationText, lengthPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
+            DrawTextWithShadow(spriteBatch, font, durationText, new Vector2(textX, lengthY), DTXManiaVisualTheme.SongSelection.StatusValueText);
 
-            // Draw BPM value (DTXManiaNX format: "BPM: 145" or just "145")
+            // Draw BPM value
             if (chart.Bpm > 0)
             {
                 var bpmText = useAuthenticTexture ? $"{chart.Bpm:F0}" : $"BPM: {chart.Bpm:F0}";
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, bpmText, bpmPosition, DTXManiaVisualTheme.SongSelection.StatusValueText);
+                DrawTextWithShadow(spriteBatch, font, bpmText, new Vector2(textX, bpmY), DTXManiaVisualTheme.SongSelection.StatusValueText);
             }
         }
 
@@ -612,35 +660,19 @@ namespace DTXMania.Game.Lib.Song.Components
         private void DrawBPMBackground(SpriteBatch spriteBatch)
         {
             // Determine position and size based on standalone mode
-            Vector2 position;
-            Vector2 size;
-            
-            if (UseStandaloneBPMBackground)
-            {
-                // X:490, Y:385 (standalone mode from DTXManiaNX)
-                position = new Vector2(490, 385);
-                size = SongSelectionUILayout.BPMSection.Size;
-            }
-            else
-            {
-                // X:90, Y:275 (with panel mode from DTXManiaNX)
-                position = SongSelectionUILayout.BPMSection.Position;
-                size = SongSelectionUILayout.BPMSection.Size;
-            }
+            Vector2 position = GetBpmBackgroundOrigin();
+            Vector2 size = SongSelectionUILayout.BPMSection.Size;
 
-            // Try to use the authentic 5_BPM.png texture first
+            // Draw 5_BPM.png at natural size (187x67) so the text positions align with icon areas.
+            // NX draws at (nBPM位置X, nBPM位置Y) without scaling.
             if (_bpmBackgroundTexture != null)
             {
                 try
                 {
-                    // Scale the texture to fit the panel bounds
-                    var sourceRect = new Rectangle(0, 0, _bpmBackgroundTexture.Width, _bpmBackgroundTexture.Height);
-                    var destinationRect = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
-                    _bpmBackgroundTexture.Draw(spriteBatch, destinationRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    _bpmBackgroundTexture.Draw(spriteBatch, position);
                 }
                 catch (ObjectDisposedException)
                 {
-                    // Texture was disposed, clear reference
                     _bpmBackgroundTexture = null;
                 }
             }
@@ -667,6 +699,11 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Draw simple background when no graphics generator is available
                 DrawSimpleBPMBackground(spriteBatch, position, size);
             }
+        }
+
+        private Vector2 GetBpmBackgroundOrigin()
+        {
+            return UseStandaloneBPMBackground ? StandaloneBpmOrigin : SongSelectionUILayout.BPMSection.Position;
         }
 
         /// <summary>
@@ -763,21 +800,28 @@ namespace DTXMania.Game.Lib.Song.Components
             if (score == null)
                 return;
 
-            // Use positioning from SongSelectionUILayout
+            // NX: txSkillPointPanel.tDraw2D(device, 32, 180) — natural size 187x64
             var skillPanelPosition = SongSelectionUILayout.SkillPointSection.Position;
-            var skillPanelSize = SongSelectionUILayout.SkillPointSection.Size;
-            var skillValuePosition = SongSelectionUILayout.SkillPointSection.ValuePosition;
 
-            // Draw skill point background panel (if available)
-            if (_whitePixel != null)
+            if (_skillPointPanelTexture != null)
             {
+                _skillPointPanelTexture.Draw(spriteBatch, skillPanelPosition);
+            }
+            else if (_whitePixel != null)
+            {
+                var skillPanelSize = SongSelectionUILayout.SkillPointSection.Size;
                 var skillPanelRect = new Rectangle((int)skillPanelPosition.X, (int)skillPanelPosition.Y, (int)skillPanelSize.X, (int)skillPanelSize.Y);
                 spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
             }
 
-            // Draw highest skill point value (DTXManiaNX format: "##0.00")
+            // Compute skill text position dynamically using actual font metrics
+            var skillFont = _smallFont ?? _font;
+            float skillLineH = skillFont?.LineSpacing ?? 16f;
+            float skillTextX = SongSelectionUILayout.SkillPointSection.X + SongSelectionUILayout.SkillPointSection.DarkBoxLeft + 8f;
+            float skillTextY = SongSelectionUILayout.SkillPointSection.Y + SongSelectionUILayout.SkillPointSection.DarkBoxTop
+                               + (SongSelectionUILayout.SkillPointSection.DarkBoxHeight - skillLineH) / 2f;
             var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, skillValue, skillValuePosition, Color.Yellow);
+            DrawTextWithShadow(spriteBatch, skillFont, skillValue, new Vector2(skillTextX, skillTextY), Color.Yellow);
         }
 
         private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
@@ -785,12 +829,15 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw difficulty panel background texture if available
             if (_difficultyPanelTexture != null)
             {
-                // Position the difficulty panel texture to match the top-left corner of the grid
-                // In DTXManiaNX, difficulty 4 (hardest) appears at the top, difficulty 0 (easiest) at bottom
+                // In DTXManiaNX, the difficulty panel texture includes a header row (DRUMS/GUITAR/BASS labels)
+                // above the 5 cell rows. The texture must be drawn with the header ABOVE the first cell row.
+                // Header height = texture height - (5 rows × cellHeight) = 321 - 300 = 21px
                 var topLeftCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
-                
-                // Draw texture aligned with the actual top-left cell of the grid
-                _difficultyPanelTexture.Draw(spriteBatch, topLeftCellPosition);
+                int cellRows = 5;
+                int cellHeight = SongSelectionUILayout.DifficultyGrid.CellHeight;
+                int headerHeight = _difficultyPanelTexture.Height - (cellRows * cellHeight);
+                var texturePosition = new Vector2(topLeftCellPosition.X, topLeftCellPosition.Y - headerHeight);
+                _difficultyPanelTexture.Draw(spriteBatch, texturePosition);
             }
 
             // Get all available charts for this song
@@ -883,8 +930,9 @@ namespace DTXMania.Game.Lib.Song.Components
             int selectedRow = currentChartInfo.Chart.DifficultyLevel - 1; // L1 → row 0, L2 → row 1, L3 → row 2, L5 → row 4, etc.
             selectedRow = Math.Clamp(selectedRow, 0, 4); // Clamp to valid grid range
             
-            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(selectedRow, selectedColumn);
-            
+            // Frame must align with the panel cell background, not content (which is +20px offset)
+            var selectedCellPosition = SongSelectionUILayout.DifficultyGrid.GetCellPosition(selectedRow, selectedColumn);
+
             // Draw the frame texture aligned exactly with the selected cell
             _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }
@@ -893,12 +941,52 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             // Display the actual chart level from SET.def (divide by 10 for proper decimal format)
             var levelText = (chartInfo.Level / 10.0f).ToString("F2"); // Show 38 as "3.80", 60 as "6.00", etc.
-            
+
             // Determine if this chart is currently selected
             var isSelected = IsChartSelected(chartInfo);
             var textColor = isSelected ? Color.Yellow : Color.White;
-            
+
             DrawDifficultyText(spriteBatch, levelText, x, y, cellWidth, cellHeight, textColor);
+
+            // D8: draw rank and FC badge if player has history for this cell
+            DrawRankSymbol(spriteBatch, x, y, chartInfo, instrument);
+        }
+
+        /// <summary>
+        /// Draws the rank/FC badge icons for a difficulty cell (D8: performance history).
+        /// Matches NX: rank at nBoxX+7,nBoxY+5; FC badge at nBoxX+42,nBoxY+5.
+        /// </summary>
+        private void DrawRankSymbol(SpriteBatch spriteBatch, int x, int y, ChartLevelInfo chartInfo, int instrumentColumn)
+        {
+            if (_skillIconTexture == null) return;
+
+            var instrumentPart = instrumentColumn switch
+            {
+                0 => EInstrumentPart.DRUMS,
+                1 => EInstrumentPart.GUITAR,
+                2 => EInstrumentPart.BASS,
+                _ => EInstrumentPart.DRUMS
+            };
+
+            var score = chartInfo.Chart.Scores?.FirstOrDefault(s => s.Instrument == instrumentPart);
+            if (score == null || score.PlayCount == 0) return;
+
+            // x,y = GetCellContentPosition = (cellLeft, cellTop+20); NX draws at cellTop+5 → y-15
+            int rankY = y - RankIconOffsetY;
+            int iconH = _skillIconTexture.Height;
+
+            // Rank symbol (clamp to valid range 0-7: SS through F)
+            int normalizedBestRank = SongScore.NormalizeStoredBestRank(score.BestRank);
+            int rankIndex = SongScore.ComputeRankIndex(normalizedBestRank);
+            _skillIconTexture.Draw(spriteBatch, new Vector2(x + RankIconOffsetX, rankY),
+                new Rectangle(RankIconWidth * rankIndex, 0, RankIconWidth, iconH));
+
+            // FC badge (index 8) if full combo achieved
+            if (score.FullCombo)
+            {
+                _skillIconTexture.Draw(spriteBatch, new Vector2(x + FCBadgeOffsetX, rankY),
+                    new Rectangle(RankIconWidth * 8, 0, RankIconWidth, iconH));
+            }
         }
 
         /// <summary>
@@ -906,38 +994,26 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         private void DrawDifficultyText(SpriteBatch spriteBatch, string text, int x, int y, int cellWidth, int cellHeight, Color color)
         {
-            const int rightPadding = 4;
-            
-            
-            // Determine if we should use bitmap font (when enabled and available)
+            // NX-authentic position: nX = cellLeft + nPanelW - 77 (= cellLeft + 110),
+            // nY = cellTop + nPanelH - 35 (≈ cellTop + 23).
+            // x,y are GetCellContentPosition coords = (cellLeft, cellTop+20), so:
+            //   textY = y + 3  →  cellTop + 23  (matches NX)
+            //   textX = x + cellWidth - 77  →  cellLeft + 110
+            const int nxTopOffset = 3;    // contentPos is cellTop+20, NX text is cellTop+23
+
             bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
-            
+
             if (useBitmapFont)
             {
-                // Use bitmap font rendering
+                // Right-justify within the cell: end 10px from the right edge
                 var textSize = _levelNumberFont.MeasureText(text);
-                var textOffsetY = cellHeight - (int)textSize.Y;
-                var textX = x + cellWidth - (int)textSize.X - rightPadding;
-                
-                _levelNumberFont.DrawText(spriteBatch, text, textX, y + textOffsetY, color);
+                int drawX = x + cellWidth - 10 - (int)textSize.X;
+                _levelNumberFont.DrawText(spriteBatch, text, drawX, y + nxTopOffset, color);
             }
             else
             {
-                if (!USE_SPRITE_FONT)
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (FALLBACK - bitmap font not available)");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Using SPRITE FONT for '{text}' (USE_SPRITE_FONT=true)");
-                }
-                
-                // Use sprite font rendering (original logic or fallback)
-                var textOffsetY = cellHeight - 16; // Assuming 16px font height
                 var textWidth = (_smallFont ?? _font)?.MeasureString(text).X ?? 0;
-                var textX = x + cellWidth - textWidth - rightPadding;
-                
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(textX, y + textOffsetY), color);
+                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + cellWidth - textWidth - 4, y + nxTopOffset), color);
             }
         }
 
@@ -955,13 +1031,17 @@ namespace DTXMania.Game.Lib.Song.Components
             var notesCounterPosition = SongSelectionUILayout.GraphPanel.NotesCounterPosition;
             var progressBarPosition = SongSelectionUILayout.GraphPanel.ProgressBarPosition;
 
-            // Align graph panel background Y coordinate and height with difficulty panel background
-            var difficultyPanelTopLeft = SongSelectionUILayout.DifficultyGrid.GetCellPosition(4, 0);
-            // Calculate exact height: 5 difficulty levels × cell height = total height
-            var difficultyPanelHeight = 5 * SongSelectionUILayout.DifficultyGrid.CellSize.Y;
-            
-            var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, difficultyPanelTopLeft.Y);
-            var alignedGraphPanelSize = new Vector2(graphPanelSize.X, difficultyPanelHeight);
+            // Use DTXManiaNX authentic Y position (BaseY=368) and match height to difficulty panel texture
+            // including its header row, so the graph panel aligns with the full difficulty panel.
+            int cellRows = 5;
+            int cellHeight = SongSelectionUILayout.DifficultyGrid.CellHeight;
+            // Use texture's natural dimensions (NX: tDraw2D at 1:1 scale, no stretching)
+            var graphTexture = GetInstrumentFromDifficulty(_currentDifficulty) == "DRUMS"
+                ? _graphPanelDrumsTexture : _graphPanelGuitarBassTexture;
+            int difficultyTextureWidth = graphTexture?.Width ?? (int)graphPanelSize.X;
+            int difficultyTextureHeight = graphTexture?.Height ?? (cellRows * cellHeight + 21);
+            var alignedGraphPanelPosition = new Vector2(graphPanelPosition.X, graphPanelPosition.Y);
+            var alignedGraphPanelSize = new Vector2(difficultyTextureWidth, difficultyTextureHeight);
 
             // Draw graph panel background using authentic DTXManiaNX texture with matching height
             DrawGraphPanelBackground(spriteBatch, alignedGraphPanelPosition, alignedGraphPanelSize);
@@ -1074,8 +1154,17 @@ namespace DTXMania.Game.Lib.Song.Components
                 textColor = Color.Cyan;
             }
 
-            // Draw main notes text
-            DrawTextWithShadow(spriteBatch, _smallFont ?? _font, notesText, position, textColor);
+            // Center the number at the NX-authentic center point (position.X is the center, not left edge)
+            var font = _smallFont ?? _font ?? _managedFont?.SpriteFont;
+            var textSize = font != null
+                ? font.MeasureString(notesText)
+                : _managedFont?.MeasureString(notesText) ?? Vector2.Zero;
+
+            if (font != null || _managedFont != null)
+            {
+                var centeredPos = new Vector2(position.X - textSize.X / 2, position.Y);
+                DrawTextWithShadow(spriteBatch, font, notesText, centeredPos, textColor);
+            }
         }
 
         #endregion
@@ -1271,7 +1360,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public class ChartLevelInfo
         {
             public float Level { get; set; }
-            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Bass, 2=Guitar (NX column order)
+            public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass (NX column order: DM/GF/BA)
             public string InstrumentName { get; set; }
             public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
         }
@@ -1305,26 +1394,26 @@ namespace DTXMania.Game.Lib.Song.Components
                     });
                 }
 
-                // Add bass chart if available (NX column order: DRUMS, BASS, GUITAR)
-                if (chart.HasBassChart && chart.BassLevel > 0)
-                {
-                    chartLevels.Add(new ChartLevelInfo
-                    {
-                        Level = chart.BassLevel,
-                        InstrumentColumn = 1, // Bass column (NX: middle)
-                        InstrumentName = "BASS",
-                        Chart = chart
-                    });
-                }
-
-                // Add guitar chart if available (NX column order: DRUMS, BASS, GUITAR)
+                // Add guitar chart if available (NX column order: DRUMS, GUITAR, BASS)
                 if (chart.HasGuitarChart && chart.GuitarLevel > 0)
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
                         Level = chart.GuitarLevel,
-                        InstrumentColumn = 2, // Guitar column (NX: right)
+                        InstrumentColumn = 1, // Guitar column (NX: middle / GF)
                         InstrumentName = "GUITAR",
+                        Chart = chart
+                    });
+                }
+
+                // Add bass chart if available (NX column order: DRUMS, GUITAR, BASS)
+                if (chart.HasBassChart && chart.BassLevel > 0)
+                {
+                    chartLevels.Add(new ChartLevelInfo
+                    {
+                        Level = chart.BassLevel,
+                        InstrumentColumn = 2, // Bass column (NX: right / BA)
+                        InstrumentName = "BASS",
                         Chart = chart
                     });
                 }

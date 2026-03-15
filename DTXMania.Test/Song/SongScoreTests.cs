@@ -12,6 +12,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for SongScore class
     /// Tests score tracking, rank calculation, and skill computation
     /// </summary>
+    [Trait("Category", "SongScore")]
     public class SongScoreTests
     {
         #region Basic Property Tests
@@ -41,17 +42,17 @@ namespace DTXMania.Test.Song
             var score = new SongScore
             {
                 BestScore = 800000,
-                BestRank = 3,
+                BestRank = 70,
                 PlayCount = 5
             };
 
             // Act
-            var result = score.UpdateScore(900000, 2, false, 80, 15, 5, 0, 0);
+            var result = score.UpdateScore(900000, 80, false, 80, 15, 5, 0, 0);
 
             // Assert
             Assert.True(result);
             Assert.Equal(900000, score.BestScore);
-            Assert.Equal(2, score.BestRank);
+            Assert.Equal(80, score.BestRank);
             Assert.Equal(6, score.PlayCount);
             Assert.NotNull(score.LastPlayedAt);
             Assert.True(score.IsNewRecord);
@@ -64,17 +65,17 @@ namespace DTXMania.Test.Song
             var score = new SongScore
             {
                 BestScore = 900000,
-                BestRank = 2,
+                BestRank = 80,
                 PlayCount = 5
             };
 
             // Act
-            var result = score.UpdateScore(800000, 3, false, 70, 20, 10, 0, 0);
+            var result = score.UpdateScore(800000, 70, false, 70, 20, 10, 0, 0);
 
             // Assert
             Assert.False(result);
             Assert.Equal(900000, score.BestScore); // Should not change
-            Assert.Equal(2, score.BestRank); // Should not change
+            Assert.Equal(80, score.BestRank); // Should not change
             Assert.Equal(6, score.PlayCount); // Should increment
             Assert.NotNull(score.LastPlayedAt);
             Assert.False(score.IsNewRecord);
@@ -91,7 +92,7 @@ namespace DTXMania.Test.Song
             };
 
             // Act
-            var result = score.UpdateScore(850000, 2, true, 100, 0, 0, 0, 0);
+            var result = score.UpdateScore(850000, 80, true, 100, 0, 0, 0, 0);
 
             // Assert
             Assert.True(result);
@@ -99,9 +100,37 @@ namespace DTXMania.Test.Song
             Assert.True(score.IsNewRecord);
         }
 
+        [Fact]
+        public void UpdateScore_WithPercentageRank_ShouldStoreNormalizedRankBucket()
+        {
+            var score = new SongScore();
+
+            var result = score.UpdateScore(900000, 92, false, 90, 5, 3, 1, 1);
+
+            Assert.True(result);
+            Assert.Equal(90, score.BestRank);
+        }
+
+        [Fact]
+        public void UpdateScore_WithLegacyStoredBestRank_ShouldNormalizeBeforeComparing()
+        {
+            var score = new SongScore
+            {
+                BestScore = 900000,
+                BestRank = 2,
+                PlayCount = 5
+            };
+
+            var result = score.UpdateScore(850000, 70, false, 70, 20, 10, 0, 0);
+
+            Assert.False(result);
+            Assert.Equal(80, score.BestRank);
+            Assert.Equal(6, score.PlayCount);
+        }
+
         [Theory]
         [InlineData(1000000, 85, 1.0, 85.0)] // Perfect score, SS rank
-        [InlineData(950000, 85, 0.95, 76.71)] // S rank (adjusted for actual calculation)
+        [InlineData(950000, 85, 0.95, 76.71)] // S rank
         [InlineData(900000, 85, 0.9, 68.85)] // A rank
         [InlineData(0, 85, 0.5, 0.0)] // No score
         [InlineData(1000000, 0, 1.0, 0.0)] // No difficulty
@@ -112,7 +141,7 @@ namespace DTXMania.Test.Song
             {
                 BestScore = bestScore,
                 DifficultyLevel = difficultyLevel,
-                BestRank = GetRankFromMultiplier(rankMultiplier)
+                BestRank = GetRankPercentageFromMultiplier(rankMultiplier)
             };
 
             // Act
@@ -127,19 +156,70 @@ namespace DTXMania.Test.Song
             }
         }
 
-        private int GetRankFromMultiplier(double multiplier)
+        [Theory]
+        [InlineData(92, 1, "S", 0.95)]
+        [InlineData(80, 2, "A", 0.9)]
+        [InlineData(2, 7, "F", 0.65)]
+        [InlineData(95, 0, "SS", 1.0)]   // SS boundary
+        [InlineData(100, 0, "SS", 1.0)]  // above SS
+        [InlineData(40, 6, "E", 0.7)]    // E bucket
+        [InlineData(0, 7, "F", 0.65)]    // F bucket (new scale — below 40)
+        [InlineData(39, 7, "F", 0.65)]   // just below E
+        public void RankHelpers_ShouldUseNormalizedPercentageDomain(int rankValue, int expectedRankIndex, string expectedRankName, double expectedMultiplier)
+        {
+            Assert.Equal(expectedRankIndex, SongScore.ComputeRankIndex(rankValue));
+            Assert.Equal(expectedRankName, SongScore.RankString(rankValue));
+            Assert.Equal(expectedMultiplier, SongScore.RankMultiplier(rankValue), 3);
+        }
+
+        [Fact]
+        public void NormalizeStoredBestRank_WithZero_ShouldReturnFBucket()
+        {
+            // 0 is the F bucket on the new percentage scale.
+            // There is no way to distinguish a persisted legacy ordinal SS (0) from
+            // a new-system F bucket (0) — 0 is treated as F.
+            Assert.Equal(0, SongScore.NormalizeStoredBestRank(0));
+        }
+
+        [Fact]
+        public void NormalizeStoredBestRank_WithLegacyOrdinals_ShouldMapToBuckets()
+        {
+            Assert.Equal(90, SongScore.NormalizeStoredBestRank(1));  // legacy S
+            Assert.Equal(80, SongScore.NormalizeStoredBestRank(2));  // legacy A
+            Assert.Equal(70, SongScore.NormalizeStoredBestRank(3));  // legacy B
+            Assert.Equal(60, SongScore.NormalizeStoredBestRank(4));  // legacy C
+            Assert.Equal(50, SongScore.NormalizeStoredBestRank(5));  // legacy D
+            Assert.Equal(40, SongScore.NormalizeStoredBestRank(6));  // legacy E
+            Assert.Equal(0,  SongScore.NormalizeStoredBestRank(7));  // legacy F
+        }
+
+        [Fact]
+        public void RankName_WhenNotPlayed_ShouldReturnDashes()
+        {
+            var score = new SongScore { PlayCount = 0, BestRank = 95 };
+            Assert.Equal("---", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithLegacyOrdinalA_ShouldReturnA()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 2 }; // legacy ordinal 2 = A
+            Assert.Equal("A", score.RankName);
+        }
+
+        private int GetRankPercentageFromMultiplier(double multiplier)
         {
             return multiplier switch
             {
-                1.0 => 0,   // SS
-                0.95 => 1,  // S
-                0.9 => 2,   // A
-                0.85 => 3,  // B
-                0.8 => 4,   // C
-                0.75 => 5,  // D
-                0.7 => 6,   // E
-                0.65 => 7,  // F
-                _ => 8
+                1.0 => 95,  // SS
+                0.95 => 90, // S
+                0.9 => 80,  // A
+                0.85 => 70, // B
+                0.8 => 60,  // C
+                0.75 => 50, // D
+                0.7 => 40,  // E
+                0.65 => 0,  // F
+                _ => 0
             };
         }
 

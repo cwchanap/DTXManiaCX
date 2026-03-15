@@ -58,6 +58,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Input tracking using InputManager
         private InputManager _inputManager;
+        private bool _ownsInputManager;
         private IConfigManager _configManager;
 
         // Navigation state
@@ -114,7 +115,7 @@ namespace DTXMania.Game.Lib.Stage
         public SongSelectionStage(BaseGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
-            _inputManager = new InputManager();
+            AssignInputManager(game.InputManager);
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
@@ -126,8 +127,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             base.Activate(sharedData);
 
-            // Recreate disposed resources
-            _inputManager = new InputManager();
+            // Use game's shared InputManager (supports MCP key injection)
+            AssignInputManager((_game as BaseGame)?.InputManager);
+            _inputManager?.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Get config manager from game
@@ -238,9 +240,14 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
-            // Clean up input manager
-            _inputManager?.Dispose();
+            if (_ownsInputManager)
+            {
+                _inputManager?.ClearPendingCommands();
+                _inputManager?.Dispose();
+            }
+
             _inputManager = null;
+            _ownsInputManager = false;
 
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
             _headerPanelTexture?.RemoveReference();
@@ -275,6 +282,24 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Font Management
 
+        private void AssignInputManager(InputManager inputManager)
+        {
+            if (_ownsInputManager)
+            {
+                _inputManager?.ClearPendingCommands();
+                _inputManager?.Dispose();
+            }
+
+            _inputManager = inputManager ?? new InputManager();
+            _ownsInputManager = inputManager == null;
+            if (_ownsInputManager)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "SongSelectionStage: No shared InputManager available; MCP key injection will not work. " +
+                    "This should not occur in production — ensure _game is a BaseGame instance.");
+            }
+        }
+
         /// <summary>
         /// Create a fallback font when the font factory is not available
         /// </summary>
@@ -286,9 +311,9 @@ namespace DTXMania.Game.Lib.Stage
                 return _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
                     SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
-            catch
+            catch (Exception ex)
             {
-                // If that fails, return null - the UI components will handle this gracefully
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font unavailable: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
@@ -769,8 +794,9 @@ namespace DTXMania.Game.Lib.Stage
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
 
-            // Update input manager
-            _inputManager?.Update(deltaTime);
+            // Update owned fallback input manager (shared one is updated by BaseGame)
+            if (_ownsInputManager)
+                _inputManager?.Update(deltaTime);
 
             // Update phase
             UpdatePhase(deltaTime);

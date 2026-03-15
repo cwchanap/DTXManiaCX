@@ -405,8 +405,8 @@ namespace DTXMania.Game.Lib.Resources
             return new BitmapFontConfig
             {
                 DisplayableCharacters = displayableChars,
-                CharacterWidths = new[] { 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 9 }, // Numbers: 30px, Dot: 9px
-                CharacterHeight = 38,
+                CharacterWidths = new[] { 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 6 }, // Numbers: 20px, Dot: 6px
+                CharacterHeight = 26,
                 SourceCharacterWidths = new[] { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 30 }, // Numbers: 100px, Dot: 30px
                 SourceCharacterHeight = 130,
                 TexturePaths = new[] { TexturePath.LevelNumberFont },

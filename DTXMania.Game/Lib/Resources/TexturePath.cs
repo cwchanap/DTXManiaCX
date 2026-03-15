@@ -63,9 +63,15 @@ namespace DTXMania.Game.Lib.Resources
         public const string SongStatusPanel = "Graphics/5_status panel.png";
         
         /// <summary>
-        /// BPM background texture for status panel
+        /// BPM background texture for status panel (187x67 natural size)
         /// </summary>
         public const string BpmBackground = "Graphics/5_BPM.png";
+
+        /// <summary>
+        /// Skill point panel background texture (187x64 natural size).
+        /// NX: drawn at (32,180); skill value text at (32+60, 200).
+        /// </summary>
+        public const string SkillPointPanel = "Graphics/5_skill point panel.png";
         
         /// <summary>
         /// Difficulty panel texture for song status panel
@@ -134,7 +140,14 @@ namespace DTXMania.Game.Lib.Resources
         /// Contains difficulty labels: Master(6th), Basic(7th), Advanced(8th), Extreme(9th), Real(12th)
         /// </summary>
         public const string DifficultySprite = "Graphics/6_Difficulty.png";
-        
+
+        /// <summary>
+        /// Rank/skill icon texture (350x53) for song selection difficulty grid.
+        /// 10 icons x 35px each: SS(0), S(1), A(2), B(3), C(4), D(5), E(6), F(7), FC badge(8), Excellent badge(9)
+        /// Matches NX's txランク drawn at nBoxX+7, nBoxY+5 per difficulty cell.
+        /// </summary>
+        public const string SkillIcon = "Graphics/5_skill icon.png";
+
         #endregion
         
         #region Preview and Default Textures
@@ -393,10 +406,12 @@ namespace DTXMania.Game.Lib.Resources
                 SongSelectionFooterPanel,
                 SongStatusPanel,
                 BpmBackground,
+                SkillPointPanel,
                 DifficultyPanel,
                 DifficultyFrame,
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
+                SkillIcon,
                 CommentBar,
                 BarScore,
                 BarScoreSelected,
@@ -484,6 +499,7 @@ namespace DTXMania.Game.Lib.Resources
                 SongSelectionFooterPanel,
                 SongStatusPanel,
                 BpmBackground,
+                SkillPointPanel,
                 DifficultyPanel,
                 DifficultyFrame,
                 GraphPanelDrums,

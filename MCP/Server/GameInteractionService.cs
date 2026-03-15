@@ -84,12 +84,12 @@ public class GameInteractionService : IDisposable
 
             if (response.Result is not JsonElement resultElement)
             {
-                return (false, "No result returned from game");
+                return (false, "Unexpected response format: result is not a JSON object");
             }
 
             if (!resultElement.TryGetProperty("success", out var successProperty))
             {
-                return (false, "No result returned from game");
+                return (false, "Game response missing required 'success' field");
             }
 
             var success = successProperty.GetBoolean();
@@ -354,36 +354,33 @@ public class GameInteractionService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Attempting to send key '{Key}' to client {ClientId}", key, clientId);
 
-            var inputParams = new
+            var pressParams = CreateKeyInputParams(2, key);
+            _logger.LogInformation("Sending key press '{Key}' to client {ClientId}", key, clientId);
+            var pressResult = await SendInputAsync("sendInput", pressParams, clientId, $"Key '{key}' pressed successfully", cancellationToken);
+            if (!pressResult.Success)
             {
-                Type = 2, // KeyPress
-                Data = new
-                {
-                    key = key,
-                    holdDurationMs = holdDurationMs,
-                    clientId = clientId
-                }
-            };
+                return pressResult;
+            }
 
-            var response = await _jsonRpcClient.SendRequestAsync("sendInput", inputParams, cancellationToken);
-            
-            if (response.Result != null)
+            try
             {
-                var resultElement = (JsonElement)response.Result;
-                var success = resultElement.GetProperty("success").GetBoolean();
-                
-                if (success)
+                int effectiveHoldDurationMs = holdDurationMs < 0 ? 0 : holdDurationMs;
+                if (effectiveHoldDurationMs > 0)
                 {
-                    _logger.LogInformation("Successfully sent key input to game");
-                    return (true, $"Key '{key}' sent successfully");
-                }
-                else
-                {
-                    return (false, "Game rejected the input");
+                    await Task.Delay(effectiveHoldDurationMs, cancellationToken);
                 }
             }
-            
-            return (false, "No result returned from game");
+            finally
+            {
+                // Always send the release, even if the hold was cancelled, to prevent stuck key state.
+                var releaseParams = CreateKeyInputParams(3, key);
+                _logger.LogInformation("Sending key release '{Key}' to client {ClientId}", key, clientId);
+                // Use CancellationToken.None so the release is not skipped when the caller cancels.
+                await SendInputAsync("sendInput", releaseParams, clientId, $"Key '{key}' released successfully", CancellationToken.None);
+            }
+
+            _logger.LogInformation("Successfully sent key press and release for '{Key}' to client {ClientId}", key, clientId);
+            return (true, $"Key '{key}' sent successfully");
         }
         catch (JsonRpcException ex)
         {
@@ -395,6 +392,15 @@ public class GameInteractionService : IDisposable
             _logger.LogError(ex, "Error sending key to client {ClientId}", clientId);
             return (false, $"Error: {ex.Message}");
         }
+    }
+
+    private static object CreateKeyInputParams(int inputType, string key)
+    {
+        return new
+        {
+            Type = inputType,
+            Data = key
+        };
     }
     
     /// <summary>

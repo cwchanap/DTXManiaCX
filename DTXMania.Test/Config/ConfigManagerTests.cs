@@ -435,27 +435,47 @@ Key.Bad=abc
         Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
 
-    [Theory]
-    [InlineData("Songs")]
-    [InlineData("./Songs")]
-    [InlineData(".\\Songs")]
-    [InlineData("Songs/")]
-    [InlineData("Songs\\")]
-    [InlineData("songs")]
-    public void ConfigManager_LoadConfig_LegacyDTXPath_ShouldMigrateToDTXFiles(string legacyPath)
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void ConfigManager_LoadConfig_CustomDTXPath_ShouldBeHonored()
     {
         // Arrange
         var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Migration_{Guid.NewGuid():N}.ini");
-        var iniContent = $"[System]\nDTXPath={legacyPath}\n";
-        File.WriteAllText(tempFile, iniContent);
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_CustomPath_{Guid.NewGuid():N}.ini");
+        var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
+        var iniContent = $"[System]\nDTXPath={customPath}\n";
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {
             // Act
             manager.LoadConfig(tempFile);
 
-            // Assert - DTXPath should be migrated to the new DTXFiles path
+            // Assert - Custom path should be honored
+            Assert.Equal(Path.GetFullPath(customPath), manager.Config.DTXPath);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void ConfigManager_LoadConfig_EmptyDTXPath_ShouldUseDefault()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_EmptyPath_{Guid.NewGuid():N}.ini");
+        var iniContent = "[System]\nDTXPath=\n";
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert - Empty path should use default DTXFiles
             var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             Assert.Equal("DTXFiles", dtxPathDir);
@@ -466,23 +486,53 @@ Key.Bad=abc
         }
     }
 
-    [Fact]
-    public void ConfigManager_LoadConfig_CustomDTXPath_ShouldNotMigrate()
+    [Trait("Category", "Unit")]
+    [Theory]
+    [InlineData("Songs")]
+    [InlineData("./Songs")]
+    [InlineData(".\\Songs")]
+    [InlineData("Songs/")]
+    [InlineData("Songs\\")]
+    public void ConfigManager_LoadConfig_LegacySongsDTXPath_ShouldUseDefault(string legacyPath)
     {
         // Arrange
         var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_NoMigration_{Guid.NewGuid():N}.ini");
-        var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
-        var iniContent = $"[System]\nDTXPath={customPath}\n";
-        File.WriteAllText(tempFile, iniContent);
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_LegacySongsPath_{Guid.NewGuid():N}.ini");
+        var iniContent = $"[System]\nDTXPath={legacyPath}\n";
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {
             // Act
             manager.LoadConfig(tempFile);
 
-            // Assert - Custom path should NOT be migrated
-            Assert.Contains("CustomSongs", manager.Config.DTXPath);
+            // Assert
+            Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void ConfigManager_LoadConfig_AbsoluteLegacySongsDTXPath_ShouldUseDefault()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_AbsoluteLegacySongsPath_{Guid.NewGuid():N}.ini");
+        var legacyAbsolutePath = Path.Combine(Path.GetDirectoryName(AppPaths.GetDefaultSongsPath())!, "Songs");
+        var iniContent = $"[System]\nDTXPath={legacyAbsolutePath}\n";
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+
+        try
+        {
+            // Act
+            manager.LoadConfig(tempFile);
+
+            // Assert
+            Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.DTXPath);
         }
         finally
         {
@@ -497,7 +547,7 @@ Key.Bad=abc
         var manager = new ConfigManager();
         var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Lane10_{Guid.NewGuid():N}.ini");
         var iniContent = "[System]\n[KeyBindings]\nKey.A=10\nKey.B=9\n";
-        File.WriteAllText(tempFile, iniContent);
+        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
 
         try
         {

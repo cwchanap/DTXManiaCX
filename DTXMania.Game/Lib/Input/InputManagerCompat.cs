@@ -3,6 +3,7 @@
 using System;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Game.Lib.Input
 {
@@ -40,13 +41,43 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public ModularInputManager ModularInputManager => _modularInputManager;
 
+        public override void ClearPendingCommands()
+        {
+            base.ClearPendingCommands();
+            _modularInputManager?.ClearInjectedState();
+        }
+
         public override void Update(double deltaTime)
         {
             // Update the modular input manager
             _modularInputManager?.Update(deltaTime);
-            
-            // Also call base update for compatibility
+
+            // Also call base update for compatibility (reads hardware keyboard)
             base.Update(deltaTime);
+
+            // Dispatch navigation commands for injected (MCP/API) key-press events only.
+            // base.Update() already handles physical keyboard input via UpdateKeyRepeatStates().
+            // We use event-driven dispatch (one command per press event) to correctly handle
+            // rapid successive injections without relying on frame-by-frame state edge detection.
+            if (_modularInputManager != null)
+            {
+                var pressEvents = _modularInputManager.DrainInjectedPressEvents();
+                var hardwareKeyboardState = Keyboard.GetState();
+                while (pressEvents.Count > 0)
+                {
+                    var keyCode = pressEvents.Dequeue();
+                    var key = (Keys)keyCode;
+                    if (KeyMapping.TryGetValue(key, out var commandType))
+                    {
+                        if (hardwareKeyboardState.IsKeyDown(key))
+                        {
+                            continue;
+                        }
+
+                        EnqueueCommand(new InputCommand(commandType, CurrentTime, false));
+                    }
+                }
+            }
         }
 
         public override bool IsKeyPressed(int keyCode)

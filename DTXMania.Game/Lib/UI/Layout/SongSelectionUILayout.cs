@@ -34,20 +34,27 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class BPMSection
         {
-            public const int X = 32;  // Relative to status panel
-            public const int Y = 258; // Absolute Y position
+            public const int X = 32;  // Left-aligned with SkillPointSection (NX: 90, CX: 32)
+            public const int Y = 275; // NX authentic: nBPM位置Y = 275
             public const int Width = 200;
             public const int Height = 50;
-            public const int LineSpacing = 20; // Space between Length and BPM text
-            public const int TextXOffset = 75; // Additional X offset for both Length and BPM text positioning
-            
+
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
-            
-            // Individual text positions
-            public static Vector2 LengthTextPosition => new Vector2(X + TextXOffset, Y);
-            public static Vector2 BPMTextPosition => new Vector2(X + TextXOffset, Y + LineSpacing);
+
+            // Dark box pixel offsets within 5_BPM.png texture (measured from pixel analysis)
+            // Dark box X: texture x=63..175 (113px wide); use 8px left padding → textX = X+71
+            // Dark box 1 (length): texture y=8..31 (24px tall)
+            // Dark box 2 (BPM):    texture y=38..61 (24px tall)
+            public const int TextX = 71;            // X+63 (dark box left) + 8px padding
+            public const int LengthBoxTop = 8;      // texture y where length box starts
+            public const int BPMBoxTop = 38;        // texture y where BPM box starts
+            public const int DarkBoxHeight = 24;    // height of each dark box
+
+            // Static fallback positions (centered for 16px font — use DrawBPMSection for dynamic centering)
+            public static Vector2 LengthTextPosition => new Vector2(X + TextX, Y + LengthBoxTop + (DarkBoxHeight - 16) / 2);
+            public static Vector2 BPMTextPosition    => new Vector2(X + TextX, Y + BPMBoxTop    + (DarkBoxHeight - 16) / 2);
         }
         
         #endregion
@@ -59,8 +66,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class DifficultyGrid
         {
-            public const int BaseX = 150;  // Main panel X position
-            public const int BaseY = 400;  // Main panel Y position
+            public const int BaseX = 130;  // NX authentic: nBaseX = 130
+            public const int BaseY = 391;  // NX authentic: nBoxY = 391 + (4-i)*60 - 2
             public const int GridX = 140;  // Grid base X position (relative to main panel)
             public const int GridY = 52;   // Grid base Y position (relative to main panel)
             public const int CellWidth = 187;  // Panel width per difficulty cell
@@ -111,14 +118,19 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class SkillPointSection
         {
-            public const int X = 32;   // Panel X position
-            public const int Y = 180;  // Panel Y position
-            public const int Width = 120;
-            public const int Height = 20;
-            
-            // Skill value text position
-            public const int ValueX = 92;  // X position for skill value text
-            public const int ValueY = 200; // Y position for skill value text
+            public const int X = 32;   // NX: txSkillPointPanel at (32, 180)
+            public const int Y = 180;
+            public const int Width = 187;  // Natural texture size (5_skill point panel.png 187x64)
+            public const int Height = 64;
+
+            // Dark box pixel offsets within 5_skill point panel.png (measured from pixel analysis)
+            // Dark box X: texture x=60..176; use 8px left padding → textX = X+68
+            // Dark box Y: texture y=11..56 (46px tall)
+            public const int DarkBoxLeft = 60;   // texture x where dark box starts
+            public const int DarkBoxTop = 11;    // texture y where dark box starts
+            public const int DarkBoxHeight = 46; // height of dark box
+            public const int ValueX = 100;       // X + DarkBoxLeft + 8px padding
+            public const int ValueY = 206;       // fallback for 16px font; use dynamic centering in draw code
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -170,8 +182,8 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Drums configuration (10 lanes)
             public static class Drums
             {
-                public const int StartX = 50;  // Start position X (15 + 31)
-                public const int StartY = 400; // Start position Y (368 + 21)
+                public const int StartX = 46;  // NX authentic: nGraphBaseX(15) + 31 = 46
+                public const int StartY = 389; // Start position Y (368 + 21) - aligns with dark area top in texture
                 public const int BarSpacing = 4;  // Space between bars
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
@@ -191,7 +203,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             {
                 public const int StartX = 53;  // Start position X (15 + 38)
                 public const int StartY = 389; // Start position Y (368 + 21)
-                public const int BarSpacing = 10; // Space between bars
+                public const int BarSpacing = 6;  // NX authentic: interval=10, BarWidth=4, so spacing=6
                 public const int BarWidth = 4;    // Width of each bar
                 public const int MaxBarHeight = 252; // Maximum bar height
                 public const int LaneCount = 6;   // Number of guitar/bass lanes
@@ -219,9 +231,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             // DTXManiaNX Current Implementation: Vertical List Layout
             // Selected bar (index 5): X:665, Y:269 (special position, curves out from list)
             // Unselected bars: Fixed X:673 (vertical list formation)
-            public const int SelectedBarX = 665;       // X position for selected song bar (center position)
+            public const int SelectedBarX = 701;       // X position for selected song bar; gap from difficulty panel (BASS right edge ~691)
             public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
-            public const int UnselectedBarX = 673;     // Fixed X position for all unselected bars
+            public const int UnselectedBarX = 709;     // Fixed X position for all unselected bars; 18px gap from difficulty panel
             public const int BarWidth = 510;           // Maximum width for song bars
             
             // Visual constants
@@ -257,16 +269,33 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Individual Song Bar Component Layout
             public const int BarHeight = 48;           // Height of each song bar (NX authentic: skin texture height)
             public const int PreviewImageSize = 44;    // Size of preview image square (NX authentic: 44x44)
-            public const int ClearLampWidth = 8;       // Width of clear lamp indicator
-            public const int ClearLampHeight = BarHeight - 4;  // Height of clear lamp indicator (4px padding from bar height)
+            public const int ClearLampWidth = 7;       // Width of clear lamp indicator (NX authentic: 7px)
+            public const int ClearLampHeight = 41;     // Height of clear lamp indicator (NX authentic: 41px)
             public const int TextPadding = 10;         // General text padding
             public const int NodeTypeIndicatorWidth = 4; // Width of node type indicator
-            
-            // Artist name display layout (for currently selected song)
-            public const int ArtistNameRightMargin = 10;  // Margin from right edge of song bar
-            public const int ArtistNameLeftPadding = 5;   // Padding from song title text area
-            public const int ArtistNameMaxWidth = 200;    // Maximum width for artist name text
-            
+
+            // Artist name display layout (absolute NX-authentic coordinates)
+            public const int ArtistNameAbsoluteRightEdge = 1235; // NX: 1260 - 25 (right-aligned)
+            public const int ArtistNameAbsoluteY = 320;           // NX: y = 320 (absolute)
+
+            // Selected bar skin texture vertical offset (NX authentic: skin drawn at Y-30, natural size)
+            public const int SelectedBarTextureYOffset = -30;
+
+            // NX-authentic content offsets within bars (skin drawn at natural 1:1 size)
+            // Selected bar (640x96 skin): preview at (barX+7, barY-3), lamp at (barX, barY+1), title at (barX+55, barY+centered)
+            public const int SelectedBarPreviewImageOffsetX = 7;
+            public const int SelectedBarPreviewImageOffsetY = -3;
+            public const int SelectedBarClearLampOffsetX = 0;
+            public const int SelectedBarClearLampOffsetY = 1;
+            public const int SelectedBarTitleOffsetX = 55;
+            // Unselected bar (620x48 skin): preview at (barX+31, barY+2), lamp at (barX+24, barY+6), title at (barX+78, barY+5+centered)
+            public const int UnselectedBarPreviewImageOffsetX = 31;
+            public const int UnselectedBarPreviewImageOffsetY = 2;
+            public const int UnselectedBarClearLampOffsetX = 24;
+            public const int UnselectedBarClearLampOffsetY = 6;
+            public const int UnselectedBarTitleOffsetX = 78;
+            public const int UnselectedBarTitleOffsetY = 5;
+
             // Spacing and positioning within bars
             public const int PreviewImageMargin = 5;   // Margin around preview image
             public const int TextMarginWithImage = 10; // Text margin when preview image present

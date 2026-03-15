@@ -61,7 +61,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         #region Performance Data
         
         public int BestScore { get; set; }
-        public int BestRank { get; set; } // 0-7: SS, S, A, B, C, D, E, F
+        public int BestRank { get; set; } // Canonical rank bucket on the 0-100 scale; normalize legacy persisted ordinals before comparing.
         public double BestSkillPoint { get; set; }
         public double BestAchievementRate { get; set; }
         
@@ -171,18 +171,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             get
             {
-                return BestRank switch
-                {
-                    0 => "SS",
-                    1 => "S",
-                    2 => "A",
-                    3 => "B",
-                    4 => "C",
-                    5 => "D",
-                    6 => "E",
-                    7 => "F",
-                    _ => "---"
-                };
+                return HasBeenPlayed ? RankString(NormalizeStoredBestRank(BestRank)) : "---";
             }
         }
         
@@ -227,6 +216,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             // Update play statistics
             PlayCount++;
             LastPlayedAt = DateTime.Now;
+            int normalizedRank = NormalizeRankPercentage(rank);
+            bool hadPreviousPlays = PlayCount > 1;
+            int currentBestRank = hadPreviousPlays ? NormalizeStoredBestRank(BestRank) : 0;
             
             // Check if this is a new best score
             if (score > BestScore)
@@ -236,9 +228,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
             
             // Check if this is a new best rank
-            if (rank < BestRank || BestRank == 0)
+            if (!hadPreviousPlays || normalizedRank > currentBestRank)
             {
-                BestRank = rank;
+                BestRank = normalizedRank;
                 isNewBest = true;
             }
             
@@ -291,17 +283,104 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         private double GetRankMultiplier()
         {
-            return BestRank switch
+            return RankMultiplier(NormalizeStoredBestRank(BestRank));
+        }
+
+        public static int NormalizeStoredBestRank(int rankValue)
+        {
+            if (IsLegacyOrdinal(rankValue))
             {
-                0 => 1.0,  // SS
-                1 => 0.95, // S
-                2 => 0.9,  // A
-                3 => 0.85, // B
-                4 => 0.8,  // C
-                5 => 0.75, // D
-                6 => 0.7,  // E
-                7 => 0.65, // F
+                return ConvertLegacyOrdinalToBucket(rankValue);
+            }
+
+            return NormalizeRankPercentage(rankValue);
+        }
+
+        public static int ComputeRankIndex(int rankValue)
+        {
+            int percentage = NormalizeRankPercentage(rankValue);
+            return percentage switch
+            {
+                95 => 0,
+                90 => 1,
+                80 => 2,
+                70 => 3,
+                60 => 4,
+                50 => 5,
+                40 => 6,
+                _ => 7
+            };
+        }
+
+        public static string RankString(int rankValue)
+        {
+            return ComputeRankIndex(rankValue) switch
+            {
+                0 => "SS",
+                1 => "S",
+                2 => "A",
+                3 => "B",
+                4 => "C",
+                5 => "D",
+                6 => "E",
+                7 => "F",
+                _ => "---"
+            };
+        }
+
+        public static double RankMultiplier(int rankValue)
+        {
+            return ComputeRankIndex(rankValue) switch
+            {
+                0 => 1.0,
+                1 => 0.95,
+                2 => 0.9,
+                3 => 0.85,
+                4 => 0.8,
+                5 => 0.75,
+                6 => 0.7,
+                7 => 0.65,
                 _ => 0.5
+            };
+        }
+
+        private static bool IsLegacyOrdinal(int rankValue)
+        {
+            return rankValue >= 1 && rankValue <= 7;
+        }
+
+        private static int ConvertLegacyOrdinalToBucket(int rankValue)
+        {
+            // Legacy ordinals range: 1 (S) through 7 (F).
+            // Note: ordinal 0 (SS in the old system) is excluded from IsLegacyOrdinal — a stored
+            // value of 0 is treated as the F bucket on the new percentage scale. Legacy SS data
+            // cannot be recovered without a separate migration flag.
+            return rankValue switch
+            {
+                1 => 90,
+                2 => 80,
+                3 => 70,
+                4 => 60,
+                5 => 50,
+                6 => 40,
+                7 => 0,
+                _ => throw new ArgumentOutOfRangeException(nameof(rankValue), "Legacy rank ordinals must be between 1 and 7.")
+            };
+        }
+
+        private static int NormalizeRankPercentage(int rankValue)
+        {
+            int clampedRank = Math.Clamp(rankValue, 0, 100);
+            return clampedRank switch
+            {
+                >= 95 => 95,
+                >= 90 => 90,
+                >= 80 => 80,
+                >= 70 => 70,
+                >= 60 => 60,
+                >= 50 => 50,
+                >= 40 => 40,
+                _ => 0
             };
         }
         
@@ -319,7 +398,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 DifficultyLevel = DifficultyLevel,
                 DifficultyLabel = DifficultyLabel,
                 BestScore = BestScore,
-                BestRank = BestRank,
+                BestRank = NormalizeStoredBestRank(BestRank),
                 FullCombo = FullCombo,
                 PlayCount = PlayCount,
                 LastPlayedAt = LastPlayedAt,

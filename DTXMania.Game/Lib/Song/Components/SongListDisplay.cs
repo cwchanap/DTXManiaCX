@@ -884,8 +884,9 @@ namespace DTXMania.Game.Lib.Song.Components
             var skinBarTexture = GetSkinBarTexture(barInfo.BarType, isCenter);
             if (skinBarTexture != null)
             {
-                // Draw skin bar texture stretched to bar bounds
-                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                // NX: draw skin at natural size (1:1 pixels, not scaled to BAR_WIDTH).
+                // Selected skin (640x96) drawn at Y-30; unselected skin (620x48) at Y+0.
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, skinBarTexture.Width, skinBarTexture.Height);
                 skinBarTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_graphicsGenerator != null)
@@ -897,32 +898,53 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
             }
 
-            // Draw clear lamp with perspective
+            // Draw clear lamp (NX-authentic position and size: 7x41)
             if (barInfo.ClearLamp != null)
             {
-                var lampWidth = (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor);
-                var lampDestRect = new Rectangle(itemBounds.X, itemBounds.Y, lampWidth, itemBounds.Height);
+                int lampOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarClearLampOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarClearLampOffsetX;
+                int lampOffsetY = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarClearLampOffsetY
+                    : SongSelectionUILayout.SongBars.UnselectedBarClearLampOffsetY;
+                var lampDestRect = new Rectangle(
+                    itemBounds.X + lampOffsetX,
+                    itemBounds.Y + lampOffsetY,
+                    SongSelectionUILayout.SongBars.ClearLampWidth,
+                    SongSelectionUILayout.SongBars.ClearLampHeight);
                 barInfo.ClearLamp.Draw(spriteBatch, lampDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw preview image with perspective
+            // Draw preview image (NX-authentic position: selected barX+7/barY-3, unselected barX+31/barY+2)
             if (barInfo.PreviewImage != null)
             {
-                var imageSize = (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor);
-                var imageX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + 5;
-                var imageY = itemBounds.Y + (itemBounds.Height - imageSize) / 2;
-                var imageDestRect = new Rectangle(imageX, imageY, imageSize, imageSize);
+                int previewOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
+                int previewOffsetY = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
+                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
+                int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
+                var imageDestRect = new Rectangle(
+                    itemBounds.X + previewOffsetX,
+                    itemBounds.Y + previewOffsetY,
+                    imageSize,
+                    imageSize);
                 barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
-            // Draw title with perspective (NX-authentic: 2x texture displayed at 0.5x for anti-aliasing)
+            // Draw title (NX-authentic X offset: selected=barX+55, unselected=barX+78)
             if (barInfo.TitleTexture != null)
             {
-                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
+                int titleOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
+                int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
+                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
                 // Display at 0.5x scale (the texture is rendered at 2x)
                 var displayScale = SongSelectionUILayout.SongBars.TitleDisplayScale;
                 var displayHeight = barInfo.TitleTexture.Height * displayScale * scaleFactor;
-                var textY = itemBounds.Y + (itemBounds.Height - (int)displayHeight) / 2;
+                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)displayHeight) / 2;
                 var textPosition = new Vector2(textX, textY);
                 var textScale = new Vector2(displayScale * scaleFactor, displayScale * scaleFactor);
                 barInfo.TitleTexture.Draw(spriteBatch, textPosition, textScale, 0f, Vector2.Zero);
@@ -930,8 +952,12 @@ namespace DTXMania.Game.Lib.Song.Components
             else if (_font != null)
             {
                 // Fallback to direct text rendering with perspective
-                var textX = itemBounds.X + (int)(DTXManiaVisualTheme.Layout.ClearLampWidth * scaleFactor) + (barInfo.PreviewImage != null ? (int)(DTXManiaVisualTheme.Layout.PreviewImageSize * scaleFactor) + 10 : 5);
-                var textY = itemBounds.Y + (itemBounds.Height - (int)(_font.LineSpacing * scaleFactor)) / 2;
+                int titleOffsetX = isCenter
+                    ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX
+                    : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX;
+                int titleBaseY = isCenter ? 0 : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetY;
+                var textX = itemBounds.X + (int)(titleOffsetX * scaleFactor);
+                var textY = itemBounds.Y + titleBaseY + (itemBounds.Height - titleBaseY - (int)(_font.LineSpacing * scaleFactor)) / 2;
                 var textPosition = new Vector2(textX, textY);
                 var textScale = new Vector2(scaleFactor, scaleFactor);
 
@@ -964,7 +990,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var basicSkinTexture = GetSkinBarTexture(basicBarType, isCenter);
             if (basicSkinTexture != null)
             {
-                var destRect = new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, itemBounds.Height);
+                var destRect = CalculateBarTextureBounds(itemBounds, isCenter, basicSkinTexture.Width, basicSkinTexture.Height);
                 basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
             else if (_whitePixel != null)
@@ -1061,6 +1087,29 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Calculate the destination rectangle for the skin bar texture.
+        /// NX: selected bar texture draws 30px higher than the bar bounds; title/lamp/preview stay at itemBounds.Y.
+        /// </summary>
+        private Rectangle CalculateBarTextureBounds(Rectangle itemBounds, bool isSelected, int textureWidth = -1, int textureHeight = -1)
+        {
+            int yOffset = isSelected ? SongSelectionUILayout.SongBars.SelectedBarTextureYOffset : 0;
+            int width = textureWidth > 0 ? textureWidth : itemBounds.Width;
+            int height = textureHeight > 0 ? textureHeight : itemBounds.Height;
+            return new Rectangle(itemBounds.X, itemBounds.Y + yOffset, width, height);
+        }
+
+        /// <summary>
+        /// Calculate the absolute NX-authentic position for the artist name.
+        /// NX: x = 1260 - 25 - textWidth, y = 320 (right-aligned at absolute coordinate).
+        /// </summary>
+        private Vector2 CalculateArtistNamePosition(float textWidth)
+        {
+            return new Vector2(
+                Math.Max(0f, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth),
+                SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
+        }
+
+        /// <summary>
         /// Draw artist name for the currently selected song using SpriteFont
         /// </summary>
         private void DrawArtistName(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
@@ -1068,37 +1117,13 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _font == null)
                 return;
 
-            // Measure the artist text size
-            var artistTextSize = _font.MeasureString(artistName);
-
-            // Calculate position using layout constants - right-aligned with padding
-            // Position artist name BELOW the song bar, not at the bottom edge of the bar
-            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * textScale.X);
-            var artistY = itemBounds.Bottom + (8 * textScale.Y); // Position below the bar with 8px spacing
-            var artistPosition = new Vector2(artistX, artistY);
-
-            // Ensure artist name doesn't exceed maximum width
-            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
-            var scaledWidth = artistTextSize.X * textScale.X;
-            var finalTextScale = textScale;
-
-            if (scaledWidth > maxWidth)
-            {
-                // Scale down to fit within maximum width
-                var widthScale = maxWidth / scaledWidth;
-                finalTextScale = new Vector2(textScale.X * widthScale, textScale.Y * widthScale);
-                
-                // Recalculate position with new scale
-                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - (artistTextSize.X * finalTextScale.X);
-                artistY = itemBounds.Bottom + (8 * finalTextScale.Y); // Keep consistent spacing below the bar
-                artistPosition = new Vector2(artistX, artistY);
-            }
-
-            // Use subtle gray color for artist name with opacity
+            float maxTextWidth = SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge / Math.Max(textScale.X, 0.001f);
+            var displayArtistName = TruncateTextToWidth(artistName, maxTextWidth, _font);
+            var artistTextSize = _font.MeasureString(displayArtistName);
+            var artistPos = CalculateArtistNamePosition(artistTextSize.X * textScale.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            // Draw artist name
-            spriteBatch.DrawString(_font, artistName, artistPosition, artistColor, 0f, Vector2.Zero, finalTextScale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(_font, displayArtistName, artistPos, artistColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
         }
 
         /// <summary>
@@ -1109,35 +1134,46 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _managedFont == null)
                 return;
 
-            // Measure the artist text size
-            var artistTextSize = _managedFont.MeasureString(artistName);
-
-            // Calculate position using layout constants - right-aligned with padding
-            // Position artist name BELOW the song bar, not at the bottom edge of the bar
-            var artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
-            var artistY = itemBounds.Bottom + 8; // Position below the bar with 8px spacing
-            var artistPosition = new Vector2(artistX, artistY);
-
-            // Ensure artist name doesn't exceed maximum width
-            var maxWidth = SongSelectionUILayout.SongBars.ArtistNameMaxWidth;
-            if (artistTextSize.X > maxWidth)
-            {
-                // For ManagedFont, we'll truncate the text if it's too long
-                // Note: ManagedFont scaling may not be supported, so we truncate instead
-                var truncatedText = TruncateTextToWidth(artistName, maxWidth, _managedFont);
-                artistName = truncatedText;
-                
-                // Recalculate position with truncated text
-                artistTextSize = _managedFont.MeasureString(artistName);
-                artistX = itemBounds.Right - SongSelectionUILayout.SongBars.ArtistNameRightMargin - artistTextSize.X;
-                artistPosition = new Vector2(artistX, artistY);
-            }
-
-            // Use subtle gray color for artist name with opacity
+            var displayArtistName = TruncateTextToWidth(artistName, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge, _managedFont);
+            var artistTextSize = _managedFont.MeasureString(displayArtistName);
+            var artistPos = CalculateArtistNamePosition(artistTextSize.X);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            // Draw artist name using ManagedFont
-            _managedFont.DrawString(spriteBatch, artistName, artistPosition, artistColor);
+            _managedFont.DrawString(spriteBatch, displayArtistName, artistPos, artistColor);
+        }
+
+        /// <summary>
+        /// Truncate text to fit within specified width using binary search
+        /// </summary>
+        private string TruncateTextToWidth(string text, float maxWidth, SpriteFont font)
+        {
+            if (string.IsNullOrEmpty(text) || font == null)
+                return text;
+
+            if (font.MeasureString(text).X <= maxWidth)
+                return text;
+
+            int left = 0;
+            int right = text.Length;
+            string bestFit = "";
+
+            while (left <= right)
+            {
+                int mid = left + (right - left) / 2;
+                string candidate = text.Substring(0, mid) + "...";
+
+                if (font.MeasureString(candidate).X <= maxWidth)
+                {
+                    bestFit = candidate;
+                    left = mid + 1;
+                }
+                else
+                {
+                    right = mid - 1;
+                }
+            }
+
+            return bestFit;
         }
 
         /// <summary>

@@ -140,6 +140,12 @@ public class GameApiImplementation : IGameApi
                 }
                 return null;
 
+            case JsonValueKind.Object:
+                // Object format from MCP bridge: {"key":"Down","holdDurationMs":50,"clientId":"default"}
+                if (element.TryGetProperty("key", out var keyProp))
+                    return ParseButtonId(keyProp);
+                return null;
+
             default:
                 return null;
         }
