@@ -260,12 +260,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (_resourceManager != null)
                 {
                     _defaultPreviewTexture = _resourceManager.LoadTexture(TexturePath.DefaultPreview);
-
-                    // Verify the loaded texture is valid
-                    if (false) // Texture disposal removed
-                    {
-                        _defaultPreviewTexture = null;
-                    }
                 }
                 else
                 {

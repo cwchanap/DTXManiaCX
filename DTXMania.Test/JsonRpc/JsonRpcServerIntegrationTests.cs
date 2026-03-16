@@ -307,6 +307,23 @@ namespace DTXMania.Test.JsonRpc
         }
 
         [Fact]
+        public async Task SendInput_KeyPress_WithValidObjectKey_ShouldCallGameApi()
+        {
+            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
+            using var client = await StartServerAsync(NextPort());
+
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = new { key = "Down", holdDurationMs = 50, clientId = "default" } }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+
+            Assert.True(response.IsSuccessStatusCode);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
+        }
+
+        [Fact]
         public async Task SendInput_KeyPress_WithWhitespaceObjectKey_ShouldReturnInvalidInput()
         {
             using var client = await StartServerAsync(NextPort());

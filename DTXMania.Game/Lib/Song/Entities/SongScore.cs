@@ -212,12 +212,12 @@ namespace DTXMania.Game.Lib.Song.Entities
             int perfect, int great, int good, int poor, int miss)
         {
             bool isNewBest = false;
-            
+
             // Update play statistics
+            bool hadPreviousPlays = PlayCount > 0; // capture before increment
             PlayCount++;
             LastPlayedAt = DateTime.Now;
             int normalizedRank = NormalizeRankPercentage(rank);
-            bool hadPreviousPlays = PlayCount > 1;
             int currentBestRank = hadPreviousPlays ? NormalizeStoredBestRank(BestRank) : 0;
             
             // Normalize any legacy ordinal stored in BestRank
