@@ -28,8 +28,9 @@ namespace DTXMania.Game.Lib.Input
         private readonly List<IInputSource> _inputSources;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
-        // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch)
-        private readonly Queue<int> _injectedPressEvents;
+        // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
+        // ConcurrentQueue used for thread safety when ClearInjectedState is called from stage transitions.
+        private readonly ConcurrentQueue<int> _injectedPressEvents;
         private bool _disposed = false;
 
         // Legacy compatibility fields
@@ -91,7 +92,7 @@ namespace DTXMania.Game.Lib.Input
             _inputSources = new List<IInputSource>();
             _injectedButtonQueue = new ConcurrentQueue<ButtonState>();
             _injectedKeyStates = new Dictionary<int, bool>();
-            _injectedPressEvents = new Queue<int>();
+            _injectedPressEvents = new ConcurrentQueue<int>();
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
@@ -325,8 +326,9 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public Queue<int> DrainInjectedPressEvents()
         {
-            var copy = new Queue<int>(_injectedPressEvents);
-            _injectedPressEvents.Clear();
+            var copy = new Queue<int>();
+            while (_injectedPressEvents.TryDequeue(out var item))
+                copy.Enqueue(item);
             return copy;
         }
 
@@ -461,7 +463,7 @@ namespace DTXMania.Game.Lib.Input
         {
             while (_injectedButtonQueue.TryDequeue(out _)) { }
             _injectedKeyStates.Clear();
-            _injectedPressEvents.Clear();
+            while (_injectedPressEvents.TryDequeue(out _)) { }
         }
 
         /// <summary>
@@ -503,7 +505,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void ProcessInjectedInputs()
         {
-            _injectedPressEvents.Clear();
+            while (_injectedPressEvents.TryDequeue(out _)) { }
 
             while (_injectedButtonQueue.TryDequeue(out var injected))
             {

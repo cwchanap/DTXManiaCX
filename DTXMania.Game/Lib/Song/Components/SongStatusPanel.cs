@@ -688,9 +688,10 @@ namespace DTXMania.Game.Lib.Song.Components
                         // Note: Don't dispose here - texture is cached and managed by DefaultGraphicsGenerator
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Fallback failed, draw simple background
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongStatusPanel: BPM background generation failed: {ex.GetType().Name}: {ex.Message}");
                     DrawSimpleBPMBackground(spriteBatch, position, size);
                 }
             }

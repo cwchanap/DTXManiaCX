@@ -112,6 +112,31 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void UpdateScore_FirstPlay_WithFailingRank_ShouldStoreZeroBucket()
+        {
+            var score = new SongScore(); // PlayCount = 0, fresh record
+
+            var result = score.UpdateScore(300000, 20, false, 50, 30, 20, 10, 10);
+
+            Assert.True(result); // first play is always a new best
+            Assert.Equal(0, score.BestRank);  // 20% normalizes to F bucket (0)
+            Assert.Equal(1, score.PlayCount);
+        }
+
+        [Theory]
+        [InlineData(40, 40)]  // E bucket boundary (exact)
+        [InlineData(95, 95)]  // SS bucket boundary (exact)
+        [InlineData(39, 0)]   // just below E → F bucket
+        public void UpdateScore_FirstPlay_AtBucketBoundaries_ShouldNormalizeCorrectly(int rawRank, int expectedBucket)
+        {
+            var score = new SongScore();
+
+            score.UpdateScore(500000, rawRank, false, 50, 20, 10, 5, 5);
+
+            Assert.Equal(expectedBucket, score.BestRank);
+        }
+
+        [Fact]
         public void UpdateScore_WithLegacyStoredBestRank_ShouldNormalizeBeforeComparing()
         {
             var score = new SongScore
@@ -193,6 +218,18 @@ namespace DTXMania.Test.Song
             Assert.Equal(0,  SongScore.NormalizeStoredBestRank(7));  // legacy F
         }
 
+        [Theory]
+        [InlineData(8)]
+        [InlineData(20)]
+        [InlineData(39)]
+        public void NormalizeStoredBestRank_WithValuesBetween8And39_ShouldReturnFBucket(int value)
+        {
+            // Values 8-39 are not legacy ordinals (1-7) and are below the E bucket (40),
+            // so they normalize to F (0). Extending IsLegacyOrdinal to cover this range
+            // would corrupt low-achievement records.
+            Assert.Equal(0, SongScore.NormalizeStoredBestRank(value));
+        }
+
         [Fact]
         public void RankName_WhenNotPlayed_ShouldReturnDashes()
         {
@@ -227,14 +264,51 @@ namespace DTXMania.Test.Song
 
         #region HasBeenPlayed Tests
 
+        [Fact]
+        public void HasBeenPlayed_WhenPlayCountIsZero_ShouldReturnFalse()
+        {
+            var score = new SongScore { PlayCount = 0 };
+            Assert.False(score.HasBeenPlayed);
+        }
 
+        [Fact]
+        public void HasBeenPlayed_WhenPlayCountIsPositive_ShouldReturnTrue()
+        {
+            var score = new SongScore { PlayCount = 1 };
+            Assert.True(score.HasBeenPlayed);
+        }
 
         #endregion
 
         #region Clone Tests
 
+        [Fact]
+        public void Clone_ShouldNormalizeLegacyOrdinalBestRank()
+        {
+            var score = new SongScore { BestRank = 2, PlayCount = 3 }; // legacy ordinal A
+            var clone = score.Clone();
+            Assert.Equal(80, clone.BestRank);
+        }
 
-
+        [Fact]
+        public void Clone_ShouldPreserveAllFields()
+        {
+            var score = new SongScore
+            {
+                BestScore = 950000,
+                BestRank = 90,
+                PlayCount = 5,
+                FullCombo = true,
+                BestPerfect = 100,
+                BestGreat = 10
+            };
+            var clone = score.Clone();
+            Assert.Equal(score.BestScore, clone.BestScore);
+            Assert.Equal(score.BestRank, clone.BestRank);
+            Assert.Equal(score.PlayCount, clone.PlayCount);
+            Assert.Equal(score.FullCombo, clone.FullCombo);
+            Assert.Equal(score.BestPerfect, clone.BestPerfect);
+        }
 
 
         #endregion
