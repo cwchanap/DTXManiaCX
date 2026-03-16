@@ -220,13 +220,17 @@ namespace DTXMania.Game.Lib.Song.Entities
             bool hadPreviousPlays = PlayCount > 1;
             int currentBestRank = hadPreviousPlays ? NormalizeStoredBestRank(BestRank) : 0;
             
+            // Normalize any legacy ordinal stored in BestRank
+            if (hadPreviousPlays)
+                BestRank = currentBestRank;
+
             // Check if this is a new best score
             if (score > BestScore)
             {
                 BestScore = score;
                 isNewBest = true;
             }
-            
+
             // Check if this is a new best rank
             if (!hadPreviousPlays || normalizedRank > currentBestRank)
             {
