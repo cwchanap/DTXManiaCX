@@ -308,6 +308,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(score.PlayCount, clone.PlayCount);
             Assert.Equal(score.FullCombo, clone.FullCombo);
             Assert.Equal(score.BestPerfect, clone.BestPerfect);
+            Assert.Equal(score.BestGreat, clone.BestGreat);
         }
 
 

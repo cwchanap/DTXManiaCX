@@ -216,7 +216,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             // Update play statistics
             bool hadPreviousPlays = PlayCount > 0; // capture before increment
             PlayCount++;
-            LastPlayedAt = DateTime.Now;
+            LastPlayedAt = DateTime.UtcNow;
             int normalizedRank = NormalizeRankPercentage(rank);
             int currentBestRank = hadPreviousPlays ? NormalizeStoredBestRank(BestRank) : 0;
             
