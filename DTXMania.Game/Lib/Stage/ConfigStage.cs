@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Input;
@@ -29,6 +30,11 @@ namespace DTXMania.Game.Lib.Stage
         // Input handling
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
+
+        // Key-assign sub-panels
+        private DrumKeyAssignPanel? _drumPanel;
+        private SystemKeyAssignPanel? _systemPanel;
+        private IKeyAssignPanel? _activePanel;
 
         // Graphics resources
         private SpriteBatch _spriteBatch;
@@ -64,6 +70,7 @@ namespace DTXMania.Game.Lib.Stage
             InitializeGraphics();
             LoadConfiguration();
             SetupConfigItems();
+            InitializePanels();
 
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
@@ -74,7 +81,12 @@ namespace DTXMania.Game.Lib.Stage
             _previousKeyboardState = _currentKeyboardState;
             _currentKeyboardState = Keyboard.GetState();
 
-            // Handle input
+            if (_activePanel?.IsActive == true)
+            {
+                _activePanel.Update(deltaTime, _currentKeyboardState, _previousKeyboardState);
+                return;
+            }
+
             HandleInput();
         }
 
@@ -85,20 +97,18 @@ namespace DTXMania.Game.Lib.Stage
 
             _spriteBatch.Begin();
 
-            // Draw background
             DrawBackground();
-
-            // Draw title
             DrawTitle();
-
-            // Draw config items
             DrawConfigItems();
-
-            // Draw buttons
             DrawButtons();
-
-            // Draw instructions
             DrawInstructions();
+
+            // Draw active panel as overlay within the same sprite batch
+            if (_activePanel?.IsActive == true)
+            {
+                var vp = _game.GraphicsDevice.Viewport;
+                _activePanel.Draw(_spriteBatch, _bitmapFont, _whitePixel, vp.Width, vp.Height);
+            }
 
             _spriteBatch.End();
         }
@@ -107,14 +117,12 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
 
-            // Check for unsaved changes
             if (_hasUnsavedChanges)
-            {
-                // In a full implementation, you might want to show a confirmation dialog
                 System.Diagnostics.Debug.WriteLine("Warning: Unsaved configuration changes will be lost");
-            }
 
-            // Reset input state
+            _activePanel?.Deactivate();
+            _activePanel = null;
+
             _previousKeyboardState = default;
             _currentKeyboardState = default;
         }
@@ -271,11 +279,44 @@ namespace DTXMania.Game.Lib.Stage
             _configItems.Add(noFailItem);
             _configItems.Add(autoPlayItem);
 
-            // Select first item
+            // Drum and system key mapping navigation items
+            _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
+                () => OpenPanel(_drumPanel)));
+            _configItems.Add(new NavigationConfigItem("System Key Mapping",
+                () => OpenPanel(_systemPanel)));
+
             if (_configItems.Count > 0)
-            {
                 _selectedIndex = 0;
-            }
+        }
+
+        private void InitializePanels()
+        {
+            var concreteConfig = _configManager as ConfigManager
+                ?? throw new InvalidOperationException("ConfigManager must be ConfigManager instance");
+            var inputManagerCompat = _game.InputManager
+                ?? throw new InvalidOperationException("InputManager not available");
+
+            _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager, concreteConfig);
+            _drumPanel._liveSystemMappingProvider = () => inputManagerCompat.GetKeyMappingSnapshot();
+            _drumPanel.Closed += OnPanelClosed;
+
+            _systemPanel = new SystemKeyAssignPanel(inputManagerCompat, concreteConfig);
+            _systemPanel._liveDrumBindingsProvider =
+                () => inputManagerCompat.ModularInputManager.KeyBindings.ButtonToLane;
+            _systemPanel.Closed += OnPanelClosed;
+        }
+
+        private void OpenPanel(IKeyAssignPanel? panel)
+        {
+            if (panel == null) return;
+            _activePanel = panel;
+            _activePanel.Activate();
+            _hasUnsavedChanges = true;
+        }
+
+        private void OnPanelClosed(object? sender, EventArgs e)
+        {
+            _activePanel = null;
         }
 
         #endregion
@@ -374,7 +415,7 @@ namespace DTXMania.Game.Lib.Stage
         #region Configuration Management
 
         private void ApplyConfiguration()
-        {            // Copy working config back to the main config
+        {
             var config = _configManager.Config;
             config.ScreenWidth = _workingConfig.ScreenWidth;
             config.ScreenHeight = _workingConfig.ScreenHeight;
@@ -383,7 +424,10 @@ namespace DTXMania.Game.Lib.Stage
             config.NoFail = _workingConfig.NoFail;
             config.AutoPlay = _workingConfig.AutoPlay;
 
-            // Save to file
+            // Ensure latest system key bindings are reflected in Config before saving
+            if (_configManager is ConfigManager concreteConfig && _game.InputManager != null)
+                concreteConfig.SaveSystemKeyBindings(_game.InputManager);
+
             try
             {
                 _configManager.SaveConfig(DTXMania.Game.Lib.Utilities.AppPaths.GetConfigFilePath());

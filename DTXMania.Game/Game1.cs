@@ -147,6 +147,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // InputManager must be created before StageManager since stages need InputManager in their constructors
         InputManager = new InputManagerCompat(ConfigManager);
 
+        // Apply saved system key bindings on top of defaults
+        ((ConfigManager)ConfigManager).LoadSystemKeyBindings(InputManager);
+
         // Initialize graphics manager after base initialization
         _graphicsManager.Initialize();
 

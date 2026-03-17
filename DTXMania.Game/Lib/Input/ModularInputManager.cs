@@ -97,8 +97,13 @@ namespace DTXMania.Game.Lib.Input
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
 
-            // Load key bindings from config
-            _configManager.LoadKeyBindings(_keyBindings);
+            // Load key bindings: if config has saved bindings use them as the full truth,
+            // otherwise keep the defaults already loaded by KeyBindings constructor.
+            if (_configManager.Config.KeyBindings.Count > 0)
+            {
+                _keyBindings.ClearAllBindings();
+                _configManager.LoadKeyBindings(_keyBindings);
+            }
 
             // Set up event handlers
             _keyBindings.BindingsChanged += OnKeyBindingsChanged;
@@ -255,23 +260,17 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void ReloadKeyBindings()
         {
-            // Temporarily disable auto-save to prevent clearing config during reload
             _keyBindings.BindingsChanged -= OnKeyBindingsChanged;
-            
             try
             {
-                // Clear existing bindings
                 _keyBindings.ClearAllBindings();
-                
-                // Load defaults first
-                _keyBindings.LoadDefaultBindings();
-                
-                // Load from config (overrides defaults)
-                _configManager.LoadKeyBindings(_keyBindings);
+                if (_configManager.Config.KeyBindings.Count > 0)
+                    _configManager.LoadKeyBindings(_keyBindings);
+                else
+                    _keyBindings.LoadDefaultBindings();
             }
             finally
             {
-                // Re-enable auto-save
                 _keyBindings.BindingsChanged += OnKeyBindingsChanged;
             }
         }
