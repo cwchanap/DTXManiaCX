@@ -135,16 +135,29 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void ScoreStatistics_ToString_ShouldContainScoreInfo()
         {
-            var stats = new ScoreStatistics
+            var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            var prevUICulture = System.Threading.Thread.CurrentThread.CurrentUICulture;
+            try
             {
-                CurrentScore = 750000,
-                TheoreticalMaxScore = 1000000,
-                ScorePercentage = 75.0
-            };
-            var result = stats.ToString();
-            Assert.Contains("750,000", result);
-            Assert.Contains("1,000,000", result);
-            Assert.Contains("75.0", result);
+                System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+                System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
+                var stats = new ScoreStatistics
+                {
+                    CurrentScore = 750000,
+                    TheoreticalMaxScore = 1000000,
+                    ScorePercentage = 75.0
+                };
+                var result = stats.ToString();
+                Assert.Contains("750,000", result);
+                Assert.Contains("1,000,000", result);
+                Assert.Contains("75.0", result);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prevCulture;
+                System.Threading.Thread.CurrentThread.CurrentUICulture = prevUICulture;
+            }
         }
     }
 

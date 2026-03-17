@@ -80,6 +80,25 @@ namespace DTXMania.Test.Utilities
         }
 
         [Fact]
+        public void EnsureDirectory_IntermediateSegmentIsFile_WithCreate_ReturnsFalse()
+        {
+            var intermediatePath = Path.Combine(_tempDir, "intermediate");
+            File.WriteAllText(intermediatePath, "file content");
+            try
+            {
+                var childPath = Path.Combine(intermediatePath, "child");
+                var result = PathValidator.EnsureDirectory(childPath, createIfMissing: true);
+                Assert.False(result);
+                Assert.False(Directory.Exists(childPath));
+            }
+            finally
+            {
+                if (File.Exists(intermediatePath))
+                    File.Delete(intermediatePath);
+            }
+        }
+
+        [Fact]
         public void EnsureDirectory_NullPath_ShouldReturnFalse()
         {
             Assert.False(PathValidator.EnsureDirectory(null));
@@ -247,6 +266,8 @@ namespace DTXMania.Test.Utilities
             var requiredFiles = new[] { "file1.txt", "file2.txt" };
             var missing = PathValidator.GetMissingSkinFiles(Path.Combine(_tempDir, "nonexistent"), requiredFiles);
             Assert.Equal(2, missing.Length);
+            Assert.Contains("file1.txt", missing);
+            Assert.Contains("file2.txt", missing);
         }
 
         [Fact]
