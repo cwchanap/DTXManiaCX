@@ -262,7 +262,7 @@ namespace DTXMania.Test.UI
         public void SongBars_GetBarY_CenterIndex_ShouldReturn270()
         {
             var y = SongSelectionUILayout.SongBars.GetBarY(SongSelectionUILayout.SongBars.CenterIndex);
-            Assert.True(y > 0);
+            Assert.Equal(270, y);
         }
 
         [Fact]

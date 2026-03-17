@@ -7,6 +7,7 @@ namespace DTXMania.Test.Config
     /// <summary>
     /// Tests for config item classes: DropdownConfigItem, ToggleConfigItem, IntegerConfigItem
     /// </summary>
+    [Trait("Category", "Unit")]
     public class DropdownConfigItemTests
     {
         private string _currentValue = "Option1";
@@ -72,8 +73,9 @@ namespace DTXMania.Test.Config
         {
             _currentValue = "NotInList";
             var item = CreateItem();
-            // Current index should fall back to 0 (first item)
-            Assert.NotNull(item); // Just verifies no throw
+            // Internal index should fall back to 0; verify by advancing one step and checking value = Options[1]
+            item.NextValue();
+            Assert.Equal("Option2", _currentValue);
         }
 
         #endregion
@@ -174,6 +176,7 @@ namespace DTXMania.Test.Config
         #endregion
     }
 
+    [Trait("Category", "Unit")]
     public class ToggleConfigItemTests
     {
         private bool _currentValue = false;
@@ -208,20 +211,14 @@ namespace DTXMania.Test.Config
 
         #region GetDisplayText Tests
 
-        [Fact]
-        public void GetDisplayText_WhenFalse_ShouldShowOFF()
+        [Theory]
+        [InlineData(false, "OFF")]
+        [InlineData(true, "ON")]
+        public void GetDisplayText_ShowsExpected_ON_OFF(bool currentValue, string expected)
         {
-            _currentValue = false;
+            _currentValue = currentValue;
             var item = CreateItem();
-            Assert.Contains("OFF", item.GetDisplayText());
-        }
-
-        [Fact]
-        public void GetDisplayText_WhenTrue_ShouldShowON()
-        {
-            _currentValue = true;
-            var item = CreateItem();
-            Assert.Contains("ON", item.GetDisplayText());
+            Assert.Contains(expected, item.GetDisplayText());
         }
 
         #endregion
@@ -293,6 +290,7 @@ namespace DTXMania.Test.Config
         #endregion
     }
 
+    [Trait("Category", "Unit")]
     public class IntegerConfigItemTests
     {
         private int _currentValue = 50;

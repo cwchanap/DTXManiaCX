@@ -155,8 +155,9 @@ namespace DTXMania.Test.Song
 
             var chart = await DTXChartParser.ParseAsync(path);
 
-            // Background audio path should be set (even if file doesn't exist)
-            Assert.NotNull(chart.BackgroundAudioPath);
+            // Background audio path should be set and refer to the WAV definition's filename
+            Assert.False(string.IsNullOrWhiteSpace(chart.BackgroundAudioPath));
+            Assert.Equal("bgm.ogg", System.IO.Path.GetFileName(chart.BackgroundAudioPath));
         }
 
         [Fact]
@@ -397,10 +398,8 @@ namespace DTXMania.Test.Song
 
             var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(path);
 
-            Assert.True(chart.DifficultyLabels.ContainsKey("DRUMS") ||
-                        chart.DifficultyLabels.ContainsKey("GUITAR") ||
-                        chart.DifficultyLabels.ContainsKey("BASS") ||
-                        chart.DifficultyLabels.Count >= 0); // Labels parsed
+            // DrumLevel is set via #DLEVEL and IS copied to the returned chart; confirms header parsing ran
+            Assert.Equal(5, chart.DrumLevel);
         }
 
         #endregion

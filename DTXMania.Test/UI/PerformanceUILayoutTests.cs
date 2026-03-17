@@ -308,8 +308,8 @@ namespace DTXMania.Test.UI
         public void ResultDisplay_TitleColor_ShouldNotBeDefault()
         {
             var color = ResultUILayout.ResultDisplay.TitleColor;
-            // Yellow color should have red and green components
-            Assert.True(color.R > 0 || color.G > 0);
+            // Yellow color requires both red and green components
+            Assert.True(color.R > 0 && color.G > 0);
         }
 
         [Fact]

@@ -8,6 +8,7 @@ namespace DTXMania.Test.Stage.Performance
     /// <summary>
     /// Comprehensive tests for ScoreManager
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ScoreManagerTests
     {
         #region Constructor Tests

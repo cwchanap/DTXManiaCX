@@ -34,6 +34,24 @@ namespace DTXMania.Test.Stage.Performance
             return new ChartManager(chart);
         }
 
+        #region Constructor Null Tests
+
+        [Fact]
+        public void Constructor_NullInputManager_ShouldThrow()
+        {
+            var chartManager = CreateTestChart();
+            Assert.Throws<ArgumentNullException>(() => new JudgementManager(null, chartManager));
+        }
+
+        [Fact]
+        public void Constructor_NullChartManager_ShouldThrow()
+        {
+            var input = CreateMockInput();
+            Assert.Throws<ArgumentNullException>(() => new JudgementManager(input, null));
+        }
+
+        #endregion
+
         #region GetNoteRuntimeData Tests
 
         [Fact]
