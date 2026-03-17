@@ -237,6 +237,21 @@ namespace DTXMania.Game.Lib.Input
                    _previousKeyboardState.IsKeyDown(key);
         }
 
+        public void SetKeyMapping(Keys key, InputCommandType command)
+        {
+            _keyMapping[key] = command;
+        }
+
+        public void RemoveKeyMapping(Keys key)
+        {
+            _keyMapping.Remove(key);
+        }
+
+        public IReadOnlyDictionary<Keys, InputCommandType> GetKeyMappingSnapshot()
+        {
+            return new Dictionary<Keys, InputCommandType>(_keyMapping);
+        }
+
         /// <summary>
         /// Update key repeat states for continuous input detection
         /// </summary>

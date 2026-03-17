@@ -27,6 +27,7 @@ namespace DTXMania.Game.Lib.Config
         public int SEVolume { get; set; } = 100;
         public int BufferSizeMs { get; set; } = 100;        // Input settings
         public Dictionary<string, int> KeyBindings { get; set; } = new();
+        public Dictionary<string, string> SystemKeyBindings { get; set; } = new();
 
         // Game settings
         public int ScrollSpeed { get; set; } = 100;

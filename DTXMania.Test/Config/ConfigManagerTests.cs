@@ -431,7 +431,9 @@ Key.Bad=abc
         // Assert
         Assert.Contains("Key.Z", manager.Config.KeyBindings.Keys);
         Assert.Equal(2, manager.Config.KeyBindings["Key.Z"]);
-        Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys); // default binding should not be persisted
+        // SaveKeyBindings saves ALL bindings (including defaults) so removal of defaults
+        // is correctly tracked. Default Key.A is present in sourceBindings and thus saved.
+        Assert.Contains("Key.A", manager.Config.KeyBindings.Keys);
         Assert.Equal(2, targetBindings.GetLane("Key.Z"));
     }
 
