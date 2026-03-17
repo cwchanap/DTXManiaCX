@@ -10,7 +10,8 @@ Font/
 .mgstats
 *.db
 
-TestResults/
+TestResults*/
+CoverageReport*/
 
 .claude/settings.local.json
 .mcp.json
