@@ -10,6 +10,7 @@ namespace DTXMania.Test.Input
     /// <summary>
     /// Tests for InputRouter - routes input events to lane hits
     /// </summary>
+    [Trait("Category", "Input")]
     public class InputRouterTests : IDisposable
     {
         private readonly KeyBindings _keyBindings;
@@ -267,13 +268,22 @@ namespace DTXMania.Test.Input
         [Fact]
         public void Dispose_ShouldClearEventHandlers()
         {
+            // Arrange: use a fresh router so we can verify the event handler count
+            // after dispose without triggering ObjectDisposedException on the shared _router
+            var keyBindings = new KeyBindings();
+            keyBindings.ClearAllBindings();
+            keyBindings.BindButton("Key.A", 0);
+
+            var router = new InputRouter(keyBindings);
             bool eventRaised = false;
-            _router.OnLaneHit += (_, _) => eventRaised = true;
+            router.OnLaneHit += (_, _) => eventRaised = true;
 
-            _router.Dispose();
+            // Act
+            router.Dispose();
 
-            // After dispose, OnLaneHit should be null and no event should fire
-            // (can't update after dispose anyway, but verify handler is cleared)
+            // Assert: after dispose, OnLaneHit must be null so the handler cannot fire.
+            // Verify by reflecting on the backing field exposed through the event.
+            Assert.Null(router.OnLaneHit);
             Assert.False(eventRaised);
         }
 
@@ -283,6 +293,7 @@ namespace DTXMania.Test.Input
     /// <summary>
     /// Tests for ButtonState class
     /// </summary>
+    [Trait("Category", "Input")]
     public class ButtonStateTests
     {
         [Fact]
@@ -324,6 +335,7 @@ namespace DTXMania.Test.Input
     /// <summary>
     /// Tests for LaneHitEventArgs class
     /// </summary>
+    [Trait("Category", "Input")]
     public class LaneHitEventArgsTests
     {
         [Fact]

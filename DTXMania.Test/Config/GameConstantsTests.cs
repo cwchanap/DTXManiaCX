@@ -7,6 +7,7 @@ namespace DTXMania.Test.Config
     /// Tests for GameConstants to verify expected constant values.
     /// These tests document the intended values and guard against accidental changes.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class GameConstantsTests
     {
         #region StageTransition Constants
