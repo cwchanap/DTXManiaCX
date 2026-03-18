@@ -282,8 +282,13 @@ namespace DTXMania.Test.Input
             router.Dispose();
 
             // Assert: after dispose, OnLaneHit must be null so the handler cannot fire.
-            // Verify by reflecting on the backing field exposed through the event.
-            Assert.Null(router.OnLaneHit);
+            // Events can only be used with += / -= from outside the declaring type (CS0070),
+            // so use reflection to inspect the backing field directly.
+            var eventField = typeof(InputRouter).GetField(
+                "OnLaneHit",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var handlerValue = eventField?.GetValue(router);
+            Assert.Null(handlerValue);
             Assert.False(eventRaised);
         }
 
