@@ -8,6 +8,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for the Note class
     /// Tests constructors, time calculation, lane naming, and string representation
     /// </summary>
+    [Trait("Category", "Song")]
     public class NoteTests
     {
         #region Constructor Tests

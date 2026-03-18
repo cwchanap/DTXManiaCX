@@ -7,6 +7,7 @@ namespace DTXMania.Test.Stage.Performance
     /// <summary>
     /// Tests for the PerformanceSummary class
     /// </summary>
+    [Trait("Category", "Performance")]
     public class PerformanceSummaryTests
     {
         #region Constructor / Default Values Tests
@@ -285,7 +286,23 @@ namespace DTXMania.Test.Stage.Performance
         public void ToString_ShouldContainScore()
         {
             var summary = new PerformanceSummary { Score = 950000 };
-            var result = summary.ToString();
+
+            // Force invariant culture so the formatted score is locale-independent.
+            string result;
+            var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            var prevUICulture = System.Threading.Thread.CurrentThread.CurrentUICulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+                System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+                result = summary.ToString();
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prevCulture;
+                System.Threading.Thread.CurrentThread.CurrentUICulture = prevUICulture;
+            }
+
             Assert.Contains("950,000", result);
         }
 

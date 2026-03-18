@@ -388,7 +388,7 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData(92, 1, "S", 0.95)]
         [InlineData(80, 2, "A", 0.9)]
-        [InlineData(2, 7, "F", 0.65)]
+        [InlineData(2, 7, "F", 0.65)]    // 2 is a percentage (2%), NOT a legacy ordinal — NormalizeRankPercentage maps it to F bucket
         [InlineData(95, 0, "SS", 1.0)]   // SS boundary
         [InlineData(100, 0, "SS", 1.0)]  // above SS
         [InlineData(40, 6, "E", 0.7)]    // E bucket
