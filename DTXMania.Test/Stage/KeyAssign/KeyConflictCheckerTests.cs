@@ -115,4 +115,33 @@ public class KeyConflictCheckerTests
 
         Assert.Null(result);
     }
+
+    // ─── CheckDrumAssignConflict ──────────────────────────────────────────────
+
+    [Fact]
+    public void CheckDrumAssignConflict_KeyNotInSystemBindings_ShouldReturnNull()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Up] = InputCommandType.MoveUp
+        };
+
+        var result = KeyConflictChecker.CheckDrumAssignConflict(systemBindings, Keys.S);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CheckDrumAssignConflict_KeyBoundToSystemAction_ShouldReturnMessage()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Up] = InputCommandType.MoveUp
+        };
+
+        var result = KeyConflictChecker.CheckDrumAssignConflict(systemBindings, Keys.Up);
+
+        Assert.NotNull(result);
+        Assert.Contains("MoveUp", result);
+    }
 }

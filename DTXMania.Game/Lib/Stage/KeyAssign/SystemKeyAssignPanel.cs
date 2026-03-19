@@ -20,10 +20,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     {
         private enum CaptureState { Browsing, AwaitingKey, ShowingConflict }
 
-        private static readonly Keys[] NavigationKeys =
-        {
-            Keys.Escape, Keys.Enter, Keys.Up, Keys.Down, Keys.Left, Keys.Right
-        };
+        // Only Escape cancels capture; all other keys (including arrows and Enter) are bindable.
+        private static bool IsCancelKey(Keys key) => key == Keys.Escape;
 
         private static readonly InputCommandType[] Actions =
         {
@@ -53,6 +51,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         public bool IsActive { get; private set; }
         public event EventHandler? Closed;
+        public event EventHandler? Saved;
 
         public SystemKeyAssignPanel(InputManager inputManager, ConfigManager configManager)
         {
@@ -127,16 +126,15 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)
         {
-            if (IsJustPressed(current, previous, Keys.Escape))
-            {
-                _state = CaptureState.Browsing;
-                return;
-            }
-
             foreach (var key in current.GetPressedKeys())
             {
-                if (!previous.IsKeyDown(key) && !Array.Exists(NavigationKeys, k => k == key))
+                if (!previous.IsKeyDown(key))
                 {
+                    if (IsCancelKey(key))
+                    {
+                        _state = CaptureState.Browsing;
+                        return;
+                    }
                     AssignKey(key);
                     return;
                 }
@@ -186,6 +184,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             _configManager.SaveSystemKeyBindings(_inputManager);
 
             Deactivate();
+            Saved?.Invoke(this, EventArgs.Empty);
             Closed?.Invoke(this, EventArgs.Empty);
         }
 

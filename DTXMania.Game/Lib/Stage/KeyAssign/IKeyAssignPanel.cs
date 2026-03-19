@@ -16,6 +16,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         /// <summary>Raised when the panel closes (save or cancel).</summary>
         event EventHandler Closed;
 
+        /// <summary>Raised when the panel commits its changes (save only, not cancel).</summary>
+        event EventHandler Saved;
+
         void Activate();
         void Deactivate();
 

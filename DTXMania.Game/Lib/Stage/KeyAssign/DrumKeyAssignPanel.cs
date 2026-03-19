@@ -42,6 +42,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         public bool IsActive { get; private set; }
         public event EventHandler? Closed;
+        public event EventHandler? Saved;
 
         public DrumKeyAssignPanel(ModularInputManager modularInputManager, ConfigManager configManager)
         {
@@ -150,6 +151,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             // Reload live bindings from the updated config
             _modularInputManager.ReloadKeyBindings();
             Deactivate();
+            Saved?.Invoke(this, EventArgs.Empty);
             Closed?.Invoke(this, EventArgs.Empty);
         }
 

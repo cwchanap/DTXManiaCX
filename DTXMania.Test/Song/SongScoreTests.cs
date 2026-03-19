@@ -293,22 +293,69 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Clone_ShouldPreserveAllFields()
         {
+            var lastPlayed = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
             var score = new SongScore
             {
+                ChartId = 7,
+                Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
+                DifficultyLabel = "EXTREME",
                 BestScore = 950000,
                 BestRank = 90,
+                BestSkillPoint = 88.5,
+                BestAchievementRate = 97.3,
                 PlayCount = 5,
+                ClearCount = 3,
+                MaxCombo = 512,
                 FullCombo = true,
+                Excellent = false,
+                HighSkill = 91.2,
+                SongSkill = 89.0,
+                TotalNotes = 600,
                 BestPerfect = 100,
-                BestGreat = 10
+                BestGreat = 10,
+                BestGood = 5,
+                BestPoor = 2,
+                BestMiss = 1,
+                ProgressBar = "##########",
+                LastPlayedAt = lastPlayed,
+                LastScore = 940000,
+                LastSkillPoint = 87.1,
+                UsedDrumPad = true,
+                UsedKeyboard = false,
+                UsedMidi = true,
+                UsedJoypad = false,
+                UsedMouse = false,
             };
             var clone = score.Clone();
+            Assert.Equal(score.ChartId, clone.ChartId);
+            Assert.Equal(score.Instrument, clone.Instrument);
+            Assert.Equal(score.DifficultyLabel, clone.DifficultyLabel);
             Assert.Equal(score.BestScore, clone.BestScore);
             Assert.Equal(score.BestRank, clone.BestRank);
+            Assert.Equal(score.BestSkillPoint, clone.BestSkillPoint);
+            Assert.Equal(score.BestAchievementRate, clone.BestAchievementRate);
             Assert.Equal(score.PlayCount, clone.PlayCount);
+            Assert.Equal(score.ClearCount, clone.ClearCount);
+            Assert.Equal(score.MaxCombo, clone.MaxCombo);
             Assert.Equal(score.FullCombo, clone.FullCombo);
+            Assert.Equal(score.Excellent, clone.Excellent);
+            Assert.Equal(score.HighSkill, clone.HighSkill);
+            Assert.Equal(score.SongSkill, clone.SongSkill);
+            Assert.Equal(score.TotalNotes, clone.TotalNotes);
             Assert.Equal(score.BestPerfect, clone.BestPerfect);
             Assert.Equal(score.BestGreat, clone.BestGreat);
+            Assert.Equal(score.BestGood, clone.BestGood);
+            Assert.Equal(score.BestPoor, clone.BestPoor);
+            Assert.Equal(score.BestMiss, clone.BestMiss);
+            Assert.Equal(score.ProgressBar, clone.ProgressBar);
+            Assert.Equal(score.LastPlayedAt, clone.LastPlayedAt);
+            Assert.Equal(score.LastScore, clone.LastScore);
+            Assert.Equal(score.LastSkillPoint, clone.LastSkillPoint);
+            Assert.Equal(score.UsedDrumPad, clone.UsedDrumPad);
+            Assert.Equal(score.UsedKeyboard, clone.UsedKeyboard);
+            Assert.Equal(score.UsedMidi, clone.UsedMidi);
+            Assert.Equal(score.UsedJoypad, clone.UsedJoypad);
+            Assert.Equal(score.UsedMouse, clone.UsedMouse);
         }
 
 

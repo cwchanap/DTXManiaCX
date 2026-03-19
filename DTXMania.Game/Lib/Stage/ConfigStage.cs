@@ -298,11 +298,13 @@ namespace DTXMania.Game.Lib.Stage
 
             _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager, concreteConfig);
             _drumPanel._liveSystemMappingProvider = () => inputManagerCompat.GetKeyMappingSnapshot();
+            _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 
             _systemPanel = new SystemKeyAssignPanel(inputManagerCompat, concreteConfig);
             _systemPanel._liveDrumBindingsProvider =
                 () => inputManagerCompat.ModularInputManager.KeyBindings.ButtonToLane;
+            _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
         }
 
@@ -311,6 +313,10 @@ namespace DTXMania.Game.Lib.Stage
             if (panel == null) return;
             _activePanel = panel;
             _activePanel.Activate();
+        }
+
+        private void OnPanelSaved(object? sender, EventArgs e)
+        {
             _hasUnsavedChanges = true;
         }
 
