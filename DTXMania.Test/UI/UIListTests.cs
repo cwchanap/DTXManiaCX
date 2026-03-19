@@ -1,5 +1,8 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
+using Moq;
 using Xunit;
 using System;
 
@@ -572,20 +575,68 @@ namespace DTXMania.Test.UI
         #region ItemActivated Event Tests
 
         [Fact]
-        public void ItemActivated_EventIsNull_ByDefault()
+        public void ItemActivated_NullSubscriber_ShouldNotThrowWhenEnterPressed()
         {
-            // Just verify the event exists and can be subscribed to
-            var list = new UIList();
+            // Arrange: active list with a selected item and no subscriber
+            var list = new UIList
+            {
+                Position = new Vector2(0, 0),
+                Size = new Vector2(200, 150)
+            };
+            list.Activate();
             list.AddItem("A");
             list.SelectedIndex = 0;
 
-            // Should not throw when ItemActivated is null (unsubscribed)
-            var exception = Record.Exception(() =>
-            {
-                // Simulate Enter key handler scenario without an actual subscriber
-                // This tests that the code path handles null gracefully
-            });
+            // Mock IInputState so the Enter key reports as just-pressed and the
+            // mouse cursor sits outside the list bounds (avoiding the mouse path).
+            var mockInput = new Mock<IInputState>();
+            mockInput.Setup(i => i.MousePosition).Returns(new Vector2(-1000, -1000));
+            mockInput.Setup(i => i.IsMouseButtonPressed(MouseButton.Left)).Returns(false);
+            mockInput.Setup(i => i.ScrollWheelDelta).Returns(0);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Up)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Down)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Home)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.End)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Enter)).Returns(true);
+
+            // Act & Assert: ItemActivated is null; HandleInput must not throw
+            var exception = Record.Exception(() => list.HandleInput(mockInput.Object));
             Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ItemActivated_WithSubscriber_ShouldFireWhenEnterPressed()
+        {
+            // Arrange
+            var list = new UIList
+            {
+                Position = new Vector2(0, 0),
+                Size = new Vector2(200, 150)
+            };
+            list.Activate();
+            list.AddItem("A");
+            list.SelectedIndex = 0;
+
+            ListItemActivatedEventArgs? receivedArgs = null;
+            list.ItemActivated += (s, e) => receivedArgs = e;
+
+            var mockInput = new Mock<IInputState>();
+            mockInput.Setup(i => i.MousePosition).Returns(new Vector2(-1000, -1000));
+            mockInput.Setup(i => i.IsMouseButtonPressed(MouseButton.Left)).Returns(false);
+            mockInput.Setup(i => i.ScrollWheelDelta).Returns(0);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Up)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Down)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Home)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.End)).Returns(false);
+            mockInput.Setup(i => i.IsKeyPressed(Keys.Enter)).Returns(true);
+
+            // Act
+            list.HandleInput(mockInput.Object);
+
+            // Assert
+            Assert.NotNull(receivedArgs);
+            Assert.Equal(0, receivedArgs!.Index);
+            Assert.Equal("A", receivedArgs.Item.Text);
         }
 
         #endregion
