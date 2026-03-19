@@ -287,7 +287,8 @@ namespace DTXMania.Test.Input
             var eventField = typeof(InputRouter).GetField(
                 "OnLaneHit",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var handlerValue = eventField?.GetValue(router);
+            Assert.NotNull(eventField);
+            var handlerValue = eventField.GetValue(router);
             Assert.Null(handlerValue);
             Assert.False(eventRaised);
         }
