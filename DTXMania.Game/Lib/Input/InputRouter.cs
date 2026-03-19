@@ -33,6 +33,7 @@ namespace DTXMania.Game.Lib.Input
         public void AddInputSource(IInputSource source)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(InputRouter));
+            if (source is null) throw new ArgumentNullException(nameof(source));
             _inputSources.Add(source);
         }
 

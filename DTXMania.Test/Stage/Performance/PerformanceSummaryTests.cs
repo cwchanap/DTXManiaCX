@@ -247,6 +247,25 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, summary.MissCount);
         }
 
+        [Theory]
+        [InlineData((JudgementType)(-1))]
+        [InlineData((JudgementType)(999))]
+        public void IncrementJudgement_InvalidType_ShouldLeaveAllCountsUnchanged(JudgementType invalid)
+        {
+            // The switch in IncrementJudgement has no default case, so unrecognised
+            // values are silently ignored — all counters must remain at zero.
+            var summary = new PerformanceSummary();
+
+            summary.IncrementJudgement(invalid);
+
+            Assert.Equal(0, summary.JustCount);
+            Assert.Equal(0, summary.GreatCount);
+            Assert.Equal(0, summary.GoodCount);
+            Assert.Equal(0, summary.PoorCount);
+            Assert.Equal(0, summary.MissCount);
+            Assert.Equal(0, summary.GetJudgementCount(invalid));
+        }
+
         #endregion
 
         #region GetJudgementCount Tests
