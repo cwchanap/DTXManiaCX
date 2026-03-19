@@ -55,6 +55,38 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void Constructor_LegacyOverrideOnlyConfig_ShouldPreserveDefaultsAndApplyOverride()
+        {
+            // Arrange
+            using var legacyInputManager = CreateInputManagerWithConfig(config =>
+            {
+                config.KeyBindings["Key.Q"] = 5;
+            });
+
+            // Assert
+            Assert.Equal(5, legacyInputManager.KeyBindings.GetLane("Key.Q"));
+            Assert.Equal(0, legacyInputManager.KeyBindings.GetLane("Key.A"));
+            Assert.Equal(6, legacyInputManager.KeyBindings.GetLane("Key.Space"));
+        }
+
+        [Fact]
+        public void Constructor_UnboundLaneInSavedConfig_ShouldKeepLaneUnboundAndPreserveOtherDefaults()
+        {
+            // Arrange
+            var configManager = new ConfigManager();
+            var keyBindings = new KeyBindings();
+            keyBindings.UnbindLane(4);
+            configManager.SaveKeyBindings(keyBindings);
+
+            using var configuredInputManager = new ModularInputManager(configManager);
+
+            // Assert
+            Assert.Equal(-1, configuredInputManager.KeyBindings.GetLane("Key.S"));
+            Assert.Equal(0, configuredInputManager.KeyBindings.GetLane("Key.A"));
+            Assert.Equal(6, configuredInputManager.KeyBindings.GetLane("Key.Space"));
+        }
+
+        [Fact]
         public void BindButton_NewBinding_UpdatesKeyBindings()
         {
             // Arrange
@@ -318,6 +350,13 @@ namespace DTXMania.Test.Input
         public void Dispose()
         {
             _inputManager?.Dispose();
+        }
+
+        private static ModularInputManager CreateInputManagerWithConfig(Action<ConfigData> configure)
+        {
+            var configManager = new ConfigManager();
+            configure(configManager.Config);
+            return new ModularInputManager(configManager);
         }
     }
 

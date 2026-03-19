@@ -31,7 +31,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private const double ConflictDuration = 2.0;
 
         private readonly ModularInputManager _modularInputManager;
-        private readonly ConfigManager _configManager;
 
         // Working copy of drum bindings (edited in isolation; committed on Save)
         private KeyBindings _workingBindings = new();
@@ -47,16 +46,12 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public DrumKeyAssignPanel(ModularInputManager modularInputManager, ConfigManager configManager)
         {
             _modularInputManager = modularInputManager ?? throw new ArgumentNullException(nameof(modularInputManager));
-            _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+            _ = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
         public void Activate()
         {
-            // Clone current live drum bindings to working copy
-            _workingBindings = new KeyBindings();
-            _workingBindings.ClearAllBindings();
-            foreach (var kvp in _modularInputManager.KeyBindings.ButtonToLane)
-                _workingBindings.BindButton(kvp.Key, kvp.Value);
+            _workingBindings = CloneBindings(_workingBindingsProvider?.Invoke() ?? _modularInputManager.KeyBindings);
 
             _selectedIndex = 0;
             _state = CaptureState.Browsing;
@@ -146,10 +141,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void CommitAndClose()
         {
-            // Save working bindings to Config.KeyBindings in memory
-            _configManager.SaveKeyBindings(_workingBindings);
-            // Reload live bindings from the updated config
-            _modularInputManager.ReloadKeyBindings();
             Deactivate();
             Saved?.Invoke(this, EventArgs.Empty);
             Closed?.Invoke(this, EventArgs.Empty);
@@ -183,6 +174,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         // Injected by ConfigStage so this panel can check system key conflicts without
         // needing a direct reference to InputManager.
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _liveSystemMappingProvider;
+        internal Func<KeyBindings>? _workingBindingsProvider;
+
+        internal KeyBindings GetWorkingBindingsSnapshot() => CloneBindings(_workingBindings);
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
@@ -258,5 +252,18 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private static bool IsJustPressed(KeyboardState cur, KeyboardState prev, Keys key)
             => cur.IsKeyDown(key) && !prev.IsKeyDown(key);
+
+        private static KeyBindings CloneBindings(KeyBindings source)
+        {
+            var clone = new KeyBindings();
+            clone.ClearAllBindings();
+
+            foreach (var kvp in source.ButtonToLane)
+            {
+                clone.BindButton(kvp.Key, kvp.Value);
+            }
+
+            return clone;
+        }
     }
 }

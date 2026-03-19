@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 
 namespace DTXMania.Game.Lib.Stage
@@ -24,6 +25,8 @@ namespace DTXMania.Game.Lib.Stage
         private IConfigManager _configManager;
         private List<IConfigItem> _configItems;
         private ConfigData _workingConfig;
+        private KeyBindings _workingDrumBindings;
+        private Dictionary<Keys, InputCommandType> _workingSystemBindings;
         private bool _hasUnsavedChanges;
         private int _selectedIndex = 0;
 
@@ -69,6 +72,7 @@ namespace DTXMania.Game.Lib.Stage
 
             InitializeGraphics();
             LoadConfiguration();
+            LoadWorkingInputBindings();
             SetupConfigItems();
             InitializePanels();
 
@@ -206,6 +210,15 @@ namespace DTXMania.Game.Lib.Stage
             _hasUnsavedChanges = false;
         }
 
+        private void LoadWorkingInputBindings()
+        {
+            var inputManagerCompat = _game.InputManager
+                ?? throw new InvalidOperationException("InputManager not available");
+
+            _workingDrumBindings = CloneKeyBindings(inputManagerCompat.ModularInputManager.KeyBindings);
+            _workingSystemBindings = new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
+        }
+
         private void SetupConfigItems()
         {
             _configItems = new List<IConfigItem>();
@@ -297,13 +310,16 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new InvalidOperationException("InputManager not available");
 
             _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager, concreteConfig);
-            _drumPanel._liveSystemMappingProvider = () => inputManagerCompat.GetKeyMappingSnapshot();
+            _drumPanel._workingBindingsProvider = () => CloneKeyBindings(_workingDrumBindings);
+            _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 
             _systemPanel = new SystemKeyAssignPanel(inputManagerCompat, concreteConfig);
+            _systemPanel._workingMappingProvider =
+                () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _systemPanel._liveDrumBindingsProvider =
-                () => inputManagerCompat.ModularInputManager.KeyBindings.ButtonToLane;
+                () => new Dictionary<string, int>(_workingDrumBindings.ButtonToLane);
             _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
         }
@@ -317,6 +333,15 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnPanelSaved(object? sender, EventArgs e)
         {
+            if (sender == _drumPanel)
+            {
+                _workingDrumBindings = _drumPanel.GetWorkingBindingsSnapshot();
+            }
+            else if (sender == _systemPanel)
+            {
+                _workingSystemBindings = new Dictionary<Keys, InputCommandType>(_systemPanel.GetWorkingMappingSnapshot());
+            }
+
             _hasUnsavedChanges = true;
         }
 
@@ -331,8 +356,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleInput()
         {
-            // Check for back action (ESC key or controller Back button) using consolidated method
-            if (_game.InputManager?.IsBackActionTriggered() == true)
+            if (IsWorkingCommandPressed(InputCommandType.Back))
             {
                 if (_hasUnsavedChanges)
                 {
@@ -344,11 +368,11 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Handle navigation
-            if (IsKeyPressed(Keys.Up))
+            if (IsWorkingCommandPressed(InputCommandType.MoveUp))
             {
                 _selectedIndex = (_selectedIndex - 1 + _configItems.Count + 2) % (_configItems.Count + 2); // +2 for buttons
             }
-            else if (IsKeyPressed(Keys.Down))
+            else if (IsWorkingCommandPressed(InputCommandType.MoveDown))
             {
                 _selectedIndex = (_selectedIndex + 1) % (_configItems.Count + 2); // +2 for buttons
             }
@@ -359,15 +383,15 @@ namespace DTXMania.Game.Lib.Stage
                 var selectedItem = _configItems[_selectedIndex];
 
                 // Left/Right arrows for value editing
-                if (IsKeyPressed(Keys.Left))
+                if (IsWorkingCommandPressed(InputCommandType.MoveLeft))
                 {
                     selectedItem.PreviousValue();
                 }
-                else if (IsKeyPressed(Keys.Right))
+                else if (IsWorkingCommandPressed(InputCommandType.MoveRight))
                 {
                     selectedItem.NextValue();
                 }
-                else if (IsKeyPressed(Keys.Enter))
+                else if (IsWorkingCommandPressed(InputCommandType.Activate))
                 {
                     selectedItem.ToggleValue();
                 }
@@ -375,7 +399,7 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Handle button selection
-                if (IsKeyPressed(Keys.Enter))
+                if (IsWorkingCommandPressed(InputCommandType.Activate))
                 {
                     int buttonIndex = _selectedIndex - _configItems.Count;
                     if (buttonIndex == 0) // Back button
@@ -390,9 +414,12 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private bool IsKeyPressed(Keys key)
+        private bool IsWorkingCommandPressed(InputCommandType command)
         {
-            return _currentKeyboardState.IsKeyDown(key) && !_previousKeyboardState.IsKeyDown(key);
+            return _workingSystemBindings.Any(kvp =>
+                kvp.Value == command &&
+                _currentKeyboardState.IsKeyDown(kvp.Key) &&
+                !_previousKeyboardState.IsKeyDown(kvp.Key));
         }
 
         #endregion
@@ -430,9 +457,14 @@ namespace DTXMania.Game.Lib.Stage
             config.NoFail = _workingConfig.NoFail;
             config.AutoPlay = _workingConfig.AutoPlay;
 
-            // Ensure latest system key bindings are reflected in Config before saving
             if (_configManager is ConfigManager concreteConfig && _game.InputManager != null)
+            {
+                concreteConfig.SaveKeyBindings(_workingDrumBindings);
+                _game.InputManager.ModularInputManager.ReloadKeyBindings();
+
+                ApplySystemBindings(_game.InputManager, _workingSystemBindings);
                 concreteConfig.SaveSystemKeyBindings(_game.InputManager);
+            }
 
             try
             {
@@ -581,6 +613,40 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _spriteBatch.Draw(_whitePixel, new Rectangle(x, y, width, height), color);
             }
+        }
+
+        private static void ApplySystemBindings(InputManager inputManager, IReadOnlyDictionary<Keys, InputCommandType> bindings)
+        {
+            foreach (var command in Enum.GetValues<InputCommandType>())
+            {
+                var keysToRemove = inputManager.GetKeyMappingSnapshot()
+                    .Where(kvp => kvp.Value == command)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in keysToRemove)
+                {
+                    inputManager.RemoveKeyMapping(key);
+                }
+            }
+
+            foreach (var kvp in bindings)
+            {
+                inputManager.SetKeyMapping(kvp.Key, kvp.Value);
+            }
+        }
+
+        private static KeyBindings CloneKeyBindings(KeyBindings source)
+        {
+            var clone = new KeyBindings();
+            clone.ClearAllBindings();
+
+            foreach (var kvp in source.ButtonToLane)
+            {
+                clone.BindButton(kvp.Key, kvp.Value);
+            }
+
+            return clone;
         }
 
         #endregion
