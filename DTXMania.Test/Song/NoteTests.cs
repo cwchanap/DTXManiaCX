@@ -53,7 +53,7 @@ namespace DTXMania.Test.Song
         [InlineData(120.0, 0, 0, 0.0)]        // Bar 0, Tick 0 → 0ms
         [InlineData(120.0, 1, 0, 2000.0)]     // Bar 1, Tick 0 at 120 BPM → 2000ms
         [InlineData(120.0, 2, 0, 4000.0)]     // Bar 2, Tick 0 at 120 BPM → 4000ms
-        [InlineData(120.0, 0, 192, 2000.0)]   // Bar 0, Tick 192 (= 1 measure) at 120 BPM → 2000ms
+        [InlineData(120.0, 1, 96, 3000.0)]    // Bar 1, Tick 96 (half-measure) at 120 BPM → 3000ms
         [InlineData(60.0, 1, 0, 4000.0)]      // Bar 1, Tick 0 at 60 BPM → 4000ms
         [InlineData(240.0, 1, 0, 1000.0)]     // Bar 1, Tick 0 at 240 BPM → 1000ms
         public void CalculateTimeMs_ValidBpm_ShouldComputeCorrectTime(double bpm, int bar, int tick, double expectedMs)
