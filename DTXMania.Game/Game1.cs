@@ -148,7 +148,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         InputManager = new InputManagerCompat(ConfigManager);
 
         // Apply saved system key bindings on top of defaults
-        ((ConfigManager)ConfigManager).LoadSystemKeyBindings(InputManager);
+        if (ConfigManager is ConfigManager concreteConfig)
+            concreteConfig.LoadSystemKeyBindings(InputManager);
 
         // Initialize graphics manager after base initialization
         _graphicsManager.Initialize();

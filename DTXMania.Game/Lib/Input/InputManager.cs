@@ -239,6 +239,16 @@ namespace DTXMania.Game.Lib.Input
 
         public void SetKeyMapping(Keys key, InputCommandType command)
         {
+            // Evict any existing key already mapped to this command so each command has exactly one key.
+            var priorKeys = new List<Keys>();
+            foreach (var kvp in _keyMapping)
+            {
+                if (kvp.Value == command && kvp.Key != key)
+                    priorKeys.Add(kvp.Key);
+            }
+            foreach (var k in priorKeys)
+                _keyMapping.Remove(k);
+
             _keyMapping[key] = command;
         }
 

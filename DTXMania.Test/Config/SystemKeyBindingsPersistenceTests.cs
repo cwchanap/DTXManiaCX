@@ -102,6 +102,8 @@ public class SystemKeyBindingsPersistenceTests
 
             var snapshot = inputMgr2.GetKeyMappingSnapshot();
             Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
+            // The default Keys.Up -> MoveUp binding must have been replaced, not duplicated.
+            Assert.False(snapshot.TryGetValue(Keys.Up, out var upCommand) && upCommand == InputCommandType.MoveUp);
         }
         finally { File.Delete(tempFile); }
     }

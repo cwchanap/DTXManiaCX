@@ -2,6 +2,7 @@ using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Test.Config;
 
+[Trait("Category", "Config")]
 public class NavigationConfigItemTests
 {
     [Fact]
@@ -11,30 +12,20 @@ public class NavigationConfigItemTests
         Assert.Equal("> Drum Key Mapping", item.GetDisplayText());
     }
 
-    [Fact]
-    public void NavigationConfigItem_ToggleValue_ShouldInvokeAction()
+    [Theory]
+    [InlineData("Toggle")]
+    [InlineData("Previous")]
+    [InlineData("Next")]
+    public void NavigationConfigItem_ActionMethod_ShouldInvokeAction(string method)
     {
         bool invoked = false;
         var item = new NavigationConfigItem("Test", () => invoked = true);
-        item.ToggleValue();
-        Assert.True(invoked);
-    }
-
-    [Fact]
-    public void NavigationConfigItem_PreviousValue_ShouldInvokeAction()
-    {
-        bool invoked = false;
-        var item = new NavigationConfigItem("Test", () => invoked = true);
-        item.PreviousValue();
-        Assert.True(invoked);
-    }
-
-    [Fact]
-    public void NavigationConfigItem_NextValue_ShouldInvokeAction()
-    {
-        bool invoked = false;
-        var item = new NavigationConfigItem("Test", () => invoked = true);
-        item.NextValue();
+        switch (method)
+        {
+            case "Toggle":   item.ToggleValue();   break;
+            case "Previous": item.PreviousValue(); break;
+            case "Next":     item.NextValue();     break;
+        }
         Assert.True(invoked);
     }
 
