@@ -4,8 +4,8 @@ using DTXMania.Game.Lib.UI;
 namespace DTXMania.Test
 {
     /// <summary>
-    /// Minimal concrete UIElement for use across UI test classes.
-    /// Provides no-op implementations of all abstract members.
+    /// Minimal concrete UIElement used across UI test classes where a non-abstract instance is needed.
+    /// Inherits the default behavior from UIElement without adding additional logic.
     /// </summary>
     internal class ConcreteUIElement : UIElement
     {
