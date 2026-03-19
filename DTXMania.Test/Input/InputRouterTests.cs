@@ -74,6 +74,12 @@ namespace DTXMania.Test.Input
             Assert.Throws<ObjectDisposedException>(() => _router.AddInputSource(mockSource.Object));
         }
 
+        [Fact]
+        public void AddInputSource_Null_ShouldThrowArgumentNullException()
+        {
+            Assert.Throws<ArgumentNullException>(() => _router.AddInputSource(null!));
+        }
+
         #endregion
 
         #region Initialize Tests
@@ -360,9 +366,13 @@ namespace DTXMania.Test.Input
         [Fact]
         public void Constructor_ShouldCaptureTimestamp()
         {
+            var before = DateTime.UtcNow - TimeSpan.FromSeconds(1);
             var button = new ButtonState("Key.A", true);
             var args = new LaneHitEventArgs(0, button);
-            Assert.True(args.Timestamp <= DateTime.UtcNow);
+            var after = DateTime.UtcNow;
+
+            // Timestamp must be within the last second — rules out default/far-past values
+            Assert.InRange(args.Timestamp, before, after);
         }
     }
 }
