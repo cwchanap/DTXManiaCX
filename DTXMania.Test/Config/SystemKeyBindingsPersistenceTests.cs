@@ -137,6 +137,31 @@ public class SystemKeyBindingsPersistenceTests
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
     }
 
+    [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_EmptyValue_ShouldRemoveDefaultBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.Back"] = string.Empty;
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        Assert.DoesNotContain(inputMgr.GetKeyMappingSnapshot(), kvp => kvp.Value == InputCommandType.Back);
+    }
+
+    [Fact]
+    public void ConfigManager_SaveSystemKeyBindings_UnboundCommand_ShouldPersistEmptyEntry()
+    {
+        var manager = new ConfigManager();
+        var inputMgr = new InputManager();
+        inputMgr.RemoveKeyMapping(Keys.Escape);
+
+        manager.SaveSystemKeyBindings(inputMgr);
+
+        Assert.True(manager.Config.SystemKeyBindings.ContainsKey("SystemKey.Back"));
+        Assert.Equal(string.Empty, manager.Config.SystemKeyBindings["SystemKey.Back"]);
+    }
+
     // ─── InputManager mutation API ────────────────────────────────────────────
 
     [Fact]

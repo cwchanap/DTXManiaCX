@@ -40,7 +40,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private const double ConflictDuration = 2.0;
 
         private readonly InputManager _inputManager;
-        private readonly ConfigManager _configManager;
 
         // Working copy: action -> key (one-to-one)
         private Dictionary<InputCommandType, Keys> _workingMapping = new();
@@ -56,14 +55,14 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public SystemKeyAssignPanel(InputManager inputManager, ConfigManager configManager)
         {
             _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
-            _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+            _ = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
         public void Activate()
         {
             // Clone current live system mapping to working copy
             _workingMapping = new Dictionary<InputCommandType, Keys>();
-            var snapshot = _inputManager.GetKeyMappingSnapshot();
+            var snapshot = _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot();
             foreach (var action in Actions)
             {
                 var entry = snapshot.FirstOrDefault(kvp => kvp.Value == action);
@@ -167,22 +166,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void CommitAndClose()
         {
-            // Apply working mapping to live InputManager
-            // First clear all actions so stale bindings don't linger
-            foreach (var action in Actions)
-            {
-                var oldEntry = _inputManager.GetKeyMappingSnapshot()
-                    .FirstOrDefault(kvp => kvp.Value == action);
-                if (!oldEntry.Equals(default(KeyValuePair<Keys, InputCommandType>)))
-                    _inputManager.RemoveKeyMapping(oldEntry.Key);
-            }
-
-            foreach (var kvp in _workingMapping)
-                _inputManager.SetKeyMapping(kvp.Value, kvp.Key);
-
-            // Sync Config.SystemKeyBindings from updated live mapping
-            _configManager.SaveSystemKeyBindings(_inputManager);
-
             Deactivate();
             Saved?.Invoke(this, EventArgs.Empty);
             Closed?.Invoke(this, EventArgs.Empty);
@@ -211,9 +194,13 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         // Injected by ConfigStage so this panel can check drum key conflicts.
         internal Func<IReadOnlyDictionary<string, int>>? _liveDrumBindingsProvider;
+        internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _workingMappingProvider;
 
         private IReadOnlyDictionary<string, int> GetLiveDrumBindings()
             => _liveDrumBindingsProvider?.Invoke() ?? new Dictionary<string, int>();
+
+        internal IReadOnlyDictionary<Keys, InputCommandType> GetWorkingMappingSnapshot()
+            => new Dictionary<Keys, InputCommandType>(WorkingMappingAsKeyDict());
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)

@@ -83,6 +83,21 @@ public class ConfigManagerTests
     }
 
     [Fact]
+    public void ConfigManager_SaveKeyBindings_UnboundLane_ShouldTrackUnboundLane()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var keyBindings = new KeyBindings();
+        keyBindings.UnbindLane(4);
+
+        // Act
+        manager.SaveKeyBindings(keyBindings);
+
+        // Assert
+        Assert.Contains(4, manager.Config.UnboundDrumLanes);
+    }
+
+    [Fact]
     public void ConfigManager_LoadConfig_ValidIniContent_ShouldParseCorrectly()
     {
         // Arrange
