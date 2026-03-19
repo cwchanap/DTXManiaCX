@@ -17,19 +17,223 @@ namespace DTXMania.Test.Song
     {
         #region Basic Property Tests
 
+        [Fact]
+        public void DefaultValues_ShouldBeZeroOrEmpty()
+        {
+            var score = new SongScore();
 
+            Assert.Equal(0, score.BestScore);
+            Assert.Equal(0, score.BestRank);
+            Assert.Equal(0, score.PlayCount);
+            Assert.Equal(0, score.MaxCombo);
+            Assert.Equal(0, score.ClearCount);
+            Assert.Equal(0.0, score.BestSkillPoint);
+            Assert.Equal(0.0, score.BestAchievementRate);
+            Assert.Equal(0.0, score.HighSkill);
+            Assert.Equal(0.0, score.SongSkill);
+            Assert.Equal("", score.DifficultyLabel);
+            Assert.Equal("", score.ProgressBar);
+            Assert.False(score.FullCombo);
+            Assert.False(score.Excellent);
+            Assert.False(score.HasBeenPlayed);
+            Assert.Null(score.LastPlayedAt);
+        }
+
+        [Fact]
+        public void DifficultyLevel_WithoutChart_ShouldReturnPrivateField()
+        {
+            var score = new SongScore { DifficultyLevel = 75 };
+            Assert.Equal(75, score.DifficultyLevel);
+        }
+
+        [Fact]
+        public void DifficultyLevel_WithDrumsInstrumentAndChart_ShouldReturnChartDrumLevel()
+        {
+            var chart = new SongChart { DrumLevel = 88, GuitarLevel = 72, BassLevel = 60 };
+            var score = new SongScore
+            {
+                Chart = chart,
+                Instrument = EInstrumentPart.DRUMS
+            };
+
+            Assert.Equal(88, score.DifficultyLevel);
+        }
+
+        [Fact]
+        public void DifficultyLevel_WithGuitarInstrumentAndChart_ShouldReturnChartGuitarLevel()
+        {
+            var chart = new SongChart { DrumLevel = 88, GuitarLevel = 72, BassLevel = 60 };
+            var score = new SongScore
+            {
+                Chart = chart,
+                Instrument = EInstrumentPart.GUITAR
+            };
+
+            Assert.Equal(72, score.DifficultyLevel);
+        }
+
+        [Fact]
+        public void DifficultyLevel_WithBassInstrumentAndChart_ShouldReturnChartBassLevel()
+        {
+            var chart = new SongChart { DrumLevel = 88, GuitarLevel = 72, BassLevel = 60 };
+            var score = new SongScore
+            {
+                Chart = chart,
+                Instrument = EInstrumentPart.BASS
+            };
+
+            Assert.Equal(60, score.DifficultyLevel);
+        }
+
+        [Fact]
+        public void IsNewRecord_DefaultValue_ShouldBeFalse()
+        {
+            var score = new SongScore();
+            Assert.False(score.IsNewRecord);
+        }
+
+        [Fact]
+        public void InputMethodFlags_DefaultValues_ShouldBeFalse()
+        {
+            var score = new SongScore();
+            Assert.False(score.UsedDrumPad);
+            Assert.False(score.UsedKeyboard);
+            Assert.False(score.UsedMidi);
+            Assert.False(score.UsedJoypad);
+            Assert.False(score.UsedMouse);
+        }
 
         #endregion
 
         #region Rank Tests
 
+        [Fact]
+        public void RankName_WhenPlayedWithSSRank_ShouldReturnSS()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 95 };
+            Assert.Equal("SS", score.RankName);
+        }
 
+        [Fact]
+        public void RankName_WhenPlayedWithSRank_ShouldReturnS()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 90 };
+            Assert.Equal("S", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithARank_ShouldReturnA()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 80 };
+            Assert.Equal("A", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithBRank_ShouldReturnB()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 70 };
+            Assert.Equal("B", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithCRank_ShouldReturnC()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 60 };
+            Assert.Equal("C", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithDRank_ShouldReturnD()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 50 };
+            Assert.Equal("D", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithERank_ShouldReturnE()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 40 };
+            Assert.Equal("E", score.RankName);
+        }
+
+        [Fact]
+        public void RankName_WhenPlayedWithFRank_ShouldReturnF()
+        {
+            var score = new SongScore { PlayCount = 1, BestRank = 0 };
+            Assert.Equal("F", score.RankName);
+        }
 
         #endregion
 
         #region Accuracy Tests
 
+        [Fact]
+        public void Accuracy_WhenNoNotes_ShouldReturnZero()
+        {
+            var score = new SongScore { TotalNotes = 0 };
+            Assert.Equal(0.0, score.Accuracy);
+        }
 
+        [Fact]
+        public void Accuracy_AllPerfect_ShouldReturn100()
+        {
+            var score = new SongScore
+            {
+                TotalNotes = 100,
+                BestPerfect = 100,
+                BestGreat = 0,
+                BestGood = 0,
+                BestPoor = 0,
+                BestMiss = 0
+            };
+            Assert.Equal(100.0, score.Accuracy);
+        }
+
+        [Fact]
+        public void Accuracy_AllMiss_ShouldReturnZero()
+        {
+            var score = new SongScore
+            {
+                TotalNotes = 100,
+                BestPerfect = 0,
+                BestGreat = 0,
+                BestGood = 0,
+                BestPoor = 0,
+                BestMiss = 100
+            };
+            Assert.Equal(0.0, score.Accuracy);
+        }
+
+        [Fact]
+        public void Accuracy_MixedResults_ShouldCalculateCorrectPercentage()
+        {
+            // 60 out of 100 notes hit (Perfect + Great + Good + Poor = 60)
+            var score = new SongScore
+            {
+                TotalNotes = 100,
+                BestPerfect = 30,
+                BestGreat = 20,
+                BestGood = 5,
+                BestPoor = 5,
+                BestMiss = 40
+            };
+            Assert.Equal(60.0, score.Accuracy);
+        }
+
+        [Fact]
+        public void Accuracy_HalfHit_ShouldReturnFiftyPercent()
+        {
+            var score = new SongScore
+            {
+                TotalNotes = 200,
+                BestPerfect = 100,
+                BestGreat = 0,
+                BestGood = 0,
+                BestPoor = 0,
+                BestMiss = 100
+            };
+            Assert.Equal(50.0, score.Accuracy);
+        }
 
         #endregion
 
@@ -184,7 +388,7 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData(92, 1, "S", 0.95)]
         [InlineData(80, 2, "A", 0.9)]
-        [InlineData(2, 7, "F", 0.65)]
+        [InlineData(2, 7, "F", 0.65)]    // 2 is a percentage (2%), NOT a legacy ordinal — NormalizeRankPercentage maps it to F bucket
         [InlineData(95, 0, "SS", 1.0)]   // SS boundary
         [InlineData(100, 0, "SS", 1.0)]  // above SS
         [InlineData(40, 6, "E", 0.7)]    // E bucket
