@@ -3,6 +3,7 @@ using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
 using Xunit;
 using System;
+using DTXMania.Test;
 
 namespace DTXMania.Test.UI
 {
@@ -121,8 +122,8 @@ namespace DTXMania.Test.UI
                 Position = new Vector2(0, 0),
                 Size = new Vector2(100, 50)
             };
-            // Rectangle.Contains is exclusive of the right/bottom edge
-            Assert.False(element.HitTest(new Vector2(110, 25)));
+            // Rectangle.Contains excludes the right edge (x == Position.X + Size.X)
+            Assert.False(element.HitTest(new Vector2(100, 25)));
         }
 
         #endregion
@@ -160,12 +161,15 @@ namespace DTXMania.Test.UI
         {
             var element = new ConcreteUIElement();
             int focusCount = 0;
+            int blurCount = 0;
             element.OnFocus += (s, e) => focusCount++;
+            element.OnBlur += (s, e) => blurCount++;
 
             element.Focused = false; // Already false, no event
             element.Focused = false; // Still false, no event
 
             Assert.Equal(0, focusCount);
+            Assert.Equal(0, blurCount);
         }
 
         [Fact]
@@ -699,35 +703,4 @@ namespace DTXMania.Test.UI
         #endregion
     }
 
-    /// <summary>
-    /// Concrete UIElement for testing (minimal implementation).
-    /// </summary>
-    internal class ConcreteUIElement : UIElement
-    {
-    }
-
-    /// <summary>
-    /// UIElement that tracks callback invocations for verification.
-    /// </summary>
-    internal class TrackingUIElement : UIElement
-    {
-        public int UpdateCallCount { get; private set; }
-        public bool PositionChangedCalled { get; set; }
-        public bool SizeChangedCalled { get; set; }
-
-        protected override void OnUpdate(double deltaTime)
-        {
-            UpdateCallCount++;
-        }
-
-        protected override void OnPositionChanged()
-        {
-            PositionChangedCalled = true;
-        }
-
-        protected override void OnSizeChanged()
-        {
-            SizeChangedCalled = true;
-        }
-    }
 }

@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
 using Xunit;
+using DTXMania.Test;
 
 namespace DTXMania.Test.UI
 {
@@ -253,7 +254,7 @@ namespace DTXMania.Test.UI
         public void AddChild_ShouldAddChildToChildren()
         {
             var panel = new UIPanel();
-            var child = new UIPanelTestElement();
+            var child = new ConcreteUIElement();
             panel.AddChild(child);
             Assert.Equal(1, panel.Children.Count);
         }
@@ -262,7 +263,7 @@ namespace DTXMania.Test.UI
         public void RemoveChild_ShouldReturnTrueAndRemoveChild()
         {
             var panel = new UIPanel();
-            var child = new UIPanelTestElement();
+            var child = new ConcreteUIElement();
             panel.AddChild(child);
             var result = panel.RemoveChild(child);
             Assert.True(result);
@@ -273,7 +274,7 @@ namespace DTXMania.Test.UI
         public void RemoveChild_NonExistentChild_ShouldReturnFalse()
         {
             var panel = new UIPanel();
-            var child = new UIPanelTestElement();
+            var child = new ConcreteUIElement();
             var result = panel.RemoveChild(child);
             Assert.False(result);
         }
@@ -293,9 +294,9 @@ namespace DTXMania.Test.UI
                 Spacing = 0f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
-            var child3 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
+            var child3 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(child2);
@@ -318,8 +319,8 @@ namespace DTXMania.Test.UI
                 Spacing = 10f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(child2);
@@ -339,9 +340,9 @@ namespace DTXMania.Test.UI
                 Spacing = 0f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(80, 50), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(80, 50), Visible = true };
-            var child3 = new UIPanelTestElement { Size = new Vector2(80, 50), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(80, 50), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(80, 50), Visible = true };
+            var child3 = new ConcreteUIElement { Size = new Vector2(80, 50), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(child2);
@@ -363,8 +364,8 @@ namespace DTXMania.Test.UI
                 Spacing = 5f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(80, 50), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(80, 50), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(80, 50), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(80, 50), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(child2);
@@ -384,9 +385,9 @@ namespace DTXMania.Test.UI
                 Spacing = 0f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
-            var hiddenChild = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = false };
-            var child2 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
+            var hiddenChild = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = false };
+            var child2 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(hiddenChild);
@@ -409,10 +410,10 @@ namespace DTXMania.Test.UI
             };
 
             // With width=200 and child width=100, should fit 2 columns
-            var child1 = new UIPanelTestElement { Size = new Vector2(100, 50), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(100, 50), Visible = true };
-            var child3 = new UIPanelTestElement { Size = new Vector2(100, 50), Visible = true };
-            var child4 = new UIPanelTestElement { Size = new Vector2(100, 50), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(100, 50), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(100, 50), Visible = true };
+            var child3 = new ConcreteUIElement { Size = new Vector2(100, 50), Visible = true };
+            var child4 = new ConcreteUIElement { Size = new Vector2(100, 50), Visible = true };
 
             panel.AddChild(child1);
             panel.AddChild(child2);
@@ -444,7 +445,7 @@ namespace DTXMania.Test.UI
                 LayoutMode = PanelLayoutMode.Manual
             };
 
-            var child = new UIPanelTestElement
+            var child = new ConcreteUIElement
             {
                 Position = new Vector2(50, 75),
                 Size = new Vector2(100, 50),
@@ -467,8 +468,8 @@ namespace DTXMania.Test.UI
                 Spacing = 0f
             };
 
-            var child1 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
-            var child2 = new UIPanelTestElement { Size = new Vector2(100, 30), Visible = true };
+            var child1 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
+            var child2 = new ConcreteUIElement { Size = new Vector2(100, 30), Visible = true };
 
             // Add children in Manual mode first
             panel.AddChild(child1);
@@ -502,10 +503,4 @@ namespace DTXMania.Test.UI
         #endregion
     }
 
-    /// <summary>
-    /// Minimal UIElement implementation for UIPanel tests
-    /// </summary>
-    internal class UIPanelTestElement : UIElement
-    {
-    }
 }

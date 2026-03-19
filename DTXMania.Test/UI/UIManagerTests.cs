@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.UI;
 using Xunit;
 using System;
+using DTXMania.Test;
 
 namespace DTXMania.Test.UI
 {
@@ -396,7 +397,7 @@ namespace DTXMania.Test.UI
                 Position = new Vector2(0, 0),
                 Size = new Vector2(400, 300)
             };
-            var child = new UIManagerTestElement
+            var child = new ConcreteUIElement
             {
                 Position = new Vector2(50, 50),
                 Size = new Vector2(100, 80)
@@ -453,10 +454,4 @@ namespace DTXMania.Test.UI
         #endregion
     }
 
-    /// <summary>
-    /// Concrete UIElement for UIManager tests.
-    /// </summary>
-    internal class UIManagerTestElement : UIElement
-    {
-    }
 }
