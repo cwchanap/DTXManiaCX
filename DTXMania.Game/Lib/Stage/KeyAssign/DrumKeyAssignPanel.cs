@@ -38,10 +38,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public event EventHandler? Closed;
         public event EventHandler? Saved;
 
-        public DrumKeyAssignPanel(ModularInputManager modularInputManager, ConfigManager configManager)
+        public DrumKeyAssignPanel(ModularInputManager modularInputManager)
         {
             _modularInputManager = modularInputManager ?? throw new ArgumentNullException(nameof(modularInputManager));
-            _ = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
         public void Activate()
