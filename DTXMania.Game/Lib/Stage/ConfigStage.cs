@@ -25,8 +25,8 @@ namespace DTXMania.Game.Lib.Stage
         private IConfigManager _configManager;
         private List<IConfigItem> _configItems;
         private ConfigData _workingConfig;
-        private KeyBindings _workingDrumBindings;
-        private Dictionary<Keys, InputCommandType> _workingSystemBindings;
+        private KeyBindings _workingDrumBindings = new();
+        private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
         private bool _hasUnsavedChanges;
         private int _selectedIndex = 0;
 
