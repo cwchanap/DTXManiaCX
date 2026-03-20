@@ -98,6 +98,9 @@ namespace DTXMania.Test.Stage.Performance
             var display = (ComboDisplay)FormatterServices.GetUninitializedObject(typeof(ComboDisplay));
 #pragma warning restore SYSLIB0050
 
+            // Set _targetScale to its field-initializer value (1.0f) so state is deterministic
+            SetPrivateField(display, "_targetScale", 1.0f);
+
             // Start at 0 combo
             display.Combo = 0;
             var targetScaleBefore = GetPrivateField<float>(display, "_targetScale");
@@ -106,8 +109,8 @@ namespace DTXMania.Test.Stage.Performance
             display.Combo = 1;
             var targetScaleAfter = GetPrivateField<float>(display, "_targetScale");
 
-            // Should have set target scale to combo hit scale (> 1.0)
-            Assert.True(targetScaleAfter > targetScaleBefore || targetScaleAfter > 1.0f);
+            // Should have set target scale to combo hit scale (1.5f), which is > the resting value
+            Assert.True(targetScaleAfter > targetScaleBefore);
         }
 
         [Fact]
@@ -349,6 +352,22 @@ namespace DTXMania.Test.Stage.Performance
                 var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
                 if (field != null)
                     return (T?)field.GetValue(target);
+                type = type.BaseType;
+            }
+            throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object value)
+        {
+            var type = target.GetType();
+            while (type != null)
+            {
+                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field != null)
+                {
+                    field.SetValue(target, value);
+                    return;
+                }
                 type = type.BaseType;
             }
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
