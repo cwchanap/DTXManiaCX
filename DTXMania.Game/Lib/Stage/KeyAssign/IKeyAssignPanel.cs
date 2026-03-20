@@ -1,3 +1,5 @@
+#nullable enable
+
 using System;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -13,10 +15,20 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     {
         bool IsActive { get; }
 
-        /// <summary>Raised when the panel closes (save or cancel).</summary>
+        /// <summary>
+        /// Raised when the panel closes (save or cancel).
+        /// Implementers must raise <see cref="Saved"/> before <see cref="Closed"/> on a save operation,
+        /// because <c>ConfigStage.OnPanelSaved</c> captures the working bindings in the <see cref="Saved"/>
+        /// handler before the panel is torn down.
+        /// <para>See <c>DrumKeyAssignPanel</c> and <c>SystemKeyAssignPanel</c> for reference implementations.</para>
+        /// </summary>
         event EventHandler Closed;
 
-        /// <summary>Raised when the panel commits its changes (save only, not cancel).</summary>
+        /// <summary>
+        /// Raised when the panel commits its changes (save only, not cancel).
+        /// Must be raised before <see cref="Closed"/> so that consumers can read the committed state
+        /// while the panel is still active.
+        /// </summary>
         event EventHandler Saved;
 
         void Activate();

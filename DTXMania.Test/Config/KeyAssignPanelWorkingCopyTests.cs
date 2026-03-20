@@ -224,6 +224,12 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Update(0.0, new KeyboardState(key), new KeyboardState());
     }
 
+    // Creates a ModularInputManager with a pre-set _keyBindings field, bypassing the constructor so
+    // that no real input sources or threads are initialised during tests (test-isolation requirement).
+    // FormatterServices.GetUninitializedObject (SYSLIB0050) is used intentionally here; the suppression
+    // is test-only code and must never appear in production paths.  If SYSLIB0050 is eventually removed,
+    // replace this with a test-only factory constructor or a protected virtual hook on ModularInputManager
+    // that allows _keyBindings to be injected without the full initialisation sequence.
     private static ModularInputManager CreateUnusedModularInputManager(KeyBindings liveBindings)
     {
 #pragma warning disable SYSLIB0050
