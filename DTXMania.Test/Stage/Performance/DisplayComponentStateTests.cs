@@ -20,7 +20,7 @@ namespace DTXMania.Test.Stage.Performance
         #region ComboDisplay State Tests
 
         [Fact]
-        public void ComboDisplay_Combo_WhenSetToPositiveValue_ShouldClampToNonNegative()
+        public void ComboDisplay_Combo_WhenSetToPositiveValue_ShouldRetainValue()
         {
 #pragma warning disable SYSLIB0050
             var display = (ComboDisplay)FormatterServices.GetUninitializedObject(typeof(ComboDisplay));

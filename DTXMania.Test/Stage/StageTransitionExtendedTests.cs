@@ -17,7 +17,7 @@ namespace DTXMania.Test.Stage
         {
             var transition = new FadeTransition(0.5);
             Assert.False(transition.IsComplete);
-            Assert.False(transition.IsComplete);
+            Assert.Equal(0.0, transition.Progress);
         }
 
         [Fact]
@@ -68,7 +68,15 @@ namespace DTXMania.Test.Stage
         public void BaseTransition_MinimumDuration_ShouldPreventDivisionByZero()
         {
             var transition = new FadeTransition(-5.0, -5.0); // negative duration
+            // Duration should be clamped to a positive value
             Assert.True(transition.Duration > 0.0);
+            // After starting, alpha calculations must not produce NaN or Infinity
+            transition.Start();
+            transition.Update(0.0);
+            float fadeOutAlpha = transition.GetFadeOutAlpha();
+            float fadeInAlpha = transition.GetFadeInAlpha();
+            Assert.False(float.IsNaN(fadeOutAlpha) || float.IsInfinity(fadeOutAlpha));
+            Assert.False(float.IsNaN(fadeInAlpha) || float.IsInfinity(fadeInAlpha));
         }
 
         #endregion
@@ -260,10 +268,10 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void DTXManiaFadeTransition_WithEasing_FadeOutPlusFadeIn_ShouldEqualOne()
+        public void DTXManiaFadeTransition_WithEasing_AtHalfProgress_ShouldMatchExpectedEasingValues()
         {
-            // At any progress, with easing: sin^2 + cos^2 = 1 (Pythagorean identity)
-            // fadeIn = sin(progress * pi/2), fadeOut = 1 - (1 - cos(progress * pi/2)) = cos(progress * pi/2)
+            // fadeOut = 1 - (1 - cos(x)) = cos(x), fadeIn = sin(x)
+            // Note: cos(x) + sin(x) != 1 in general; each is independently verified here
             var transition = new DTXManiaFadeTransition(1.0, useEasing: true);
             transition.Start();
             transition.Update(0.5); // 50%
