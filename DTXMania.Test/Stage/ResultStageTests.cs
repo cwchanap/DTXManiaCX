@@ -14,8 +14,10 @@ namespace DTXMania.Test.Stage
     /// Unit tests for ResultStage focusing on pure logic methods
     /// that do not require graphics initialization.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ResultStageTests
     {
+        private const string PerformanceSummaryKey = "performanceSummary";
         #region Constructor Tests
 
         [Fact]
@@ -108,7 +110,7 @@ namespace DTXMania.Test.Stage
 
             var sharedData = new Dictionary<string, object>
             {
-                { "performanceSummary", expectedSummary }
+                { PerformanceSummaryKey, expectedSummary }
             };
             SetPrivateField(stage, "_sharedData", sharedData);
 
@@ -132,7 +134,7 @@ namespace DTXMania.Test.Stage
             // Put wrong type under the performanceSummary key
             var sharedData = new Dictionary<string, object>
             {
-                { "performanceSummary", "not a PerformanceSummary" }
+                { PerformanceSummaryKey, "not a PerformanceSummary" }
             };
             SetPrivateField(stage, "_sharedData", sharedData);
 
@@ -184,7 +186,7 @@ namespace DTXMania.Test.Stage
 
             var sharedData = new Dictionary<string, object>
             {
-                { "performanceSummary", expectedSummary }
+                { PerformanceSummaryKey, expectedSummary }
             };
             SetPrivateField(stage, "_sharedData", sharedData);
 
