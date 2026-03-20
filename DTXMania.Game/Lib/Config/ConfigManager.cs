@@ -149,11 +149,16 @@ namespace DTXMania.Game.Lib.Config
 
         public void SaveSystemKeyBindings(InputManager inputManager)
         {
-            Config.SystemKeyBindings.Clear();
             var snapshot = inputManager.GetKeyMappingSnapshot();
+            SaveSystemKeyBindings(snapshot);
+        }
+
+        public void SaveSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
+        {
+            Config.SystemKeyBindings.Clear();
             foreach (var command in Enum.GetValues<InputCommandType>())
             {
-                var key = snapshot
+                var key = workingBindings
                     .Where(kvp => kvp.Value == command)
                     .Select(kvp => (Keys?)kvp.Key)
                     .FirstOrDefault();
