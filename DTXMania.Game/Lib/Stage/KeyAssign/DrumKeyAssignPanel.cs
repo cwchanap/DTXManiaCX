@@ -120,7 +120,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void AssignKey(Keys key)
         {
-            var conflict = KeyConflictChecker.CheckDrumAssignConflict(
+            var conflict = KeyConflictChecker.CheckAgainstSystemBindings(
                 GetLiveSystemMapping(), key);
 
             if (conflict != null)

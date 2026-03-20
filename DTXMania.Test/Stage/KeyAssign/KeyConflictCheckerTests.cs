@@ -7,27 +7,27 @@ namespace DTXMania.Test.Stage.KeyAssign;
 
 public class KeyConflictCheckerTests
 {
-    // ─── CheckSystemConflict ───────────────────────────────────────────────────
+    // ─── CheckAgainstSystemBindings ───────────────────────────────────────────
 
     [Fact]
-    public void CheckSystemConflict_KeyNotBound_ShouldReturnNull()
+    public void CheckAgainstSystemBindings_KeyNotBound_ShouldReturnNull()
     {
         var systemBindings = new Dictionary<Keys, InputCommandType>
         {
             [Keys.Up] = InputCommandType.MoveUp
         };
-        var result = KeyConflictChecker.CheckSystemConflict(systemBindings, Keys.Down);
+        var result = KeyConflictChecker.CheckAgainstSystemBindings(systemBindings, Keys.Down);
         Assert.Null(result);
     }
 
     [Fact]
-    public void CheckSystemConflict_KeyIsBound_ShouldReturnMessage()
+    public void CheckAgainstSystemBindings_KeyIsBound_ShouldReturnMessage()
     {
         var systemBindings = new Dictionary<Keys, InputCommandType>
         {
             [Keys.Up] = InputCommandType.MoveUp
         };
-        var result = KeyConflictChecker.CheckSystemConflict(systemBindings, Keys.Up);
+        var result = KeyConflictChecker.CheckAgainstSystemBindings(systemBindings, Keys.Up);
         Assert.NotNull(result);
         Assert.Contains("MoveUp", result);
     }
@@ -116,30 +116,30 @@ public class KeyConflictCheckerTests
         Assert.Null(result);
     }
 
-    // ─── CheckDrumAssignConflict ──────────────────────────────────────────────
+    // ─── CheckAgainstSystemBindings (drum assign path) ────────────────────────
 
     [Fact]
-    public void CheckDrumAssignConflict_KeyNotInSystemBindings_ShouldReturnNull()
+    public void CheckAgainstSystemBindings_KeyNotInSystemBindings_ShouldReturnNull()
     {
         var systemBindings = new Dictionary<Keys, InputCommandType>
         {
             [Keys.Up] = InputCommandType.MoveUp
         };
 
-        var result = KeyConflictChecker.CheckDrumAssignConflict(systemBindings, Keys.S);
+        var result = KeyConflictChecker.CheckAgainstSystemBindings(systemBindings, Keys.S);
 
         Assert.Null(result);
     }
 
     [Fact]
-    public void CheckDrumAssignConflict_KeyBoundToSystemAction_ShouldReturnMessage()
+    public void CheckAgainstSystemBindings_KeyBoundToSystemAction_ShouldReturnMessage()
     {
         var systemBindings = new Dictionary<Keys, InputCommandType>
         {
             [Keys.Up] = InputCommandType.MoveUp
         };
 
-        var result = KeyConflictChecker.CheckDrumAssignConflict(systemBindings, Keys.Up);
+        var result = KeyConflictChecker.CheckAgainstSystemBindings(systemBindings, Keys.Up);
 
         Assert.NotNull(result);
         Assert.Contains("MoveUp", result);
