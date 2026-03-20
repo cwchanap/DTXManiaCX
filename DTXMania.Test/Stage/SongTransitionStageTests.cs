@@ -10,6 +10,7 @@ namespace DTXMania.Test.Stage
     /// Unit tests for SongTransitionStage focusing on pure logic methods
     /// that do not require graphics initialization.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class SongTransitionStageTests
     {
         #region Constructor Tests

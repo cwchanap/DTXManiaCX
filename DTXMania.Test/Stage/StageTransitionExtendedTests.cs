@@ -7,6 +7,7 @@ namespace DTXMania.Test.Stage
     /// <summary>
     /// Extended unit tests for stage transition system covering edge cases and boundary conditions
     /// </summary>
+    [Trait("Category", "Unit")]
     public class StageTransitionExtendedTests
     {
         #region BaseStageTransition State Tests
@@ -208,17 +209,13 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void CrossfadeTransition_AlphasSumShouldAlwaysBeOne()
         {
-            var transition = new CrossfadeTransition(1.0);
-            transition.Start();
             for (double t = 0.0; t <= 1.0; t += 0.1)
             {
-                transition.Update(0.0); // reset then
-                // Re-create for clean state
-                var t2 = new CrossfadeTransition(1.0);
-                t2.Start();
-                t2.Update(t);
-                float fadeOut = t2.GetFadeOutAlpha();
-                float fadeIn = t2.GetFadeInAlpha();
+                var transition = new CrossfadeTransition(1.0);
+                transition.Start();
+                transition.Update(t);
+                float fadeOut = transition.GetFadeOutAlpha();
+                float fadeIn = transition.GetFadeInAlpha();
                 Assert.Equal(1.0f, fadeOut + fadeIn, 3);
             }
         }
@@ -318,24 +315,20 @@ namespace DTXMania.Test.Stage
             Assert.Equal(0.0f, transition.GetFadeInAlpha());
         }
 
-        [Fact]
-        public void StartupToTitleTransition_At30PercentProgress_FadeInShouldStillBeZero()
+        [Theory]
+        [InlineData(0.29, true)]  // before 0.3 delay: fade-in is exactly 0
+        [InlineData(0.30, true)]  // at the 0.3 boundary: fade-in is exactly 0
+        [InlineData(0.31, false)] // just past delay: fade-in has started
+        [InlineData(0.50, false)] // well past delay: fade-in is clearly positive
+        public void StartupToTitleTransition_FadeIn_RespectsDelay(double progress, bool expectZero)
         {
-            // Fade-in is delayed by 0.3, so at exactly 30% progress, fade-in = 0
             var transition = new StartupToTitleTransition(1.0);
             transition.Start();
-            transition.Update(0.3);
-            Assert.Equal(0.0f, transition.GetFadeInAlpha(), 3);
-        }
-
-        [Fact]
-        public void StartupToTitleTransition_BeyondDelay_FadeInShouldBePositive()
-        {
-            // After the 0.3 delay, fade-in should increase
-            var transition = new StartupToTitleTransition(1.0);
-            transition.Start();
-            transition.Update(0.5); // progress = 0.5, beyond 0.3 delay
-            Assert.True(transition.GetFadeInAlpha() > 0.0f);
+            transition.Update(progress);
+            if (expectZero)
+                Assert.Equal(0.0f, transition.GetFadeInAlpha(), 3);
+            else
+                Assert.True(transition.GetFadeInAlpha() > 0.0f);
         }
 
         [Fact]
@@ -364,15 +357,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1.0, transition.Duration, 5);
         }
 
-        [Fact]
-        public void StartupToTitleTransition_FadeInDelayedBy30Percent()
-        {
-            // At 30% + epsilon, fade-in should be > 0
-            var transition = new StartupToTitleTransition(1.0);
-            transition.Start();
-            transition.Update(0.31); // just past the 0.3 delay
-            Assert.True(transition.GetFadeInAlpha() > 0.0f);
-        }
 
         #endregion
     }

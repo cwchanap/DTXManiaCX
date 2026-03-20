@@ -7,6 +7,7 @@ namespace DTXMania.Test.Song
     /// Tests for InputLane enum and InputLaneExtensions utility methods.
     /// Covers channel mappings, index mappings, display names, and round-trip conversions.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class InputLaneExtensionsTests
     {
         #region FromChannel Tests - Valid Channels
@@ -21,59 +22,26 @@ namespace DTXMania.Test.Song
         [InlineData(0x15, InputLane.BassDrum)]
         [InlineData(0x16, InputLane.HighTom)]
         [InlineData(0x17, InputLane.LowTomRightCymbal)]
-        public void FromChannel_ValidPrimaryChannel_ShouldReturnCorrectLane(int channel, InputLane expected)
+        [InlineData(0x11, InputLane.FloorTomLeftCymbal)] // alternate channel for FloorTomLeftCymbal
+        [InlineData(0x1C, InputLane.HiHatFootLeftCrash)] // alternate channel for HiHatFootLeftCrash
+        [InlineData(0x19, InputLane.LowTomRightCymbal)]  // alternate channel for LowTomRightCymbal
+        public void FromChannel_ValidChannel_ShouldReturnCorrectLane(int channel, InputLane expected)
         {
             var result = InputLaneExtensions.FromChannel(channel);
             Assert.Equal(expected, result);
-        }
-
-        [Fact]
-        public void FromChannel_Channel0x11_ShouldReturnFloorTomLeftCymbal()
-        {
-            // 0x11 is an alternate channel that maps to the same lane as 0x18
-            var result = InputLaneExtensions.FromChannel(0x11);
-            Assert.Equal(InputLane.FloorTomLeftCymbal, result);
-        }
-
-        [Fact]
-        public void FromChannel_Channel0x1C_ShouldReturnHiHatFootLeftCrash()
-        {
-            // 0x1C is an alternate channel that maps to the same lane as 0x1B
-            var result = InputLaneExtensions.FromChannel(0x1C);
-            Assert.Equal(InputLane.HiHatFootLeftCrash, result);
-        }
-
-        [Fact]
-        public void FromChannel_Channel0x19_ShouldReturnLowTomRightCymbal()
-        {
-            // 0x19 is an alternate channel that maps to the same lane as 0x17
-            var result = InputLaneExtensions.FromChannel(0x19);
-            Assert.Equal(InputLane.LowTomRightCymbal, result);
         }
 
         #endregion
 
         #region FromChannel Tests - Invalid Channels
 
-        [Fact]
-        public void FromChannel_InvalidChannel_ShouldReturnNull()
+        [Theory]
+        [InlineData(0xFF)]
+        [InlineData(0)]
+        [InlineData(-1)]
+        public void FromChannel_InvalidChannel_ShouldReturnNull(int channel)
         {
-            var result = InputLaneExtensions.FromChannel(0xFF);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void FromChannel_ZeroChannel_ShouldReturnNull()
-        {
-            var result = InputLaneExtensions.FromChannel(0);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void FromChannel_NegativeChannel_ShouldReturnNull()
-        {
-            var result = InputLaneExtensions.FromChannel(-1);
-            Assert.Null(result);
+            Assert.Null(InputLaneExtensions.FromChannel(channel));
         }
 
         #endregion
@@ -98,7 +66,6 @@ namespace DTXMania.Test.Song
         [Fact]
         public void ToLaneIndex_InvalidLane_ShouldReturnNegativeOne()
         {
-            // Cast an invalid value to InputLane
             var invalidLane = (InputLane)0xFF;
             Assert.Equal(-1, invalidLane.ToLaneIndex());
         }
@@ -127,25 +94,13 @@ namespace DTXMania.Test.Song
 
         #region FromLaneIndex Tests - Invalid Indices
 
-        [Fact]
-        public void FromLaneIndex_NegativeIndex_ShouldReturnNull()
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(9)]
+        [InlineData(100)]
+        public void FromLaneIndex_InvalidIndex_ShouldReturnNull(int index)
         {
-            var result = InputLaneExtensions.FromLaneIndex(-1);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void FromLaneIndex_IndexTooLarge_ShouldReturnNull()
-        {
-            var result = InputLaneExtensions.FromLaneIndex(9);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void FromLaneIndex_LargeIndex_ShouldReturnNull()
-        {
-            var result = InputLaneExtensions.FromLaneIndex(100);
-            Assert.Null(result);
+            Assert.Null(InputLaneExtensions.FromLaneIndex(index));
         }
 
         #endregion
@@ -235,31 +190,15 @@ namespace DTXMania.Test.Song
 
         #region Multi-Channel Mapping Tests
 
-        [Fact]
-        public void MultiChannelLanes_BothChannels_ShouldMapToSameLane()
+        [Theory]
+        [InlineData(0x11, 0x18)] // FloorTomLeftCymbal: alternate and primary map to same lane
+        [InlineData(0x1C, 0x1B)] // HiHatFootLeftCrash: alternate and primary map to same lane
+        [InlineData(0x19, 0x17)] // LowTomRightCymbal: alternate and primary map to same lane
+        public void MultiChannelLanes_BothChannels_ShouldMapToSameLane(int alternateChannel, int primaryChannel)
         {
-            // Channels 0x11 and 0x18 should map to the same lane (FloorTomLeftCymbal)
-            var lane1 = InputLaneExtensions.FromChannel(0x11);
-            var lane2 = InputLaneExtensions.FromChannel(0x18);
-            Assert.Equal(lane1, lane2);
-        }
-
-        [Fact]
-        public void MultiChannelLanes_HiHatFootBothChannels_ShouldMapToSameLane()
-        {
-            // Channels 0x1B and 0x1C should map to HiHatFootLeftCrash
-            var lane1 = InputLaneExtensions.FromChannel(0x1B);
-            var lane2 = InputLaneExtensions.FromChannel(0x1C);
-            Assert.Equal(lane1, lane2);
-        }
-
-        [Fact]
-        public void MultiChannelLanes_LowTomBothChannels_ShouldMapToSameLane()
-        {
-            // Channels 0x17 and 0x19 should map to LowTomRightCymbal
-            var lane1 = InputLaneExtensions.FromChannel(0x17);
-            var lane2 = InputLaneExtensions.FromChannel(0x19);
-            Assert.Equal(lane1, lane2);
+            Assert.Equal(
+                InputLaneExtensions.FromChannel(primaryChannel),
+                InputLaneExtensions.FromChannel(alternateChannel));
         }
 
         #endregion

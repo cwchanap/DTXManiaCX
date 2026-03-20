@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -13,6 +14,7 @@ namespace DTXMania.Test.Stage.Performance
     /// These tests use FormatterServices to bypass the graphics-requiring constructors
     /// and test the pure state/logic portions of these components.
     /// </summary>
+    [Trait("Category", "Performance")]
     public class DisplayComponentStateTests
     {
         #region ComboDisplay State Tests
@@ -191,85 +193,28 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(1.0f, display.Value, 5);
         }
 
-        [Fact]
-        public void GaugeDisplay_SetValue_AtHighThreshold_ShouldSetGreenColor()
+        public static IEnumerable<object[]> GaugeDisplayColorData()
         {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.8f); // >= 0.8 should be Green
-
-            Assert.Equal(Color.Green, display.FillColor);
+            yield return new object[] { 0.9f, Color.Green };    // clearly above 0.8
+            yield return new object[] { 0.8f, Color.Green };    // boundary: exactly 0.8
+            yield return new object[] { 0.65f, Color.Yellow };  // between 0.5 and 0.8
+            yield return new object[] { 0.5f, Color.Yellow };   // boundary: exactly 0.5
+            yield return new object[] { 0.35f, Color.Orange };  // between 0.2 and 0.5
+            yield return new object[] { 0.2f, Color.Orange };   // boundary: exactly 0.2
+            yield return new object[] { 0.1f, Color.Red };      // below 0.2
         }
 
-        [Fact]
-        public void GaugeDisplay_SetValue_AtMediumThreshold_ShouldSetYellowColor()
+        [Theory]
+        [MemberData(nameof(GaugeDisplayColorData))]
+        public void GaugeDisplay_SetValue_SetsExpectedColor(float value, Color expectedColor)
         {
 #pragma warning disable SYSLIB0050
             var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
 #pragma warning restore SYSLIB0050
 
-            display.SetValue(0.65f); // >= 0.5 should be Yellow
+            display.SetValue(value);
 
-            Assert.Equal(Color.Yellow, display.FillColor);
-        }
-
-        [Fact]
-        public void GaugeDisplay_SetValue_AtLowThreshold_ShouldSetOrangeColor()
-        {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.35f); // >= 0.2 should be Orange
-
-            Assert.Equal(Color.Orange, display.FillColor);
-        }
-
-        [Fact]
-        public void GaugeDisplay_SetValue_AtCriticalThreshold_ShouldSetRedColor()
-        {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.1f); // < 0.2 should be Red
-
-            Assert.Equal(Color.Red, display.FillColor);
-        }
-
-        [Fact]
-        public void GaugeDisplay_SetValue_ExactlyAt0Point8_ShouldBeGreen()
-        {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.8f);
-            Assert.Equal(Color.Green, display.FillColor);
-        }
-
-        [Fact]
-        public void GaugeDisplay_SetValue_ExactlyAt0Point5_ShouldBeYellow()
-        {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.5f);
-            Assert.Equal(Color.Yellow, display.FillColor);
-        }
-
-        [Fact]
-        public void GaugeDisplay_SetValue_ExactlyAt0Point2_ShouldBeOrange()
-        {
-#pragma warning disable SYSLIB0050
-            var display = (GaugeDisplay)FormatterServices.GetUninitializedObject(typeof(GaugeDisplay));
-#pragma warning restore SYSLIB0050
-
-            display.SetValue(0.2f);
-            Assert.Equal(Color.Orange, display.FillColor);
+            Assert.Equal(expectedColor, display.FillColor);
         }
 
         [Fact]
