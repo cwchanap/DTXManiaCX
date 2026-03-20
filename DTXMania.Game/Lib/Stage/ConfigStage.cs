@@ -215,7 +215,7 @@ namespace DTXMania.Game.Lib.Stage
             var inputManagerCompat = _game.InputManager
                 ?? throw new InvalidOperationException("InputManager not available");
 
-            _workingDrumBindings = CloneKeyBindings(inputManagerCompat.ModularInputManager.KeyBindings);
+            _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
             _workingSystemBindings = new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
         }
 
@@ -310,7 +310,7 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new InvalidOperationException("InputManager not available");
 
             _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager);
-            _drumPanel._workingBindingsProvider = () => CloneKeyBindings(_workingDrumBindings);
+            _drumPanel._workingBindingsProvider = () => _workingDrumBindings.Clone();
             _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
@@ -639,19 +639,6 @@ namespace DTXMania.Game.Lib.Stage
 
             foreach (var kvp in bindings)
                 inputManager.SetKeyMapping(kvp.Key, kvp.Value);
-        }
-
-        private static KeyBindings CloneKeyBindings(KeyBindings source)
-        {
-            var clone = new KeyBindings();
-            clone.ClearAllBindings();
-
-            foreach (var kvp in source.ButtonToLane)
-            {
-                clone.BindButton(kvp.Key, kvp.Value);
-            }
-
-            return clone;
         }
 
         #endregion

@@ -45,7 +45,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         public void Activate()
         {
-            _workingBindings = CloneBindings(_workingBindingsProvider?.Invoke() ?? _modularInputManager.KeyBindings);
+            _workingBindings = (_workingBindingsProvider?.Invoke() ?? _modularInputManager.KeyBindings).Clone();
 
             _selectedIndex = 0;
             _state = CaptureState.Browsing;
@@ -170,7 +170,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _liveSystemMappingProvider;
         internal Func<KeyBindings>? _workingBindingsProvider;
 
-        internal KeyBindings GetWorkingBindingsSnapshot() => CloneBindings(_workingBindings);
+        internal KeyBindings GetWorkingBindingsSnapshot() => _workingBindings.Clone();
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
@@ -247,17 +247,5 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private static bool IsJustPressed(KeyboardState cur, KeyboardState prev, Keys key)
             => cur.IsKeyDown(key) && !prev.IsKeyDown(key);
 
-        private static KeyBindings CloneBindings(KeyBindings source)
-        {
-            var clone = new KeyBindings();
-            clone.ClearAllBindings();
-
-            foreach (var kvp in source.ButtonToLane)
-            {
-                clone.BindButton(kvp.Key, kvp.Value);
-            }
-
-            return clone;
-        }
     }
 }
