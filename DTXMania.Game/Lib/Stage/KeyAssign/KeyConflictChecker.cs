@@ -38,7 +38,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         /// <summary>
         /// Checks if a candidate key being added to a drum lane conflicts with any system binding.
-        /// Ignores the case where the key is already on the same target lane (same-lane re-bind is fine).
+        /// Returns a human-readable error message if the key is already used by a system action, or null if there is no conflict.
         /// </summary>
         public static string? CheckDrumAssignConflict(
             IReadOnlyDictionary<Keys, InputCommandType> systemBindings,

@@ -119,10 +119,16 @@ namespace DTXMania.Game.Lib.Config
 
         public void LoadSystemKeyBindings(InputManager inputManager)
         {
+            const string prefix = "SystemKey.";
             foreach (var kvp in Config.SystemKeyBindings)
             {
                 // Key format: "SystemKey.MoveUp", value format: "Up"
-                var suffix = kvp.Key.Substring("SystemKey.".Length);
+                if (string.IsNullOrEmpty(kvp.Key) ||
+                    !kvp.Key.StartsWith(prefix, StringComparison.Ordinal) ||
+                    kvp.Key.Length <= prefix.Length)
+                    continue;
+
+                var suffix = kvp.Key.Substring(prefix.Length);
                 if (!Enum.TryParse<InputCommandType>(suffix, true, out var command))
                 {
                     continue;
