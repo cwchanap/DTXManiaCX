@@ -1,3 +1,5 @@
+#nullable enable
+
 using System.Collections.Generic;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Input;
