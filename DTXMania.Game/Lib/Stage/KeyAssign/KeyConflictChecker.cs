@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         /// Checks if a candidate key is already mapped as a system navigation key.
         /// Returns a human-readable error message, or null if no conflict.
         /// </summary>
-        public static string? CheckSystemConflict(
+        public static string? CheckAgainstSystemBindings(
             IReadOnlyDictionary<Keys, InputCommandType> systemBindings,
             Keys candidate)
         {
@@ -34,17 +34,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             if (drumBindings.TryGetValue(buttonId, out var lane))
                 return $"{candidate} is already bound to drum lane: {KeyBindings.GetLaneName(lane)}";
             return null;
-        }
-
-        /// <summary>
-        /// Checks if a candidate key being added to a drum lane conflicts with any system binding.
-        /// Returns a human-readable error message if the key is already used by a system action, or null if there is no conflict.
-        /// </summary>
-        public static string? CheckDrumAssignConflict(
-            IReadOnlyDictionary<Keys, InputCommandType> systemBindings,
-            Keys candidate)
-        {
-            return CheckSystemConflict(systemBindings, candidate);
         }
 
         /// <summary>
