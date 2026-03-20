@@ -5,6 +5,7 @@ using System;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("DTXMania.Test")]
+[assembly: InternalsVisibleTo("DTXMania.Test.Mac")]
 
 namespace DTXMania.Game.Lib.Resources
 {
