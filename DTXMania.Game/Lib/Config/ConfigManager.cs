@@ -101,6 +101,7 @@ namespace DTXMania.Game.Lib.Config
 
         public void SaveKeyBindings(KeyBindings keyBindings)
         {
+            ArgumentNullException.ThrowIfNull(keyBindings);
             Config.KeyBindings.Clear();
             Config.UnboundDrumLanes.Clear();
             foreach (var kvp in keyBindings.ButtonToLane)
