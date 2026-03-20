@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Stage;
 using Moq;
@@ -36,8 +37,9 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Type_ShouldReturnSongTransition()
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+#pragma warning disable SYSLIB0050
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+#pragma warning restore SYSLIB0050
             Assert.Equal(StageType.SongTransition, stage.Type);
         }
 
@@ -53,8 +55,9 @@ namespace DTXMania.Test.Stage
         [InlineData(4, "Ultimate")]
         public void GetDifficultyName_ValidDifficulty_ShouldReturnCorrectName(int difficulty, string expectedName)
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+#pragma warning disable SYSLIB0050
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+#pragma warning restore SYSLIB0050
 
             var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", difficulty);
 
@@ -68,8 +71,9 @@ namespace DTXMania.Test.Stage
         [InlineData(int.MinValue)]
         public void GetDifficultyName_InvalidDifficulty_ShouldReturnUnknown(int difficulty)
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+#pragma warning disable SYSLIB0050
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+#pragma warning restore SYSLIB0050
 
             var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", difficulty);
 
@@ -83,10 +87,11 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void GetCurrentDifficultyLevel_WhenSelectedSongIsNull_ShouldReturnZero()
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+#pragma warning disable SYSLIB0050
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+#pragma warning restore SYSLIB0050
 
-            // _selectedSong is null by default (private field not set)
+            // _selectedSong is null by default (uninitialized object)
             var result = InvokePrivateMethod<float>(stage, "GetCurrentDifficultyLevel");
 
             Assert.Equal(0.0f, result);
@@ -111,8 +116,10 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void InitialPhase_ShouldBeInactive()
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+#pragma warning disable SYSLIB0050
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+#pragma warning restore SYSLIB0050
+            // StagePhase.Inactive == 0, which is the default value for the uninitialized enum field
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
 
