@@ -1,4 +1,3 @@
-using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using Microsoft.Xna.Framework.Input;
@@ -12,9 +11,8 @@ public class KeyAssignPanelWorkingCopyTests
     [Fact]
     public void KeyAssignPanels_Save_ShouldLeaveLiveStateUntouchedUntilStageApplies()
     {
-        var configManager = new ConfigManager();
         using var inputManager = new InputManager();
-        var systemPanel = new SystemKeyAssignPanel(inputManager, configManager);
+        var systemPanel = new SystemKeyAssignPanel(inputManager);
 
         systemPanel.Activate();
 
@@ -31,7 +29,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(InputCommandType.Back, liveSnapshot[Keys.Escape]);
 
         var liveBindings = new KeyBindings();
-        var drumPanel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings), configManager);
+        var drumPanel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
 
         drumPanel.Activate();
         PressKey(drumPanel, Keys.Delete);

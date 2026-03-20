@@ -309,13 +309,13 @@ namespace DTXMania.Game.Lib.Stage
             var inputManagerCompat = _game.InputManager
                 ?? throw new InvalidOperationException("InputManager not available");
 
-            _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager, concreteConfig);
+            _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager);
             _drumPanel._workingBindingsProvider = () => CloneKeyBindings(_workingDrumBindings);
             _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 
-            _systemPanel = new SystemKeyAssignPanel(inputManagerCompat, concreteConfig);
+            _systemPanel = new SystemKeyAssignPanel(inputManagerCompat);
             _systemPanel._workingMappingProvider =
                 () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _systemPanel._liveDrumBindingsProvider =

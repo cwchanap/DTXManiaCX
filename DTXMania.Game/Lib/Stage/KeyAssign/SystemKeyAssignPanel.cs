@@ -52,10 +52,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public event EventHandler? Closed;
         public event EventHandler? Saved;
 
-        public SystemKeyAssignPanel(InputManager inputManager, ConfigManager configManager)
+        public SystemKeyAssignPanel(InputManager inputManager)
         {
             _inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
-            _ = configManager ?? throw new ArgumentNullException(nameof(configManager));
         }
 
         public void Activate()
