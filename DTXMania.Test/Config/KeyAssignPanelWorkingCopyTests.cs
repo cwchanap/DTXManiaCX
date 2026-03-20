@@ -43,6 +43,182 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(0, liveBindings.GetLane("Key.A"));
     }
 
+    // ─── DrumKeyAssignPanel event sequencing ─────────────────────────────────
+
+    [Fact]
+    public void DrumPanel_CommitAndClose_ShouldRaiseSavedThenClosed()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel.Activate();
+
+        bool savedFired = false;
+        bool closedFired = false;
+        bool savedBeforeClosed = false;
+
+        panel.Saved += (_, _) => savedFired = true;
+        panel.Closed += (_, _) => { closedFired = true; savedBeforeClosed = savedFired; };
+
+        // Navigate to FooterSave (index 10 = LaneCount)
+        for (int i = 0; i < 10; i++)
+            PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Enter);
+
+        Assert.True(savedFired, "Saved event should fire on commit");
+        Assert.True(closedFired, "Closed event should fire on commit");
+        Assert.True(savedBeforeClosed, "Saved must fire before Closed");
+        Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void DrumPanel_CancelAndClose_ShouldRaiseOnlyClosedNotSaved()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel.Activate();
+
+        bool savedFired = false;
+        bool closedFired = false;
+
+        panel.Saved += (_, _) => savedFired = true;
+        panel.Closed += (_, _) => closedFired = true;
+
+        PressKey(panel, Keys.Escape);
+
+        Assert.False(savedFired, "Saved must NOT fire on cancel");
+        Assert.True(closedFired, "Closed must fire on cancel");
+        Assert.False(panel.IsActive);
+    }
+
+    // ─── SystemKeyAssignPanel event sequencing ────────────────────────────────
+
+    [Fact]
+    public void SystemPanel_CommitAndClose_ShouldRaiseSavedThenClosed()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        bool savedFired = false;
+        bool closedFired = false;
+        bool savedBeforeClosed = false;
+
+        panel.Saved += (_, _) => savedFired = true;
+        panel.Closed += (_, _) => { closedFired = true; savedBeforeClosed = savedFired; };
+
+        // Navigate to FooterSave (index 6 = ActionCount)
+        for (int i = 0; i < 6; i++)
+            PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Enter);
+
+        Assert.True(savedFired);
+        Assert.True(closedFired);
+        Assert.True(savedBeforeClosed, "Saved must fire before Closed");
+        Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void SystemPanel_CancelAndClose_ShouldRaiseOnlyClosedNotSaved()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel.Activate();
+
+        bool savedFired = false;
+        bool closedFired = false;
+
+        panel.Saved += (_, _) => savedFired = true;
+        panel.Closed += (_, _) => closedFired = true;
+
+        PressKey(panel, Keys.Escape);
+
+        Assert.False(savedFired);
+        Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    // ─── DrumKeyAssignPanel AwaitingKey capture ───────────────────────────────
+
+    [Fact]
+    public void DrumPanel_AwaitingKey_ShouldBindPressedKeyToSelectedLane()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel.Activate();
+
+        // Lane 0 selected by default; Enter to enter AwaitingKey
+        PressKey(panel, Keys.Enter);
+
+        // Press H — first frame counts as just-pressed (previous is empty)
+        panel.Update(0.0, new KeyboardState(Keys.H), new KeyboardState());
+
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.H)));
+    }
+
+    [Fact]
+    public void DrumPanel_AwaitingKey_EscapeShouldCancelCapture()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel.Activate();
+
+        PressKey(panel, Keys.Enter);   // Enter AwaitingKey
+        PressKey(panel, Keys.Escape);  // Cancel — should return to Browsing
+
+        Assert.True(panel.IsActive, "Panel should remain active after Escape cancels capture");
+
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        var buttonId = KeyBindings.CreateKeyButtonId(Keys.Escape);
+        Assert.False(snapshot.ButtonToLane.ContainsKey(buttonId),
+            "Escape must not be bound to any lane when it cancels capture");
+    }
+
+    // ─── SystemKeyAssignPanel AwaitingKey capture ─────────────────────────────
+
+    [Fact]
+    public void SystemPanel_AwaitingKey_EscapeShouldBindNotCancel()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        // Row 0 (MoveUp) selected; Enter to enter AwaitingKey
+        PressKey(panel, Keys.Enter);
+
+        // Press Escape — in SystemPanel Escape is bindable, not a cancel key
+        panel.Update(0.0, new KeyboardState(Keys.Escape), new KeyboardState());
+
+        var snapshot = panel.GetWorkingMappingSnapshot();
+        Assert.True(snapshot.ContainsKey(Keys.Escape), "Escape should be bound as a system key");
+        Assert.True(panel.IsActive, "Panel should remain active");
+    }
+
+    [Fact]
+    public void SystemPanel_AwaitingKey_BackspaceShouldCancelCapture()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        PressKey(panel, Keys.Enter);   // Enter AwaitingKey for row 0 (MoveUp)
+
+        // Press Backspace — should cancel capture, not bind
+        panel.Update(0.0, new KeyboardState(Keys.Back), new KeyboardState());
+
+        var snapshot = panel.GetWorkingMappingSnapshot();
+        Assert.False(snapshot.ContainsKey(Keys.Back), "Backspace must not be bound");
+        Assert.True(panel.IsActive);
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
     private static void PressKey(IKeyAssignPanel panel, Keys key)
     {
         panel.Update(0.0, new KeyboardState(key), new KeyboardState());
