@@ -439,16 +439,23 @@ namespace DTXMania.Game.Lib.Stage
         private void OnSaveButtonClicked(object sender, EventArgs e)
         {
             System.Diagnostics.Debug.WriteLine("Save button clicked - applying configuration");
-            ApplyConfiguration();
-            ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
+            if (ApplyConfiguration())
+                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
+            else
+                System.Diagnostics.Debug.WriteLine("Save failed - staying on Config stage");
         }
 
         #endregion
 
         #region Configuration Management
 
-        private void ApplyConfiguration()
+        /// <summary>
+        /// Applies working configuration to disk first, then to live state on success.
+        /// Returns true if the disk write succeeded.
+        /// </summary>
+        private bool ApplyConfiguration()
         {
+            // Stage 1: prepare in-memory config data from working copies
             var config = _configManager.Config;
             config.ScreenWidth = _workingConfig.ScreenWidth;
             config.ScreenHeight = _workingConfig.ScreenHeight;
@@ -457,25 +464,33 @@ namespace DTXMania.Game.Lib.Stage
             config.NoFail = _workingConfig.NoFail;
             config.AutoPlay = _workingConfig.AutoPlay;
 
-            if (_configManager is ConfigManager concreteConfig && _game.InputManager != null)
+            if (_configManager is ConfigManager concreteConfig)
             {
                 concreteConfig.SaveKeyBindings(_workingDrumBindings);
-                _game.InputManager.ModularInputManager.ReloadKeyBindings();
-
-                ApplySystemBindings(_game.InputManager, _workingSystemBindings);
-                concreteConfig.SaveSystemKeyBindings(_game.InputManager);
+                concreteConfig.SaveSystemKeyBindings(_workingSystemBindings);
             }
 
+            // Stage 2: write to disk BEFORE mutating live input state
             try
             {
                 _configManager.SaveConfig(DTXMania.Game.Lib.Utilities.AppPaths.GetConfigFilePath());
-                _hasUnsavedChanges = false;
                 System.Diagnostics.Debug.WriteLine("Configuration saved successfully");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to save configuration: {ex.Message}");
+                return false;
             }
+
+            // Stage 3: disk write succeeded — now apply to live input state
+            if (_game.InputManager != null)
+            {
+                _game.InputManager.ModularInputManager.ReloadKeyBindings();
+                ApplySystemBindings(_game.InputManager, _workingSystemBindings);
+            }
+
+            _hasUnsavedChanges = false;
+            return true;
         }
 
         #endregion
@@ -617,23 +632,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private static void ApplySystemBindings(InputManager inputManager, IReadOnlyDictionary<Keys, InputCommandType> bindings)
         {
-            foreach (var command in Enum.GetValues<InputCommandType>())
-            {
-                var keysToRemove = inputManager.GetKeyMappingSnapshot()
-                    .Where(kvp => kvp.Value == command)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var key in keysToRemove)
-                {
-                    inputManager.RemoveKeyMapping(key);
-                }
-            }
+            // Take snapshot once, not once per enum value
+            var snapshot = inputManager.GetKeyMappingSnapshot();
+            foreach (var kvp in snapshot)
+                inputManager.RemoveKeyMapping(kvp.Key);
 
             foreach (var kvp in bindings)
-            {
                 inputManager.SetKeyMapping(kvp.Key, kvp.Value);
-            }
         }
 
         private static KeyBindings CloneKeyBindings(KeyBindings source)
