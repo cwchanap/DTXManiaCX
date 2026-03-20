@@ -19,6 +19,7 @@ namespace DTXMania.Game.Lib.Config
         public override void PreviousValue() => _onActivate();
         public override void NextValue() => _onActivate();
         public override void ToggleValue() => _onActivate();
+        // Navigation items have no cyclic value; ValueChanged is intentionally never raised.
         protected override void OnValueChanged() { }
     }
 }
