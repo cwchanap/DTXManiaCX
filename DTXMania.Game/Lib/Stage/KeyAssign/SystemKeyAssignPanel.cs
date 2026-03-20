@@ -20,8 +20,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     {
         private enum CaptureState { Browsing, AwaitingKey, ShowingConflict }
 
-        // Only Escape cancels capture; all other keys (including arrows and Enter) are bindable.
-        private static bool IsCancelKey(Keys key) => key == Keys.Escape;
+        // Only Backspace cancels capture; all other keys (including Escape, arrows, and Enter) are bindable.
+        private static bool IsCancelKey(Keys key) => key == Keys.Back;
 
         private static readonly InputCommandType[] Actions =
         {
@@ -33,10 +33,10 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             InputCommandType.Back,
         };
 
-        private const int ActionCount = 6;
-        private const int FooterSave = ActionCount;
-        private const int FooterCancel = ActionCount + 1;
-        private const int RowCount = ActionCount + 2;
+        private static readonly int ActionCount = Actions.Length;
+        private static readonly int FooterSave = ActionCount;
+        private static readonly int FooterCancel = ActionCount + 1;
+        private static readonly int RowCount = ActionCount + 2;
         private const double ConflictDuration = 2.0;
 
         private readonly InputManager _inputManager;
@@ -229,7 +229,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                         new Color(64, 64, 128, 150));
 
                 string keyLabel = (sel && _state == CaptureState.AwaitingKey)
-                    ? "[Press any key... ESC to cancel]"
+                    ? "[Press any key... Backspace to cancel]"
                     : (_workingMapping.TryGetValue(action, out var k) ? k.ToString() : "(unbound)");
 
                 string rowText = $"{i + 1}. {action,-18}  {keyLabel}";

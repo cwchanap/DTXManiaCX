@@ -19,11 +19,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     {
         private enum CaptureState { Browsing, AwaitingKey, ShowingConflict }
 
-        private static readonly Keys[] NavigationKeys =
-        {
-            Keys.Escape, Keys.Enter, Keys.Up, Keys.Down, Keys.Left, Keys.Right
-        };
-
         private const int LaneCount = 10;
         private const int FooterSave = LaneCount;
         private const int FooterCancel = LaneCount + 1;
@@ -116,7 +111,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             foreach (var key in current.GetPressedKeys())
             {
-                if (!previous.IsKeyDown(key) && !Array.Exists(NavigationKeys, k => k == key))
+                if (!previous.IsKeyDown(key) && key != Keys.Escape)
                 {
                     AssignKey(key);
                     return;
