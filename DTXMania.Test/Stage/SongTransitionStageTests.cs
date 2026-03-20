@@ -116,10 +116,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void InitialPhase_ShouldBeInactive()
         {
-#pragma warning disable SYSLIB0050
-            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
-#pragma warning restore SYSLIB0050
-            // StagePhase.Inactive == 0, which is the default value for the uninitialized enum field
+            var mockGame = new Mock<BaseGame>();
+            var stage = new SongTransitionStage(mockGame.Object);
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
 
@@ -127,11 +125,13 @@ namespace DTXMania.Test.Stage
 
         #region Helper Methods
 
-        private static T InvokePrivateMethod<T>(object target, string methodName, params object[] args)
+        private static T? InvokePrivateMethod<T>(object target, string methodName, params object[] args)
         {
             var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
-            return (T)method!.Invoke(target, args)!;
+            var result = method!.Invoke(target, args);
+            if (result is null) return default;
+            return (T)result;
         }
 
         #endregion
