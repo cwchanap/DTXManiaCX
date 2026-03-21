@@ -14,19 +14,21 @@ namespace DTXMania.Test.Stage
     {
         #region Before-Start – All Transition Types (parameterized)
 
-        public static IEnumerable<object[]> AllTransitionInstances() => new[]
+        public static IEnumerable<object[]> AllTransitionTypes() => new[]
         {
-            new object[] { new InstantTransition() },
-            new object[] { new FadeTransition() },
-            new object[] { new CrossfadeTransition() },
-            new object[] { new DTXManiaFadeTransition() },
-            new object[] { new StartupToTitleTransition() }
+            new object[] { typeof(InstantTransition) },
+            new object[] { typeof(FadeTransition) },
+            new object[] { typeof(CrossfadeTransition) },
+            new object[] { typeof(DTXManiaFadeTransition) },
+            new object[] { typeof(StartupToTitleTransition) }
         };
 
         [Theory]
-        [MemberData(nameof(AllTransitionInstances))]
-        public void AnyTransition_BeforeStart_ShouldHaveCorrectAlphas(IStageTransition transition)
+        [MemberData(nameof(AllTransitionTypes))]
+        public void AnyTransition_BeforeStart_ShouldHaveCorrectAlphas(Type transitionType)
         {
+            // Instantiate via Type so the data row is serializable and xUnit can display it.
+            var transition = (IStageTransition)System.Activator.CreateInstance(transitionType)!;
             Assert.Equal(1.0f, transition.GetFadeOutAlpha());
             Assert.Equal(0.0f, transition.GetFadeInAlpha());
         }
@@ -232,8 +234,10 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void BaseTransition_NegativeDuration_ShouldUseMinimumDuration()
+        public void BaseTransition_NegativeDuration_IsClampedToPositive()
         {
+            // BaseStageTransition clamps the total duration to a minimum positive value.
+            // This test only verifies that clamping behaviour, not per-phase alpha correctness.
             var transition = new FadeTransition(-1.0, -1.0);
             Assert.True(transition.Duration > 0.0);
         }
