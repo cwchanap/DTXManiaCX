@@ -119,8 +119,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public override bool IsBackActionTriggered()
         {
-            // Use the modular input manager's logic if available, otherwise fallback to base
-            return _modularInputManager?.IsBackActionTriggered() ?? base.IsBackActionTriggered();
+            return base.IsBackActionTriggered();
         }
 
         protected override void Dispose(bool disposing)

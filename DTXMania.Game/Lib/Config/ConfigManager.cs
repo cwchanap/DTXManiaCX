@@ -1,13 +1,16 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Game.Lib.Config
 {
@@ -85,7 +88,11 @@ namespace DTXMania.Game.Lib.Config
 
         public void LoadKeyBindings(KeyBindings keyBindings)
         {
-            // Load key bindings from config data
+            foreach (var lane in Config.UnboundDrumLanes.OrderBy(lane => lane))
+            {
+                keyBindings.UnbindLane(lane);
+            }
+
             foreach (var kvp in Config.KeyBindings)
             {
                 keyBindings.BindButton(kvp.Key, kvp.Value);
@@ -94,19 +101,70 @@ namespace DTXMania.Game.Lib.Config
 
         public void SaveKeyBindings(KeyBindings keyBindings)
         {
-            // Save key bindings to config data
-            // Create a temporary set of default bindings to compare against
-            var defaultBindings = new DTXMania.Game.Lib.Input.KeyBindings();
-            defaultBindings.LoadDefaultBindings();
-            
+            ArgumentNullException.ThrowIfNull(keyBindings);
             Config.KeyBindings.Clear();
+            Config.UnboundDrumLanes.Clear();
             foreach (var kvp in keyBindings.ButtonToLane)
             {
-                // Only save non-default bindings to config
-                if (!defaultBindings.ButtonToLane.TryGetValue(kvp.Key, out int defaultValue) || defaultValue != kvp.Value)
+                Config.KeyBindings[kvp.Key] = kvp.Value;
+            }
+
+            for (int lane = 0; lane < 10; lane++)
+            {
+                if (!keyBindings.GetButtonsForLane(lane).Any())
                 {
-                    Config.KeyBindings[kvp.Key] = kvp.Value;
+                    Config.UnboundDrumLanes.Add(lane);
                 }
+            }
+        }
+
+        public void LoadSystemKeyBindings(InputManager inputManager)
+        {
+            const string prefix = "SystemKey.";
+            foreach (var kvp in Config.SystemKeyBindings)
+            {
+                // Key format: "SystemKey.MoveUp", value format: "Up"
+                if (string.IsNullOrEmpty(kvp.Key) ||
+                    !kvp.Key.StartsWith(prefix, StringComparison.Ordinal) ||
+                    kvp.Key.Length <= prefix.Length)
+                    continue;
+
+                var suffix = kvp.Key.Substring(prefix.Length);
+                if (!Enum.TryParse<InputCommandType>(suffix, true, out var command))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(kvp.Value))
+                {
+                    RemoveSystemKeyBinding(inputManager, command);
+                    continue;
+                }
+
+                if (Enum.TryParse<Keys>(kvp.Value, true, out var key))
+                {
+                    inputManager.SetKeyMapping(key, command);
+                }
+            }
+        }
+
+        public void SaveSystemKeyBindings(InputManager inputManager)
+        {
+            var snapshot = inputManager.GetKeyMappingSnapshot();
+            SaveSystemKeyBindings(snapshot);
+        }
+
+        public void SaveSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
+        {
+            Config.SystemKeyBindings.Clear();
+            foreach (var command in Enum.GetValues<InputCommandType>())
+            {
+                var key = workingBindings
+                    .Where(kvp => kvp.Value == command)
+                    .Select(kvp => (Keys?)kvp.Key)
+                    .FirstOrDefault();
+
+                Config.SystemKeyBindings[$"SystemKey.{command}"] = key?.ToString() ?? string.Empty;
             }
         }
 
@@ -171,12 +229,26 @@ namespace DTXMania.Game.Lib.Config
                     break;
                 // Handle key bindings from config file
                 default:
-                    if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
+                    if (key.StartsWith("Key.Unbound.") &&
+                        int.TryParse(key.Substring("Key.Unbound.".Length), out var unboundLane))
+                    {
+                        if (unboundLane >= 0 && unboundLane <= 9 &&
+                            TryParseBool(value, out var isUnbound) &&
+                            isUnbound)
+                        {
+                            Config.UnboundDrumLanes.Add(unboundLane);
+                        }
+                    }
+                    else if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
                     {
                         if (lane >= 0 && lane <= 9)
                         {
                             Config.KeyBindings[key] = lane;
                         }
+                    }
+                    else if (key.StartsWith("SystemKey."))
+                    {
+                        Config.SystemKeyBindings[key] = value;
                     }
                     break;
             }
@@ -221,11 +293,25 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"GameApiKey={Config.GameApiKey}");
 
             // Save key bindings to config file
-            if (Config.KeyBindings.Count > 0)
+            if (Config.KeyBindings.Count > 0 || Config.UnboundDrumLanes.Count > 0)
             {
                 sb.AppendLine();
                 sb.AppendLine("[KeyBindings]");
                 foreach (var kvp in Config.KeyBindings)
+                {
+                    sb.AppendLine($"{kvp.Key}={kvp.Value}");
+                }
+                foreach (var lane in Config.UnboundDrumLanes.OrderBy(lane => lane))
+                {
+                    sb.AppendLine($"Key.Unbound.{lane}=true");
+                }
+            }
+
+            if (Config.SystemKeyBindings.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("[SystemKeyBindings]");
+                foreach (var kvp in Config.SystemKeyBindings)
                 {
                     sb.AppendLine($"{kvp.Key}={kvp.Value}");
                 }
@@ -260,6 +346,19 @@ namespace DTXMania.Game.Lib.Config
                 return true;
             }
             return false;
+        }
+
+        private static void RemoveSystemKeyBinding(InputManager inputManager, InputCommandType command)
+        {
+            var keysToRemove = inputManager.GetKeyMappingSnapshot()
+                .Where(kvp => kvp.Value == command)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                inputManager.RemoveKeyMapping(key);
+            }
         }
 
         private static void EnsureConfigDirectory(string filePath)

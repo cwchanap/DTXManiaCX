@@ -237,6 +237,31 @@ namespace DTXMania.Game.Lib.Input
                    _previousKeyboardState.IsKeyDown(key);
         }
 
+        public void SetKeyMapping(Keys key, InputCommandType command)
+        {
+            // Evict any existing key already mapped to this command so each command has exactly one key.
+            var priorKeys = new List<Keys>();
+            foreach (var kvp in _keyMapping)
+            {
+                if (kvp.Value == command && kvp.Key != key)
+                    priorKeys.Add(kvp.Key);
+            }
+            foreach (var k in priorKeys)
+                _keyMapping.Remove(k);
+
+            _keyMapping[key] = command;
+        }
+
+        public void RemoveKeyMapping(Keys key)
+        {
+            _keyMapping.Remove(key);
+        }
+
+        public IReadOnlyDictionary<Keys, InputCommandType> GetKeyMappingSnapshot()
+        {
+            return new Dictionary<Keys, InputCommandType>(_keyMapping);
+        }
+
         /// <summary>
         /// Update key repeat states for continuous input detection
         /// </summary>

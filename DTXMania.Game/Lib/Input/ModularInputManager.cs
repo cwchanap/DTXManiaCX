@@ -97,7 +97,6 @@ namespace DTXMania.Game.Lib.Input
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
 
-            // Load key bindings from config
             _configManager.LoadKeyBindings(_keyBindings);
 
             // Set up event handlers
@@ -255,23 +254,14 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public void ReloadKeyBindings()
         {
-            // Temporarily disable auto-save to prevent clearing config during reload
             _keyBindings.BindingsChanged -= OnKeyBindingsChanged;
-            
             try
             {
-                // Clear existing bindings
-                _keyBindings.ClearAllBindings();
-                
-                // Load defaults first
                 _keyBindings.LoadDefaultBindings();
-                
-                // Load from config (overrides defaults)
                 _configManager.LoadKeyBindings(_keyBindings);
             }
             finally
             {
-                // Re-enable auto-save
                 _keyBindings.BindingsChanged += OnKeyBindingsChanged;
             }
         }
