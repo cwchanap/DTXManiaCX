@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Xunit;
 using DTXMania.Game.Lib.Stage;
 
@@ -14,21 +13,25 @@ namespace DTXMania.Test.Stage
     {
         #region Before-Start – All Transition Types (parameterized)
 
-        public static IEnumerable<object[]> AllTransitionTypes() => new[]
-        {
-            new object[] { typeof(InstantTransition) },
-            new object[] { typeof(FadeTransition) },
-            new object[] { typeof(CrossfadeTransition) },
-            new object[] { typeof(DTXManiaFadeTransition) },
-            new object[] { typeof(StartupToTitleTransition) }
-        };
-
         [Theory]
-        [MemberData(nameof(AllTransitionTypes))]
-        public void AnyTransition_BeforeStart_ShouldHaveCorrectAlphas(Type transitionType)
+        [InlineData(nameof(InstantTransition))]
+        [InlineData(nameof(FadeTransition))]
+        [InlineData(nameof(CrossfadeTransition))]
+        [InlineData(nameof(DTXManiaFadeTransition))]
+        [InlineData(nameof(StartupToTitleTransition))]
+        public void AnyTransition_BeforeStart_ShouldHaveCorrectAlphas(string typeName)
         {
-            // Instantiate via Type so the data row is serializable and xUnit can display it.
-            var transition = (IStageTransition)System.Activator.CreateInstance(transitionType)!;
+            // Instantiate directly (not via Activator.CreateInstance) because several
+            // transition constructors have only default parameters, not truly parameterless ones.
+            IStageTransition transition = typeName switch
+            {
+                nameof(InstantTransition)        => new InstantTransition(),
+                nameof(FadeTransition)           => new FadeTransition(),
+                nameof(CrossfadeTransition)      => new CrossfadeTransition(),
+                nameof(DTXManiaFadeTransition)   => new DTXManiaFadeTransition(),
+                nameof(StartupToTitleTransition) => new StartupToTitleTransition(),
+                _                                => throw new System.ArgumentOutOfRangeException(nameof(typeName))
+            };
             Assert.Equal(1.0f, transition.GetFadeOutAlpha());
             Assert.Equal(0.0f, transition.GetFadeInAlpha());
         }
