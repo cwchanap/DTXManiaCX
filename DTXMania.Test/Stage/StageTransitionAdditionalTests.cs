@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Xunit;
 using DTXMania.Game.Lib.Stage;
 
@@ -11,21 +12,28 @@ namespace DTXMania.Test.Stage
     [Trait("Category", "Unit")]
     public class StageTransitionAdditionalTests
     {
-        #region InstantTransition – Before Start
+        #region Before-Start – All Transition Types (parameterized)
 
-        [Fact]
-        public void InstantTransition_BeforeStart_FadeOutAlpha_ShouldBeOne()
+        public static IEnumerable<object[]> AllTransitionInstances() => new[]
         {
-            var transition = new InstantTransition();
+            new object[] { new InstantTransition() },
+            new object[] { new FadeTransition() },
+            new object[] { new CrossfadeTransition() },
+            new object[] { new DTXManiaFadeTransition() },
+            new object[] { new StartupToTitleTransition() }
+        };
+
+        [Theory]
+        [MemberData(nameof(AllTransitionInstances))]
+        public void AnyTransition_BeforeStart_ShouldHaveCorrectAlphas(IStageTransition transition)
+        {
             Assert.Equal(1.0f, transition.GetFadeOutAlpha());
-        }
-
-        [Fact]
-        public void InstantTransition_BeforeStart_FadeInAlpha_ShouldBeZero()
-        {
-            var transition = new InstantTransition();
             Assert.Equal(0.0f, transition.GetFadeInAlpha());
         }
+
+        #endregion
+
+        #region InstantTransition
 
         [Fact]
         public void InstantTransition_BeforeStart_IsComplete_ShouldBeFalse()
@@ -48,21 +56,7 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region FadeTransition – Before Start
-
-        [Fact]
-        public void FadeTransition_BeforeStart_FadeOutAlpha_ShouldBeOne()
-        {
-            var transition = new FadeTransition();
-            Assert.Equal(1.0f, transition.GetFadeOutAlpha());
-        }
-
-        [Fact]
-        public void FadeTransition_BeforeStart_FadeInAlpha_ShouldBeZero()
-        {
-            var transition = new FadeTransition();
-            Assert.Equal(0.0f, transition.GetFadeInAlpha());
-        }
+        #region FadeTransition
 
         [Fact]
         public void FadeTransition_BeforeStart_IsComplete_ShouldBeFalse()
@@ -92,30 +86,15 @@ namespace DTXMania.Test.Stage
         {
             var transition = new FadeTransition(0.4, 0.4);
             transition.Start();
-            transition.Update(0.5); // 50% into fade-in phase
+            transition.Update(0.5); // 0.1 s into fade-in phase (0.1 / 0.4 = 0.25)
 
             Assert.Equal(0.0f, transition.GetFadeOutAlpha(), 3);
-            // 0.1 / 0.4 = 0.25
             Assert.InRange(transition.GetFadeInAlpha(), 0.2f, 0.3f);
         }
 
         #endregion
 
-        #region CrossfadeTransition – Before Start
-
-        [Fact]
-        public void CrossfadeTransition_BeforeStart_FadeOutAlpha_ShouldBeOne()
-        {
-            var transition = new CrossfadeTransition();
-            Assert.Equal(1.0f, transition.GetFadeOutAlpha());
-        }
-
-        [Fact]
-        public void CrossfadeTransition_BeforeStart_FadeInAlpha_ShouldBeZero()
-        {
-            var transition = new CrossfadeTransition();
-            Assert.Equal(0.0f, transition.GetFadeInAlpha());
-        }
+        #region CrossfadeTransition
 
         [Fact]
         public void CrossfadeTransition_AtStart_AlphasSumToOne()
@@ -124,8 +103,7 @@ namespace DTXMania.Test.Stage
             transition.Start();
             transition.Update(0.0);
 
-            var sum = transition.GetFadeOutAlpha() + transition.GetFadeInAlpha();
-            Assert.Equal(1.0f, sum, 3);
+            Assert.Equal(1.0f, transition.GetFadeOutAlpha() + transition.GetFadeInAlpha(), 3);
         }
 
         [Fact]
@@ -135,8 +113,7 @@ namespace DTXMania.Test.Stage
             transition.Start();
             transition.Update(0.3);
 
-            var sum = transition.GetFadeOutAlpha() + transition.GetFadeInAlpha();
-            Assert.Equal(1.0f, sum, 3);
+            Assert.Equal(1.0f, transition.GetFadeOutAlpha() + transition.GetFadeInAlpha(), 3);
         }
 
         [Fact]
@@ -156,65 +133,20 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region DTXManiaFadeTransition – Before Start & Completion
+        #region DTXManiaFadeTransition – Completion (parameterized)
 
-        [Fact]
-        public void DTXManiaFadeTransition_BeforeStart_FadeOutAlpha_ShouldBeOne()
+        [Theory]
+        [InlineData(0.7, true)]
+        [InlineData(0.4, false)]
+        public void DTXManiaFadeTransition_AtCompletion_Alpha_ShouldBeCorrect(double duration, bool useEasing)
         {
-            var transition = new DTXManiaFadeTransition();
-            Assert.Equal(1.0f, transition.GetFadeOutAlpha());
-        }
-
-        [Fact]
-        public void DTXManiaFadeTransition_BeforeStart_FadeInAlpha_ShouldBeZero()
-        {
-            var transition = new DTXManiaFadeTransition();
-            Assert.Equal(0.0f, transition.GetFadeInAlpha());
-        }
-
-        [Fact]
-        public void DTXManiaFadeTransition_WithEasing_AtCompletion_FadeOutAlphaShouldBeZero()
-        {
-            var transition = new DTXManiaFadeTransition(0.7, useEasing: true);
+            var transition = new DTXManiaFadeTransition(duration, useEasing: useEasing);
             transition.Start();
-            transition.Update(0.7); // advance to completion
+            transition.Update(duration);
 
             Assert.True(transition.IsComplete);
-            // At progress=1.0 with cos easing: progress = 1 - cos(PI/2) = 1 - 0 = 1 → alpha = 0
+            // FadeOut should reach 0, FadeIn should reach 1 for both easing modes
             Assert.Equal(0.0f, transition.GetFadeOutAlpha(), 3);
-        }
-
-        [Fact]
-        public void DTXManiaFadeTransition_WithEasing_AtCompletion_FadeInAlphaShouldBeOne()
-        {
-            var transition = new DTXManiaFadeTransition(0.7, useEasing: true);
-            transition.Start();
-            transition.Update(0.7);
-
-            Assert.True(transition.IsComplete);
-            // At progress=1.0 with sin easing: sin(PI/2) = 1 → alpha = 1
-            Assert.Equal(1.0f, transition.GetFadeInAlpha(), 3);
-        }
-
-        [Fact]
-        public void DTXManiaFadeTransition_WithoutEasing_AtCompletion_FadeOutAlphaShouldBeZero()
-        {
-            var transition = new DTXManiaFadeTransition(0.4, useEasing: false);
-            transition.Start();
-            transition.Update(0.4);
-
-            Assert.True(transition.IsComplete);
-            Assert.Equal(0.0f, transition.GetFadeOutAlpha(), 3);
-        }
-
-        [Fact]
-        public void DTXManiaFadeTransition_WithoutEasing_AtCompletion_FadeInAlphaShouldBeOne()
-        {
-            var transition = new DTXManiaFadeTransition(0.4, useEasing: false);
-            transition.Start();
-            transition.Update(0.4);
-
-            Assert.True(transition.IsComplete);
             Assert.Equal(1.0f, transition.GetFadeInAlpha(), 3);
         }
 
@@ -227,43 +159,20 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
-        #region StartupToTitleTransition – Before Start & Completion
+        #region StartupToTitleTransition – Completion (parameterized)
 
-        [Fact]
-        public void StartupToTitleTransition_BeforeStart_FadeOutAlpha_ShouldBeOne()
+        [Theory]
+        [InlineData(1.0, 1.0)]
+        public void StartupToTitleTransition_AtCompletion_Alpha_ShouldBeCorrect(double duration, double updateTime)
         {
-            var transition = new StartupToTitleTransition();
-            Assert.Equal(1.0f, transition.GetFadeOutAlpha());
-        }
-
-        [Fact]
-        public void StartupToTitleTransition_BeforeStart_FadeInAlpha_ShouldBeZero()
-        {
-            var transition = new StartupToTitleTransition();
-            Assert.Equal(0.0f, transition.GetFadeInAlpha());
-        }
-
-        [Fact]
-        public void StartupToTitleTransition_AtCompletion_FadeOutAlphaShouldBeZero()
-        {
-            var transition = new StartupToTitleTransition(1.0);
+            var transition = new StartupToTitleTransition(duration);
             transition.Start();
-            transition.Update(1.0);
+            transition.Update(updateTime);
 
             Assert.True(transition.IsComplete);
-            // progress=1.0 → 1.5*progress clamped to 1.0 → alpha = 0
+            // progress=1.0 → 1.5*progress clamped to 1.0 → FadeOut = 0
             Assert.Equal(0.0f, transition.GetFadeOutAlpha(), 3);
-        }
-
-        [Fact]
-        public void StartupToTitleTransition_AtCompletion_FadeInAlphaShouldBeOne()
-        {
-            var transition = new StartupToTitleTransition(1.0);
-            transition.Start();
-            transition.Update(1.0);
-
-            Assert.True(transition.IsComplete);
-            // progress=1.0 → delayedProgress = (1.0 - 0.3) / 0.7 = 1.0 → alpha = 1
+            // progress=1.0 → delayedProgress = (1.0 - 0.3) / 0.7 = 1.0 → FadeIn = 1
             Assert.Equal(1.0f, transition.GetFadeInAlpha(), 3);
         }
 
@@ -288,12 +197,11 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void StartupToTitleTransition_FadeOutProgressesFastInitially()
         {
-            // Fade-out uses 1.5x multiplier, so it reaches 0 at 66% of duration
+            // Fade-out uses 1.5x multiplier, so it reaches 0 at ~67% of duration
             var transition = new StartupToTitleTransition(1.0);
             transition.Start();
-            transition.Update(0.67); // ~67%
+            transition.Update(0.67); // At 67%, 1.5 * 0.67 = 1.005 clamped to 1.0 → alpha ≈ 0
 
-            // At 67%, 1.5 * 0.67 = 1.005 clamped to 1.0 → alpha ≈ 0
             Assert.Equal(0.0f, transition.GetFadeOutAlpha(), 2);
         }
 
