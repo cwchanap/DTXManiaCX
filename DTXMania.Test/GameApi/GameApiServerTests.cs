@@ -24,7 +24,7 @@ namespace DTXMania.Test.GameApi
                 ?? throw new InvalidOperationException("ValidateGameInput method not found");
 
             var raw = method.Invoke(null, new object[] { input })!;
-            // The return type is ValueTuple<bool, string>; field names are IsValid / ErrorMessage.
+            // The return type is ValueTuple<bool, string>; accessed via Item1/Item2 at runtime.
             var type = raw.GetType();
             var isValid = (bool)type.GetField("Item1")!.GetValue(raw)!;
             var errorMessage = (string)type.GetField("Item2")!.GetValue(raw)!;
@@ -50,16 +50,8 @@ namespace DTXMania.Test.GameApi
         public void Constructor_WithValidGameApi_ShouldCreateInstance()
         {
             var gameApi = new Mock<IGameApi>().Object;
-            var server = new GameApiServer(gameApi);
+            using var server = new GameApiServer(gameApi);
             Assert.NotNull(server);
-        }
-
-        [Fact]
-        public void Constructor_WithCustomPort_ShouldReturnUrlWithThatPort()
-        {
-            var gameApi = new Mock<IGameApi>().Object;
-            var server = new GameApiServer(gameApi, port: 9090);
-            Assert.Equal("http://localhost:9090", server.GetServerUrl());
         }
 
         #endregion
@@ -70,7 +62,7 @@ namespace DTXMania.Test.GameApi
         public void IsRunning_BeforeStart_ShouldBeFalse()
         {
             var gameApi = new Mock<IGameApi>().Object;
-            var server = new GameApiServer(gameApi);
+            using var server = new GameApiServer(gameApi);
             Assert.False(server.IsRunning);
         }
 
@@ -78,7 +70,7 @@ namespace DTXMania.Test.GameApi
         public void GetServerUrl_DefaultPort_ShouldReturnLocalhostPort8080()
         {
             var gameApi = new Mock<IGameApi>().Object;
-            var server = new GameApiServer(gameApi);
+            using var server = new GameApiServer(gameApi);
             Assert.Equal("http://localhost:8080", server.GetServerUrl());
         }
 
@@ -86,7 +78,7 @@ namespace DTXMania.Test.GameApi
         public void GetServerUrl_CustomPort_ShouldIncludePort()
         {
             var gameApi = new Mock<IGameApi>().Object;
-            var server = new GameApiServer(gameApi, port: 12345);
+            using var server = new GameApiServer(gameApi, port: 12345);
             Assert.Equal("http://localhost:12345", server.GetServerUrl());
         }
 
@@ -244,44 +236,19 @@ namespace DTXMania.Test.GameApi
             Assert.Equal(string.Empty, msg);
         }
 
-        [Fact]
-        public void ValidateGameInput_KeyPress_ZeroKeyCode_ShouldReturnTrue()
+        [Theory]
+        [InlineData(0, true, "")]
+        [InlineData(255, true, "")]
+        [InlineData(256, false, "Invalid key data format")]
+        [InlineData(-1, false, "Invalid key data format")]
+        public void ValidateGameInput_KeyPress_NumericKeyCodeBoundary_ShouldReturnExpected(
+            int keyCode, bool expectedValid, string expectedMessage)
         {
-            var data = JsonSerializer.SerializeToElement(0);
+            var data = JsonSerializer.SerializeToElement(keyCode);
             var input = KeyInput(InputType.KeyPress, data);
             var (isValid, msg) = Validate(input);
-            Assert.True(isValid);
-            Assert.Equal(string.Empty, msg);
-        }
-
-        [Fact]
-        public void ValidateGameInput_KeyPress_MaxKeyCode255_ShouldReturnTrue()
-        {
-            var data = JsonSerializer.SerializeToElement(255);
-            var input = KeyInput(InputType.KeyPress, data);
-            var (isValid, msg) = Validate(input);
-            Assert.True(isValid);
-            Assert.Equal(string.Empty, msg);
-        }
-
-        [Fact]
-        public void ValidateGameInput_KeyPress_KeyCodeTooLarge_ShouldReturnFalse()
-        {
-            var data = JsonSerializer.SerializeToElement(256);
-            var input = KeyInput(InputType.KeyPress, data);
-            var (isValid, msg) = Validate(input);
-            Assert.False(isValid);
-            Assert.Equal("Invalid key data format", msg);
-        }
-
-        [Fact]
-        public void ValidateGameInput_KeyPress_NegativeKeyCode_ShouldReturnFalse()
-        {
-            var data = JsonSerializer.SerializeToElement(-1);
-            var input = KeyInput(InputType.KeyPress, data);
-            var (isValid, msg) = Validate(input);
-            Assert.False(isValid);
-            Assert.Equal("Invalid key data format", msg);
+            Assert.Equal(expectedValid, isValid);
+            Assert.Equal(expectedMessage, msg);
         }
 
         [Fact]

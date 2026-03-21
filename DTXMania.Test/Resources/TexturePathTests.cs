@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Resources;
 using System.Linq;
+using System.Reflection;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -13,42 +14,20 @@ namespace DTXMania.Test.Resources
     [Trait("Category", "Unit")]
     public class TexturePathTests
     {
-        #region Background Texture Constants
+        #region Background Texture Constants (parameterized)
 
-        [Fact]
-        public void StartupBackground_ShouldBeCorrectPath()
+        [Theory]
+        [InlineData("Graphics/1_background.jpg", nameof(TexturePath.StartupBackground))]
+        [InlineData("Graphics/2_background.jpg", nameof(TexturePath.TitleBackground))]
+        [InlineData("Graphics/5_background.jpg", nameof(TexturePath.SongSelectionBackground))]
+        [InlineData("Graphics/6_background.jpg", nameof(TexturePath.SongTransitionBackground))]
+        [InlineData("Graphics/7_background.jpg", nameof(TexturePath.PerformanceBackground))]
+        [InlineData("Graphics/8_background.jpg", nameof(TexturePath.ResultBackground))]
+        public void BackgroundTexturePath_ShouldBeCorrect(string expectedPath, string fieldName)
         {
-            Assert.Equal("Graphics/1_background.jpg", TexturePath.StartupBackground);
-        }
-
-        [Fact]
-        public void TitleBackground_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/2_background.jpg", TexturePath.TitleBackground);
-        }
-
-        [Fact]
-        public void SongSelectionBackground_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/5_background.jpg", TexturePath.SongSelectionBackground);
-        }
-
-        [Fact]
-        public void SongTransitionBackground_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/6_background.jpg", TexturePath.SongTransitionBackground);
-        }
-
-        [Fact]
-        public void PerformanceBackground_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/7_background.jpg", TexturePath.PerformanceBackground);
-        }
-
-        [Fact]
-        public void ResultBackground_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/8_background.jpg", TexturePath.ResultBackground);
+            var field = typeof(TexturePath).GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
+            Assert.NotNull(field);
+            Assert.Equal(expectedPath, (string?)field!.GetValue(null));
         }
 
         #endregion
@@ -219,20 +198,15 @@ namespace DTXMania.Test.Resources
         public void GetAllTexturePaths_AllEntriesShouldBeNonEmpty()
         {
             var paths = TexturePath.GetAllTexturePaths();
-            foreach (var path in paths)
-            {
-                Assert.False(string.IsNullOrWhiteSpace(path), $"Expected non-empty path but got: '{path}'");
-            }
+            Assert.All(paths, path => Assert.False(string.IsNullOrWhiteSpace(path),
+                $"Expected non-empty path but got: '{path}'"));
         }
 
         [Fact]
         public void GetAllTexturePaths_AllEntriesShouldStartWithGraphics()
         {
             var paths = TexturePath.GetAllTexturePaths();
-            foreach (var path in paths)
-            {
-                Assert.StartsWith("Graphics/", path);
-            }
+            Assert.All(paths, path => Assert.StartsWith("Graphics/", path));
         }
 
         [Fact]
