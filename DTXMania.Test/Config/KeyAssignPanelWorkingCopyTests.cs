@@ -218,6 +218,28 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.True(panel.IsActive);
     }
 
+    [Fact]
+    public void SystemPanel_DeleteOnActivate_ShouldKeepActivateBound()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        for (int i = 0; i < 4; i++)
+            PressKey(panel, Keys.Down);
+
+        var before = panel.GetWorkingMappingSnapshot();
+        Assert.True(before.ContainsKey(Keys.Enter));
+        Assert.Equal(InputCommandType.Activate, before[Keys.Enter]);
+
+        PressKey(panel, Keys.Delete);
+
+        var after = panel.GetWorkingMappingSnapshot();
+        Assert.True(after.ContainsKey(Keys.Enter));
+        Assert.Equal(InputCommandType.Activate, after[Keys.Enter]);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static void PressKey(IKeyAssignPanel panel, Keys key)
