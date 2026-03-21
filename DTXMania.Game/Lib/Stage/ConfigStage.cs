@@ -29,6 +29,12 @@ namespace DTXMania.Game.Lib.Stage
         private ConfigData _workingConfig;
         private KeyBindings _workingDrumBindings = new();
         private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
+        /// <summary>
+        /// Snapshot of system bindings taken at stage activation; used for ConfigStage's own
+        /// navigation so that editing/wiping bindings in the system panel cannot lock out
+        /// the Save &amp; Back controls before the edit is committed.
+        /// </summary>
+        private Dictionary<Keys, InputCommandType> _navigationBindings = new();
         private bool _hasUnsavedChanges;
         private int _selectedIndex = 0;
 
@@ -219,6 +225,7 @@ namespace DTXMania.Game.Lib.Stage
 
             _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
             _workingSystemBindings = new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
+            _navigationBindings = new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
         }
 
         private void SetupConfigItems()
@@ -418,7 +425,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool IsWorkingCommandPressed(InputCommandType command)
         {
-            return _workingSystemBindings.Any(kvp =>
+            return _navigationBindings.Any(kvp =>
                 kvp.Value == command &&
                 _currentKeyboardState.IsKeyDown(kvp.Key) &&
                 !_previousKeyboardState.IsKeyDown(kvp.Key));
@@ -457,8 +464,20 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private bool ApplyConfiguration()
         {
-            // Stage 1: prepare in-memory config data from working copies
             var config = _configManager.Config;
+
+            // Snapshot current config so we can roll back if the disk write fails.
+            int prevWidth = config.ScreenWidth;
+            int prevHeight = config.ScreenHeight;
+            bool prevFullScreen = config.FullScreen;
+            bool prevVSync = config.VSyncWait;
+            bool prevNoFail = config.NoFail;
+            bool prevAutoPlay = config.AutoPlay;
+            var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
+            var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
+            var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
+
+            // Stage 1: prepare in-memory config data from working copies
             config.ScreenWidth = _workingConfig.ScreenWidth;
             config.ScreenHeight = _workingConfig.ScreenHeight;
             config.FullScreen = _workingConfig.FullScreen;
@@ -472,7 +491,7 @@ namespace DTXMania.Game.Lib.Stage
                 concreteConfig.SaveSystemKeyBindings(_workingSystemBindings);
             }
 
-            // Stage 2: write to disk BEFORE mutating live input state
+            // Stage 2: write to disk — roll back in-memory changes on failure
             try
             {
                 _configManager.SaveConfig(DTXMania.Game.Lib.Utilities.AppPaths.GetConfigFilePath());
@@ -481,6 +500,20 @@ namespace DTXMania.Game.Lib.Stage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to save configuration: {ex.Message}");
+
+                config.ScreenWidth = prevWidth;
+                config.ScreenHeight = prevHeight;
+                config.FullScreen = prevFullScreen;
+                config.VSyncWait = prevVSync;
+                config.NoFail = prevNoFail;
+                config.AutoPlay = prevAutoPlay;
+                config.KeyBindings.Clear();
+                foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
+                config.UnboundDrumLanes.Clear();
+                foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
+                config.SystemKeyBindings.Clear();
+                foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+
                 return false;
             }
 
