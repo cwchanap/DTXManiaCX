@@ -6,6 +6,7 @@ using System.Runtime.Serialization;
 
 namespace DTXMania.Test.Config;
 
+[Trait("Category", "Config")]
 public class KeyAssignPanelWorkingCopyTests
 {
     [Fact]
