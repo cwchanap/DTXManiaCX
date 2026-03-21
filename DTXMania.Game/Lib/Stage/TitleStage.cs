@@ -372,10 +372,19 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Handle menu selection
-            if (_game.InputManager?.IsCommandPressed(InputCommandType.Activate) == true)
+            if (IsMenuSelectTriggered(_game.InputManager))
             {
                 SelectCurrentMenuItem();
             }
+        }
+
+        internal static bool IsMenuSelectTriggered(IInputManager? inputManager)
+        {
+            if (inputManager == null)
+                return false;
+
+            return inputManager.IsCommandPressed(InputCommandType.Activate)
+                || inputManager.IsKeyPressed((int)Keys.Space);
         }
 
         private void MoveCursorUp()

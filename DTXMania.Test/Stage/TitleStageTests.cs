@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
@@ -86,6 +87,63 @@ namespace DTXMania.Test.Stage
 
             // Assert
             Assert.False(isHit);
+        }
+
+        [Fact]
+        public void IsMenuSelectTriggered_WhenActivatePressed_ShouldReturnTrue()
+        {
+            var inputManager = new TestInputManager
+            {
+                ActivatePressed = true,
+            };
+
+            Assert.True(TitleStage.IsMenuSelectTriggered(inputManager));
+        }
+
+        [Fact]
+        public void IsMenuSelectTriggered_WhenSpacePressed_ShouldReturnTrue()
+        {
+            var inputManager = new TestInputManager();
+            inputManager.SetPressedKey(Keys.Space);
+
+            Assert.True(TitleStage.IsMenuSelectTriggered(inputManager));
+        }
+
+        private sealed class TestInputManager : IInputManager
+        {
+            private readonly HashSet<int> _pressedKeys = new();
+
+            public bool ActivatePressed { get; set; }
+
+            public bool HasPendingCommands => false;
+
+            public void Dispose()
+            {
+            }
+
+            public InputCommand? GetNextCommand() => null;
+
+            public bool IsBackActionTriggered() => false;
+
+            public bool IsCommandPressed(InputCommandType commandType)
+                => commandType == InputCommandType.Activate && ActivatePressed;
+
+            public bool IsKeyDown(int keyCode) => false;
+
+            public bool IsKeyPressed(int keyCode) => _pressedKeys.Contains(keyCode);
+
+            public bool IsKeyReleased(int keyCode) => false;
+
+            public bool IsKeyTriggered(int keyCode) => IsKeyPressed(keyCode);
+
+            public void SetPressedKey(Keys key)
+            {
+                _pressedKeys.Add((int)key);
+            }
+
+            public void Update(double deltaTime)
+            {
+            }
         }
 
 

@@ -119,7 +119,19 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             else if (IsJustPressed(current, previous, Keys.Escape))
                 CancelAndClose();
             else if (IsJustPressed(current, previous, Keys.Delete) && _selectedIndex < ActionCount)
-                _workingMapping.Remove(Actions[_selectedIndex]);
+                TryUnbindSelectedAction();
+        }
+
+        private void TryUnbindSelectedAction()
+        {
+            var action = Actions[_selectedIndex];
+            if (action == InputCommandType.Activate)
+            {
+                ShowConflict("Activate must remain bound");
+                return;
+            }
+
+            _workingMapping.Remove(action);
         }
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)
