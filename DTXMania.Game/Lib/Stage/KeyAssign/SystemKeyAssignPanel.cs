@@ -43,6 +43,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         // Working copy: action -> key (one-to-one)
         private Dictionary<InputCommandType, Keys> _workingMapping = new();
+        private Dictionary<Keys, InputCommandType> _navigationMapping = new();
         private int _selectedIndex;
         private CaptureState _state;
         private string? _conflictMessage;
@@ -62,6 +63,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             // Clone current live system mapping to working copy
             _workingMapping = new Dictionary<InputCommandType, Keys>();
             var snapshot = _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot();
+            _navigationMapping = new Dictionary<Keys, InputCommandType>(
+                _navigationMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
             foreach (var action in Actions)
             {
                 var entry = snapshot.FirstOrDefault(kvp => kvp.Value == action);
@@ -103,11 +106,11 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             }
 
             // Browsing
-            if (IsJustPressed(current, previous, Keys.Up))
+            if (IsNavigationCommandPressed(current, previous, InputCommandType.MoveUp))
                 _selectedIndex = (_selectedIndex - 1 + RowCount) % RowCount;
-            else if (IsJustPressed(current, previous, Keys.Down))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.MoveDown))
                 _selectedIndex = (_selectedIndex + 1) % RowCount;
-            else if (IsJustPressed(current, previous, Keys.Enter))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.Activate))
             {
                 if (_selectedIndex == FooterSave)
                     CommitAndClose();
@@ -116,9 +119,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 else
                     _state = CaptureState.AwaitingKey;
             }
-            else if (IsJustPressed(current, previous, Keys.Escape))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.Back))
                 CancelAndClose();
-            else if (IsJustPressed(current, previous, Keys.Delete) && _selectedIndex < ActionCount)
+            else if (IsUnbindPressed(current, previous) && _selectedIndex < ActionCount)
                 TryUnbindSelectedAction();
         }
 
@@ -206,12 +209,30 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         // Injected by ConfigStage so this panel can check drum key conflicts.
         internal Func<IReadOnlyDictionary<string, int>>? _liveDrumBindingsProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _workingMappingProvider;
+        internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _navigationMappingProvider;
 
         private IReadOnlyDictionary<string, int> GetLiveDrumBindings()
             => _liveDrumBindingsProvider?.Invoke() ?? new Dictionary<string, int>();
 
         internal IReadOnlyDictionary<Keys, InputCommandType> GetWorkingMappingSnapshot()
             => new Dictionary<Keys, InputCommandType>(WorkingMappingAsKeyDict());
+
+        private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
+        {
+            foreach (var kvp in _navigationMapping)
+            {
+                if (kvp.Value == command && IsJustPressed(current, previous, kvp.Key))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsUnbindPressed(KeyboardState current, KeyboardState previous)
+        {
+            return IsJustPressed(current, previous, Keys.Delete)
+                || IsNavigationCommandPressed(current, previous, InputCommandType.MoveLeft);
+        }
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
