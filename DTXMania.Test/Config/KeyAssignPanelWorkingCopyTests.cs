@@ -9,6 +9,7 @@ namespace DTXMania.Test.Config;
 [Trait("Category", "Config")]
 public class KeyAssignPanelWorkingCopyTests
 {
+    [Trait("Category", "Unit")]
     [Fact]
     public void KeyAssignPanels_Save_ShouldLeaveLiveStateUntouchedUntilStageApplies()
     {
@@ -46,6 +47,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     // ─── DrumKeyAssignPanel event sequencing ─────────────────────────────────
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_CommitAndClose_ShouldRaiseSavedThenClosed()
     {
@@ -72,6 +74,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_CancelAndClose_ShouldRaiseOnlyClosedNotSaved()
     {
@@ -94,6 +97,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     // ─── SystemKeyAssignPanel event sequencing ────────────────────────────────
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_CommitAndClose_ShouldRaiseSavedThenClosed()
     {
@@ -120,6 +124,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_CancelAndClose_ShouldRaiseOnlyClosedNotSaved()
     {
@@ -142,6 +147,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     // ─── DrumKeyAssignPanel AwaitingKey capture ───────────────────────────────
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_AwaitingKey_ShouldBindPressedKeyToSelectedLane()
     {
@@ -160,6 +166,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.H)));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_AwaitingKey_EscapeShouldCancelCapture()
     {
@@ -179,6 +186,7 @@ public class KeyAssignPanelWorkingCopyTests
             "Escape must not be bound to any lane when it cancels capture");
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_RemappedNavigation_ShouldSaveAndClearLane()
     {
@@ -206,6 +214,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void DrumPanel_RemappedBack_ShouldCancelPanelAndCapture()
     {
@@ -231,6 +240,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     // ─── SystemKeyAssignPanel AwaitingKey capture ─────────────────────────────
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_AwaitingKey_EscapeShouldBindNotCancel()
     {
@@ -250,6 +260,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.True(panel.IsActive, "Panel should remain active");
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_AwaitingKey_BackspaceShouldCancelCapture()
     {
@@ -268,6 +279,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.True(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_DeleteOnActivate_ShouldKeepActivateBound()
     {
@@ -290,6 +302,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(InputCommandType.Activate, after[Keys.Enter]);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_RemappedNavigation_ShouldUnbindAndSave()
     {
@@ -318,6 +331,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_RemappedBack_ShouldCancelPanel()
     {
