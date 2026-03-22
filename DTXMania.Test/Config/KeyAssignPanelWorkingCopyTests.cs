@@ -179,6 +179,56 @@ public class KeyAssignPanelWorkingCopyTests
             "Escape must not be bound to any lane when it cancels capture");
     }
 
+    [Fact]
+    public void DrumPanel_RemappedNavigation_ShouldSaveAndClearLane()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        bool savedFired = false;
+        panel.Saved += (_, _) => savedFired = true;
+
+        panel.Activate();
+
+        PressKey(panel, Keys.A);
+
+        var clearedSnapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(-1, clearedSnapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.A)));
+
+        for (int i = 0; i < 10; i++)
+            PressKey(panel, Keys.S);
+
+        PressKey(panel, Keys.F);
+
+        Assert.True(savedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void DrumPanel_RemappedBack_ShouldCancelPanelAndCapture()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        bool closedFired = false;
+        panel.Closed += (_, _) => closedFired = true;
+
+        panel.Activate();
+        PressKey(panel, Keys.F);
+        PressKey(panel, Keys.Q);
+
+        Assert.True(panel.IsActive);
+
+        PressKey(panel, Keys.Q);
+
+        Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
     // ─── SystemKeyAssignPanel AwaitingKey capture ─────────────────────────────
 
     [Fact]
@@ -240,11 +290,70 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(InputCommandType.Activate, after[Keys.Enter]);
     }
 
+    [Fact]
+    public void SystemPanel_RemappedNavigation_ShouldUnbindAndSave()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        bool savedFired = false;
+        panel.Saved += (_, _) => savedFired = true;
+
+        panel.Activate();
+
+        PressKey(panel, Keys.S);
+        PressKey(panel, Keys.A);
+
+        var clearedSnapshot = panel.GetWorkingMappingSnapshot();
+        Assert.DoesNotContain(clearedSnapshot, kvp => kvp.Value == InputCommandType.MoveDown);
+
+        for (int i = 0; i < 5; i++)
+            PressKey(panel, Keys.S);
+
+        PressKey(panel, Keys.F);
+
+        Assert.True(savedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void SystemPanel_RemappedBack_ShouldCancelPanel()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        bool closedFired = false;
+        panel.Closed += (_, _) => closedFired = true;
+
+        panel.Activate();
+        PressKey(panel, Keys.Q);
+
+        Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static void PressKey(IKeyAssignPanel panel, Keys key)
     {
         panel.Update(0.0, new KeyboardState(key), new KeyboardState());
+    }
+
+    private static IReadOnlyDictionary<Keys, InputCommandType> CreateNavigationMapping()
+    {
+        return new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.W] = InputCommandType.MoveUp,
+            [Keys.S] = InputCommandType.MoveDown,
+            [Keys.A] = InputCommandType.MoveLeft,
+            [Keys.D] = InputCommandType.MoveRight,
+            [Keys.F] = InputCommandType.Activate,
+            [Keys.Q] = InputCommandType.Back,
+        };
     }
 
     // Creates a ModularInputManager with a pre-set _keyBindings field, bypassing the constructor so

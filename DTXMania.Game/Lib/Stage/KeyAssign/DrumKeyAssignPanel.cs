@@ -19,6 +19,17 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     {
         private enum CaptureState { Browsing, AwaitingKey, ShowingConflict }
 
+        private static readonly IReadOnlyDictionary<Keys, InputCommandType> DefaultNavigationMapping =
+            new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.Up] = InputCommandType.MoveUp,
+                [Keys.Down] = InputCommandType.MoveDown,
+                [Keys.Left] = InputCommandType.MoveLeft,
+                [Keys.Right] = InputCommandType.MoveRight,
+                [Keys.Enter] = InputCommandType.Activate,
+                [Keys.Escape] = InputCommandType.Back,
+            };
+
         private const int LaneCount = 10;
         private const int FooterSave = LaneCount;
         private const int FooterCancel = LaneCount + 1;
@@ -29,6 +40,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         // Working copy of drum bindings (edited in isolation; committed on Save)
         private KeyBindings _workingBindings = new();
+        private Dictionary<Keys, InputCommandType> _navigationMapping = new();
         private int _selectedIndex;
         private CaptureState _state;
         private string? _conflictMessage;
@@ -46,6 +58,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public void Activate()
         {
             _workingBindings = (_workingBindingsProvider?.Invoke() ?? _modularInputManager.KeyBindings).Clone();
+            _navigationMapping = new Dictionary<Keys, InputCommandType>(
+                _navigationMappingProvider?.Invoke() ?? DefaultNavigationMapping);
 
             _selectedIndex = 0;
             _state = CaptureState.Browsing;
@@ -81,11 +95,11 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             }
 
             // Browsing
-            if (IsJustPressed(current, previous, Keys.Up))
+            if (IsNavigationCommandPressed(current, previous, InputCommandType.MoveUp))
                 _selectedIndex = (_selectedIndex - 1 + RowCount) % RowCount;
-            else if (IsJustPressed(current, previous, Keys.Down))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.MoveDown))
                 _selectedIndex = (_selectedIndex + 1) % RowCount;
-            else if (IsJustPressed(current, previous, Keys.Enter))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.Activate))
             {
                 if (_selectedIndex == FooterSave)
                     CommitAndClose();
@@ -94,15 +108,16 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 else
                     _state = CaptureState.AwaitingKey;
             }
-            else if (IsJustPressed(current, previous, Keys.Escape))
+            else if (IsNavigationCommandPressed(current, previous, InputCommandType.Back))
                 CancelAndClose();
-            else if (IsJustPressed(current, previous, Keys.Delete) && _selectedIndex < LaneCount)
+            else if (IsClearBindingPressed(current, previous) && _selectedIndex < LaneCount)
                 _workingBindings.UnbindLane(_selectedIndex);
         }
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)
         {
-            if (IsJustPressed(current, previous, Keys.Escape))
+            if (IsJustPressed(current, previous, Keys.Escape)
+                || IsNavigationCommandPressed(current, previous, InputCommandType.Back))
             {
                 _state = CaptureState.Browsing;
                 return;
@@ -169,8 +184,26 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         // needing a direct reference to InputManager.
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _liveSystemMappingProvider;
         internal Func<KeyBindings>? _workingBindingsProvider;
+        internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _navigationMappingProvider;
 
         internal KeyBindings GetWorkingBindingsSnapshot() => _workingBindings.Clone();
+
+        private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
+        {
+            foreach (var kvp in _navigationMapping)
+            {
+                if (kvp.Value == command && IsJustPressed(current, previous, kvp.Key))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool IsClearBindingPressed(KeyboardState current, KeyboardState previous)
+        {
+            return IsJustPressed(current, previous, Keys.Delete)
+                || IsNavigationCommandPressed(current, previous, InputCommandType.MoveLeft);
+        }
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
