@@ -98,6 +98,7 @@ namespace DTXMania.Game.Lib.Input
             _keyMapping[Keys.Left] = InputCommandType.MoveLeft;
             _keyMapping[Keys.Right] = InputCommandType.MoveRight;
             _keyMapping[Keys.Enter] = InputCommandType.Activate;
+            _keyMapping[Keys.Space] = InputCommandType.Activate;
             _keyMapping[Keys.Escape] = InputCommandType.Back;
         }
 
