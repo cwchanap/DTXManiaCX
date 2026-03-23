@@ -193,10 +193,6 @@ namespace DTXMania.Game.Lib.Stage
             // Create GameTime for precise timing
             _currentGameTime = new GameTime(TimeSpan.FromSeconds(_totalTime), TimeSpan.FromSeconds(deltaTime));
 
-            // Update input manager
-            _inputManager?.Update(deltaTime);
-            
-
             // Handle input
             HandleInput();
 

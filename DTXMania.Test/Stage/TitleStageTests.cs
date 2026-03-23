@@ -2,9 +2,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -101,17 +99,28 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void IsMenuSelectTriggered_WhenSpacePressed_ShouldReturnTrue()
+        public void IsMenuSelectTriggered_WhenSpacePressed_ShouldReturnFalse()
         {
             var inputManager = new TestInputManager();
             inputManager.SetPressedKey(Keys.Space);
 
-            Assert.True(TitleStage.IsMenuSelectTriggered(inputManager));
+            Assert.False(TitleStage.IsMenuSelectTriggered(inputManager));
+        }
+
+        [Fact]
+        public void IsMenuSelectTriggered_WhenNonActivateCommandAndSpacePressed_ShouldReturnFalse()
+        {
+            var inputManager = new TestInputManager();
+            inputManager.SetPressedCommand(InputCommandType.MoveDown);
+            inputManager.SetPressedKey(Keys.Space);
+
+            Assert.False(TitleStage.IsMenuSelectTriggered(inputManager));
         }
 
         private sealed class TestInputManager : IInputManager
         {
             private readonly HashSet<int> _pressedKeys = new();
+            private readonly HashSet<InputCommandType> _pressedCommands = new();
 
             public bool ActivatePressed { get; set; }
 
@@ -126,7 +135,8 @@ namespace DTXMania.Test.Stage
             public bool IsBackActionTriggered() => false;
 
             public bool IsCommandPressed(InputCommandType commandType)
-                => commandType == InputCommandType.Activate && ActivatePressed;
+                => (commandType == InputCommandType.Activate && ActivatePressed)
+                    || _pressedCommands.Contains(commandType);
 
             public bool IsKeyDown(int keyCode) => false;
 
@@ -139,6 +149,11 @@ namespace DTXMania.Test.Stage
             public void SetPressedKey(Keys key)
             {
                 _pressedKeys.Add((int)key);
+            }
+
+            public void SetPressedCommand(InputCommandType commandType)
+            {
+                _pressedCommands.Add(commandType);
             }
 
             public void Update(double deltaTime)
