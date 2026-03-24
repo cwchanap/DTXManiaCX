@@ -153,6 +153,20 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
+    public void ConfigManager_CreateConfiguredInputManager_ShouldApplySavedActivateBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "Tab";
+
+        var inputMgr = manager.CreateConfiguredInputManager();
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Tab]);
+        Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Enter && kvp.Value == InputCommandType.Activate);
+        Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Space && kvp.Value == InputCommandType.Activate);
+    }
+
+    [Fact]
     public void ConfigManager_LoadSystemKeyBindings_MultiKeyEntry_ShouldApplyAllKeys()
     {
         var manager = new ConfigManager();

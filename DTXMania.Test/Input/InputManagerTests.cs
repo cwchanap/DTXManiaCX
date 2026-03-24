@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Input;
+using Microsoft.Xna.Framework.Input;
 using System;
 using System.IO;
 
@@ -24,6 +25,17 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void Constructor_ShouldNotMapSpaceToActivateByDefault()
+    {
+        var manager = new InputManager();
+
+        var snapshot = manager.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Enter]);
+        Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Space && kvp.Value == InputCommandType.Activate);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void PerformanceStage_OnUpdate_ShouldNotUpdateInputManagerDirectly()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -32,6 +44,19 @@ public class InputManagerTests
         var source = File.ReadAllText(performanceStagePath);
 
         Assert.DoesNotContain("_inputManager?.Update(deltaTime);", source, StringComparison.Ordinal);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SongTransitionStage_ShouldCreateConfiguredLocalInputManager()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var songTransitionStagePath = Path.Combine(repositoryRoot, "DTXMania.Game", "Lib", "Stage", "SongTransitionStage.cs");
+
+        var source = File.ReadAllText(songTransitionStagePath);
+
+        Assert.Contains("_inputManager = CreateConfiguredInputManager();", source, StringComparison.Ordinal);
+        Assert.Contains("return concreteConfig.CreateConfiguredInputManager();", source, StringComparison.Ordinal);
     }
 
     private sealed class TestableInputManager : InputManager
