@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using Microsoft.Xna.Framework.Input;
@@ -124,6 +125,20 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
+    public void ConfigManager_SaveSystemKeyBindings_MultiKeyCommand_ShouldPersistAllKeys()
+    {
+        var manager = new ConfigManager();
+
+        manager.SaveSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Enter] = InputCommandType.Activate,
+            [Keys.Space] = InputCommandType.Activate,
+        });
+
+        Assert.Equal("Enter,Space", manager.Config.SystemKeyBindings["SystemKey.Activate"]);
+    }
+
+    [Fact]
     public void ConfigManager_LoadSystemKeyBindings_ShouldApplyToInputManager()
     {
         var manager = new ConfigManager();
@@ -135,6 +150,22 @@ public class SystemKeyBindingsPersistenceTests
         var snapshot = inputMgr.GetKeyMappingSnapshot();
         Assert.True(snapshot.ContainsKey(Keys.W));
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
+    }
+
+    [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_MultiKeyEntry_ShouldApplyAllKeys()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "A,B";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.A]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.B]);
+        Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Enter && kvp.Value == InputCommandType.Activate);
+        Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Space && kvp.Value == InputCommandType.Activate);
     }
 
     [Fact]

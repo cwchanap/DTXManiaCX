@@ -141,9 +141,16 @@ namespace DTXMania.Game.Lib.Config
                     continue;
                 }
 
-                if (Enum.TryParse<Keys>(kvp.Value, true, out var key))
+                var keys = ParseSystemBindingKeys(kvp.Value);
+                if (keys.Count == 0)
                 {
-                    inputManager.SetKeyMapping(key, command);
+                    continue;
+                }
+
+                RemoveSystemKeyBinding(inputManager, command);
+                foreach (var key in keys)
+                {
+                    inputManager.AddKeyMapping(key, command);
                 }
             }
         }
@@ -159,12 +166,14 @@ namespace DTXMania.Game.Lib.Config
             Config.SystemKeyBindings.Clear();
             foreach (var command in Enum.GetValues<InputCommandType>())
             {
-                var key = workingBindings
+                var keys = workingBindings
                     .Where(kvp => kvp.Value == command)
-                    .Select(kvp => (Keys?)kvp.Key)
-                    .FirstOrDefault();
+                    .Select(kvp => kvp.Key.ToString())
+                    .ToArray();
 
-                Config.SystemKeyBindings[$"SystemKey.{command}"] = key?.ToString() ?? string.Empty;
+                Config.SystemKeyBindings[$"SystemKey.{command}"] = keys.Length > 0
+                    ? string.Join(",", keys)
+                    : string.Empty;
             }
         }
 
@@ -359,6 +368,20 @@ namespace DTXMania.Game.Lib.Config
             {
                 inputManager.RemoveKeyMapping(key);
             }
+        }
+
+        private static List<Keys> ParseSystemBindingKeys(string rawValue)
+        {
+            var keys = new List<Keys>();
+            foreach (var token in rawValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (Enum.TryParse<Keys>(token, true, out var key))
+                {
+                    keys.Add(key);
+                }
+            }
+
+            return keys;
         }
 
         private static void EnsureConfigDirectory(string filePath)

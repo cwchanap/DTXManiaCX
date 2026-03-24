@@ -675,7 +675,7 @@ namespace DTXMania.Game.Lib.Stage
                 inputManager.RemoveKeyMapping(kvp.Key);
 
             foreach (var kvp in bindings)
-                inputManager.SetKeyMapping(kvp.Key, kvp.Value);
+                inputManager.AddKeyMapping(kvp.Key, kvp.Value);
         }
 
         #endregion

@@ -253,6 +253,11 @@ namespace DTXMania.Game.Lib.Input
             _keyMapping[key] = command;
         }
 
+        internal void AddKeyMapping(Keys key, InputCommandType command)
+        {
+            _keyMapping[key] = command;
+        }
+
         public void RemoveKeyMapping(Keys key)
         {
             _keyMapping.Remove(key);

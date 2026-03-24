@@ -33,6 +33,14 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             InputCommandType.Back,
         };
 
+        private static readonly HashSet<InputCommandType> RequiredActions = new()
+        {
+            InputCommandType.MoveUp,
+            InputCommandType.MoveDown,
+            InputCommandType.Activate,
+            InputCommandType.Back,
+        };
+
         private static readonly int ActionCount = Actions.Length;
         private static readonly int FooterSave = ActionCount;
         private static readonly int FooterCancel = ActionCount + 1;
@@ -42,7 +50,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private readonly InputManager _inputManager;
 
         // Working copy: action -> key (one-to-one)
-        private Dictionary<InputCommandType, Keys> _workingMapping = new();
+        private Dictionary<Keys, InputCommandType> _workingMapping = new();
         private Dictionary<Keys, InputCommandType> _navigationMapping = new();
         private int _selectedIndex;
         private CaptureState _state;
@@ -61,16 +69,10 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public void Activate()
         {
             // Clone current live system mapping to working copy
-            _workingMapping = new Dictionary<InputCommandType, Keys>();
-            var snapshot = _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot();
+            _workingMapping = new Dictionary<Keys, InputCommandType>(
+                _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
             _navigationMapping = new Dictionary<Keys, InputCommandType>(
                 _navigationMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
-            foreach (var action in Actions)
-            {
-                var entry = snapshot.FirstOrDefault(kvp => kvp.Value == action);
-                if (!entry.Equals(default(KeyValuePair<Keys, InputCommandType>)))
-                    _workingMapping[action] = entry.Key;
-            }
 
             _selectedIndex = 0;
             _state = CaptureState.Browsing;
@@ -128,13 +130,13 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private void TryUnbindSelectedAction()
         {
             var action = Actions[_selectedIndex];
-            if (action == InputCommandType.Activate)
+            if (RequiredActions.Contains(action))
             {
-                ShowConflict("Activate must remain bound");
+                ShowConflict($"{action} must remain bound");
                 return;
             }
 
-            _workingMapping.Remove(action);
+            RemoveBindingsForAction(action);
         }
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)
@@ -171,10 +173,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 return;
             }
 
-            // Remove any previous key bound to this action
-            _workingMapping.Remove(targetAction);
+            RemoveBindingsForAction(targetAction);
 
-            _workingMapping[targetAction] = key;
+            _workingMapping[key] = targetAction;
             _state = CaptureState.Browsing;
         }
 
@@ -200,10 +201,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private IReadOnlyDictionary<Keys, InputCommandType> WorkingMappingAsKeyDict()
         {
-            var d = new Dictionary<Keys, InputCommandType>();
-            foreach (var kvp in _workingMapping)
-                d[kvp.Value] = kvp.Key;
-            return d;
+            return new Dictionary<Keys, InputCommandType>(_workingMapping);
         }
 
         // Injected by ConfigStage so this panel can check drum key conflicts.
@@ -216,6 +214,34 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         internal IReadOnlyDictionary<Keys, InputCommandType> GetWorkingMappingSnapshot()
             => new Dictionary<Keys, InputCommandType>(WorkingMappingAsKeyDict());
+
+        private bool TryGetDisplayKey(InputCommandType action, out Keys key)
+        {
+            foreach (var kvp in _workingMapping)
+            {
+                if (kvp.Value == action)
+                {
+                    key = kvp.Key;
+                    return true;
+                }
+            }
+
+            key = default;
+            return false;
+        }
+
+        private void RemoveBindingsForAction(InputCommandType action)
+        {
+            var keysToRemove = _workingMapping
+                .Where(kvp => kvp.Value == action)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                _workingMapping.Remove(key);
+            }
+        }
 
         private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
         {
@@ -262,7 +288,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
                 string keyLabel = (sel && _state == CaptureState.AwaitingKey)
                     ? "[Press any key... Backspace to cancel]"
-                    : (_workingMapping.TryGetValue(action, out var k) ? k.ToString() : "(unbound)");
+                    : (TryGetDisplayKey(action, out var k) ? k.ToString() : "(unbound)");
 
                 string rowText = $"{i + 1}. {action,-18}  {keyLabel}";
                 DrawText(spriteBatch, bitmapFont, rowText, panelX, y + 6,
