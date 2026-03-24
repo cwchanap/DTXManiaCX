@@ -383,7 +383,8 @@ namespace DTXMania.Game.Lib.Stage
             if (inputManager == null)
                 return false;
 
-            return inputManager.IsCommandPressed(InputCommandType.Activate);
+            return inputManager.IsCommandPressed(InputCommandType.Activate)
+                || inputManager.IsKeyPressed((int)Keys.Space);
         }
 
         private void MoveCursorUp()

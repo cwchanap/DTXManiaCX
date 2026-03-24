@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
@@ -79,7 +80,7 @@ namespace DTXMania.Game.Lib.Stage
 
         public SongTransitionStage(BaseGame game) : base(game)
         {
-            _inputManager = new InputManager();
+            _inputManager = CreateConfiguredInputManager();
         }
 
         #endregion
@@ -116,7 +117,7 @@ namespace DTXMania.Game.Lib.Stage
             // Ensure InputManager is available (recreate if disposed)
             if (_inputManager == null)
             {
-                _inputManager = new InputManager();
+                _inputManager = CreateConfiguredInputManager();
             }
             
             // Create white pixel for drawing
@@ -537,6 +538,16 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region Update and Draw
+
+        private InputManager CreateConfiguredInputManager()
+        {
+            if (_game.ConfigManager is ConfigManager concreteConfig)
+            {
+                return concreteConfig.CreateConfiguredInputManager();
+            }
+
+            return new InputManager();
+        }
 
         protected override void OnUpdate(double deltaTime)
         {

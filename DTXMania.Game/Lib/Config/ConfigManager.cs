@@ -118,6 +118,13 @@ namespace DTXMania.Game.Lib.Config
             }
         }
 
+        public InputManager CreateConfiguredInputManager()
+        {
+            var inputManager = new InputManager();
+            LoadSystemKeyBindings(inputManager);
+            return inputManager;
+        }
+
         public void LoadSystemKeyBindings(InputManager inputManager)
         {
             const string prefix = "SystemKey.";
