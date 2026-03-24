@@ -303,6 +303,46 @@ public class KeyAssignPanelWorkingCopyTests
     }
 
     [Trait("Category", "Unit")]
+    [Theory]
+    [InlineData(0, Keys.Up, InputCommandType.MoveUp)]
+    [InlineData(1, Keys.Down, InputCommandType.MoveDown)]
+    [InlineData(5, Keys.Escape, InputCommandType.Back)]
+    public void SystemPanel_DeleteOnRequiredAction_ShouldKeepBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        for (int i = 0; i < selectedIndex; i++)
+            PressKey(panel, Keys.Down);
+
+        PressKey(panel, Keys.Delete);
+
+        var snapshot = panel.GetWorkingMappingSnapshot();
+        Assert.True(snapshot.ContainsKey(expectedKey));
+        Assert.Equal(command, snapshot[expectedKey]);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SystemPanel_DeleteOnUnrelatedAction_ShouldPreserveSecondaryActivateBinding()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Delete);
+
+        var snapshot = panel.GetWorkingMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Enter]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
+    }
+
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_RemappedNavigation_ShouldUnbindAndSave()
     {
@@ -317,12 +357,13 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Activate();
 
         PressKey(panel, Keys.S);
+        PressKey(panel, Keys.S);
         PressKey(panel, Keys.A);
 
         var clearedSnapshot = panel.GetWorkingMappingSnapshot();
-        Assert.DoesNotContain(clearedSnapshot, kvp => kvp.Value == InputCommandType.MoveDown);
+        Assert.DoesNotContain(clearedSnapshot, kvp => kvp.Value == InputCommandType.MoveLeft);
 
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 4; i++)
             PressKey(panel, Keys.S);
 
         PressKey(panel, Keys.F);
