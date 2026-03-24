@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using Microsoft.Xna.Framework.Input;
@@ -14,6 +15,7 @@ namespace DTXMania.Game.Lib.Input
     public class InputManagerCompat : InputManager, IInputManagerCompat
     {
         private readonly ModularInputManager _modularInputManager;
+        private readonly HashSet<InputCommandType> _injectedCommandsThisFrame = new();
         private bool _disposed = false;
 
         public InputManagerCompat(IConfigManager configManager)
@@ -44,11 +46,14 @@ namespace DTXMania.Game.Lib.Input
         public override void ClearPendingCommands()
         {
             base.ClearPendingCommands();
+            _injectedCommandsThisFrame.Clear();
             _modularInputManager?.ClearInjectedState();
         }
 
         public override void Update(double deltaTime)
         {
+            _injectedCommandsThisFrame.Clear();
+
             // Update the modular input manager
             _modularInputManager?.Update(deltaTime);
 
@@ -74,10 +79,16 @@ namespace DTXMania.Game.Lib.Input
                             continue;
                         }
 
+                        _injectedCommandsThisFrame.Add(commandType);
                         EnqueueCommand(new InputCommand(commandType, CurrentTime, false));
                     }
                 }
             }
+        }
+
+        public override bool IsCommandPressed(InputCommandType command)
+        {
+            return _injectedCommandsThisFrame.Contains(command) || base.IsCommandPressed(command);
         }
 
         public override bool IsKeyPressed(int keyCode)
@@ -119,7 +130,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public override bool IsBackActionTriggered()
         {
-            return base.IsBackActionTriggered();
+            return IsCommandPressed(InputCommandType.Back);
         }
 
         protected override void Dispose(bool disposing)

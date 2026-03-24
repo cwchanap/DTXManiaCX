@@ -115,7 +115,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Check if a specific InputCommandType was just triggered
         /// </summary>
-        public bool IsCommandPressed(InputCommandType command)
+        public virtual bool IsCommandPressed(InputCommandType command)
         {
             // Check if any key mapped to this command was just pressed
             foreach (var kvp in _keyMapping)
