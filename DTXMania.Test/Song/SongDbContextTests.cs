@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
+using Song = DTXMania.Game.Lib.Song.Entities.Song;
 using Xunit;
 
 namespace DTXMania.Test.Song
