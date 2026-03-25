@@ -30,7 +30,8 @@ namespace DTXMania.Test.Song
 
         public async Task InitializeAsync()
         {
-            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+            // Foreign Keys=True enables FK constraint enforcement on the shared connection.
+            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:;Foreign Keys=True");
             await _connection.OpenAsync();
 
             _options = new DbContextOptionsBuilder<SongDbContext>()
