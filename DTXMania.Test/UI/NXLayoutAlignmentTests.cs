@@ -290,9 +290,9 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TitleTextureHeight_ShouldBe_DisplayHeight_TimesRenderScale()
         {
-            var expected = (int)(SongSelectionUILayout.SongBars.TitleDisplayHeight *
-                                 SongSelectionUILayout.SongBars.TitleRenderScale);
-            Assert.Equal(expected, SongSelectionUILayout.SongBars.TitleTextureHeight);
+            var actual = (int)(SongSelectionUILayout.SongBars.TitleDisplayHeight *
+                               SongSelectionUILayout.SongBars.TitleRenderScale);
+            Assert.Equal(SongSelectionUILayout.SongBars.TitleTextureHeight, actual);
         }
 
         #endregion
