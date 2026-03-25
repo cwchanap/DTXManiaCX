@@ -19,6 +19,7 @@ namespace DTXMania.Test.UI
     /// "disconnected" GamePadState when no physical device is present, so construction
     /// is safe in a CI environment.
     /// </summary>
+    [Trait("Category", "InputState")]
     public class InputStateManagerTests
     {
         private readonly InputStateManager _manager;

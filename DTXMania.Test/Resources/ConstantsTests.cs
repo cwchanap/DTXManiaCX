@@ -8,6 +8,7 @@ namespace DTXMania.Test.Resources
     /// Tests for DTXMania.Game.Lib.Resources.Constants.
     /// Verifies that constant values remain stable and match expected DTXMania conventions.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ConstantsTests
     {
         #region SongPaths Constants

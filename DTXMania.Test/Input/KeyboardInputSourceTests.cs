@@ -13,6 +13,7 @@ namespace DTXMania.Test.Input
     /// excluded because they require an SDL/game-window context that is unavailable
     /// in a headless test environment.
     /// </summary>
+    [Trait("Category", "Input")]
     public class KeyboardInputSourceTests : IDisposable
     {
         private readonly KeyboardInputSource _source;
