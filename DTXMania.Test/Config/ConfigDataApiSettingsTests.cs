@@ -8,6 +8,7 @@ namespace DTXMania.Test.Config
     /// ConfigData is a simple data-transfer class; these tests guard default values and
     /// that setters work correctly.
     /// </summary>
+    [Trait("Category", "Config")]
     public class ConfigDataApiSettingsTests
     {
         #region API Settings – Default Values
@@ -60,6 +61,21 @@ namespace DTXMania.Test.Config
             Assert.Equal(port, config.GameApiPort);
         }
 
+        // ConfigData is a plain DTO with no validation; the setter must accept any int
+        // and return it unchanged so callers can validate externally.
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(-1024)]
+        [InlineData(65536)]
+        [InlineData(int.MaxValue)]
+        public void ConfigData_SetGameApiPort_OutOfRange_ShouldPreserveValue(int port)
+        {
+            var config = new ConfigData();
+            config.GameApiPort = port;
+            Assert.Equal(port, config.GameApiPort);
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("my-secret-key")]
@@ -69,6 +85,32 @@ namespace DTXMania.Test.Config
             var config = new ConfigData();
             config.GameApiKey = key;
             Assert.Equal(key, config.GameApiKey);
+        }
+
+        [Fact]
+        public void ConfigData_SetGameApiKey_Null_ShouldPreserveValue()
+        {
+            var config = new ConfigData();
+            config.GameApiKey = null!;
+            Assert.Null(config.GameApiKey);
+        }
+
+        [Fact]
+        public void ConfigData_SetGameApiKey_Whitespace_ShouldPreserveValue()
+        {
+            const string whitespace = "   ";
+            var config = new ConfigData();
+            config.GameApiKey = whitespace;
+            Assert.Equal(whitespace, config.GameApiKey);
+        }
+
+        [Fact]
+        public void ConfigData_SetGameApiKey_LongString_ShouldPreserveValue()
+        {
+            var longKey = new string('x', 2048);
+            var config = new ConfigData();
+            config.GameApiKey = longKey;
+            Assert.Equal(longKey, config.GameApiKey);
         }
 
         #endregion
@@ -111,6 +153,19 @@ namespace DTXMania.Test.Config
             Assert.Equal(speed, config.ScrollSpeed);
         }
 
+        // ConfigData is a plain DTO; negative / zero scroll speeds are preserved as-is.
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(-100)]
+        [InlineData(int.MinValue)]
+        public void ConfigData_SetScrollSpeed_NegativeOrZero_ShouldPreserveValue(int speed)
+        {
+            var config = new ConfigData();
+            config.ScrollSpeed = speed;
+            Assert.Equal(speed, config.ScrollSpeed);
+        }
+
         [Fact]
         public void ConfigData_AutoPlay_DefaultShouldBeFalse()
         {
@@ -145,6 +200,17 @@ namespace DTXMania.Test.Config
         [InlineData(200)]
         [InlineData(512)]
         public void ConfigData_SetBufferSizeMs_ShouldUpdateCorrectly(int bufferSize)
+        {
+            var config = new ConfigData();
+            config.BufferSizeMs = bufferSize;
+            Assert.Equal(bufferSize, config.BufferSizeMs);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(-512)]
+        public void ConfigData_SetBufferSizeMs_NegativeOrZero_ShouldPreserveValue(int bufferSize)
         {
             var config = new ConfigData();
             config.BufferSizeMs = bufferSize;
