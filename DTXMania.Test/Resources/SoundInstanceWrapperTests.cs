@@ -11,6 +11,7 @@ namespace DTXMania.Test.Resources
     /// without a real audio engine: constructor guards, interface compliance, and type
     /// relationships.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class SoundInstanceWrapperTests
     {
         #region Constructor Guard Tests
