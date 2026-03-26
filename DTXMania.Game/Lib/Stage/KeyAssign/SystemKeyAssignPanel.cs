@@ -71,7 +71,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public void Activate()
         {
             // Clone current live system mapping to working copy
-            _workingMapping = new Dictionary<Keys, InputCommandType>(
+            _workingMapping = CollapseToSingleBindingPerAction(
                 _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
             _navigationMapping = new Dictionary<Keys, InputCommandType>(
                 _navigationMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
@@ -206,10 +206,28 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             return new Dictionary<Keys, InputCommandType>(_workingMapping);
         }
 
+        private static Dictionary<Keys, InputCommandType> CollapseToSingleBindingPerAction(
+            IReadOnlyDictionary<Keys, InputCommandType> source)
+        {
+            var collapsed = new Dictionary<Keys, InputCommandType>();
+            var seenActions = new HashSet<InputCommandType>();
+
+            foreach (var kvp in source)
+            {
+                if (seenActions.Add(kvp.Value))
+                {
+                    collapsed[kvp.Key] = kvp.Value;
+                }
+            }
+
+            return collapsed;
+        }
+
         // Injected by ConfigStage so this panel can check drum key conflicts.
         internal Func<IReadOnlyDictionary<string, int>>? _liveDrumBindingsProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _workingMappingProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _navigationMappingProvider;
+        internal Func<InputCommandType, bool>? _commandPressedProvider;
 
         private IReadOnlyDictionary<string, int> GetLiveDrumBindings()
             => _liveDrumBindingsProvider?.Invoke() ?? new Dictionary<string, int>();
@@ -247,6 +265,11 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
         {
+            if (_commandPressedProvider?.Invoke(command) == true)
+            {
+                return true;
+            }
+
             foreach (var kvp in _navigationMapping)
             {
                 if (kvp.Value == command && IsJustPressed(current, previous, kvp.Key))

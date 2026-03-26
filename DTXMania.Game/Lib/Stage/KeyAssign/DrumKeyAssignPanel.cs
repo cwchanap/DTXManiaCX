@@ -185,11 +185,17 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _liveSystemMappingProvider;
         internal Func<KeyBindings>? _workingBindingsProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _navigationMappingProvider;
+        internal Func<InputCommandType, bool>? _commandPressedProvider;
 
         internal KeyBindings GetWorkingBindingsSnapshot() => _workingBindings.Clone();
 
         private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
         {
+            if (_commandPressedProvider?.Invoke(command) == true)
+            {
+                return true;
+            }
+
             foreach (var kvp in _navigationMapping)
             {
                 if (kvp.Value == command && IsJustPressed(current, previous, kvp.Key))
