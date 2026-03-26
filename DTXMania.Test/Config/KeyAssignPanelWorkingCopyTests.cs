@@ -306,6 +306,8 @@ public class KeyAssignPanelWorkingCopyTests
     [Theory]
     [InlineData(0, Keys.Up, InputCommandType.MoveUp)]
     [InlineData(1, Keys.Down, InputCommandType.MoveDown)]
+    [InlineData(2, Keys.Left, InputCommandType.MoveLeft)]
+    [InlineData(3, Keys.Right, InputCommandType.MoveRight)]
     [InlineData(5, Keys.Escape, InputCommandType.Back)]
     public void SystemPanel_DeleteOnRequiredAction_ShouldKeepBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
     {
@@ -348,7 +350,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SystemPanel_RemappedNavigation_ShouldUnbindAndSave()
+    public void SystemPanel_RemappedNavigation_ShouldKeepRequiredMoveLeftBindingAndSave()
     {
         using var inputManager = new InputManager();
         var panel = new SystemKeyAssignPanel(inputManager);
@@ -364,8 +366,10 @@ public class KeyAssignPanelWorkingCopyTests
         PressKey(panel, Keys.S);
         PressKey(panel, Keys.A);
 
-        var clearedSnapshot = panel.GetWorkingMappingSnapshot();
-        Assert.DoesNotContain(clearedSnapshot, kvp => kvp.Value == InputCommandType.MoveLeft);
+        var snapshotAfterUnbindAttempt = panel.GetWorkingMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveLeft, snapshotAfterUnbindAttempt[Keys.Left]);
+
+        panel.Update(2.1, new KeyboardState(), new KeyboardState());
 
         for (int i = 0; i < 4; i++)
             PressKey(panel, Keys.S);
