@@ -331,6 +331,10 @@ public class KeyAssignPanelWorkingCopyTests
         using var inputManager = new InputManager();
         var panel = new SystemKeyAssignPanel(inputManager);
         panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._workingMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>(inputManager.GetKeyMappingSnapshot())
+        {
+            [Keys.Space] = InputCommandType.Activate,
+        };
         panel.Activate();
 
         PressKey(panel, Keys.Down);

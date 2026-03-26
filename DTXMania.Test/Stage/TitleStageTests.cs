@@ -99,22 +99,22 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void IsMenuSelectTriggered_WhenSpacePressed_ShouldReturnTrue()
+        public void IsMenuSelectTriggered_WhenSpacePressedWithoutActivateMapping_ShouldReturnFalse()
         {
             var inputManager = new TestInputManager();
             inputManager.SetPressedKey(Keys.Space);
 
-            Assert.True(TitleStage.IsMenuSelectTriggered(inputManager));
+            Assert.False(TitleStage.IsMenuSelectTriggered(inputManager));
         }
 
         [Fact]
-        public void IsMenuSelectTriggered_WhenNonActivateCommandAndSpacePressed_ShouldReturnTrue()
+        public void IsMenuSelectTriggered_WhenNonActivateCommandAndSpacePressed_ShouldReturnFalse()
         {
             var inputManager = new TestInputManager();
             inputManager.SetPressedCommand(InputCommandType.MoveDown);
             inputManager.SetPressedKey(Keys.Space);
 
-            Assert.True(TitleStage.IsMenuSelectTriggered(inputManager));
+            Assert.False(TitleStage.IsMenuSelectTriggered(inputManager));
         }
 
         private sealed class TestInputManager : IInputManager
