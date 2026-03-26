@@ -183,7 +183,7 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
-    public void ConfigManager_LoadSystemKeyBindings_EmptyValue_ShouldRemoveDefaultBinding()
+    public void ConfigManager_LoadSystemKeyBindings_EmptyRequiredValue_ShouldPreserveFallbackBinding()
     {
         var manager = new ConfigManager();
         manager.Config.SystemKeyBindings["SystemKey.Back"] = string.Empty;
@@ -191,11 +191,25 @@ public class SystemKeyBindingsPersistenceTests
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
 
-        Assert.DoesNotContain(inputMgr.GetKeyMappingSnapshot(), kvp => kvp.Value == InputCommandType.Back);
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.True(snapshot.TryGetValue(Keys.Escape, out var backCommand));
+        Assert.Equal(InputCommandType.Back, backCommand);
     }
 
     [Fact]
-    public void ConfigManager_SaveSystemKeyBindings_UnboundCommand_ShouldPersistEmptyEntry()
+    public void ConfigManager_LoadSystemKeyBindings_EmptyOptionalValue_ShouldRemoveBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.MoveLeft"] = string.Empty;
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        Assert.DoesNotContain(inputMgr.GetKeyMappingSnapshot(), kvp => kvp.Value == InputCommandType.MoveLeft);
+    }
+
+    [Fact]
+    public void ConfigManager_SaveSystemKeyBindings_UnboundRequiredCommand_ShouldPersistFallbackEntry()
     {
         var manager = new ConfigManager();
         var inputMgr = new InputManager();
@@ -204,7 +218,24 @@ public class SystemKeyBindingsPersistenceTests
         manager.SaveSystemKeyBindings(inputMgr);
 
         Assert.True(manager.Config.SystemKeyBindings.ContainsKey("SystemKey.Back"));
-        Assert.Equal(string.Empty, manager.Config.SystemKeyBindings["SystemKey.Back"]);
+        Assert.Equal("Escape", manager.Config.SystemKeyBindings["SystemKey.Back"]);
+    }
+
+    [Fact]
+    public void ConfigManager_SaveSystemKeyBindings_SparseBindings_ShouldPreserveExistingRequiredBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.Back"] = "Tab";
+
+        manager.SaveSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Space] = InputCommandType.Activate,
+        });
+
+        Assert.Equal("Tab", manager.Config.SystemKeyBindings["SystemKey.Back"]);
+        Assert.Equal("Space", manager.Config.SystemKeyBindings["SystemKey.Activate"]);
+        Assert.Equal("Up", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+        Assert.Equal("Down", manager.Config.SystemKeyBindings["SystemKey.MoveDown"]);
     }
 
     // ─── InputManager mutation API ────────────────────────────────────────────
