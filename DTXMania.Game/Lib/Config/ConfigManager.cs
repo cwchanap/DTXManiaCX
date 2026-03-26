@@ -144,6 +144,12 @@ namespace DTXMania.Game.Lib.Config
 
                 if (string.IsNullOrWhiteSpace(kvp.Value))
                 {
+                    if (IsRequiredSystemCommand(command))
+                    {
+                        EnsureRequiredSystemKeyBinding(inputManager, command);
+                        continue;
+                    }
+
                     RemoveSystemKeyBinding(inputManager, command);
                     continue;
                 }
@@ -151,6 +157,11 @@ namespace DTXMania.Game.Lib.Config
                 var keys = ParseSystemBindingKeys(kvp.Value);
                 if (keys.Count == 0)
                 {
+                    if (IsRequiredSystemCommand(command))
+                    {
+                        EnsureRequiredSystemKeyBinding(inputManager, command);
+                    }
+
                     continue;
                 }
 
@@ -170,17 +181,38 @@ namespace DTXMania.Game.Lib.Config
 
         public void SaveSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
         {
+            var existingBindings = new Dictionary<string, string>(Config.SystemKeyBindings);
             Config.SystemKeyBindings.Clear();
             foreach (var command in Enum.GetValues<InputCommandType>())
             {
+                var configKey = $"SystemKey.{command}";
                 var keys = workingBindings
                     .Where(kvp => kvp.Value == command)
                     .Select(kvp => kvp.Key.ToString())
                     .ToArray();
 
-                Config.SystemKeyBindings[$"SystemKey.{command}"] = keys.Length > 0
-                    ? string.Join(",", keys)
-                    : string.Empty;
+                if (keys.Length > 0)
+                {
+                    Config.SystemKeyBindings[configKey] = string.Join(",", keys);
+                    continue;
+                }
+
+                if (IsRequiredSystemCommand(command))
+                {
+                    if (existingBindings.TryGetValue(configKey, out var existingValue) &&
+                        !string.IsNullOrWhiteSpace(existingValue))
+                    {
+                        Config.SystemKeyBindings[configKey] = existingValue;
+                    }
+                    else
+                    {
+                        Config.SystemKeyBindings[configKey] = string.Join(",", GetFallbackSystemBindingKeys(command).Select(key => key.ToString()));
+                    }
+
+                    continue;
+                }
+
+                Config.SystemKeyBindings[configKey] = string.Empty;
             }
         }
 
@@ -389,6 +421,39 @@ namespace DTXMania.Game.Lib.Config
             }
 
             return keys;
+        }
+
+        private static bool IsRequiredSystemCommand(InputCommandType command)
+        {
+            return command == InputCommandType.MoveUp
+                || command == InputCommandType.MoveDown
+                || command == InputCommandType.Activate
+                || command == InputCommandType.Back;
+        }
+
+        private static void EnsureRequiredSystemKeyBinding(InputManager inputManager, InputCommandType command)
+        {
+            if (inputManager.GetKeyMappingSnapshot().Values.Contains(command))
+            {
+                return;
+            }
+
+            foreach (var key in GetFallbackSystemBindingKeys(command))
+            {
+                inputManager.AddKeyMapping(key, command);
+            }
+        }
+
+        private static Keys[] GetFallbackSystemBindingKeys(InputCommandType command)
+        {
+            return command switch
+            {
+                InputCommandType.MoveUp => new[] { Keys.Up },
+                InputCommandType.MoveDown => new[] { Keys.Down },
+                InputCommandType.Activate => new[] { Keys.Enter },
+                InputCommandType.Back => new[] { Keys.Escape },
+                _ => Array.Empty<Keys>(),
+            };
         }
 
         private static void EnsureConfigDirectory(string filePath)
