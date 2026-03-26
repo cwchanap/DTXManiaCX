@@ -328,7 +328,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SystemPanel_DeleteOnUnrelatedAction_ShouldPreserveSecondaryActivateBinding()
+    public void SystemPanel_Activate_ShouldCollapseSecondaryBindingForDisplayedAction()
     {
         using var inputManager = new InputManager();
         var panel = new SystemKeyAssignPanel(inputManager);
@@ -345,7 +345,7 @@ public class KeyAssignPanelWorkingCopyTests
 
         var snapshot = panel.GetWorkingMappingSnapshot();
         Assert.Equal(InputCommandType.Activate, snapshot[Keys.Enter]);
-        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
+        Assert.False(snapshot.ContainsKey(Keys.Space));
     }
 
     [Trait("Category", "Unit")]
@@ -396,6 +396,68 @@ public class KeyAssignPanelWorkingCopyTests
         PressKey(panel, Keys.Q);
 
         Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_CommandProvider_ShouldNavigateAndSaveWithoutKeyboardState()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+
+        InputCommandType? pressedCommand = null;
+        panel._commandPressedProvider = command => pressedCommand == command;
+
+        bool savedFired = false;
+        panel.Saved += (_, _) => savedFired = true;
+
+        panel.Activate();
+
+        for (int i = 0; i < 10; i++)
+        {
+            pressedCommand = InputCommandType.MoveDown;
+            panel.Update(0.0, new KeyboardState(), new KeyboardState());
+            pressedCommand = null;
+        }
+
+        pressedCommand = InputCommandType.Activate;
+        panel.Update(0.0, new KeyboardState(), new KeyboardState());
+        pressedCommand = null;
+
+        Assert.True(savedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SystemPanel_CommandProvider_ShouldNavigateAndSaveWithoutKeyboardState()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+
+        InputCommandType? pressedCommand = null;
+        panel._commandPressedProvider = command => pressedCommand == command;
+
+        bool savedFired = false;
+        panel.Saved += (_, _) => savedFired = true;
+
+        panel.Activate();
+
+        for (int i = 0; i < 6; i++)
+        {
+            pressedCommand = InputCommandType.MoveDown;
+            panel.Update(0.0, new KeyboardState(), new KeyboardState());
+            pressedCommand = null;
+        }
+
+        pressedCommand = InputCommandType.Activate;
+        panel.Update(0.0, new KeyboardState(), new KeyboardState());
+        pressedCommand = null;
+
+        Assert.True(savedFired);
         Assert.False(panel.IsActive);
     }
 

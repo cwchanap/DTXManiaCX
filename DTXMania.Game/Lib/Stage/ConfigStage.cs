@@ -322,6 +322,7 @@ namespace DTXMania.Game.Lib.Stage
             _drumPanel._workingBindingsProvider = () => _workingDrumBindings.Clone();
             _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_navigationBindings);
+            _drumPanel._commandPressedProvider = IsWorkingCommandPressed;
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 
@@ -331,6 +332,7 @@ namespace DTXMania.Game.Lib.Stage
             _systemPanel._liveDrumBindingsProvider =
                 () => new Dictionary<string, int>(_workingDrumBindings.ButtonToLane);
             _systemPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_navigationBindings);
+            _systemPanel._commandPressedProvider = IsWorkingCommandPressed;
             _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
         }
@@ -427,6 +429,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool IsWorkingCommandPressed(InputCommandType command)
         {
+            if (_game.InputManager?.IsCommandPressed(command) == true)
+            {
+                return true;
+            }
+
             return _navigationBindings.Any(kvp =>
                 kvp.Value == command &&
                 _currentKeyboardState.IsKeyDown(kvp.Key) &&
