@@ -197,7 +197,7 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
-    public void ConfigManager_LoadSystemKeyBindings_EmptyOptionalValue_ShouldRemoveBinding()
+    public void ConfigManager_LoadSystemKeyBindings_EmptyMoveLeftValue_ShouldPreserveFallbackBinding()
     {
         var manager = new ConfigManager();
         manager.Config.SystemKeyBindings["SystemKey.MoveLeft"] = string.Empty;
@@ -205,7 +205,24 @@ public class SystemKeyBindingsPersistenceTests
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
 
-        Assert.DoesNotContain(inputMgr.GetKeyMappingSnapshot(), kvp => kvp.Value == InputCommandType.MoveLeft);
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.True(snapshot.TryGetValue(Keys.Left, out var moveLeftCommand));
+        Assert.Equal(InputCommandType.MoveLeft, moveLeftCommand);
+    }
+
+    [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_DuplicatePhysicalKey_ShouldRestoreFallbackForRequiredCommand()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "A";
+        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "A";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.A]);
+        Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.Up]);
     }
 
     [Fact]
@@ -236,6 +253,8 @@ public class SystemKeyBindingsPersistenceTests
         Assert.Equal("Space", manager.Config.SystemKeyBindings["SystemKey.Activate"]);
         Assert.Equal("Up", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
         Assert.Equal("Down", manager.Config.SystemKeyBindings["SystemKey.MoveDown"]);
+        Assert.Equal("Left", manager.Config.SystemKeyBindings["SystemKey.MoveLeft"]);
+        Assert.Equal("Right", manager.Config.SystemKeyBindings["SystemKey.MoveRight"]);
     }
 
     // ─── InputManager mutation API ────────────────────────────────────────────

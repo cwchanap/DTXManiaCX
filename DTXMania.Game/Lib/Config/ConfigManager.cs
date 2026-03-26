@@ -171,6 +171,11 @@ namespace DTXMania.Game.Lib.Config
                     inputManager.AddKeyMapping(key, command);
                 }
             }
+
+            foreach (var command in GetRequiredSystemCommands())
+            {
+                EnsureRequiredSystemKeyBinding(inputManager, command);
+            }
         }
 
         public void SaveSystemKeyBindings(InputManager inputManager)
@@ -427,8 +432,23 @@ namespace DTXMania.Game.Lib.Config
         {
             return command == InputCommandType.MoveUp
                 || command == InputCommandType.MoveDown
+                || command == InputCommandType.MoveLeft
+                || command == InputCommandType.MoveRight
                 || command == InputCommandType.Activate
                 || command == InputCommandType.Back;
+        }
+
+        private static InputCommandType[] GetRequiredSystemCommands()
+        {
+            return new[]
+            {
+                InputCommandType.MoveUp,
+                InputCommandType.MoveDown,
+                InputCommandType.MoveLeft,
+                InputCommandType.MoveRight,
+                InputCommandType.Activate,
+                InputCommandType.Back,
+            };
         }
 
         private static void EnsureRequiredSystemKeyBinding(InputManager inputManager, InputCommandType command)
@@ -450,6 +470,8 @@ namespace DTXMania.Game.Lib.Config
             {
                 InputCommandType.MoveUp => new[] { Keys.Up },
                 InputCommandType.MoveDown => new[] { Keys.Down },
+                InputCommandType.MoveLeft => new[] { Keys.Left },
+                InputCommandType.MoveRight => new[] { Keys.Right },
                 InputCommandType.Activate => new[] { Keys.Enter },
                 InputCommandType.Back => new[] { Keys.Escape },
                 _ => Array.Empty<Keys>(),

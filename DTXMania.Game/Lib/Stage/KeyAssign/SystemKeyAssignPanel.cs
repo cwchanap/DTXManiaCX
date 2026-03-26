@@ -37,6 +37,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         {
             InputCommandType.MoveUp,
             InputCommandType.MoveDown,
+            InputCommandType.MoveLeft,
+            InputCommandType.MoveRight,
             InputCommandType.Activate,
             InputCommandType.Back,
         };
