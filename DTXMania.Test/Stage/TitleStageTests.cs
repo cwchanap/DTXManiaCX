@@ -117,6 +117,12 @@ namespace DTXMania.Test.Stage
             Assert.False(TitleStage.IsMenuSelectTriggered(inputManager));
         }
 
+        [Fact]
+        public void IsMenuSelectTriggered_WhenInputManagerIsNull_ShouldReturnFalse()
+        {
+            Assert.False(TitleStage.IsMenuSelectTriggered(null));
+        }
+
         private sealed class TestInputManager : IInputManager
         {
             private readonly HashSet<int> _pressedKeys = new();

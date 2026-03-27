@@ -1,6 +1,5 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
-using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Test.Input;
 
@@ -46,13 +45,12 @@ public sealed class InputManagerCompatTests : IDisposable
     }
 
     [Fact]
-    public void IsMenuSelectTriggered_WhenActivateInjected_ShouldReturnTrue()
+    public void IsCommandPressed_WhenActivateInjected_ShouldReturnTrue()
     {
         _manager.ModularInputManager.InjectButton("Key.Enter", isPressed: true);
 
         _manager.Update(0.016);
 
-        Assert.True(TitleStage.IsMenuSelectTriggered(_manager));
         Assert.True(_manager.IsCommandPressed(InputCommandType.Activate));
     }
 
@@ -66,6 +64,5 @@ public sealed class InputManagerCompatTests : IDisposable
         _manager.Update(0.016);
 
         Assert.False(_manager.IsCommandPressed(InputCommandType.Activate));
-        Assert.False(TitleStage.IsMenuSelectTriggered(_manager));
     }
 }

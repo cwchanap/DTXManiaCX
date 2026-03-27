@@ -33,16 +33,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             InputCommandType.Back,
         };
 
-        private static readonly HashSet<InputCommandType> RequiredActions = new()
-        {
-            InputCommandType.MoveUp,
-            InputCommandType.MoveDown,
-            InputCommandType.MoveLeft,
-            InputCommandType.MoveRight,
-            InputCommandType.Activate,
-            InputCommandType.Back,
-        };
-
         private static readonly int ActionCount = Actions.Length;
         private static readonly int FooterSave = ActionCount;
         private static readonly int FooterCancel = ActionCount + 1;
@@ -132,7 +122,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private void TryUnbindSelectedAction()
         {
             var action = Actions[_selectedIndex];
-            if (RequiredActions.Contains(action))
+            if (Actions.Contains(action))
             {
                 ShowConflict($"{action} must remain bound");
                 return;
