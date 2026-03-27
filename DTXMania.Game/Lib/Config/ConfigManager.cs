@@ -16,6 +16,16 @@ namespace DTXMania.Game.Lib.Config
 {
     public class ConfigManager : IConfigManager
     {
+        private static readonly InputCommandType[] RequiredSystemCommands =
+        {
+            InputCommandType.MoveUp,
+            InputCommandType.MoveDown,
+            InputCommandType.MoveLeft,
+            InputCommandType.MoveRight,
+            InputCommandType.Activate,
+            InputCommandType.Back,
+        };
+
         private readonly ILogger<ConfigManager> _logger;
         public ConfigData Config { get; private set; }
 
@@ -430,25 +440,12 @@ namespace DTXMania.Game.Lib.Config
 
         private static bool IsRequiredSystemCommand(InputCommandType command)
         {
-            return command == InputCommandType.MoveUp
-                || command == InputCommandType.MoveDown
-                || command == InputCommandType.MoveLeft
-                || command == InputCommandType.MoveRight
-                || command == InputCommandType.Activate
-                || command == InputCommandType.Back;
+            return RequiredSystemCommands.Contains(command);
         }
 
         private static InputCommandType[] GetRequiredSystemCommands()
         {
-            return new[]
-            {
-                InputCommandType.MoveUp,
-                InputCommandType.MoveDown,
-                InputCommandType.MoveLeft,
-                InputCommandType.MoveRight,
-                InputCommandType.Activate,
-                InputCommandType.Back,
-            };
+            return RequiredSystemCommands;
         }
 
         private static void EnsureRequiredSystemKeyBinding(InputManager inputManager, InputCommandType command)
