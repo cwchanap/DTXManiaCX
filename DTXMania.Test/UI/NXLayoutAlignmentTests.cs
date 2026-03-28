@@ -282,9 +282,9 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TitleTextureWidth_ShouldBe_DisplayWidth_TimesRenderScale()
         {
-            var expected = (int)(SongSelectionUILayout.SongBars.TitleDisplayWidth *
-                                 SongSelectionUILayout.SongBars.TitleRenderScale);
-            Assert.Equal(expected, SongSelectionUILayout.SongBars.TitleTextureWidth);
+            var actual = (int)(SongSelectionUILayout.SongBars.TitleDisplayWidth *
+                               SongSelectionUILayout.SongBars.TitleRenderScale);
+            Assert.Equal(SongSelectionUILayout.SongBars.TitleTextureWidth, actual);
         }
 
         [Fact]
