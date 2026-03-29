@@ -114,7 +114,7 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Check if a specific InputCommandType was just triggered
         /// </summary>
-        public bool IsCommandPressed(InputCommandType command)
+        public virtual bool IsCommandPressed(InputCommandType command)
         {
             // Check if any key mapped to this command was just pressed
             foreach (var kvp in _keyMapping)
@@ -235,6 +235,36 @@ namespace DTXMania.Game.Lib.Input
             var key = (Keys)keyCode;
             return !_currentKeyboardState.IsKeyDown(key) &&
                    _previousKeyboardState.IsKeyDown(key);
+        }
+
+        public void SetKeyMapping(Keys key, InputCommandType command)
+        {
+            // Evict any existing key already mapped to this command so each command has exactly one key.
+            var priorKeys = new List<Keys>();
+            foreach (var kvp in _keyMapping)
+            {
+                if (kvp.Value == command && kvp.Key != key)
+                    priorKeys.Add(kvp.Key);
+            }
+            foreach (var k in priorKeys)
+                _keyMapping.Remove(k);
+
+            _keyMapping[key] = command;
+        }
+
+        internal void AddKeyMapping(Keys key, InputCommandType command)
+        {
+            _keyMapping[key] = command;
+        }
+
+        public void RemoveKeyMapping(Keys key)
+        {
+            _keyMapping.Remove(key);
+        }
+
+        public IReadOnlyDictionary<Keys, InputCommandType> GetKeyMappingSnapshot()
+        {
+            return new Dictionary<Keys, InputCommandType>(_keyMapping);
         }
 
         /// <summary>

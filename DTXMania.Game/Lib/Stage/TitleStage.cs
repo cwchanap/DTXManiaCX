@@ -362,26 +362,28 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Handle menu navigation
-            if (IsKeyPressed(Keys.Up))
+            if (_game.InputManager?.IsCommandPressed(InputCommandType.MoveUp) == true)
             {
                 MoveCursorUp();
             }
-            else if (IsKeyPressed(Keys.Down))
+            else if (_game.InputManager?.IsCommandPressed(InputCommandType.MoveDown) == true)
             {
                 MoveCursorDown();
             }
 
             // Handle menu selection
-            if (IsKeyPressed(Keys.Enter) || IsKeyPressed(Keys.Space))
+            if (IsMenuSelectTriggered(_game.InputManager))
             {
                 SelectCurrentMenuItem();
             }
         }
 
-        private bool IsKeyPressed(Keys key)
+#nullable enable
+        internal static bool IsMenuSelectTriggered(IInputManager? inputManager)
         {
-            return _currentKeyboardState.IsKeyDown(key) && !_previousKeyboardState.IsKeyDown(key);
+            return inputManager?.IsCommandPressed(InputCommandType.Activate) == true;
         }
+#nullable restore
 
         private void MoveCursorUp()
         {

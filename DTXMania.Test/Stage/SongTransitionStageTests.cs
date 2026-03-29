@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Stage;
-using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -25,8 +24,8 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Constructor_WithValidGame_ShouldNotThrow()
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+            var game = CreateUninitializedGame();
+            var stage = new SongTransitionStage(game);
             Assert.NotNull(stage);
         }
 
@@ -116,14 +115,21 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void InitialPhase_ShouldBeInactive()
         {
-            var mockGame = new Mock<BaseGame>();
-            var stage = new SongTransitionStage(mockGame.Object);
+            var game = CreateUninitializedGame();
+            var stage = new SongTransitionStage(game);
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
 
         #endregion
 
         #region Helper Methods
+
+        private static BaseGame CreateUninitializedGame()
+        {
+#pragma warning disable SYSLIB0050
+            return (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
+#pragma warning restore SYSLIB0050
+        }
 
         private static T? InvokePrivateMethod<T>(object target, string methodName, params object[] args)
         {

@@ -141,6 +141,18 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Returns a deep copy of this KeyBindings instance with no shared state.
+        /// </summary>
+        public KeyBindings Clone()
+        {
+            var clone = new KeyBindings();
+            clone.ClearAllBindings();
+            foreach (var kvp in _buttonToLane)
+                clone.BindButton(kvp.Key, kvp.Value);
+            return clone;
+        }
+
+        /// <summary>
         /// Gets a human-readable description of the bindings for a lane
         /// </summary>
         /// <param name="lane">Lane index (0-9)</param>
