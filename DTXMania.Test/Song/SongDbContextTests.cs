@@ -67,7 +67,7 @@ namespace DTXMania.Test.Song
             // Pass empty options so OnConfiguring takes the "!IsConfigured" branch.
             var emptyOptions = new DbContextOptions<SongDbContext>();
             using var ctx = new SongDbContext(emptyOptions);
-            await ctx.Database.OpenConnectionAsync();
+            // EnsureCreatedAsync triggers context initialization, which calls OnConfiguring.
             // If OnConfiguring successfully adds a provider this will not throw.
             await ctx.Database.EnsureCreatedAsync();
         }
