@@ -166,8 +166,14 @@ namespace DTXMania.Test.Stage
 
         private static SongSelectionStage CreateStageWithFakeGraphicsManager()
         {
-            var mockGame = new Mock<BaseGame>();
-            return new SongSelectionStage(mockGame.Object);
+            return new SongSelectionStage(CreateUninitializedGame());
+        }
+
+        private static BaseGame CreateUninitializedGame()
+        {
+#pragma warning disable SYSLIB0050
+            return (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
+#pragma warning restore SYSLIB0050
         }
 
         private static SongSelectionStage CreateUninitializedStage()
