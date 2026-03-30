@@ -17,6 +17,7 @@ namespace DTXMania.Test.Song
     /// - Cascade-delete relationships
     /// - Unique-index and FK-constraint enforcement
     /// </summary>
+    [Trait("Category", "SongDbContext")]
     public class SongDbContextTests : IAsyncLifetime
     {
         // Shared connection so every context for the same test sees the same
@@ -45,8 +46,14 @@ namespace DTXMania.Test.Song
 
         public async Task DisposeAsync()
         {
-            await _context.DisposeAsync();
-            await _connection.DisposeAsync();
+            try
+            {
+                await _context.DisposeAsync();
+            }
+            finally
+            {
+                await _connection.DisposeAsync();
+            }
         }
 
         /// <summary>
