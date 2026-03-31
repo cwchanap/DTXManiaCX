@@ -170,14 +170,14 @@ public class SystemKeyBindingsPersistenceTests
     public void ConfigManager_LoadSystemKeyBindings_MultiKeyEntry_ShouldApplyAllKeys()
     {
         var manager = new ConfigManager();
-        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "A,B";
+        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "Tab,Q";
 
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
 
         var snapshot = inputMgr.GetKeyMappingSnapshot();
-        Assert.Equal(InputCommandType.Activate, snapshot[Keys.A]);
-        Assert.Equal(InputCommandType.Activate, snapshot[Keys.B]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Tab]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Q]);
         Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Enter && kvp.Value == InputCommandType.Activate);
         Assert.DoesNotContain(snapshot, kvp => kvp.Key == Keys.Space && kvp.Value == InputCommandType.Activate);
     }
@@ -214,15 +214,44 @@ public class SystemKeyBindingsPersistenceTests
     public void ConfigManager_LoadSystemKeyBindings_DuplicatePhysicalKey_ShouldRestoreFallbackForRequiredCommand()
     {
         var manager = new ConfigManager();
-        manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "A";
-        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "A";
+        manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "Tab";
+        manager.Config.SystemKeyBindings["SystemKey.Activate"] = "Tab";
 
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
 
         var snapshot = inputMgr.GetKeyMappingSnapshot();
-        Assert.Equal(InputCommandType.Activate, snapshot[Keys.A]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Tab]);
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.Up]);
+    }
+
+    [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_DrumOverlap_ShouldRejectSystemBindingAndKeepRequiredFallback()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.Back"] = "Space";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Back, snapshot[Keys.Escape]);
+        Assert.False(snapshot.TryGetValue(Keys.Space, out var spaceCommand) && spaceCommand == InputCommandType.Back);
+    }
+
+    [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_UnboundDrumLane_ShouldAllowFormerDefaultDrumKeyAsSystemBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.UnboundDrumLanes.Add(6);
+        manager.Config.SystemKeyBindings["SystemKey.Back"] = "Space";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.Back, snapshot[Keys.Space]);
+        Assert.False(snapshot.TryGetValue(Keys.Escape, out var escapeCommand) && escapeCommand == InputCommandType.Back);
     }
 
     [Fact]

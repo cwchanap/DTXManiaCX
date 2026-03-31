@@ -61,7 +61,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public void Activate()
         {
             // Clone current live system mapping to working copy
-            _workingMapping = CollapseToSingleBindingPerAction(
+            _workingMapping = new Dictionary<Keys, InputCommandType>(
                 _workingMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
             _navigationMapping = new Dictionary<Keys, InputCommandType>(
                 _navigationMappingProvider?.Invoke() ?? _inputManager.GetKeyMappingSnapshot());
@@ -190,23 +190,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             return new Dictionary<Keys, InputCommandType>(_workingMapping);
         }
 
-        private static Dictionary<Keys, InputCommandType> CollapseToSingleBindingPerAction(
-            IReadOnlyDictionary<Keys, InputCommandType> source)
-        {
-            var collapsed = new Dictionary<Keys, InputCommandType>();
-            var seenActions = new HashSet<InputCommandType>();
-
-            foreach (var kvp in source)
-            {
-                if (seenActions.Add(kvp.Value))
-                {
-                    collapsed[kvp.Key] = kvp.Value;
-                }
-            }
-
-            return collapsed;
-        }
-
         // Injected by ConfigStage so this panel can check drum key conflicts.
         internal Func<IReadOnlyDictionary<string, int>>? _liveDrumBindingsProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _workingMappingProvider;
@@ -219,19 +202,15 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         internal IReadOnlyDictionary<Keys, InputCommandType> GetWorkingMappingSnapshot()
             => new Dictionary<Keys, InputCommandType>(WorkingMappingAsKeyDict());
 
-        private bool TryGetDisplayKey(InputCommandType action, out Keys key)
+        private string GetDisplayKeyLabel(InputCommandType action)
         {
-            foreach (var kvp in _workingMapping)
-            {
-                if (kvp.Value == action)
-                {
-                    key = kvp.Key;
-                    return true;
-                }
-            }
+            var keys = _workingMapping
+                .Where(kvp => kvp.Value == action)
+                .Select(kvp => kvp.Key.ToString())
+                .Distinct()
+                .ToArray();
 
-            key = default;
-            return false;
+            return keys.Length == 0 ? "(unbound)" : string.Join(", ", keys);
         }
 
         private void RemoveBindingsForAction(InputCommandType action)
@@ -318,7 +297,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
                 string keyLabel = (sel && _state == CaptureState.AwaitingKey)
                     ? "[Press any key... Backspace to cancel]"
-                    : (TryGetDisplayKey(action, out var k) ? k.ToString() : "(unbound)");
+                    : GetDisplayKeyLabel(action);
 
                 string rowText = $"{i + 1}. {action,-18}  {keyLabel}";
                 DrawText(spriteBatch, bitmapFont, rowText, panelX, y + 6,
