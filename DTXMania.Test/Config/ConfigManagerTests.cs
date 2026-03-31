@@ -98,12 +98,13 @@ public class ConfigManagerTests
     }
 
     [Fact]
-    public void ConfigManager_SaveKeyBindings_ControllerOnlyLane_ShouldPreserveKeyboardUnbind()
+    public void ConfigManager_SaveAndLoadConfig_ControllerOnlyLane_ShouldPreserveKeyboardUnbind()
     {
         // Arrange
         var manager = new ConfigManager();
         var sourceBindings = new KeyBindings();
         sourceBindings.BindButton("MIDI.36", 6);
+        sourceBindings.BindButton("Pad.A", 6);
         sourceBindings.UnbindKeyboardButtonsForLane(6);
 
         // Act
@@ -112,13 +113,32 @@ public class ConfigManagerTests
         // Assert
         Assert.Contains(6, manager.Config.UnboundDrumLanes);
         Assert.Equal(6, manager.Config.KeyBindings["MIDI.36"]);
+        Assert.Equal(6, manager.Config.KeyBindings["Pad.A"]);
         Assert.DoesNotContain("Key.Space", manager.Config.KeyBindings.Keys);
 
-        var targetBindings = new KeyBindings();
-        manager.LoadKeyBindings(targetBindings);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            manager.SaveConfig(tempFile);
 
-        Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
-        Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
+            var reloadedManager = new ConfigManager();
+            reloadedManager.LoadConfig(tempFile);
+
+            Assert.Contains(6, reloadedManager.Config.UnboundDrumLanes);
+            Assert.Equal(6, reloadedManager.Config.KeyBindings["MIDI.36"]);
+            Assert.Equal(6, reloadedManager.Config.KeyBindings["Pad.A"]);
+
+            var targetBindings = new KeyBindings();
+            reloadedManager.LoadKeyBindings(targetBindings);
+
+            Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+            Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
+            Assert.Equal(6, targetBindings.GetLane("Pad.A"));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
     }
 
     [Fact]

@@ -159,6 +159,12 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 return;
             }
 
+            if (_workingMapping.TryGetValue(key, out var existingAction) && existingAction == targetAction)
+            {
+                _state = CaptureState.Browsing;
+                return;
+            }
+
             RemoveBindingsForAction(targetAction);
 
             _workingMapping[key] = targetAction;
