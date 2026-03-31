@@ -321,8 +321,8 @@ namespace DTXMania.Game.Lib.Stage
             _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager);
             _drumPanel._workingBindingsProvider = () => _workingDrumBindings.Clone();
             _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
-            _drumPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_navigationBindings);
-            _drumPanel._commandPressedProvider = IsWorkingCommandPressed;
+            _drumPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
+            _drumPanel._commandPressedProvider = IsPanelCommandPressed;
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 
@@ -331,8 +331,8 @@ namespace DTXMania.Game.Lib.Stage
                 () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _systemPanel._liveDrumBindingsProvider =
                 () => new Dictionary<string, int>(_workingDrumBindings.ButtonToLane);
-            _systemPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_navigationBindings);
-            _systemPanel._commandPressedProvider = IsWorkingCommandPressed;
+            _systemPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
+            _systemPanel._commandPressedProvider = IsPanelCommandPressed;
             _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
         }
@@ -369,7 +369,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleInput()
         {
-            if (IsWorkingCommandPressed(InputCommandType.Back))
+            if (IsConfigNavigationCommandPressed(InputCommandType.Back))
             {
                 if (_hasUnsavedChanges)
                 {
@@ -381,11 +381,11 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Handle navigation
-            if (IsWorkingCommandPressed(InputCommandType.MoveUp))
+            if (IsConfigNavigationCommandPressed(InputCommandType.MoveUp))
             {
                 _selectedIndex = (_selectedIndex - 1 + _configItems.Count + 2) % (_configItems.Count + 2); // +2 for buttons
             }
-            else if (IsWorkingCommandPressed(InputCommandType.MoveDown))
+            else if (IsConfigNavigationCommandPressed(InputCommandType.MoveDown))
             {
                 _selectedIndex = (_selectedIndex + 1) % (_configItems.Count + 2); // +2 for buttons
             }
@@ -396,15 +396,15 @@ namespace DTXMania.Game.Lib.Stage
                 var selectedItem = _configItems[_selectedIndex];
 
                 // Left/Right arrows for value editing
-                if (IsWorkingCommandPressed(InputCommandType.MoveLeft))
+                if (IsConfigNavigationCommandPressed(InputCommandType.MoveLeft))
                 {
                     selectedItem.PreviousValue();
                 }
-                else if (IsWorkingCommandPressed(InputCommandType.MoveRight))
+                else if (IsConfigNavigationCommandPressed(InputCommandType.MoveRight))
                 {
                     selectedItem.NextValue();
                 }
-                else if (IsWorkingCommandPressed(InputCommandType.Activate))
+                else if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
                 {
                     selectedItem.ToggleValue();
                 }
@@ -412,7 +412,7 @@ namespace DTXMania.Game.Lib.Stage
             else
             {
                 // Handle button selection
-                if (IsWorkingCommandPressed(InputCommandType.Activate))
+                if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
                 {
                     int buttonIndex = _selectedIndex - _configItems.Count;
                     if (buttonIndex == 0) // Back button
@@ -427,7 +427,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private bool IsWorkingCommandPressed(InputCommandType command)
+        private bool IsConfigNavigationCommandPressed(InputCommandType command)
         {
             if (_game.InputManager?.IsCommandPressed(command) == true)
             {
@@ -435,6 +435,14 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             return _navigationBindings.Any(kvp =>
+                kvp.Value == command &&
+                _currentKeyboardState.IsKeyDown(kvp.Key) &&
+                !_previousKeyboardState.IsKeyDown(kvp.Key));
+        }
+
+        private bool IsPanelCommandPressed(InputCommandType command)
+        {
+            return _workingSystemBindings.Any(kvp =>
                 kvp.Value == command &&
                 _currentKeyboardState.IsKeyDown(kvp.Key) &&
                 !_previousKeyboardState.IsKeyDown(kvp.Key));

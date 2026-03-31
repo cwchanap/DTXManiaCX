@@ -161,6 +161,21 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void ForceResetKeyBindings_WithPersistedUnboundLane_RestoresDefaultLaneBinding()
+        {
+            _inputManager.KeyBindings.UnbindLane(6);
+            _inputManager.SaveKeyBindings();
+
+            Assert.Contains(6, _configManager.Config.UnboundDrumLanes);
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
+
+            _inputManager.ForceResetKeyBindings();
+
+            Assert.DoesNotContain(6, _configManager.Config.UnboundDrumLanes);
+            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space"));
+        }
+
+        [Fact]
         public void Update_CallsSuccessfully_NoExceptions()
         {
             // Act & Assert (should not throw)
