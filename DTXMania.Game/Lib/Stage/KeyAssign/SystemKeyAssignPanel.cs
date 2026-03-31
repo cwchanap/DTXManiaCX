@@ -247,6 +247,27 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             }
         }
 
+        internal string GetFooterCancelLabel()
+        {
+            var cancelBindingLabel = GetCancelBindingLabel();
+            return cancelBindingLabel.Length == 0 ? "CANCEL" : $"CANCEL ({cancelBindingLabel})";
+        }
+
+        internal string GetInstructionText()
+        {
+            var cancelBindingLabel = GetCancelBindingLabel();
+            var cancelInstruction = cancelBindingLabel.Length == 0 ? "BACK: Cancel" : $"{cancelBindingLabel}: Cancel";
+            return $"UP/DOWN: Navigate | ENTER: Assign | {cancelInstruction}";
+        }
+
+        private string GetCancelBindingLabel()
+        {
+            return string.Join("/", _navigationMapping
+                .Where(kvp => kvp.Value == InputCommandType.Back)
+                .Select(kvp => kvp.Key.ToString().ToUpperInvariant())
+                .Distinct());
+        }
+
         private bool IsNavigationCommandPressed(KeyboardState current, KeyboardState previous, InputCommandType command)
         {
             if (_commandPressedProvider?.Invoke(command) == true)
@@ -311,7 +332,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, "SAVE",
                 _selectedIndex == FooterSave);
             y += rowH;
-            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, "CANCEL (ESC)",
+            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, GetFooterCancelLabel(),
                 _selectedIndex == FooterCancel);
             y += rowH + 8;
 
@@ -320,9 +341,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                     panelX, y, Color.Red, false);
 
             int instrY = viewportHeight - 28;
-            DrawText(spriteBatch, bitmapFont,
-                "UP/DOWN: Navigate | ENTER: Assign | DELETE: Unbind | ESC: Cancel",
-                panelX, instrY, new Color(180, 180, 180), false);
+            DrawText(spriteBatch, bitmapFont, GetInstructionText(), panelX, instrY,
+                new Color(180, 180, 180), false);
         }
 
         private static void DrawFooterRow(SpriteBatch sb, BitmapFont? font, Texture2D? wp,

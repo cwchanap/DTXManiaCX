@@ -401,6 +401,41 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void SystemPanel_RemappedBack_ShouldExposeFooterAndInstructionLabelsFromNavigationMapping()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        panel.Activate();
+
+        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
+        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | Q: Cancel", panel.GetInstructionText());
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SystemPanel_WithoutBackBinding_ShouldExposeGenericCancelLabels()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._navigationMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.W] = InputCommandType.MoveUp,
+            [Keys.S] = InputCommandType.MoveDown,
+            [Keys.F] = InputCommandType.Activate,
+        };
+
+        panel.Activate();
+
+        Assert.Equal("CANCEL", panel.GetFooterCancelLabel());
+        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | BACK: Cancel", panel.GetInstructionText());
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void DrumPanel_CommandProvider_ShouldNavigateAndSaveWithoutKeyboardState()
     {
         var liveBindings = new KeyBindings();
@@ -459,6 +494,41 @@ public class KeyAssignPanelWorkingCopyTests
 
         Assert.True(savedFired);
         Assert.False(panel.IsActive);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_RemappedBack_ShouldExposeFooterAndInstructionLabelsFromNavigationMapping()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+
+        panel.Activate();
+
+        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
+        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | Q: Cancel", panel.GetInstructionText());
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_WithoutBackBinding_ShouldExposeGenericCancelLabels()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.W] = InputCommandType.MoveUp,
+            [Keys.S] = InputCommandType.MoveDown,
+            [Keys.F] = InputCommandType.Activate,
+        };
+
+        panel.Activate();
+
+        Assert.Equal("CANCEL", panel.GetFooterCancelLabel());
+        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | BACK: Cancel", panel.GetInstructionText());
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
