@@ -98,6 +98,30 @@ public class ConfigManagerTests
     }
 
     [Fact]
+    public void ConfigManager_SaveKeyBindings_ControllerOnlyLane_ShouldPreserveKeyboardUnbind()
+    {
+        // Arrange
+        var manager = new ConfigManager();
+        var sourceBindings = new KeyBindings();
+        sourceBindings.BindButton("MIDI.36", 6);
+        sourceBindings.UnbindKeyboardButtonsForLane(6);
+
+        // Act
+        manager.SaveKeyBindings(sourceBindings);
+
+        // Assert
+        Assert.Contains(6, manager.Config.UnboundDrumLanes);
+        Assert.Equal(6, manager.Config.KeyBindings["MIDI.36"]);
+        Assert.DoesNotContain("Key.Space", manager.Config.KeyBindings.Keys);
+
+        var targetBindings = new KeyBindings();
+        manager.LoadKeyBindings(targetBindings);
+
+        Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+        Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
+    }
+
+    [Fact]
     public void ConfigManager_LoadConfig_ValidIniContent_ShouldParseCorrectly()
     {
         // Arrange

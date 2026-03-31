@@ -131,6 +131,22 @@ namespace DTXMania.Game.Lib.Input
             }
         }
 
+        public void UnbindKeyboardButtonsForLane(int lane)
+        {
+            var buttonsToRemove = GetButtonsForLane(lane)
+                .Where(IsKeyboardButtonId)
+                .ToList();
+            foreach (var buttonId in buttonsToRemove)
+            {
+                _buttonToLane.Remove(buttonId);
+            }
+
+            if (buttonsToRemove.Count > 0)
+            {
+                OnBindingsChanged();
+            }
+        }
+
         /// <summary>
         /// Clears all bindings
         /// </summary>
@@ -164,6 +180,12 @@ namespace DTXMania.Game.Lib.Input
                 return "Unbound";
 
             return string.Join(", ", buttons.Select(FormatButtonId));
+        }
+
+        public static bool IsKeyboardButtonId(string buttonId)
+        {
+            return !string.IsNullOrWhiteSpace(buttonId)
+                && buttonId.StartsWith("Key.", StringComparison.Ordinal);
         }
 
         /// <summary>

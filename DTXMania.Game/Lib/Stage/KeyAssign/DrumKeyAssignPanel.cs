@@ -112,7 +112,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             else if (IsNavigationCommandPressed(current, previous, InputCommandType.Back))
                 CancelAndClose();
             else if (IsClearBindingPressed(current, previous) && _selectedIndex < LaneCount)
-                _workingBindings.UnbindLane(_selectedIndex);
+                _workingBindings.UnbindKeyboardButtonsForLane(_selectedIndex);
         }
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)

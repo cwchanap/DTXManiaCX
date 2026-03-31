@@ -121,7 +121,7 @@ namespace DTXMania.Game.Lib.Config
 
             for (int lane = 0; lane < 10; lane++)
             {
-                if (!keyBindings.GetButtonsForLane(lane).Any())
+                if (!keyBindings.GetButtonsForLane(lane).Any(KeyBindings.IsKeyboardButtonId))
                 {
                     Config.UnboundDrumLanes.Add(lane);
                 }
