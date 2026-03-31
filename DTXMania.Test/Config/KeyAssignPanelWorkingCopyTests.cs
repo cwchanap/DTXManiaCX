@@ -386,6 +386,30 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void SystemPanel_RebindingToExistingKey_ShouldPreserveSecondaryBindingForAction()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel._workingMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>(inputManager.GetKeyMappingSnapshot())
+        {
+            [Keys.Space] = InputCommandType.Activate,
+        };
+        panel.Activate();
+
+        for (int i = 0; i < 4; i++)
+            PressKey(panel, Keys.Down);
+
+        PressKey(panel, Keys.Enter);
+        panel.Update(0.0, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        var snapshot = panel.GetWorkingMappingSnapshot();
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Enter]);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void SystemPanel_RemappedNavigation_ShouldKeepRequiredMoveLeftBindingAndSave()
     {
         using var inputManager = new InputManager();

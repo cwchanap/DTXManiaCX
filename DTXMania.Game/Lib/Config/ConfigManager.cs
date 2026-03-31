@@ -306,7 +306,7 @@ namespace DTXMania.Game.Lib.Config
                             Config.UnboundDrumLanes.Add(unboundLane);
                         }
                     }
-                    else if (key.StartsWith("Key.") && int.TryParse(value, out var lane))
+                    else if (IsSupportedButtonBindingKey(key) && int.TryParse(value, out var lane))
                     {
                         if (lane >= 0 && lane <= 9)
                         {
@@ -466,6 +466,14 @@ namespace DTXMania.Game.Lib.Config
 
             var keyName = buttonId.Substring(prefix.Length);
             return Enum.TryParse<Keys>(keyName, true, out var key) ? key : null;
+        }
+
+        private static bool IsSupportedButtonBindingKey(string key)
+        {
+            return !string.IsNullOrWhiteSpace(key)
+                && (key.StartsWith("Key.", StringComparison.Ordinal)
+                    || key.StartsWith("MIDI.", StringComparison.Ordinal)
+                    || key.StartsWith("Pad.", StringComparison.Ordinal));
         }
 
         private static bool IsRequiredSystemCommand(InputCommandType command)
