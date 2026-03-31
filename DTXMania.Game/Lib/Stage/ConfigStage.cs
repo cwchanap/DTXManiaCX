@@ -442,6 +442,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool IsPanelCommandPressed(InputCommandType command)
         {
+            if (_game.InputManager?.IsCommandPressed(command) == true)
+            {
+                return true;
+            }
+
             return _workingSystemBindings.Any(kvp =>
                 kvp.Value == command &&
                 _currentKeyboardState.IsKeyDown(kvp.Key) &&

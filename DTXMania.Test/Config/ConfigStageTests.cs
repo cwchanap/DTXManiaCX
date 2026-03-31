@@ -278,6 +278,58 @@ public class ConfigStageTests
         Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Microsoft.Xna.Framework.Input.Keys.Escape)));
     }
 
+    [Fact]
+    public void ConfigStage_SystemPanel_ShouldNavigateAndSaveFromInjectedCommandsWithoutKeyboardStateChange()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager());
+        var stage = CreateConfigStage(inputManager);
+
+        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        InvokePrivateMethod(stage, "InitializePanels");
+
+        var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+        Assert.NotNull(panel);
+
+        bool savedFired = false;
+        bool closedFired = false;
+        panel!.Saved += (_, _) => savedFired = true;
+        panel.Closed += (_, _) => closedFired = true;
+        panel.Activate();
+
+        for (int i = 0; i < 6; i++)
+        {
+            DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Down");
+        }
+
+        DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Enter");
+
+        Assert.True(savedFired);
+        Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void ConfigStage_DrumPanel_ShouldCloseFromInjectedBackCommandWithoutKeyboardStateChange()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager());
+        var stage = CreateConfigStage(inputManager);
+
+        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        InvokePrivateMethod(stage, "InitializePanels");
+
+        var panel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
+        Assert.NotNull(panel);
+
+        bool closedFired = false;
+        panel!.Closed += (_, _) => closedFired = true;
+        panel.Activate();
+
+        DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Escape");
+
+        Assert.True(closedFired);
+        Assert.False(panel.IsActive);
+    }
+
     private static ConfigStage CreateConfigStage(InputManagerCompat inputManager)
     {
 #pragma warning disable SYSLIB0050
@@ -288,6 +340,23 @@ public class ConfigStageTests
         SetBackingField(game, "<InputManager>k__BackingField", inputManager);
 
         return new ConfigStage(game);
+    }
+
+    private static void DispatchInjectedPanelCommand(
+        ConfigStage stage,
+        InputManagerCompat inputManager,
+        IKeyAssignPanel panel,
+        string buttonId)
+    {
+        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
+        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
+
+        Assert.True(inputManager.ModularInputManager.InjectButton(buttonId, isPressed: true));
+        inputManager.Update(0.016);
+        panel.Update(0.0,
+            new Microsoft.Xna.Framework.Input.KeyboardState(),
+            new Microsoft.Xna.Framework.Input.KeyboardState());
+        inputManager.ClearPendingCommands();
     }
 
     private static void InvokePrivateMethod(object target, string methodName, params object[]? args)
