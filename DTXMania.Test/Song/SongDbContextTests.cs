@@ -18,42 +18,38 @@ namespace DTXMania.Test.Song
     /// - Unique-index and FK-constraint enforcement
     /// </summary>
     [Trait("Category", "SongDbContext")]
-    public class SongDbContextTests : IAsyncLifetime
+    public class SongDbContextTests : IDisposable
     {
         // Shared connection so every context for the same test sees the same
         // in-memory SQLite database (SQLite :memory: databases are per-connection).
-        private Microsoft.Data.Sqlite.SqliteConnection _connection = null!;
-        private DbContextOptions<SongDbContext> _options = null!;
-        private SongDbContext _context = null!;
+        private readonly Microsoft.Data.Sqlite.SqliteConnection _connection;
+        private readonly DbContextOptions<SongDbContext> _options;
+        private readonly SongDbContext _context;
 
-        // ---------------------------------------------------------------------------
-        // IAsyncLifetime
-        // ---------------------------------------------------------------------------
-
-        public async Task InitializeAsync()
+        public SongDbContextTests()
         {
-            // Foreign Keys=True enables FK constraint enforcement on the shared connection.
-            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:;Foreign Keys=True");
-            await _connection.OpenAsync();
+            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+            _connection.Open();
+
+            // Enable FK constraint enforcement explicitly via PRAGMA.
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA foreign_keys = ON;";
+                cmd.ExecuteNonQuery();
+            }
 
             _options = new DbContextOptionsBuilder<SongDbContext>()
                 .UseSqlite(_connection)
                 .Options;
 
             _context = new SongDbContext(_options);
-            await _context.Database.EnsureCreatedAsync();
+            _context.Database.EnsureCreated();
         }
 
-        public async Task DisposeAsync()
+        public void Dispose()
         {
-            try
-            {
-                await _context.DisposeAsync();
-            }
-            finally
-            {
-                await _connection.DisposeAsync();
-            }
+            _context.Dispose();
+            _connection.Dispose();
         }
 
         /// <summary>
