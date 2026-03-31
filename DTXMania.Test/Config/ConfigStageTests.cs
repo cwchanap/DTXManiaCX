@@ -1,9 +1,14 @@
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 
 namespace DTXMania.Test.Config;
 
@@ -195,5 +200,121 @@ public class ConfigStageTests
 
         // Assert
         Assert.Equal(0, capturedValue); // Should not go below min
+    }
+
+    [Fact]
+    public void ConfigStage_RemappedWorkingBack_ShouldShowUpdatedCancelLabelInSystemPanel()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager());
+        var stage = CreateConfigStage(inputManager);
+
+        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        InvokePrivateMethod(stage, "InitializePanels");
+        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
+        {
+            [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
+            [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
+            [Microsoft.Xna.Framework.Input.Keys.A] = InputCommandType.MoveLeft,
+            [Microsoft.Xna.Framework.Input.Keys.D] = InputCommandType.MoveRight,
+            [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
+            [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
+        });
+
+        var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+        Assert.NotNull(panel);
+
+        panel!.Activate();
+
+        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
+
+        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
+        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape));
+        panel.Update(0.0,
+            new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape),
+            new Microsoft.Xna.Framework.Input.KeyboardState());
+
+        Assert.True(panel.IsActive);
+    }
+
+    [Fact]
+    public void ConfigStage_RemappedWorkingBack_ShouldAllowEscapeAssignmentInDrumPanel()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager());
+        var stage = CreateConfigStage(inputManager);
+
+        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        InvokePrivateMethod(stage, "InitializePanels");
+        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
+        {
+            [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
+            [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
+            [Microsoft.Xna.Framework.Input.Keys.A] = InputCommandType.MoveLeft,
+            [Microsoft.Xna.Framework.Input.Keys.D] = InputCommandType.MoveRight,
+            [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
+            [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
+        });
+
+        var panel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
+        Assert.NotNull(panel);
+
+        panel!.Activate();
+
+        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
+
+        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
+        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.F));
+        panel.Update(0.0,
+            new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.F),
+            new Microsoft.Xna.Framework.Input.KeyboardState());
+
+        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
+        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape));
+        panel.Update(0.0,
+            new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape),
+            new Microsoft.Xna.Framework.Input.KeyboardState());
+
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.True(panel.IsActive);
+        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Microsoft.Xna.Framework.Input.Keys.Escape)));
+    }
+
+    private static ConfigStage CreateConfigStage(InputManagerCompat inputManager)
+    {
+#pragma warning disable SYSLIB0050
+        var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
+#pragma warning restore SYSLIB0050
+
+        SetBackingField(game, "<ConfigManager>k__BackingField", new ConfigManager());
+        SetBackingField(game, "<InputManager>k__BackingField", inputManager);
+
+        return new ConfigStage(game);
+    }
+
+    private static void InvokePrivateMethod(object target, string methodName, params object[]? args)
+    {
+        var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(target, args);
+    }
+
+    private static T? GetPrivateField<T>(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (T?)field!.GetValue(target);
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(target, value);
+    }
+
+    private static void SetBackingField(object target, string fieldName, object? value)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(target, value);
     }
 }
