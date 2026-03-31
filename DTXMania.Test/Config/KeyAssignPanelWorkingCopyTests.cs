@@ -188,6 +188,25 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void DrumPanel_AwaitingKey_RemappedBackShouldAllowEscapeAssignment()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = CreateNavigationMapping;
+        panel.Activate();
+
+        PressKey(panel, Keys.F);
+        PressKey(panel, Keys.Escape);
+
+        Assert.True(panel.IsActive, "Panel should remain active after Escape binds when Back is remapped");
+
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.Escape)));
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void DrumPanel_RemappedNavigation_ShouldSaveAndClearLane()
     {
         var liveBindings = new KeyBindings();
@@ -328,7 +347,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SystemPanel_Activate_ShouldCollapseSecondaryBindingForDisplayedAction()
+    public void SystemPanel_SaveWithoutEditingAction_ShouldPreserveSecondaryBindingForDisplayedAction()
     {
         using var inputManager = new InputManager();
         var panel = new SystemKeyAssignPanel(inputManager);
@@ -339,13 +358,14 @@ public class KeyAssignPanelWorkingCopyTests
         };
         panel.Activate();
 
-        PressKey(panel, Keys.Down);
-        PressKey(panel, Keys.Down);
-        PressKey(panel, Keys.Delete);
+        for (int i = 0; i < 6; i++)
+            PressKey(panel, Keys.Down);
+
+        PressKey(panel, Keys.Enter);
 
         var snapshot = panel.GetWorkingMappingSnapshot();
         Assert.Equal(InputCommandType.Activate, snapshot[Keys.Enter]);
-        Assert.False(snapshot.ContainsKey(Keys.Space));
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
     }
 
     [Trait("Category", "Unit")]

@@ -117,8 +117,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)
         {
-            if (IsJustPressed(current, previous, Keys.Escape)
-                || IsNavigationCommandPressed(current, previous, InputCommandType.Back))
+            if (IsNavigationCommandPressed(current, previous, InputCommandType.Back))
             {
                 _state = CaptureState.Browsing;
                 return;
@@ -126,7 +125,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             foreach (var key in current.GetPressedKeys())
             {
-                if (!previous.IsKeyDown(key) && key != Keys.Escape)
+                if (!previous.IsKeyDown(key))
                 {
                     AssignKey(key);
                     return;
@@ -233,6 +232,12 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 .Distinct());
         }
 
+        private string GetCaptureCancelLabel()
+        {
+            var cancelBindingLabel = GetCancelBindingLabel();
+            return cancelBindingLabel.Length == 0 ? "BACK" : cancelBindingLabel;
+        }
+
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
         {
@@ -256,7 +261,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 DrawRowBackground(spriteBatch, whitePixel, panelX, y, rowH, sel);
 
                 string keyLabel = (sel && _state == CaptureState.AwaitingKey)
-                    ? "[Press any key... ESC to cancel]"
+                    ? $"[Press any key... {GetCaptureCancelLabel()} to cancel]"
                     : _workingBindings.GetLaneDescription(i);
 
                 string rowText = $"{i + 1,2}. {KeyBindings.GetLaneName(i),-30}  {keyLabel}";

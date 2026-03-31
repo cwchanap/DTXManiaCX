@@ -138,6 +138,7 @@ namespace DTXMania.Game.Lib.Config
         public void LoadSystemKeyBindings(InputManager inputManager)
         {
             const string prefix = "SystemKey.";
+            var drumKeys = GetConfiguredDrumKeyboardKeys();
             foreach (var kvp in Config.SystemKeyBindings)
             {
                 // Key format: "SystemKey.MoveUp", value format: "Up"
@@ -164,7 +165,10 @@ namespace DTXMania.Game.Lib.Config
                     continue;
                 }
 
-                var keys = ParseSystemBindingKeys(kvp.Value);
+                var keys = ParseSystemBindingKeys(kvp.Value)
+                    .Where(key => !drumKeys.Contains(key))
+                    .Distinct()
+                    .ToList();
                 if (keys.Count == 0)
                 {
                     if (IsRequiredSystemCommand(command))
@@ -436,6 +440,32 @@ namespace DTXMania.Game.Lib.Config
             }
 
             return keys;
+        }
+
+        private HashSet<Keys> GetConfiguredDrumKeyboardKeys()
+        {
+            var keyBindings = new KeyBindings();
+            LoadKeyBindings(keyBindings);
+
+            return keyBindings.ButtonToLane.Keys
+                .Select(ParseKeyboardButtonId)
+                .Where(key => key.HasValue)
+                .Select(key => key!.Value)
+                .ToHashSet();
+        }
+
+        private static Keys? ParseKeyboardButtonId(string buttonId)
+        {
+            const string prefix = "Key.";
+            if (string.IsNullOrWhiteSpace(buttonId) ||
+                !buttonId.StartsWith(prefix, StringComparison.Ordinal) ||
+                buttonId.Length <= prefix.Length)
+            {
+                return null;
+            }
+
+            var keyName = buttonId.Substring(prefix.Length);
+            return Enum.TryParse<Keys>(keyName, true, out var key) ? key : null;
         }
 
         private static bool IsRequiredSystemCommand(InputCommandType command)
