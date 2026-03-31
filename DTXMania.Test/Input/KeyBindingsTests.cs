@@ -190,6 +190,38 @@ namespace DTXMania.Test.Input
             Assert.False(eventRaised);
         }
 
+        [Fact]
+        public void UnbindKeyboardButtonsForLane_MixedDeviceLane_ShouldRemoveOnlyKeyboardButtons()
+        {
+            var bindings = new KeyBindings();
+            bindings.BindButton("MIDI.36", 6);
+            bindings.BindButton("Pad.A", 6);
+            bindings.BindButton("Key.Space", 6);
+
+            bindings.UnbindKeyboardButtonsForLane(6);
+
+            var buttons = bindings.GetButtonsForLane(6).ToList();
+            Assert.DoesNotContain("Key.Space", buttons);
+            Assert.Contains("MIDI.36", buttons);
+            Assert.Contains("Pad.A", buttons);
+        }
+
+        [Fact]
+        public void UnbindKeyboardButtonsForLane_LaneWithoutKeyboardBinding_ShouldNotRaiseEvent()
+        {
+            var bindings = new KeyBindings();
+            bindings.ClearAllBindings();
+            bindings.BindButton("MIDI.36", 6);
+
+            bool eventRaised = false;
+            bindings.BindingsChanged += (s, e) => eventRaised = true;
+
+            bindings.UnbindKeyboardButtonsForLane(6);
+
+            Assert.False(eventRaised);
+            Assert.Equal(6, bindings.GetLane("MIDI.36"));
+        }
+
         #endregion
 
         #region ClearAllBindings Tests

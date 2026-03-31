@@ -207,6 +207,22 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void DrumPanel_Clear_ShouldPreserveNonKeyboardBindingsOnSelectedLane()
+    {
+        var liveBindings = new KeyBindings();
+        liveBindings.BindButton("MIDI.36", 0);
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+
+        panel.Activate();
+        PressKey(panel, Keys.Delete);
+
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(-1, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.A)));
+        Assert.Equal(0, snapshot.GetLane("MIDI.36"));
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void DrumPanel_RemappedNavigation_ShouldSaveAndClearLane()
     {
         var liveBindings = new KeyBindings();
