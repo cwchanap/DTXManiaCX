@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -211,6 +212,27 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 || IsNavigationCommandPressed(current, previous, InputCommandType.MoveLeft);
         }
 
+        internal string GetFooterCancelLabel()
+        {
+            var cancelBindingLabel = GetCancelBindingLabel();
+            return cancelBindingLabel.Length == 0 ? "CANCEL" : $"CANCEL ({cancelBindingLabel})";
+        }
+
+        internal string GetInstructionText()
+        {
+            var cancelBindingLabel = GetCancelBindingLabel();
+            var cancelInstruction = cancelBindingLabel.Length == 0 ? "BACK: Cancel" : $"{cancelBindingLabel}: Cancel";
+            return $"UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | {cancelInstruction}";
+        }
+
+        private string GetCancelBindingLabel()
+        {
+            return string.Join("/", _navigationMapping
+                .Where(kvp => kvp.Value == InputCommandType.Back)
+                .Select(kvp => kvp.Key.ToString().ToUpperInvariant())
+                .Distinct());
+        }
+
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
         {
@@ -247,7 +269,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             // Footer rows
             DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, "SAVE", _selectedIndex == FooterSave);
             y += rowH;
-            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, "CANCEL (ESC)", _selectedIndex == FooterCancel);
+            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, GetFooterCancelLabel(), _selectedIndex == FooterCancel);
             y += rowH + 8;
 
             // Conflict message
@@ -256,9 +278,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             // Instructions
             int instrY = viewportHeight - 28;
-            DrawText(spriteBatch, bitmapFont,
-                "UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | ESC: Cancel",
-                panelX, instrY, new Color(180, 180, 180), false);
+            DrawText(spriteBatch, bitmapFont, GetInstructionText(), panelX, instrY,
+                new Color(180, 180, 180), false);
         }
 
         private static void DrawRowBackground(SpriteBatch sb, Texture2D? wp, int x, int y, int h, bool selected)

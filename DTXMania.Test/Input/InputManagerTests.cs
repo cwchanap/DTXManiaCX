@@ -39,12 +39,11 @@ public class InputManagerTests
     public void PerformanceStage_OnUpdate_ShouldNotUpdateInputManagerDirectly()
     {
         var repositoryRoot = TryFindRepositoryRoot();
-        if (repositoryRoot == null)
-        {
-            return;
-        }
+        Assert.True(repositoryRoot != null,
+            "Could not locate repository root containing DTXMania.sln from AppContext.BaseDirectory.");
 
-        var performanceStagePath = Path.Combine(repositoryRoot, "DTXMania.Game", "Lib", "Stage", "PerformanceStage.cs");
+        var performanceStagePath = Path.Combine(repositoryRoot!, "DTXMania.Game", "Lib", "Stage", "PerformanceStage.cs");
+        Assert.True(File.Exists(performanceStagePath), $"Could not locate source file: {performanceStagePath}");
 
         var source = File.ReadAllText(performanceStagePath);
 
@@ -56,12 +55,11 @@ public class InputManagerTests
     public void SongTransitionStage_ShouldCreateConfiguredLocalInputManager()
     {
         var repositoryRoot = TryFindRepositoryRoot();
-        if (repositoryRoot == null)
-        {
-            return;
-        }
+        Assert.True(repositoryRoot != null,
+            "Could not locate repository root containing DTXMania.sln from AppContext.BaseDirectory.");
 
-        var songTransitionStagePath = Path.Combine(repositoryRoot, "DTXMania.Game", "Lib", "Stage", "SongTransitionStage.cs");
+        var songTransitionStagePath = Path.Combine(repositoryRoot!, "DTXMania.Game", "Lib", "Stage", "SongTransitionStage.cs");
+        Assert.True(File.Exists(songTransitionStagePath), $"Could not locate source file: {songTransitionStagePath}");
 
         var source = File.ReadAllText(songTransitionStagePath);
 
