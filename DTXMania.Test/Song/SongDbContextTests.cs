@@ -28,10 +28,13 @@ namespace DTXMania.Test.Song
 
         public SongDbContextTests()
         {
-            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+            // Use connection-string-level FK enforcement so the flag is set
+            // before the connection is opened (most reliable cross-platform approach).
+            _connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:;Foreign Keys=True");
             _connection.Open();
 
-            // Enable FK constraint enforcement explicitly via PRAGMA.
+            // Belt-and-suspenders: also set via PRAGMA after open in case the
+            // connection-string option is ignored by an older SQLitePCLRaw bundle.
             using (var cmd = _connection.CreateCommand())
             {
                 cmd.CommandText = "PRAGMA foreign_keys = ON;";
@@ -68,7 +71,7 @@ namespace DTXMania.Test.Song
         public async Task OnConfiguring_WithUnconfiguredOptions_ShouldFallBackToInMemorySQLite()
         {
             // Pass empty options so OnConfiguring takes the "!IsConfigured" branch.
-            var emptyOptions = new DbContextOptions<SongDbContext>();
+            var emptyOptions = new DbContextOptionsBuilder<SongDbContext>().Options;
             using var ctx = new SongDbContext(emptyOptions);
             // EnsureCreatedAsync triggers context initialization, which calls OnConfiguring.
             // If OnConfiguring successfully adds a provider this will not throw.
