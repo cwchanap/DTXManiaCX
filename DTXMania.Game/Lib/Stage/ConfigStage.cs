@@ -493,6 +493,7 @@ namespace DTXMania.Game.Lib.Stage
             bool prevAutoPlay = config.AutoPlay;
             var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
             var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
+            var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
             var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
 
             // Stage 1: prepare in-memory config data from working copies
@@ -529,6 +530,8 @@ namespace DTXMania.Game.Lib.Stage
                 foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
                 config.UnboundDrumLanes.Clear();
                 foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
+                config.UnboundDrumButtons.Clear();
+                foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
                 config.SystemKeyBindings.Clear();
                 foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
 

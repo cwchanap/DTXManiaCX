@@ -145,6 +145,23 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void ReloadKeyBindings_RemappedDefaultDrumKey_ShouldNotRestoreRemovedDefaultButton()
+        {
+            var persistedBindings = new KeyBindings();
+            persistedBindings.UnbindButton("Key.Space");
+            persistedBindings.BindButton("Key.B", 6);
+            _configManager.SaveKeyBindings(persistedBindings);
+
+            Assert.Contains("Key.Space", _configManager.Config.UnboundDrumButtons);
+            Assert.Equal(6, _configManager.Config.KeyBindings["Key.B"]);
+
+            _inputManager.ReloadKeyBindings();
+
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
+            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.B"));
+        }
+
+        [Fact]
         public void ResetKeyBindingsToDefaults_AfterModification_RestoresDefaults()
         {
             // Arrange
@@ -172,7 +189,25 @@ namespace DTXMania.Test.Input
             _inputManager.ForceResetKeyBindings();
 
             Assert.DoesNotContain(6, _configManager.Config.UnboundDrumLanes);
+            Assert.DoesNotContain("Key.Space", _configManager.Config.UnboundDrumButtons);
             Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space"));
+        }
+
+        [Fact]
+        public void ForceResetKeyBindings_WithPersistedUnboundDefaultButton_RestoresDefaultButton()
+        {
+            _inputManager.KeyBindings.UnbindButton("Key.Space");
+            _inputManager.KeyBindings.BindButton("Key.B", 6);
+            _inputManager.SaveKeyBindings();
+
+            Assert.Contains("Key.Space", _configManager.Config.UnboundDrumButtons);
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
+
+            _inputManager.ForceResetKeyBindings();
+
+            Assert.DoesNotContain("Key.Space", _configManager.Config.UnboundDrumButtons);
+            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space"));
+            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.B"));
         }
 
         [Fact]

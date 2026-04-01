@@ -142,6 +142,46 @@ public class ConfigManagerTests
     }
 
     [Fact]
+    public void ConfigManager_SaveAndLoadConfig_RemappedDefaultKeyboardLane_ShouldPersistRemovedDefaultButton()
+    {
+        var manager = new ConfigManager();
+        var sourceBindings = new KeyBindings();
+        sourceBindings.UnbindButton("Key.Space");
+        sourceBindings.BindButton("Key.B", 6);
+
+        manager.SaveKeyBindings(sourceBindings);
+
+        Assert.DoesNotContain(6, manager.Config.UnboundDrumLanes);
+        Assert.Contains("Key.Space", manager.Config.UnboundDrumButtons);
+        Assert.Equal(6, manager.Config.KeyBindings["Key.B"]);
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            manager.SaveConfig(tempFile);
+
+            var configText = File.ReadAllText(tempFile);
+            Assert.Contains("Key.UnboundButton.Key.Space=true", configText);
+
+            var reloadedManager = new ConfigManager();
+            reloadedManager.LoadConfig(tempFile);
+
+            Assert.Contains("Key.Space", reloadedManager.Config.UnboundDrumButtons);
+            Assert.DoesNotContain(6, reloadedManager.Config.UnboundDrumLanes);
+
+            var targetBindings = new KeyBindings();
+            reloadedManager.LoadKeyBindings(targetBindings);
+
+            Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+            Assert.Equal(6, targetBindings.GetLane("Key.B"));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void ConfigManager_LoadConfig_ValidIniContent_ShouldParseCorrectly()
     {
         // Arrange
