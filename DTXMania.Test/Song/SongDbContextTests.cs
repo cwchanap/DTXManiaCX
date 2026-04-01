@@ -1,6 +1,4 @@
-using System;
 using System.Linq;
-using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 using Song = DTXMania.Game.Lib.Song.Entities.Song;
@@ -16,9 +14,16 @@ namespace DTXMania.Test.Song
     /// - Basic CRUD operations with AsNoTracking reads to verify actual DB persistence
     /// - Cascade-delete relationships
     /// - Unique-index and FK-constraint enforcement
+    ///
+    /// All tests are synchronous to avoid async state machines inside methods that hold
+    /// IAsyncDisposable locals (SongDbContext : DbContext implements IAsyncDisposable).
+    /// coverlet.msbuild v6 incorrectly instruments async state machines that contain
+    /// IAsyncDisposable locals, producing invalid IL that crashes the test process on
+    /// Windows.  Using the synchronous EF Core API eliminates the state machines and the
+    /// associated instrumentation bug.
     /// </summary>
     [Trait("Category", "SongDbContext")]
-    public class SongDbContextTests : IDisposable
+    public class SongDbContextTests : System.IDisposable
     {
         // Shared connection so every context for the same test sees the same
         // in-memory SQLite database (SQLite :memory: databases are per-connection).
@@ -68,14 +73,14 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task OnConfiguring_WithUnconfiguredOptions_ShouldFallBackToInMemorySQLite()
+        public void OnConfiguring_WithUnconfiguredOptions_ShouldFallBackToInMemorySQLite()
         {
             // Pass empty options so OnConfiguring takes the "!IsConfigured" branch.
             var emptyOptions = new DbContextOptionsBuilder<SongDbContext>().Options;
             using var ctx = new SongDbContext(emptyOptions);
-            // EnsureCreatedAsync triggers context initialization, which calls OnConfiguring.
+            // EnsureCreated triggers context initialization, which calls OnConfiguring.
             // If OnConfiguring successfully adds a provider this will not throw.
-            await ctx.Database.EnsureCreatedAsync();
+            ctx.Database.EnsureCreated();
         }
 
         // ---------------------------------------------------------------------------
@@ -107,16 +112,16 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task Song_AddAndRetrieve_ShouldRoundTrip()
+        public void Song_AddAndRetrieve_ShouldRoundTrip()
         {
             var song = new Song { Title = "Test Song", Artist = "Test Artist", Genre = "Rock" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             // Fresh context → values come from SQLite, not the change tracker.
             using var ctx2 = NewContext();
-            var retrieved = await ctx2.Songs.AsNoTracking()
-                .FirstOrDefaultAsync(s => s.Title == "Test Song");
+            var retrieved = ctx2.Songs.AsNoTracking()
+                .FirstOrDefault(s => s.Title == "Test Song");
 
             Assert.NotNull(retrieved);
             Assert.Equal("Test Artist", retrieved!.Artist);
@@ -124,34 +129,34 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Song_Delete_ShouldRemoveFromDatabase()
+        public void Song_Delete_ShouldRemoveFromDatabase()
         {
             var song = new Song { Title = "To Delete", Artist = "Artist" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.Songs.Remove(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var count = await ctx2.Songs.CountAsync(s => s.Title == "To Delete");
+            var count = ctx2.Songs.Count(s => s.Title == "To Delete");
             Assert.Equal(0, count);
         }
 
         [Fact]
-        public async Task Song_Update_ShouldPersistChanges()
+        public void Song_Update_ShouldPersistChanges()
         {
             var song = new Song { Title = "Original Title", Artist = "Artist" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             song.Title = "Updated Title";
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
-            // Detach so FindAsync cannot return the cached entity.
+            // Detach so Find cannot return the cached entity.
             _context.Entry(song).State = EntityState.Detached;
-            var retrieved = await _context.Songs.AsNoTracking()
-                .FirstOrDefaultAsync(s => s.Id == song.Id);
+            var retrieved = _context.Songs.AsNoTracking()
+                .FirstOrDefault(s => s.Id == song.Id);
             Assert.Equal("Updated Title", retrieved!.Title);
         }
 
@@ -160,11 +165,11 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task SongChart_AddWithSong_ShouldCreateRelationship()
+        public void SongChart_AddWithSong_ShouldCreateRelationship()
         {
             var song = new Song { Title = "Charted", Artist = "Artist" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var chart = new SongChart
             {
@@ -176,43 +181,43 @@ namespace DTXMania.Test.Song
                 HasDrumChart = true
             };
             _context.SongCharts.Add(chart);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var loaded = await ctx2.SongCharts.AsNoTracking()
+            var loaded = ctx2.SongCharts.AsNoTracking()
                 .Include(c => c.Song)
-                .FirstOrDefaultAsync(c => c.FilePath == "/songs/charted/basic.dtx");
+                .FirstOrDefault(c => c.FilePath == "/songs/charted/basic.dtx");
 
             Assert.NotNull(loaded);
             Assert.Equal("Charted", loaded!.Song!.Title);
         }
 
         [Fact]
-        public async Task SongChart_CascadeDeleteWithSong_ShouldDeleteCharts()
+        public void SongChart_CascadeDeleteWithSong_ShouldDeleteCharts()
         {
             var song = new Song { Title = "Cascade", Artist = "A" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var chart = new SongChart { SongId = song.Id, FilePath = "/c/song.dtx" };
             _context.SongCharts.Add(chart);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.Songs.Remove(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var chartCount = await ctx2.SongCharts.CountAsync(c => c.FilePath == "/c/song.dtx");
+            var chartCount = ctx2.SongCharts.Count(c => c.FilePath == "/c/song.dtx");
             Assert.Equal(0, chartCount);
         }
 
         [Fact]
-        public async Task SongChart_AddWithInvalidSongId_ShouldFail()
+        public void SongChart_AddWithInvalidSongId_ShouldFail()
         {
             // Attempt to insert a chart whose SongId references a non-existent Song.
             var chart = new SongChart { SongId = 99999, FilePath = "/fk/bad_song.dtx" };
             _context.SongCharts.Add(chart);
-            await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+            Assert.Throws<DbUpdateException>(() => _context.SaveChanges());
         }
 
         // ---------------------------------------------------------------------------
@@ -220,15 +225,15 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task SongScore_AddWithChart_ShouldPersistInstrumentEnum()
+        public void SongScore_AddWithChart_ShouldPersistInstrumentEnum()
         {
             var song = new Song { Title = "Scored", Artist = "A" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var chart = new SongChart { SongId = song.Id, FilePath = "/s/scored.dtx" };
             _context.SongCharts.Add(chart);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var score = new SongScore
             {
@@ -237,11 +242,11 @@ namespace DTXMania.Test.Song
                 BestScore  = 950000
             };
             _context.SongScores.Add(score);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var loaded = await ctx2.SongScores.AsNoTracking()
-                .FirstOrDefaultAsync(s => s.ChartId == chart.Id);
+            var loaded = ctx2.SongScores.AsNoTracking()
+                .FirstOrDefault(s => s.ChartId == chart.Id);
 
             Assert.NotNull(loaded);
             Assert.Equal(EInstrumentPart.DRUMS, loaded!.Instrument);
@@ -249,31 +254,31 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task SongScore_UniqueIndex_ShouldPreventDuplicateChartInstrument()
+        public void SongScore_UniqueIndex_ShouldPreventDuplicateChartInstrument()
         {
             var song = new Song { Title = "Dupe", Artist = "A" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var chart = new SongChart { SongId = song.Id, FilePath = "/d/dupe.dtx" };
             _context.SongCharts.Add(chart);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.SongScores.Add(new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.GUITAR });
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             // Second score for the same chart/instrument should violate the unique index.
             _context.SongScores.Add(new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.GUITAR });
-            await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+            Assert.Throws<DbUpdateException>(() => _context.SaveChanges());
         }
 
         [Fact]
-        public async Task SongScore_AddWithInvalidChartId_ShouldFail()
+        public void SongScore_AddWithInvalidChartId_ShouldFail()
         {
             // ChartId references a non-existent SongChart.
             var score = new SongScore { ChartId = 99999, Instrument = EInstrumentPart.BASS };
             _context.SongScores.Add(score);
-            await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+            Assert.Throws<DbUpdateException>(() => _context.SaveChanges());
         }
 
         // ---------------------------------------------------------------------------
@@ -281,7 +286,7 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task SongHierarchy_ParentChild_ShouldPersistRelationship()
+        public void SongHierarchy_ParentChild_ShouldPersistRelationship()
         {
             var parent = new SongHierarchy
             {
@@ -290,7 +295,7 @@ namespace DTXMania.Test.Song
                 DisplayOrder = 0
             };
             _context.SongHierarchy.Add(parent);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             var child = new SongHierarchy
             {
@@ -300,12 +305,12 @@ namespace DTXMania.Test.Song
                 DisplayOrder = 1
             };
             _context.SongHierarchy.Add(child);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var loaded = await ctx2.SongHierarchy.AsNoTracking()
+            var loaded = ctx2.SongHierarchy.AsNoTracking()
                 .Include(h => h.Children)
-                .FirstOrDefaultAsync(h => h.Id == parent.Id);
+                .FirstOrDefault(h => h.Id == parent.Id);
 
             Assert.NotNull(loaded);
             Assert.Single(loaded!.Children);
@@ -317,11 +322,11 @@ namespace DTXMania.Test.Song
         // ---------------------------------------------------------------------------
 
         [Fact]
-        public async Task PerformanceHistory_AddWithSong_ShouldPersist()
+        public void PerformanceHistory_AddWithSong_ShouldPersist()
         {
             var song = new Song { Title = "History Song", Artist = "A" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.PerformanceHistory.Add(new PerformanceHistory
             {
@@ -329,38 +334,38 @@ namespace DTXMania.Test.Song
                 DisplayOrder = 0,
                 HistoryLine  = "Test run"
             });
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var count = await ctx2.PerformanceHistory.CountAsync(p => p.SongId == song.Id);
+            var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
             Assert.Equal(1, count);
         }
 
         [Fact]
-        public async Task PerformanceHistory_CascadeDeleteWithSong_ShouldDeleteHistory()
+        public void PerformanceHistory_CascadeDeleteWithSong_ShouldDeleteHistory()
         {
             var song = new Song { Title = "Cascade History", Artist = "A" };
             _context.Songs.Add(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.PerformanceHistory.Add(new PerformanceHistory { SongId = song.Id, DisplayOrder = 0 });
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             _context.Songs.Remove(song);
-            await _context.SaveChangesAsync();
+            _context.SaveChanges();
 
             using var ctx2 = NewContext();
-            var count = await ctx2.PerformanceHistory.CountAsync(p => p.SongId == song.Id);
+            var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
             Assert.Equal(0, count);
         }
 
         [Fact]
-        public async Task PerformanceHistory_AddWithInvalidSongId_ShouldFail()
+        public void PerformanceHistory_AddWithInvalidSongId_ShouldFail()
         {
             // SongId references a non-existent Song.
             var history = new PerformanceHistory { SongId = 99999, DisplayOrder = 0 };
             _context.PerformanceHistory.Add(history);
-            await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+            Assert.Throws<DbUpdateException>(() => _context.SaveChanges());
         }
     }
 }
