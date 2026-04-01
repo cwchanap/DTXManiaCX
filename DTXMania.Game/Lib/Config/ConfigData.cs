@@ -28,6 +28,7 @@ namespace DTXMania.Game.Lib.Config
         public int BufferSizeMs { get; set; } = 100;        // Input settings
         public Dictionary<string, int> KeyBindings { get; set; } = new();
         public HashSet<int> UnboundDrumLanes { get; set; } = new();
+        public HashSet<string> UnboundDrumButtons { get; set; } = new();
         public Dictionary<string, string> SystemKeyBindings { get; set; } = new();
 
         // Game settings

@@ -283,6 +283,7 @@ namespace DTXMania.Game.Lib.Input
             // Clear the config completely
             _configManager.Config.KeyBindings.Clear();
             _configManager.Config.UnboundDrumLanes.Clear();
+            _configManager.Config.UnboundDrumButtons.Clear();
             
             // Reload defaults
             _keyBindings.LoadDefaultBindings();

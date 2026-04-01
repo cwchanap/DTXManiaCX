@@ -24,6 +24,7 @@ public class ConfigDataTests
         Assert.Equal(100, config.SEVolume);
         Assert.Equal(100, config.BufferSizeMs);
         Assert.NotNull(config.KeyBindings);
+        Assert.NotNull(config.UnboundDrumButtons);
         Assert.Equal(100, config.ScrollSpeed);
         Assert.False(config.AutoPlay);
     }

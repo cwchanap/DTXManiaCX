@@ -103,6 +103,11 @@ namespace DTXMania.Game.Lib.Config
                 keyBindings.UnbindLane(lane);
             }
 
+            foreach (var buttonId in Config.UnboundDrumButtons.OrderBy(buttonId => buttonId, StringComparer.Ordinal))
+            {
+                keyBindings.UnbindButton(buttonId);
+            }
+
             foreach (var kvp in Config.KeyBindings)
             {
                 keyBindings.BindButton(kvp.Key, kvp.Value);
@@ -114,6 +119,7 @@ namespace DTXMania.Game.Lib.Config
             ArgumentNullException.ThrowIfNull(keyBindings);
             Config.KeyBindings.Clear();
             Config.UnboundDrumLanes.Clear();
+            Config.UnboundDrumButtons.Clear();
             foreach (var kvp in keyBindings.ButtonToLane)
             {
                 Config.KeyBindings[kvp.Key] = kvp.Value;
@@ -125,6 +131,11 @@ namespace DTXMania.Game.Lib.Config
                 {
                     Config.UnboundDrumLanes.Add(lane);
                 }
+            }
+
+            foreach (var buttonId in GetExplicitlyUnboundDefaultDrumButtons(keyBindings))
+            {
+                Config.UnboundDrumButtons.Add(buttonId);
             }
         }
 
@@ -303,6 +314,16 @@ namespace DTXMania.Game.Lib.Config
                             Config.UnboundDrumLanes.Add(unboundLane);
                         }
                     }
+                    else if (key.StartsWith("Key.UnboundButton.", StringComparison.Ordinal))
+                    {
+                        var buttonId = key.Substring("Key.UnboundButton.".Length);
+                        if (IsSupportedButtonBindingKey(buttonId) &&
+                            TryParseBool(value, out var isUnboundButton) &&
+                            isUnboundButton)
+                        {
+                            Config.UnboundDrumButtons.Add(buttonId);
+                        }
+                    }
                     else if (IsSupportedButtonBindingKey(key) && int.TryParse(value, out var lane))
                     {
                         if (lane >= 0 && lane <= 9)
@@ -357,7 +378,7 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"GameApiKey={Config.GameApiKey}");
 
             // Save key bindings to config file
-            if (Config.KeyBindings.Count > 0 || Config.UnboundDrumLanes.Count > 0)
+            if (Config.KeyBindings.Count > 0 || Config.UnboundDrumLanes.Count > 0 || Config.UnboundDrumButtons.Count > 0)
             {
                 sb.AppendLine();
                 sb.AppendLine("[KeyBindings]");
@@ -368,6 +389,10 @@ namespace DTXMania.Game.Lib.Config
                 foreach (var lane in Config.UnboundDrumLanes.OrderBy(lane => lane))
                 {
                     sb.AppendLine($"Key.Unbound.{lane}=true");
+                }
+                foreach (var buttonId in Config.UnboundDrumButtons.OrderBy(buttonId => buttonId, StringComparer.Ordinal))
+                {
+                    sb.AppendLine($"Key.UnboundButton.{buttonId}=true");
                 }
             }
 
@@ -471,6 +496,31 @@ namespace DTXMania.Game.Lib.Config
                 && (key.StartsWith("Key.", StringComparison.Ordinal)
                     || key.StartsWith("MIDI.", StringComparison.Ordinal)
                     || key.StartsWith("Pad.", StringComparison.Ordinal));
+        }
+
+        private static IEnumerable<string> GetExplicitlyUnboundDefaultDrumButtons(KeyBindings keyBindings)
+        {
+            var defaultBindings = new KeyBindings();
+            var currentButtons = keyBindings.ButtonToLane.Keys.ToHashSet(StringComparer.Ordinal);
+            var explicitlyUnboundButtons = new HashSet<string>(StringComparer.Ordinal);
+
+            for (var lane = 0; lane < 10; lane++)
+            {
+                if (!keyBindings.GetButtonsForLane(lane).Any(KeyBindings.IsKeyboardButtonId))
+                {
+                    continue;
+                }
+
+                foreach (var defaultButtonId in defaultBindings.GetButtonsForLane(lane).Where(KeyBindings.IsKeyboardButtonId))
+                {
+                    if (!currentButtons.Contains(defaultButtonId))
+                    {
+                        explicitlyUnboundButtons.Add(defaultButtonId);
+                    }
+                }
+            }
+
+            return explicitlyUnboundButtons;
         }
 
         private static bool IsRequiredSystemCommand(InputCommandType command)
