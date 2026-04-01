@@ -111,7 +111,7 @@ namespace DTXMania.Test.Song
             await _context.SaveChangesAsync();
 
             // Fresh context → values come from SQLite, not the change tracker.
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var retrieved = await ctx2.Songs.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Title == "Test Song");
 
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var count = await ctx2.Songs.CountAsync(s => s.Title == "To Delete");
             Assert.Equal(0, count);
         }
@@ -175,7 +175,7 @@ namespace DTXMania.Test.Song
             _context.SongCharts.Add(chart);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var loaded = await ctx2.SongCharts.AsNoTracking()
                 .Include(c => c.Song)
                 .FirstOrDefaultAsync(c => c.FilePath == "/songs/charted/basic.dtx");
@@ -198,7 +198,7 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var chartCount = await ctx2.SongCharts.CountAsync(c => c.FilePath == "/c/song.dtx");
             Assert.Equal(0, chartCount);
         }
@@ -236,7 +236,7 @@ namespace DTXMania.Test.Song
             _context.SongScores.Add(score);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var loaded = await ctx2.SongScores.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.ChartId == chart.Id);
 
@@ -299,7 +299,7 @@ namespace DTXMania.Test.Song
             _context.SongHierarchy.Add(child);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var loaded = await ctx2.SongHierarchy.AsNoTracking()
                 .Include(h => h.Children)
                 .FirstOrDefaultAsync(h => h.Id == parent.Id);
@@ -328,7 +328,7 @@ namespace DTXMania.Test.Song
             });
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var count = await ctx2.PerformanceHistory.CountAsync(p => p.SongId == song.Id);
             Assert.Equal(1, count);
         }
@@ -346,7 +346,7 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             await _context.SaveChangesAsync();
 
-            await using var ctx2 = NewContext();
+            using var ctx2 = NewContext();
             var count = await ctx2.PerformanceHistory.CountAsync(p => p.SongId == song.Id);
             Assert.Equal(0, count);
         }
