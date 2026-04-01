@@ -167,6 +167,7 @@ namespace DTXMania.Game.Lib.Config
 
                 var keys = ParseSystemBindingKeys(kvp.Value)
                     .Where(key => !drumKeys.Contains(key))
+                    .Where(key => !IsReservedRequiredFallbackKey(key, command))
                     .Distinct()
                     .ToList();
                 if (keys.Count == 0)
@@ -479,6 +480,24 @@ namespace DTXMania.Game.Lib.Config
         private static bool IsRequiredSystemCommand(InputCommandType command)
         {
             return RequiredSystemCommands.Contains(command);
+        }
+
+        private static bool IsReservedRequiredFallbackKey(Keys key, InputCommandType command)
+        {
+            foreach (var requiredCommand in GetRequiredSystemCommands())
+            {
+                if (requiredCommand == command)
+                {
+                    continue;
+                }
+
+                if (GetFallbackSystemBindingKeys(requiredCommand).Contains(key))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static InputCommandType[] GetRequiredSystemCommands()

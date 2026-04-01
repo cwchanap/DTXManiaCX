@@ -226,6 +226,20 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_RequiredFallbackCollision_ShouldKeepBothCommandsBound()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.MoveLeft"] = "Right";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveLeft, snapshot[Keys.Left]);
+        Assert.Equal(InputCommandType.MoveRight, snapshot[Keys.Right]);
+    }
+
+    [Fact]
     public void ConfigManager_LoadSystemKeyBindings_DrumOverlap_ShouldRejectSystemBindingAndKeepRequiredFallback()
     {
         var manager = new ConfigManager();
