@@ -240,6 +240,22 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
+    public void ConfigManager_LoadSystemKeyBindings_ReusedFallbackKeyWithOwnerRemapped_ShouldPreserveCustomBinding()
+    {
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.MoveRight"] = "Q";
+        manager.Config.SystemKeyBindings["SystemKey.MoveLeft"] = "Right";
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveRight, snapshot[Keys.Q]);
+        Assert.Equal(InputCommandType.MoveLeft, snapshot[Keys.Right]);
+        Assert.False(snapshot.TryGetValue(Keys.Left, out var moveLeftCommand) && moveLeftCommand == InputCommandType.MoveLeft);
+    }
+
+    [Fact]
     public void ConfigManager_LoadSystemKeyBindings_DrumOverlap_ShouldRejectSystemBindingAndKeepRequiredFallback()
     {
         var manager = new ConfigManager();
