@@ -14,6 +14,7 @@ namespace DTXMania.Test.Stage
     /// Basic unit tests for SongSelectionStage that don't require graphics initialization
     /// These tests focus on constructor validation and basic property testing
     /// </summary>
+    [Trait("Category", "Unit")]
     public class SongSelectionStageBasicTests
     {
         #region Constructor Tests

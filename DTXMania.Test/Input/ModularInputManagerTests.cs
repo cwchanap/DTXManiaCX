@@ -211,6 +211,23 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void ForceResetKeyBindings_WithPersistedSystemBindingOnDefaultDrumKey_ClearsSystemBindingOverride()
+        {
+            _configManager.Config.UnboundDrumLanes.Add(6);
+            _configManager.Config.SystemKeyBindings["SystemKey.Back"] = "Space";
+
+            _inputManager.ForceResetKeyBindings();
+
+            var configuredInputManager = _configManager.CreateConfiguredInputManager();
+            var snapshot = configuredInputManager.GetKeyMappingSnapshot();
+
+            Assert.DoesNotContain(6, _configManager.Config.UnboundDrumLanes);
+            Assert.Equal("Escape", _configManager.Config.SystemKeyBindings["SystemKey.Back"]);
+            Assert.Equal(InputCommandType.Back, snapshot[Keys.Escape]);
+            Assert.False(snapshot.TryGetValue(Keys.Space, out var command) && command == InputCommandType.Back);
+        }
+
+        [Fact]
         public void Update_CallsSuccessfully_NoExceptions()
         {
             // Act & Assert (should not throw)
