@@ -63,7 +63,7 @@ namespace DTXMania.Test.Resources
         {
             // The first default path should contain the DTXFiles folder name.
             var first = Constants.SongPaths.Default[0];
-            Assert.Contains("DTXFiles", first, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(Constants.SongPaths.DTXFiles, first, StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion
