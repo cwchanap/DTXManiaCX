@@ -290,6 +290,8 @@ namespace DTXMania.Game.Lib.Input
             
             // Save the new defaults
             SaveKeyBindings();
+
+            _configManager.NormalizeSystemKeyBindings();
         }
 
         #endregion

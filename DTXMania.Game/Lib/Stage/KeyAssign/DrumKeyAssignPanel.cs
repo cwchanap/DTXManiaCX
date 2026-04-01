@@ -219,15 +219,25 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         internal string GetInstructionText()
         {
+            var navigateUpBindingLabel = GetNavigationBindingLabel(InputCommandType.MoveUp);
+            var navigateDownBindingLabel = GetNavigationBindingLabel(InputCommandType.MoveDown);
+            var assignBindingLabel = GetNavigationBindingLabel(InputCommandType.Activate);
             var cancelBindingLabel = GetCancelBindingLabel();
+            var navigateInstruction = $"{(navigateUpBindingLabel.Length == 0 ? "UP" : navigateUpBindingLabel)}/{(navigateDownBindingLabel.Length == 0 ? "DOWN" : navigateDownBindingLabel)}: Navigate";
+            var assignInstruction = $"{(assignBindingLabel.Length == 0 ? "ENTER" : assignBindingLabel)}: Assign";
             var cancelInstruction = cancelBindingLabel.Length == 0 ? "BACK: Cancel" : $"{cancelBindingLabel}: Cancel";
-            return $"UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | {cancelInstruction}";
+            return $"{navigateInstruction} | {assignInstruction} | DELETE: Clear lane | {cancelInstruction}";
         }
 
         private string GetCancelBindingLabel()
         {
+            return GetNavigationBindingLabel(InputCommandType.Back);
+        }
+
+        private string GetNavigationBindingLabel(InputCommandType command)
+        {
             return string.Join("/", _navigationMapping
-                .Where(kvp => kvp.Value == InputCommandType.Back)
+                .Where(kvp => kvp.Value == command)
                 .Select(kvp => kvp.Key.ToString().ToUpperInvariant())
                 .Distinct());
         }

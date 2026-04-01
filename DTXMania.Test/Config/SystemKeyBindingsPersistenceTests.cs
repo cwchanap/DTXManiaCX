@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Config;
 
+[Trait("Category", "Persistence")]
 public class SystemKeyBindingsPersistenceTests
 {
     // ─── ParseConfigLine ──────────────────────────────────────────────────────
@@ -53,7 +54,8 @@ public class SystemKeyBindingsPersistenceTests
             // Should not throw – invalid values are skipped
             manager.LoadSystemKeyBindings(inputMgr);
             // Default Up->MoveUp should still be in place
-            Assert.True(inputMgr.GetKeyMappingSnapshot().Values.Contains(InputCommandType.MoveUp));
+            var snapshot = inputMgr.GetKeyMappingSnapshot();
+            Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.Up]);
         }
         finally { File.Delete(tempFile); }
     }
@@ -148,8 +150,8 @@ public class SystemKeyBindingsPersistenceTests
         manager.LoadSystemKeyBindings(inputMgr);
 
         var snapshot = inputMgr.GetKeyMappingSnapshot();
-        Assert.True(snapshot.ContainsKey(Keys.W));
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
+        Assert.False(snapshot.TryGetValue(Keys.Up, out var upCommand) && upCommand == InputCommandType.MoveUp);
     }
 
     [Fact]

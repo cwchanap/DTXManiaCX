@@ -471,7 +471,7 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Activate();
 
         Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
-        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | Q: Cancel", panel.GetInstructionText());
+        Assert.Equal("W/S: Navigate | F: Assign | Q: Cancel", panel.GetInstructionText());
     }
 
     [Trait("Category", "Unit")]
@@ -491,7 +491,7 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Activate();
 
         Assert.Equal("CANCEL", panel.GetFooterCancelLabel());
-        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | BACK: Cancel", panel.GetInstructionText());
+        Assert.Equal("W/S: Navigate | F: Assign | BACK: Cancel", panel.GetInstructionText());
     }
 
     [Trait("Category", "Unit")]
@@ -568,7 +568,7 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Activate();
 
         Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
-        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | Q: Cancel", panel.GetInstructionText());
+        Assert.Equal("W/S: Navigate | F: Assign | DELETE: Clear lane | Q: Cancel", panel.GetInstructionText());
     }
 
     [Trait("Category", "Unit")]
@@ -588,7 +588,7 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Activate();
 
         Assert.Equal("CANCEL", panel.GetFooterCancelLabel());
-        Assert.Equal("UP/DOWN: Navigate | ENTER: Assign | DELETE: Clear lane | BACK: Cancel", panel.GetInstructionText());
+        Assert.Equal("W/S: Navigate | F: Assign | DELETE: Clear lane | BACK: Cancel", panel.GetInstructionText());
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -625,7 +625,12 @@ public class KeyAssignPanelWorkingCopyTests
         var keyBindingsField = typeof(ModularInputManager)
             .GetField("_keyBindings", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        keyBindingsField?.SetValue(manager, liveBindings);
+        if (keyBindingsField == null)
+        {
+            throw new InvalidOperationException("Failed to locate ModularInputManager._keyBindings for test setup.");
+        }
+
+        keyBindingsField.SetValue(manager, liveBindings);
         return manager;
     }
 }
