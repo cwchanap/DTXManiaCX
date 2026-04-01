@@ -15,12 +15,13 @@ namespace DTXMania.Test.Song
     /// - Cascade-delete relationships
     /// - Unique-index and FK-constraint enforcement
     ///
-    /// All tests are synchronous to avoid async state machines inside methods that hold
-    /// IAsyncDisposable locals (SongDbContext : DbContext implements IAsyncDisposable).
-    /// coverlet.msbuild v6 incorrectly instruments async state machines that contain
-    /// IAsyncDisposable locals, producing invalid IL that crashes the test process on
-    /// Windows.  Using the synchronous EF Core API eliminates the state machines and the
-    /// associated instrumentation bug.
+    /// All tests are synchronous and avoid the C# "using var" pattern for any local
+    /// variable whose compile-time type implements IAsyncDisposable (SongDbContext and
+    /// SqliteCommand both inherit types that implement IAsyncDisposable in .NET 6+).
+    /// coverlet.msbuild v6 mis-instruments "using var" locals whose type implements
+    /// IAsyncDisposable — even in synchronous methods — producing invalid IL that causes
+    /// the CLR to throw InvalidProgramException when the test assembly is loaded, which
+    /// crashes the test process before any TRX output is written.
     /// </summary>
     [Trait("Category", "SongDbContext")]
     public class SongDbContextTests : System.IDisposable
@@ -40,10 +41,17 @@ namespace DTXMania.Test.Song
 
             // Belt-and-suspenders: also set via PRAGMA after open in case the
             // connection-string option is ignored by an older SQLitePCLRaw bundle.
-            using (var cmd = _connection.CreateCommand())
+            // Avoid "using var" here: SqliteCommand inherits DbCommand which
+            // implements IAsyncDisposable — coverlet.msbuild would mis-instrument it.
+            var cmd = _connection.CreateCommand();
+            try
             {
                 cmd.CommandText = "PRAGMA foreign_keys = ON;";
                 cmd.ExecuteNonQuery();
+            }
+            finally
+            {
+                cmd.Dispose();
             }
 
             _options = new DbContextOptionsBuilder<SongDbContext>()
@@ -65,6 +73,10 @@ namespace DTXMania.Test.Song
         /// (and therefore the same in-memory database) but has an empty change tracker.
         /// Use this to verify that values read back are truly loaded from SQLite, not
         /// from EF Core's first-level cache.
+        ///
+        /// Callers must dispose the returned context manually via try/finally rather
+        /// than "using var", because coverlet.msbuild v6 mis-instruments "using var"
+        /// for types that implement IAsyncDisposable.
         /// </summary>
         private SongDbContext NewContext() => new SongDbContext(_options);
 
@@ -77,10 +89,18 @@ namespace DTXMania.Test.Song
         {
             // Pass empty options so OnConfiguring takes the "!IsConfigured" branch.
             var emptyOptions = new DbContextOptionsBuilder<SongDbContext>().Options;
-            using var ctx = new SongDbContext(emptyOptions);
-            // EnsureCreated triggers context initialization, which calls OnConfiguring.
-            // If OnConfiguring successfully adds a provider this will not throw.
-            ctx.Database.EnsureCreated();
+            // Avoid "using var ctx": SongDbContext implements IAsyncDisposable.
+            var ctx = new SongDbContext(emptyOptions);
+            try
+            {
+                // EnsureCreated triggers context initialization, which calls OnConfiguring.
+                // If OnConfiguring successfully adds a provider this will not throw.
+                ctx.Database.EnsureCreated();
+            }
+            finally
+            {
+                ctx.Dispose();
+            }
         }
 
         // ---------------------------------------------------------------------------
@@ -119,13 +139,20 @@ namespace DTXMania.Test.Song
             _context.SaveChanges();
 
             // Fresh context → values come from SQLite, not the change tracker.
-            using var ctx2 = NewContext();
-            var retrieved = ctx2.Songs.AsNoTracking()
-                .FirstOrDefault(s => s.Title == "Test Song");
+            var ctx2 = NewContext();
+            try
+            {
+                var retrieved = ctx2.Songs.AsNoTracking()
+                    .FirstOrDefault(s => s.Title == "Test Song");
 
-            Assert.NotNull(retrieved);
-            Assert.Equal("Test Artist", retrieved!.Artist);
-            Assert.Equal("Rock", retrieved.Genre);
+                Assert.NotNull(retrieved);
+                Assert.Equal("Test Artist", retrieved!.Artist);
+                Assert.Equal("Rock", retrieved.Genre);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -138,9 +165,16 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var count = ctx2.Songs.Count(s => s.Title == "To Delete");
-            Assert.Equal(0, count);
+            var ctx2 = NewContext();
+            try
+            {
+                var count = ctx2.Songs.Count(s => s.Title == "To Delete");
+                Assert.Equal(0, count);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -183,13 +217,20 @@ namespace DTXMania.Test.Song
             _context.SongCharts.Add(chart);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var loaded = ctx2.SongCharts.AsNoTracking()
-                .Include(c => c.Song)
-                .FirstOrDefault(c => c.FilePath == "/songs/charted/basic.dtx");
+            var ctx2 = NewContext();
+            try
+            {
+                var loaded = ctx2.SongCharts.AsNoTracking()
+                    .Include(c => c.Song)
+                    .FirstOrDefault(c => c.FilePath == "/songs/charted/basic.dtx");
 
-            Assert.NotNull(loaded);
-            Assert.Equal("Charted", loaded!.Song!.Title);
+                Assert.NotNull(loaded);
+                Assert.Equal("Charted", loaded!.Song!.Title);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -206,9 +247,16 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var chartCount = ctx2.SongCharts.Count(c => c.FilePath == "/c/song.dtx");
-            Assert.Equal(0, chartCount);
+            var ctx2 = NewContext();
+            try
+            {
+                var chartCount = ctx2.SongCharts.Count(c => c.FilePath == "/c/song.dtx");
+                Assert.Equal(0, chartCount);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -244,13 +292,20 @@ namespace DTXMania.Test.Song
             _context.SongScores.Add(score);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var loaded = ctx2.SongScores.AsNoTracking()
-                .FirstOrDefault(s => s.ChartId == chart.Id);
+            var ctx2 = NewContext();
+            try
+            {
+                var loaded = ctx2.SongScores.AsNoTracking()
+                    .FirstOrDefault(s => s.ChartId == chart.Id);
 
-            Assert.NotNull(loaded);
-            Assert.Equal(EInstrumentPart.DRUMS, loaded!.Instrument);
-            Assert.Equal(950000, loaded.BestScore);
+                Assert.NotNull(loaded);
+                Assert.Equal(EInstrumentPart.DRUMS, loaded!.Instrument);
+                Assert.Equal(950000, loaded.BestScore);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -307,14 +362,21 @@ namespace DTXMania.Test.Song
             _context.SongHierarchy.Add(child);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var loaded = ctx2.SongHierarchy.AsNoTracking()
-                .Include(h => h.Children)
-                .FirstOrDefault(h => h.Id == parent.Id);
+            var ctx2 = NewContext();
+            try
+            {
+                var loaded = ctx2.SongHierarchy.AsNoTracking()
+                    .Include(h => h.Children)
+                    .FirstOrDefault(h => h.Id == parent.Id);
 
-            Assert.NotNull(loaded);
-            Assert.Single(loaded!.Children);
-            Assert.Equal("Child Song", loaded.Children.First().Title);
+                Assert.NotNull(loaded);
+                Assert.Single(loaded!.Children);
+                Assert.Equal("Child Song", loaded.Children.First().Title);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         // ---------------------------------------------------------------------------
@@ -336,9 +398,16 @@ namespace DTXMania.Test.Song
             });
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
-            Assert.Equal(1, count);
+            var ctx2 = NewContext();
+            try
+            {
+                var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
+                Assert.Equal(1, count);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
@@ -354,9 +423,16 @@ namespace DTXMania.Test.Song
             _context.Songs.Remove(song);
             _context.SaveChanges();
 
-            using var ctx2 = NewContext();
-            var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
-            Assert.Equal(0, count);
+            var ctx2 = NewContext();
+            try
+            {
+                var count = ctx2.PerformanceHistory.Count(p => p.SongId == song.Id);
+                Assert.Equal(0, count);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
         }
 
         [Fact]
