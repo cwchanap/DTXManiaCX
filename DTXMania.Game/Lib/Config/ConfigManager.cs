@@ -167,7 +167,6 @@ namespace DTXMania.Game.Lib.Config
 
                 var keys = ParseSystemBindingKeys(kvp.Value)
                     .Where(key => !drumKeys.Contains(key))
-                    .Where(key => !IsReservedRequiredFallbackKey(key, command))
                     .Distinct()
                     .ToList();
                 if (keys.Count == 0)
@@ -187,10 +186,7 @@ namespace DTXMania.Game.Lib.Config
                 }
             }
 
-            foreach (var command in GetRequiredSystemCommands())
-            {
-                EnsureRequiredSystemKeyBinding(inputManager, command);
-            }
+            EnsureRequiredSystemKeyBindings(inputManager);
         }
 
         public void SaveSystemKeyBindings(InputManager inputManager)
@@ -482,32 +478,38 @@ namespace DTXMania.Game.Lib.Config
             return RequiredSystemCommands.Contains(command);
         }
 
-        private static bool IsReservedRequiredFallbackKey(Keys key, InputCommandType command)
-        {
-            foreach (var requiredCommand in GetRequiredSystemCommands())
-            {
-                if (requiredCommand == command)
-                {
-                    continue;
-                }
-
-                if (GetFallbackSystemBindingKeys(requiredCommand).Contains(key))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         private static InputCommandType[] GetRequiredSystemCommands()
         {
             return RequiredSystemCommands;
         }
 
+        private static bool HasSystemKeyBinding(InputManager inputManager, InputCommandType command)
+        {
+            return inputManager.GetKeyMappingSnapshot().Values.Contains(command);
+        }
+
+        private static void EnsureRequiredSystemKeyBindings(InputManager inputManager)
+        {
+            for (var pass = 0; pass < RequiredSystemCommands.Length; pass++)
+            {
+                var missingCommands = GetRequiredSystemCommands()
+                    .Where(command => !HasSystemKeyBinding(inputManager, command))
+                    .ToList();
+                if (missingCommands.Count == 0)
+                {
+                    return;
+                }
+
+                foreach (var command in missingCommands)
+                {
+                    EnsureRequiredSystemKeyBinding(inputManager, command);
+                }
+            }
+        }
+
         private static void EnsureRequiredSystemKeyBinding(InputManager inputManager, InputCommandType command)
         {
-            if (inputManager.GetKeyMappingSnapshot().Values.Contains(command))
+            if (HasSystemKeyBinding(inputManager, command))
             {
                 return;
             }
