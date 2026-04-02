@@ -1,7 +1,7 @@
 using System.Linq;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
-using Song = DTXMania.Game.Lib.Song.Entities.Song;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -134,7 +134,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Song_AddAndRetrieve_ShouldRoundTrip()
         {
-            var song = new Song { Title = "Test Song", Artist = "Test Artist", Genre = "Rock" };
+            var song = new SongEntity { Title = "Test Song", Artist = "Test Artist", Genre = "Rock" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -158,7 +158,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Song_Delete_ShouldRemoveFromDatabase()
         {
-            var song = new Song { Title = "To Delete", Artist = "Artist" };
+            var song = new SongEntity { Title = "To Delete", Artist = "Artist" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -180,7 +180,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Song_Update_ShouldPersistChanges()
         {
-            var song = new Song { Title = "Original Title", Artist = "Artist" };
+            var song = new SongEntity { Title = "Original Title", Artist = "Artist" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -201,7 +201,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void SongChart_AddWithSong_ShouldCreateRelationship()
         {
-            var song = new Song { Title = "Charted", Artist = "Artist" };
+            var song = new SongEntity { Title = "Charted", Artist = "Artist" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -236,7 +236,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void SongChart_CascadeDeleteWithSong_ShouldDeleteCharts()
         {
-            var song = new Song { Title = "Cascade", Artist = "A" };
+            var song = new SongEntity { Title = "Cascade", Artist = "A" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -275,7 +275,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void SongScore_AddWithChart_ShouldPersistInstrumentEnum()
         {
-            var song = new Song { Title = "Scored", Artist = "A" };
+            var song = new SongEntity { Title = "Scored", Artist = "A" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -311,7 +311,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void SongScore_UniqueIndex_ShouldPreventDuplicateChartInstrument()
         {
-            var song = new Song { Title = "Dupe", Artist = "A" };
+            var song = new SongEntity { Title = "Dupe", Artist = "A" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -386,7 +386,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void PerformanceHistory_AddWithSong_ShouldPersist()
         {
-            var song = new Song { Title = "History Song", Artist = "A" };
+            var song = new SongEntity { Title = "History Song", Artist = "A" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
@@ -413,7 +413,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void PerformanceHistory_CascadeDeleteWithSong_ShouldDeleteHistory()
         {
-            var song = new Song { Title = "Cascade History", Artist = "A" };
+            var song = new SongEntity { Title = "Cascade History", Artist = "A" };
             _context.Songs.Add(song);
             _context.SaveChanges();
 
