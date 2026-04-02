@@ -88,14 +88,6 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void ConfigData_SetGameApiKey_Null_ShouldPreserveValue()
-        {
-            var config = new ConfigData();
-            config.GameApiKey = null!;
-            Assert.Null(config.GameApiKey);
-        }
-
-        [Fact]
         public void ConfigData_SetGameApiKey_Whitespace_ShouldPreserveValue()
         {
             const string whitespace = "   ";

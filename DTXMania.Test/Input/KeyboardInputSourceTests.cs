@@ -8,10 +8,11 @@ namespace DTXMania.Test.Input
 {
     /// <summary>
     /// Unit tests for KeyboardInputSource.
-    /// Tests cover properties, default-state query methods, and disposal.
-    /// Methods that call Keyboard.GetState() (Initialize, Update) are intentionally
-    /// excluded because they require an SDL/game-window context that is unavailable
-    /// in a headless test environment.
+    /// Tests cover properties, default-state query methods, and disposal behavior.
+    /// Initialize() and the normal Update() path are intentionally excluded because
+    /// they call Keyboard.GetState(), which requires an SDL/game-window context that
+    /// is unavailable in a headless test environment. The disposed Update() path is
+    /// covered because it short-circuits before touching SDL.
     /// </summary>
     [Trait("Category", "Input")]
     public class KeyboardInputSourceTests : IDisposable

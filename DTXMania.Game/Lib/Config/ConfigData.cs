@@ -52,8 +52,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>
         /// API key for authenticating requests to the Game API server.
         /// If set, all API requests must include this key in the X-Api-Key header.
+        /// Use an empty string to represent "no key configured"; this property should not be null.
         /// Leave empty to allow unauthenticated access (not recommended for production).
         /// </summary>
-        public string GameApiKey { get; set; } = "";
+        public string GameApiKey { get; set; } = string.Empty;
     }
 }
