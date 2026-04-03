@@ -53,25 +53,41 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_KeyPressed_ProcessesHit()
+        public void Update_WhenLaneHitEventQueued_ProcessesJustHit()
         {
-            // This test is skipped due to InputManager dependency issues
-            // Testing core functionality through other methods instead
-            Assert.True(true); // Placeholder - will be tested through integration
+            // Arrange
+            var (inputManager, compat) = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(inputManager, CreateTestChartManager());
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            // Act
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1000.0);
+
+            // Assert
+            Assert.NotNull(captured);
+            Assert.Equal(JudgementType.Just, captured.Type);
         }
 
         [Fact]
-        public void Update_EarlyHit_ReturnsCorrectJudgement()
+        public void Update_WhenLaneHitEventQueued_ProcessesGoodHit()
         {
-            // This test is skipped due to InputManager dependency issues
-            Assert.True(true); // Placeholder - will be tested through integration
-        }
+            // Arrange
+            var (inputManager, compat) = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(inputManager, CreateTestChartManager());
 
-        [Fact]
-        public void Update_LateHit_ReturnsCorrectJudgement()
-        {
-            // This test requires actual keyboard input simulation
-            Assert.True(true); // Placeholder - requires integration testing
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            // Act
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1089.0);
+
+            // Assert
+            Assert.NotNull(captured);
+            Assert.Equal(JudgementType.Good, captured.Type);
         }
 
         [Fact]
