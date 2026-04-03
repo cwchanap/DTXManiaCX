@@ -10,17 +10,22 @@ namespace DTXMania.Test.GameApi
     [Trait("Category", "Unit")]
     public class GameApiImplementationInputRoutingTests
     {
+        private static (GameApiImplementation Api, MockInputManagerCompat InputManager) CreateSut()
+        {
+            var inputManager = new MockInputManagerCompat();
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
+
+            return (new GameApiImplementation(gameContext.Object), inputManager);
+        }
+
         [Theory]
         [InlineData("\"Down\"", InputType.KeyPress)]
         [InlineData("\"Key.Escape\"", InputType.KeyRelease)]
         [InlineData("40", InputType.KeyPress)]
         public async Task SendInputAsync_WithParsableKeyPayload_ReturnsTrue(string json, InputType inputType)
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
             using var document = JsonDocument.Parse(json);
 
             var result = await api.SendInputAsync(new GameInput
@@ -37,11 +42,7 @@ namespace DTXMania.Test.GameApi
         [InlineData("{\"key\":\"Key.Escape\"}", InputType.KeyRelease)]
         public async Task SendInputAsync_WithObjectKeyPayload_ReturnsTrue(string json, InputType inputType)
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
             using var document = JsonDocument.Parse(json);
 
             var result = await api.SendInputAsync(new GameInput
@@ -59,11 +60,7 @@ namespace DTXMania.Test.GameApi
         [InlineData("null")]
         public async Task SendInputAsync_WithNullOrWhitespaceStringPayload_ReturnsFalse(string json)
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
             using var document = JsonDocument.Parse(json);
 
             var result = await api.SendInputAsync(new GameInput
@@ -80,11 +77,7 @@ namespace DTXMania.Test.GameApi
         [InlineData("{\"holdDurationMs\":50}")]
         public async Task SendInputAsync_WithObjectPayloadMissingKeyProperty_ReturnsFalse(string json)
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
             using var document = JsonDocument.Parse(json);
 
             var result = await api.SendInputAsync(new GameInput
@@ -99,11 +92,7 @@ namespace DTXMania.Test.GameApi
         [Fact]
         public async Task SendInputAsync_WithMissingPayload_ReturnsFalse()
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
 
             var result = await api.SendInputAsync(new GameInput
             {
@@ -118,11 +107,7 @@ namespace DTXMania.Test.GameApi
         [InlineData(InputType.MouseMove)]
         public async Task SendInputAsync_WithUnsupportedMouseInputType_ReturnsFalse(InputType inputType)
         {
-            var inputManager = new MockInputManagerCompat();
-            var gameContext = new Mock<IGameContext>();
-            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
-
-            var api = new GameApiImplementation(gameContext.Object);
+            var (api, inputManager) = CreateSut();
 
             var result = await api.SendInputAsync(new GameInput
             {
