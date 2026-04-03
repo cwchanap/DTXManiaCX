@@ -179,14 +179,6 @@ namespace DTXMania.Test.GameApi
 
         #endregion
 
-        #region GameInput Model Tests
-
-        #endregion
-
-        #region GameWindowInfo Model Tests
-
-        #endregion
-
         #region Thread Safety Tests (using mock)
 
         [Fact]
