@@ -37,6 +37,24 @@ namespace DTXMania.Test.TestData
             return (T?)field!.GetValue(target);
         }
 
+        internal static object? InvokePrivateMethod(object target, string methodName, params object[] args)
+        {
+            var method = GetMethod(target.GetType(), methodName);
+            Assert.NotNull(method);
+            return method!.Invoke(target, args);
+        }
+
+        internal static T? InvokePrivateMethod<T>(object target, string methodName, params object[] args)
+        {
+            var result = InvokePrivateMethod(target, methodName, args);
+            if (result is null)
+            {
+                return default;
+            }
+
+            return (T)result;
+        }
+
         internal static void SetPrivateField(object target, string fieldName, object? value)
         {
             var field = GetField(target.GetType(), fieldName);
@@ -52,6 +70,22 @@ namespace DTXMania.Test.TestData
                 if (field != null)
                 {
                     return field;
+                }
+
+                type = type.BaseType!;
+            }
+
+            return null;
+        }
+
+        internal static MethodInfo? GetMethod(Type type, string methodName)
+        {
+            while (type != null)
+            {
+                var method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (method != null)
+                {
+                    return method;
                 }
 
                 type = type.BaseType!;

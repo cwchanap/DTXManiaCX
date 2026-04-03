@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
@@ -831,24 +830,6 @@ namespace DTXMania.Test.Stage
             }
 
             return scores;
-        }
-
-        private static object? InvokePrivateMethod(object target, string methodName, params object[] args)
-        {
-            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
-            return method!.Invoke(target, args);
-        }
-
-        private static T? InvokePrivateMethod<T>(object target, string methodName, params object[] args)
-        {
-            var result = InvokePrivateMethod(target, methodName, args);
-            if (result is null)
-            {
-                return default;
-            }
-
-            return (T)result;
         }
 
         private sealed class QueuedInputManager : InputManager
