@@ -344,8 +344,5 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
-        #region CompletionReason Tests
-
-        #endregion
     }
 }
