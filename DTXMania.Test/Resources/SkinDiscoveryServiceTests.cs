@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using Xunit;
 using DTXMania.Game.Lib.Resources;
 
@@ -82,6 +81,43 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void AnalyzeSkin_WithDisplayNameAuthorAndVersion_PopulatesMetadata()
+        {
+            // Arrange
+            var skinPath = CreateTestSkinWithRawIni("MetaSkin", @"DisplayName=Festival Skin
+Author=Test Author
+Version=2.0");
+
+            // Act
+            var result = _discoveryService.AnalyzeSkin(skinPath);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal("Festival Skin", result.Description);
+            Assert.Equal("Test Author", result.Author);
+            Assert.Equal("2.0", result.Version);
+        }
+
+        [Fact]
+        public void AnalyzeSkin_WithDescriptionMetadata_OverridesDisplayNameDescription()
+        {
+            // Arrange
+            var skinPath = CreateTestSkinWithRawIni("MetaSkin", @"DisplayName=Festival Skin
+Description=Full festival theme
+Author=Test Author
+Version=2.0");
+
+            // Act
+            var result = _discoveryService.AnalyzeSkin(skinPath);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal("Full festival theme", result.Description);
+            Assert.Equal("Test Author", result.Author);
+            Assert.Equal("2.0", result.Version);
+        }
+
+        [Fact]
         public void AnalyzeSkin_WithInvalidSkin_ReturnsInvalidInfo()
         {
             // Arrange
@@ -159,7 +195,7 @@ namespace DTXMania.Test.Resources
             var result = _discoveryService.GetSkinCompleteness(skinPath);
 
             // Assert
-            Assert.True(result > 0 && result < 100);
+            Assert.True(result == 29, $"Expected rounded completeness of 29 because 2 / 7 = 28.57..., but got {result}.");
         }
 
         [Fact]
@@ -221,17 +257,19 @@ namespace DTXMania.Test.Resources
 
         private string CreateTestSkinWithMetadata(string skinName, string displayName, string author, string version)
         {
-            var skinPath = CreateTestSkin(skinName);
-            
-            // Create SkinConfig.ini with metadata
-            var configContent = $@"; Skin Configuration
-Name={displayName}
+            return CreateTestSkinWithRawIni(skinName, $@"; Skin Configuration
+DisplayName={displayName}
 Author={author}
 Version={version}
 Description=Test skin for unit testing
-";
+");
+        }
+
+        private string CreateTestSkinWithRawIni(string skinName, string configContent)
+        {
+            var skinPath = CreateTestSkin(skinName);
             File.WriteAllText(Path.Combine(skinPath, "SkinConfig.ini"), configContent);
-            
+
             return skinPath;
         }
 
