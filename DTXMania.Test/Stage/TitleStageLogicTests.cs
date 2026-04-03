@@ -1,9 +1,9 @@
 using System.Reflection;
-using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 
@@ -17,14 +17,14 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var cursorSound = CreateSoundReturningInstance();
-            SetPrivateField(stage, "_currentMenuIndex", 0);
-            SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
 
             InvokePrivateMethod(stage, "MoveCursorUp");
 
-            Assert.Equal(2, GetPrivateField<int>(stage, "_currentMenuIndex"));
-            Assert.True(GetPrivateField<bool>(stage, "_isMovingUp"));
-            Assert.Equal(0d, GetPrivateField<double>(stage, "_menuMoveTimer"));
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isMovingUp"));
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_menuMoveTimer"));
             cursorSound.Verify(x => x.Play(0.7f), Times.Once);
         }
 
@@ -33,14 +33,14 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var cursorSound = CreateSoundReturningInstance();
-            SetPrivateField(stage, "_currentMenuIndex", 2);
-            SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
 
             InvokePrivateMethod(stage, "MoveCursorDown");
 
-            Assert.Equal(0, GetPrivateField<int>(stage, "_currentMenuIndex"));
-            Assert.True(GetPrivateField<bool>(stage, "_isMovingDown"));
-            Assert.Equal(0d, GetPrivateField<double>(stage, "_menuMoveTimer"));
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isMovingDown"));
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_menuMoveTimer"));
             cursorSound.Verify(x => x.Play(0.7f), Times.Once);
         }
 
@@ -48,17 +48,17 @@ namespace DTXMania.Test.Stage
         public void UpdateAnimations_ShouldResetFlashAndMovementFlagsWhenThresholdExceeded()
         {
             var stage = CreateStage();
-            SetPrivateField(stage, "_cursorFlashTimer", 0.6d);
-            SetPrivateField(stage, "_menuMoveTimer", 0.05d);
-            SetPrivateField(stage, "_isMovingUp", true);
-            SetPrivateField(stage, "_isMovingDown", true);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorFlashTimer", 0.6d);
+            ReflectionHelpers.SetPrivateField(stage, "_menuMoveTimer", 0.05d);
+            ReflectionHelpers.SetPrivateField(stage, "_isMovingUp", true);
+            ReflectionHelpers.SetPrivateField(stage, "_isMovingDown", true);
 
             InvokePrivateMethod(stage, "UpdateAnimations", 0.2d);
 
-            Assert.Equal(0d, GetPrivateField<double>(stage, "_cursorFlashTimer"));
-            Assert.Equal(0d, GetPrivateField<double>(stage, "_menuMoveTimer"));
-            Assert.False(GetPrivateField<bool>(stage, "_isMovingUp"));
-            Assert.False(GetPrivateField<bool>(stage, "_isMovingDown"));
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_cursorFlashTimer"));
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_menuMoveTimer"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isMovingUp"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isMovingDown"));
         }
 
         [Fact]
@@ -68,7 +68,7 @@ namespace DTXMania.Test.Stage
 
             stage.OnTransitionIn(new StartupToTitleTransition());
 
-            Assert.Equal("FadeInFromStartup", GetPrivateField<object>(stage, "_titlePhase")!.ToString());
+            Assert.Equal("FadeInFromStartup", ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.ToString());
         }
 
         [Fact]
@@ -78,7 +78,7 @@ namespace DTXMania.Test.Stage
 
             stage.OnTransitionIn(new CrossfadeTransition());
 
-            Assert.Equal("FadeIn", GetPrivateField<object>(stage, "_titlePhase")!.ToString());
+            Assert.Equal("FadeIn", ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.ToString());
         }
 
         [Fact]
@@ -88,20 +88,20 @@ namespace DTXMania.Test.Stage
 
             stage.OnTransitionComplete();
 
-            Assert.Equal("Normal", GetPrivateField<object>(stage, "_titlePhase")!.ToString());
+            Assert.Equal("Normal", ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.ToString());
             Assert.Equal(StagePhase.Normal, stage.CurrentPhase);
         }
 
         [Fact]
         public void SelectCurrentMenuItem_WhenGameStartAndTransitionAllowed_ShouldGoToSongSelect()
         {
-            var game = CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.0);
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.0);
             var stageManager = new Mock<IStageManager>();
             var gameStartSound = CreateSoundReturningInstance();
             var stage = CreateStage(game);
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_currentMenuIndex", 0);
-            SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
 
             InvokePrivateMethod(stage, "SelectCurrentMenuItem");
 
@@ -111,19 +111,19 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
                 Times.Once);
             gameStartSound.Verify(x => x.Play(0.9f), Times.Once);
-            Assert.Equal(1.0, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            Assert.Equal(1.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
 
         [Fact]
         public void SelectCurrentMenuItem_WhenConfigAndTransitionAllowed_ShouldGoToConfig()
         {
-            var game = CreateGame(totalGameTime: 1.2, lastStageTransitionTime: 0.0);
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 1.2, lastStageTransitionTime: 0.0);
             var stageManager = new Mock<IStageManager>();
             var selectSound = CreateSoundReturningInstance();
             var stage = CreateStage(game);
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_currentMenuIndex", 1);
-            SetPrivateField(stage, "_selectSound", selectSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
 
             InvokePrivateMethod(stage, "SelectCurrentMenuItem");
 
@@ -133,34 +133,37 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
                 Times.Once);
             selectSound.Verify(x => x.Play(0.8f), Times.Once);
-            Assert.Equal(1.2, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            Assert.Equal(1.2, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
 
         [Fact]
         public void SelectCurrentMenuItem_WhenExitAndTransitionAllowed_ShouldExitGame()
         {
-            var game = CreateGame(totalGameTime: 1.4, lastStageTransitionTime: 0.0);
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 1.4, lastStageTransitionTime: 0.0);
             var selectSound = CreateSoundReturningInstance();
             var stage = CreateStage(game);
-            SetPrivateField(stage, "_currentMenuIndex", 2);
-            SetPrivateField(stage, "_selectSound", selectSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
 
             InvokePrivateMethod(stage, "SelectCurrentMenuItem");
 
             selectSound.Verify(x => x.Play(0.8f), Times.Once);
-            Assert.Equal(1.4, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            Assert.Equal(1.4, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            Assert.True(
+                ReflectionHelpers.GetPrivateField<bool>(game, "_shouldExit") ||
+                ReflectionHelpers.GetPrivateField<bool>(game, "_isExiting"));
         }
 
         [Fact]
         public void SelectCurrentMenuItem_WhenDebounceBlocksTransition_ShouldDoNothing()
         {
-            var game = CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
             var stageManager = new Mock<IStageManager>();
             var gameStartSound = CreateSoundReturningInstance();
             var stage = CreateStage(game);
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_currentMenuIndex", 0);
-            SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
 
             InvokePrivateMethod(stage, "SelectCurrentMenuItem");
 
@@ -185,19 +188,7 @@ namespace DTXMania.Test.Stage
 
         private static TitleStage CreateStage(BaseGame? game = null)
         {
-            return new TitleStage(game ?? CreateGame());
-        }
-
-        private static BaseGame CreateGame(double totalGameTime = 0.0, double lastStageTransitionTime = 0.0)
-        {
-#pragma warning disable SYSLIB0050
-            var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(game, "_mainThreadActions", new System.Collections.Concurrent.ConcurrentQueue<Action>());
-            SetPrivateField(game, "_pendingScreenshot", null);
-            SetPrivateField(game, "_totalGameTime", totalGameTime);
-            SetPrivateField(game, "_lastStageTransitionTime", lastStageTransitionTime);
-            return game;
+            return new TitleStage(game ?? ReflectionHelpers.CreateGame());
         }
 
         private static Mock<ISound> CreateSoundReturningInstance()
@@ -206,41 +197,11 @@ namespace DTXMania.Test.Stage
             return sound;
         }
 
-        private static T? GetPrivateField<T>(object target, string fieldName)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            return (T?)field!.GetValue(target);
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
-        }
-
         private static void InvokePrivateMethod(object target, string methodName, params object[] args)
         {
             var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
             method!.Invoke(target, args);
-        }
-
-        private static FieldInfo? GetField(Type type, string fieldName)
-        {
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (field != null)
-                {
-                    return field;
-                }
-
-                type = type.BaseType!;
-            }
-
-            return null;
         }
 
         private sealed class TestInputManager : IInputManager

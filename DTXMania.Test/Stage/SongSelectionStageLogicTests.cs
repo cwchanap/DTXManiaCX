@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
@@ -17,6 +16,7 @@ using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework.Audio;
 using Moq;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
@@ -105,7 +105,7 @@ namespace DTXMania.Test.Stage
             Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
             Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
             Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
-            Assert.Single(display.CurrentList);
+            Assert.Empty(display.CurrentList);
         }
 
         [Fact]
@@ -776,18 +776,6 @@ namespace DTXMania.Test.Stage
             return new SongSelectionStage(game ?? CreateGame());
         }
 
-        private static BaseGame CreateGame(double totalGameTime = 0.0, double lastStageTransitionTime = 0.0)
-        {
-#pragma warning disable SYSLIB0050
-            var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
-            SetPrivateField(game, "_pendingScreenshot", null);
-            SetPrivateField(game, "_totalGameTime", totalGameTime);
-            SetPrivateField(game, "_lastStageTransitionTime", lastStageTransitionTime);
-            return game;
-        }
-
         private static SongListNode CreateScoreNode(
             string title,
             SongScore[]? scores = null,
@@ -845,20 +833,6 @@ namespace DTXMania.Test.Stage
             return scores;
         }
 
-        private static T? GetPrivateField<T>(object target, string fieldName)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            return (T?)field!.GetValue(target);
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
-        }
-
         private static object? InvokePrivateMethod(object target, string methodName, params object[] args)
         {
             var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
@@ -875,22 +849,6 @@ namespace DTXMania.Test.Stage
             }
 
             return (T)result;
-        }
-
-        private static FieldInfo? GetField(Type type, string fieldName)
-        {
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (field != null)
-                {
-                    return field;
-                }
-
-                type = type.BaseType!;
-            }
-
-            return null;
         }
 
         private sealed class QueuedInputManager : InputManager

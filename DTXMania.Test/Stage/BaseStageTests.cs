@@ -1,8 +1,7 @@
-using System.Reflection;
-using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Test.TestData;
 using Moq;
 
 namespace DTXMania.Test.Stage
@@ -17,7 +16,7 @@ namespace DTXMania.Test.Stage
             var backgroundTexture = new Mock<ITexture>();
             resourceManager.Setup(x => x.LoadTexture(TexturePath.TitleBackground)).Returns(backgroundTexture.Object);
 
-            var stage = new TestStage(CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             var sharedData = new Dictionary<string, object> { ["songId"] = 42 };
 
             stage.Activate(sharedData);
@@ -35,7 +34,7 @@ namespace DTXMania.Test.Stage
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
-            var stage = new TestStage(CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
 
             stage.Activate();
             stage.Activate();
@@ -49,7 +48,7 @@ namespace DTXMania.Test.Stage
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Throws(new InvalidOperationException("boom"));
-            var stage = new TestStage(CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
 
             stage.Activate();
 
@@ -63,7 +62,7 @@ namespace DTXMania.Test.Stage
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
-            var stage = new TestStage(CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             stage.Activate();
 
             stage.Update(0.016);
@@ -76,7 +75,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Draw_WhenInactive_ShouldNotInvokeDrawHook()
         {
-            var stage = new TestStage(CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
 
             stage.Draw(0.016);
 
@@ -90,7 +89,7 @@ namespace DTXMania.Test.Stage
             var backgroundTexture = new Mock<ITexture>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(backgroundTexture.Object);
 
-            var stage = new TestStage(CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
             stage.Activate(new Dictionary<string, object> { ["songId"] = 7 });
 
             stage.Deactivate();
@@ -105,7 +104,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void TransitionLifecycle_ShouldUpdatePhaseAndInvokeHooks()
         {
-            var stage = new TestStage(CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
             var fadeTransition = new FadeTransition();
             var crossfadeTransition = new CrossfadeTransition();
 
@@ -127,7 +126,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void SharedDataHelpers_ShouldReturnDefaultsForMissingOrInvalidValues()
         {
-            var stage = new TestStage(CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
 
             stage.WriteSharedData("difficulty", "hard");
 
@@ -141,7 +140,7 @@ namespace DTXMania.Test.Stage
         public void ChangeStage_ShouldForwardDefaultInstantTransition()
         {
             var stageManager = new Mock<IStageManager>();
-            var stage = new TestStage(CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null)
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null)
             {
                 StageManager = stageManager.Object,
             };
@@ -159,7 +158,7 @@ namespace DTXMania.Test.Stage
         public void ChangeStage_WithSharedDataAndNullTransition_ShouldUseInstantTransition()
         {
             var stageManager = new Mock<IStageManager>();
-            var stage = new TestStage(CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null)
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null)
             {
                 StageManager = stageManager.Object,
             };
@@ -173,38 +172,6 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
                     sharedData),
                 Times.Once);
-        }
-
-        private static BaseGame CreateGame(IResourceManager resourceManager)
-        {
-#pragma warning disable SYSLIB0050
-            var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager);
-            return game;
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
-        }
-
-        private static FieldInfo? GetField(Type type, string fieldName)
-        {
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (field != null)
-                {
-                    return field;
-                }
-
-                type = type.BaseType!;
-            }
-
-            return null;
         }
 
         private sealed class TestStage : BaseStage
