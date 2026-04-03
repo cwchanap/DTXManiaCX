@@ -16,3 +16,4 @@ CoverageReport*/
 .claude/settings.local.json
 .mcp.json
 screenshots/
+.worktrees/
