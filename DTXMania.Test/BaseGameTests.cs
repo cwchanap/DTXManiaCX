@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Test.TestData;
 
 namespace DTXMania.Test
 {
@@ -20,7 +21,7 @@ namespace DTXMania.Test
             double lastStageTransitionTime,
             bool expected)
         {
-            var game = CreateGame(totalGameTime, lastStageTransitionTime);
+            var game = ReflectionHelpers.CreateGame(totalGameTime, lastStageTransitionTime);
 
             Assert.Equal(expected, game.CanPerformStageTransition());
         }
@@ -28,19 +29,19 @@ namespace DTXMania.Test
         [Fact]
         public void MarkStageTransition_ShouldCaptureCurrentGameTime()
         {
-            var game = CreateGame(totalGameTime: 3.25, lastStageTransitionTime: 0.0);
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 3.25, lastStageTransitionTime: 0.0);
 
             game.MarkStageTransition();
 
-            Assert.Equal(3.25, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            Assert.Equal(3.25, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
 
         [Fact]
         public void QueueMainThreadAction_ShouldEnqueueAction()
         {
-            var game = CreateGame();
+            var game = ReflectionHelpers.CreateGame();
             var context = (IGameContext)game;
-            var queue = GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions");
+            var queue = ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions");
             var executed = false;
 
             context.QueueMainThreadAction(() => executed = true);
@@ -53,7 +54,7 @@ namespace DTXMania.Test
         [Fact]
         public void QueueMainThreadAction_WithNullAction_ShouldThrowArgumentNullException()
         {
-            var game = CreateGame();
+            var game = ReflectionHelpers.CreateGame();
             var context = (IGameContext)game;
 
             Assert.Throws<ArgumentNullException>(() => context.QueueMainThreadAction(null!));
@@ -62,13 +63,13 @@ namespace DTXMania.Test
         [Fact]
         public void CaptureScreenshotAsync_WhenNoPendingRequest_ShouldStorePendingTask()
         {
-            var game = CreateGame();
+            var game = ReflectionHelpers.CreateGame();
             var context = (IGameContext)game;
 
             var task = context.CaptureScreenshotAsync();
 
             Assert.False(task.IsCompleted);
-            var pendingScreenshot = GetPrivateField<TaskCompletionSource<byte[]?>>(game, "_pendingScreenshot");
+            var pendingScreenshot = ReflectionHelpers.GetPrivateField<TaskCompletionSource<byte[]?>>(game, "_pendingScreenshot");
             Assert.NotNull(pendingScreenshot);
             Assert.Same(pendingScreenshot!.Task, task);
         }
@@ -76,7 +77,7 @@ namespace DTXMania.Test
         [Fact]
         public async Task CaptureScreenshotAsync_WhenRequestAlreadyPending_ShouldReturnCompletedNullTask()
         {
-            var game = CreateGame();
+            var game = ReflectionHelpers.CreateGame();
             var context = (IGameContext)game;
 
             _ = context.CaptureScreenshotAsync();
@@ -97,50 +98,6 @@ namespace DTXMania.Test
             var result = (byte[]?)method!.Invoke(null, new object?[] { null });
 
             Assert.Null(result);
-        }
-
-        private static BaseGame CreateGame(double totalGameTime = 0.0, double lastStageTransitionTime = 0.0)
-        {
-#pragma warning disable SYSLIB0050
-            var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
-#pragma warning restore SYSLIB0050
-
-            SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
-            SetPrivateField(game, "_pendingScreenshot", null);
-            SetPrivateField(game, "_totalGameTime", totalGameTime);
-            SetPrivateField(game, "_lastStageTransitionTime", lastStageTransitionTime);
-
-            return game;
-        }
-
-        private static T? GetPrivateField<T>(object target, string fieldName)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            return (T?)field!.GetValue(target);
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
-        }
-
-        private static FieldInfo? GetField(Type type, string fieldName)
-        {
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (field != null)
-                {
-                    return field;
-                }
-
-                type = type.BaseType!;
-            }
-
-            return null;
         }
     }
 }

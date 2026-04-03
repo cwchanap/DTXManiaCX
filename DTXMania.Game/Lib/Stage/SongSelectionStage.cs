@@ -582,6 +582,7 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error processing completed song initialization: {ex.Message}");
                     _currentSongList = new List<SongListNode>();
+                    PopulateSongList();
                 }
                 finally
                 {
