@@ -13,9 +13,10 @@ using Xunit;
 namespace DTXMania.Test.GameApi
 {
     /// <summary>
-    /// Unit tests for Game API-related types.
+    /// Unit tests for general Game API-related types.
     /// This file creates real GameApiImplementation instances with mocked dependencies (e.g. IGameContext) via Moq,
     /// exercising the implementation behavior while avoiding the need to spin up a full game runtime.
+    /// Input-routing coverage lives in GameApiImplementationInputRoutingTests.
     /// Full integration tests would still require a graphics-capable BaseGame/MonoGame fixture.
     /// </summary>
     [Trait("Category", "Unit")]
