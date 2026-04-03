@@ -34,8 +34,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void IsPlaying_WhenInternalFlagTrueAndSoundInstanceNull_ReturnsTrue()
         {
-            // Volume defaults to 0f when _soundInstance is null → Math.Abs(0) < 0.001 is true
-            // so the property returns _isPlaying without needing a real SoundState
+            // When the backing sound is absent, the timer should still report the stored playing state.
             var timer = CreateTimer(isPlaying: true);
             Assert.True(timer.IsPlaying);
         }
@@ -100,7 +99,7 @@ namespace DTXMania.Test.Stage.Performance
             // _systemStartTime is 250 ms in the past → result should be ≥ 250 ms
             var timer = CreateTimer(isPlaying: true);
             var ms = timer.GetCurrentMs();
-            Assert.True(ms >= 200.0, $"Expected ≥200 ms but got {ms}");
+            Assert.InRange(ms, 200.0, 10_000.0);
         }
 
         // ---------------------------------------------------------------
@@ -232,6 +231,17 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(ex);
         }
 
+        [Fact]
+        public void Update_WhenPlayingAndSoundInstanceNull_DoesNotThrow()
+        {
+            var timer = CreateTimer(isPlaying: true);
+            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+
+            var ex = Record.Exception(() => timer.Update(gameTime));
+
+            Assert.Null(ex);
+        }
+
         // ---------------------------------------------------------------
         // Dispose – idempotency
         // ---------------------------------------------------------------
@@ -239,8 +249,8 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Dispose_CalledTwice_DoesNotThrow()
         {
-            // Second Dispose() must be a no-op; _soundInstance is null so Stop() guard fires first
             var timer = CreateTimer(isPlaying: false);
+            // First Dispose() releases state; second Dispose() should be a no-op.
             timer.Dispose();
             var ex = Record.Exception(() => timer.Dispose());
             Assert.Null(ex);
