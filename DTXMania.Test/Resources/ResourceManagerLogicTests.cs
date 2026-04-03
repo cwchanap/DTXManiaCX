@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using Moq;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 
 namespace DTXMania.Test.Resources
 {
@@ -347,36 +347,6 @@ namespace DTXMania.Test.Resources
             return fullPath.EndsWith(Path.DirectorySeparatorChar.ToString())
                 ? fullPath
                 : fullPath + Path.DirectorySeparatorChar;
-        }
-
-        private static T GetPrivateField<T>(object target, string fieldName)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            return (T)field!.GetValue(target)!;
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var field = GetField(target.GetType(), fieldName);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
-        }
-
-        private static FieldInfo? GetField(Type type, string fieldName)
-        {
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (field != null)
-                {
-                    return field;
-                }
-
-                type = type.BaseType!;
-            }
-
-            return null;
         }
     }
 }
