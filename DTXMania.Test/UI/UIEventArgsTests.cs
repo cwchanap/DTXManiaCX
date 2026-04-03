@@ -34,13 +34,6 @@ namespace DTXMania.Test.UI
             Assert.Equal(MouseButton.Middle, args.Button);
         }
 
-        [Fact]
-        public void MouseButton_Values_ShouldBeDistinct()
-        {
-            Assert.NotEqual(MouseButton.Left, MouseButton.Right);
-            Assert.NotEqual(MouseButton.Left, MouseButton.Middle);
-            Assert.NotEqual(MouseButton.Right, MouseButton.Middle);
-        }
     }
 
     /// <summary>

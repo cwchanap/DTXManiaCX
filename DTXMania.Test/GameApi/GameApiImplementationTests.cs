@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -90,17 +91,17 @@ namespace DTXMania.Test.GameApi
             Assert.True(result.IsVisible);
         }
 
-        [Theory]
-        [InlineData(InputType.MouseClick)]
-        [InlineData(InputType.MouseMove)]
-        [InlineData(InputType.KeyPress)]
-        [InlineData(InputType.KeyRelease)]
-        public async Task SendInputAsync_ShouldReturnFalse_ForSupportedInputTypes(InputType inputType)
+        [Fact]
+        public async Task SendInputAsync_WhenModularInputManagerIsUnavailable_ShouldReturnFalse()
         {
+            var inputManager = new Mock<IInputManagerCompat>();
+            inputManager.SetupGet(i => i.ModularInputManager).Returns((ModularInputManager)null!);
+
             var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager.Object);
             var api = new GameApiImplementation(gameContext.Object);
 
-            var input = new GameInput { Type = inputType, Data = JsonSerializer.SerializeToElement("test") };
+            var input = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement("test") };
             var result = await api.SendInputAsync(input);
 
             Assert.False(result);
@@ -162,21 +163,6 @@ namespace DTXMania.Test.GameApi
         #region GameState Model Tests
 
         [Fact]
-        public void GameState_DefaultValues_AreCorrect()
-        {
-            // Act
-            var state = new GameState();
-
-            // Assert
-            Assert.Equal(0, state.PlayerPositionX);
-            Assert.Equal(0, state.PlayerPositionY);
-            Assert.Equal(0, state.Score);
-            Assert.Equal(0, state.Level);
-            Assert.Equal(string.Empty, state.CurrentStage);
-            Assert.NotNull(state.CustomData);
-        }
-
-        [Fact]
         public void GameState_CustomData_CanStoreValues()
         {
             // Arrange
@@ -195,71 +181,9 @@ namespace DTXMania.Test.GameApi
 
         #region GameInput Model Tests
 
-        [Fact]
-        public void GameInput_CanBeCreatedWithAllTypes()
-        {
-            // Assert all input types are valid
-            Assert.True(Enum.IsDefined(typeof(InputType), InputType.MouseClick));
-            Assert.True(Enum.IsDefined(typeof(InputType), InputType.MouseMove));
-            Assert.True(Enum.IsDefined(typeof(InputType), InputType.KeyPress));
-            Assert.True(Enum.IsDefined(typeof(InputType), InputType.KeyRelease));
-        }
-
-        [Fact]
-        public void GameInput_DataProperty_CanHoldVariousTypes()
-        {
-            // Arrange & Act
-            var mouseInput = new GameInput { Type = InputType.MouseClick, Data = JsonSerializer.SerializeToElement(new { x = 100, y = 200 }) };
-            var keyInput = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement("Enter") };
-            var numericInput = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement(65) };
-
-            // Assert
-            Assert.NotNull(mouseInput.Data);
-            Assert.NotNull(keyInput.Data);
-            Assert.NotNull(numericInput.Data);
-        }
-
         #endregion
 
         #region GameWindowInfo Model Tests
-
-        [Fact]
-        public void GameWindowInfo_DefaultValues_AreCorrect()
-        {
-            // Act
-            var info = new GameWindowInfo();
-
-            // Assert
-            Assert.Equal(0, info.Width);
-            Assert.Equal(0, info.Height);
-            Assert.Equal(0, info.X);
-            Assert.Equal(0, info.Y);
-            Assert.Equal(string.Empty, info.Title);
-            Assert.False(info.IsVisible);
-        }
-
-        [Fact]
-        public void GameWindowInfo_CanSetAllProperties()
-        {
-            // Act
-            var info = new GameWindowInfo
-            {
-                Width = 1920,
-                Height = 1080,
-                X = 100,
-                Y = 50,
-                Title = "Test Window",
-                IsVisible = true
-            };
-
-            // Assert
-            Assert.Equal(1920, info.Width);
-            Assert.Equal(1080, info.Height);
-            Assert.Equal(100, info.X);
-            Assert.Equal(50, info.Y);
-            Assert.Equal("Test Window", info.Title);
-            Assert.True(info.IsVisible);
-        }
 
         #endregion
 

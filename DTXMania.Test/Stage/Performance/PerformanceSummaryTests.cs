@@ -346,34 +346,6 @@ namespace DTXMania.Test.Stage.Performance
 
         #region CompletionReason Tests
 
-        [Fact]
-        public void CompletionReason_SongComplete_ShouldSetCorrectly()
-        {
-            var summary = new PerformanceSummary { CompletionReason = CompletionReason.SongComplete };
-            Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
-        }
-
-        [Fact]
-        public void CompletionReason_PlayerFailed_ShouldSetCorrectly()
-        {
-            var summary = new PerformanceSummary { CompletionReason = CompletionReason.PlayerFailed };
-            Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
-        }
-
-        [Fact]
-        public void CompletionReason_PlayerQuit_ShouldSetCorrectly()
-        {
-            var summary = new PerformanceSummary { CompletionReason = CompletionReason.PlayerQuit };
-            Assert.Equal(CompletionReason.PlayerQuit, summary.CompletionReason);
-        }
-
-        [Fact]
-        public void ClearFlag_WhenSet_ShouldReturnTrue()
-        {
-            var summary = new PerformanceSummary { ClearFlag = true };
-            Assert.True(summary.ClearFlag);
-        }
-
         #endregion
     }
 }

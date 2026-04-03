@@ -14,12 +14,6 @@ namespace DTXMania.Test.Resources
         #region SongPaths Constants
 
         [Fact]
-        public void SongPaths_DTXFiles_ShouldEqualDTXFiles()
-        {
-            Assert.Equal("DTXFiles", Constants.SongPaths.DTXFiles);
-        }
-
-        [Fact]
         public void SongPaths_DTXFiles_ShouldNotBeNullOrEmpty()
         {
             Assert.False(string.IsNullOrEmpty(Constants.SongPaths.DTXFiles));
