@@ -286,6 +286,8 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Play_WhenDisposed_ReturnsFalse()
         {
+            // _soundInstance is also null under this seam, so this verifies the combined
+            // _disposed || _soundInstance == null guard rather than isolating _disposed.
             var timer = CreateTimer(isPlaying: false, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
             Assert.False(timer.Play(gameTime));
