@@ -10,13 +10,15 @@ The current Windows CI coverage command measures more than app code. A baseline 
 
 The user wants to optimize for the Windows CI coverage metric, treat the goal as a **10% relative increase**, and replace low-value tests with behavior-focused ones where possible.
 
+After correcting the metric, the app-only baseline is expected to be roughly **47-50%** and must be measured immediately after the CI filter change before any new tests are added.
+
 ## Chosen Approach
 
 Use a corrected app-only coverage metric, then raise meaningful coverage in logic-heavy areas with existing test seams.
 
 This means:
 
-1. Update the Windows CI coverage command to exclude the test assembly from Coverlet output.
+1. Update the Windows CI coverage command to exclude the test assembly from Coverlet output using the assembly filter syntax `/p:Exclude="[DTXMania.Test*]*"`.
 2. Treat the corrected Windows app-coverage result as the new baseline.
 3. Remove clearly low-value tests and replace placeholder tests with real behavior tests.
 4. Add new unit tests only in areas that can be exercised reliably without building a graphics-host integration harness.
@@ -94,13 +96,15 @@ Add tests for metadata parsing from `SkinConfig.ini` and skin completeness calcu
   - Existing Moq patterns around `IGameContext`
   - Existing temp-directory fixture style for file-system tests
 - Keep Mac-safe local validation in place even though the target metric is Windows CI coverage.
+- Ensure new tests remain compatible with `DTXMania.Test.Mac.csproj`, which includes `**/*.cs` by default and excludes only a targeted list of graphics-dependent files.
 
 ## Verification Plan
 
-1. Run the repository build and test commands already used for macOS validation.
-2. Run a coverage collection command using the corrected Coverlet filter so the report measures app code only.
-3. Confirm the coverage report no longer counts the test assembly in the denominator.
-4. Compare corrected baseline vs post-change result and confirm the lift direction and magnitude.
+1. Run a coverage collection command using the corrected Coverlet filter so the report measures app code only.
+2. Record the corrected Windows app-only baseline before adding any new tests.
+3. Run the repository build and test commands already used for macOS validation.
+4. Confirm the coverage report no longer counts the test assembly in the denominator.
+5. Compare corrected baseline vs post-change result and confirm the lift direction and magnitude.
 
 ## Implementation Sequence
 
