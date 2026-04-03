@@ -174,6 +174,181 @@ namespace DTXMania.Test.Stage
                 Times.Once);
         }
 
+        [Fact]
+        public void ChangeStage_WhenStageManagerIsNull_ShouldNotThrow()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            // StageManager defaults to null — the guarded null-conditional call must be a no-op
+            var ex = Record.Exception(() => stage.ForwardChangeStage(StageType.Result));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void Deactivate_WhenAlreadyInactive_ShouldBeNoOp()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+
+            stage.Deactivate();
+
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+            Assert.Equal(0, stage.DeactivateCalls);
+        }
+
+        [Fact]
+        public void Update_WhenInactive_ShouldNotInvokeHooks()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+
+            stage.Update(0.016);
+
+            Assert.Equal(0, stage.UpdateCalls);
+            Assert.Equal(0, stage.FirstUpdateCalls);
+        }
+
+        [Fact]
+        public void Draw_WhenActive_ShouldInvokeDrawHook()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            stage.Activate();
+
+            stage.Draw(0.016);
+
+            Assert.Equal(1, stage.DrawCalls);
+        }
+
+        [Fact]
+        public void Activate_AfterDeactivate_ShouldReloadBackground()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
+
+            stage.Activate();
+            stage.Deactivate();
+            stage.Activate();
+
+            resourceManager.Verify(x => x.LoadTexture(TexturePath.TitleBackground), Times.Exactly(2));
+        }
+
+        [Fact]
+        public void Dispose_WhenActive_ShouldDeactivateAndSuppressPhase()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, null);
+            stage.Activate();
+
+            stage.Dispose();
+
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+            Assert.Equal(1, stage.DeactivateCalls);
+        }
+
+        [Fact]
+        public void Dispose_WhenInactive_ShouldNotThrow()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+
+            var ex = Record.Exception(() => stage.Dispose());
+
+            Assert.Null(ex);
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+        }
+
+        [Fact]
+        public void SharedDataHelpers_EmptyKey_ShouldBeGuarded()
+        {
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+            stage.Activate();
+
+            // SetSharedData with empty key should be silently ignored
+            stage.WriteSharedData("", "ignored");
+            Assert.False(stage.ContainsSharedData(""));
+
+            // GetSharedData with empty key should return default
+            Assert.Equal(-1, stage.ReadSharedData("", -1));
+
+            // HasSharedData with null key should return false (null is IsNullOrEmpty)
+            Assert.False(stage.ContainsSharedData(null!));
+        }
+
+        [Fact]
+        public void SharedDataHelpers_BeforeActivation_ShouldReturnDefault()
+        {
+            // _sharedData is null before any Activate call
+            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
+
+            Assert.Equal(-1, stage.ReadSharedData("missing", -1));
+            Assert.False(stage.ContainsSharedData("missing"));
+        }
+
+        [Theory]
+        [InlineData(StageType.Startup, TexturePath.StartupBackground)]
+        [InlineData(StageType.Title, TexturePath.TitleBackground)]
+        [InlineData(StageType.SongSelect, TexturePath.SongSelectionBackground)]
+        [InlineData(StageType.SongTransition, TexturePath.SongTransitionBackground)]
+        [InlineData(StageType.Performance, TexturePath.PerformanceBackground)]
+        [InlineData(StageType.Result, TexturePath.ResultBackground)]
+        public void GetBackgroundTexturePath_BaseSwitch_ShouldLoadCorrectTexture(StageType stageType, string expectedPath)
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(expectedPath)).Returns(new Mock<ITexture>().Object);
+            // PassiveStage does not override GetBackgroundTexturePath, exercising the base switch
+            var stage = new PassiveStage(ReflectionHelpers.CreateGame(resourceManager.Object), stageType);
+
+            stage.Activate();
+
+            resourceManager.Verify(x => x.LoadTexture(expectedPath), Times.Once);
+        }
+
+        [Fact]
+        public void GetBackgroundTexturePath_Config_ShouldReturnNull_NoLoadAttempted()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var stage = new PassiveStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Config);
+
+            stage.Activate();
+
+            resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public void FullLifecycle_WithBaseNoOpHooks_ShouldNotThrow()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            // PassiveStage exercises all base-class virtual no-op hooks
+            var stage = new PassiveStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title);
+
+            stage.Activate();
+            stage.Update(0.016); // OnFirstUpdate + OnUpdate
+            stage.Update(0.016); // OnUpdate
+            stage.Draw(0.016);   // OnDraw
+            stage.OnTransitionIn(new FadeTransition());      // OnTransitionInStarted
+            stage.OnTransitionOut(new CrossfadeTransition()); // OnTransitionOutStarted
+            stage.OnTransitionComplete();                     // OnTransitionCompleted
+            stage.Deactivate();                              // OnDeactivate
+
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+        }
+
+        /// <summary>
+        /// Minimal stage that relies on all base-class virtual no-op hook implementations.
+        /// </summary>
+        private sealed class PassiveStage : BaseStage
+        {
+            private readonly StageType _type;
+
+            public PassiveStage(BaseGame game, StageType type) : base(game)
+            {
+                _type = type;
+            }
+
+            public override StageType Type => _type;
+            // Intentionally does not override GetBackgroundTexturePath or any hook —
+            // this is what exercises the base-class switch and the no-op virtuals.
+        }
+
         private sealed class TestStage : BaseStage
         {
             private readonly StageType _type;
