@@ -29,6 +29,9 @@ namespace DTXMania.Test.Stage.Performance
 
         // ---------------------------------------------------------------
         // IsPlaying
+        // Note: the soundState == SoundState.Playing branch inside IsPlaying is
+        // not reachable through the null _soundInstance reflection seam used here.
+        // The tests below intentionally cover the muted/null branch only.
         // ---------------------------------------------------------------
 
         [Fact]
@@ -266,6 +269,26 @@ namespace DTXMania.Test.Stage.Performance
             // _soundInstance?.State == SoundState.Stopped → null == Stopped → false
             var timer = CreateTimer(isPlaying: true);
             Assert.False(timer.IsFinished);
+        }
+
+        // ---------------------------------------------------------------
+        // Play – null _soundInstance / disposed guard paths
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void Play_WhenSoundInstanceNull_ReturnsFalse()
+        {
+            var timer = CreateTimer(isPlaying: false);
+            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+            Assert.False(timer.Play(gameTime));
+        }
+
+        [Fact]
+        public void Play_WhenDisposed_ReturnsFalse()
+        {
+            var timer = CreateTimer(isPlaying: false, disposed: true);
+            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+            Assert.False(timer.Play(gameTime));
         }
     }
 }
