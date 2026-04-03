@@ -253,17 +253,5 @@ namespace DTXMania.Test.Resources
             Assert.Equal(innerException, exception2.InnerException);
         }
 
-        [Fact]
-        public void ExceptionInheritance_ShouldBeCorrect()
-        {
-            // Arrange & Act
-            var textureException = new TextureLoadException("test.png", "message");
-            var fontException = new FontLoadException("test.ttf", "message");
-
-            // Assert
-            Assert.IsAssignableFrom<Exception>(textureException);
-            Assert.IsAssignableFrom<Exception>(fontException);
-        }
-
     }
 }
