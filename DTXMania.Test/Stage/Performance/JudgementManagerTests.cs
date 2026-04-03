@@ -1,12 +1,9 @@
 using System;
-using System.Linq;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
-using Microsoft.Xna.Framework.Input;
-using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -56,8 +53,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_WhenLaneHitEventQueued_ProcessesJustHit()
         {
             // Arrange
-            var (inputManager, compat) = CreateMockInputManagerWithEvents();
-            var judgementManager = new JudgementManager(inputManager, CreateTestChartManager());
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
 
             JudgementEvent? captured = null;
             judgementManager.JudgementMade += (_, e) => captured = e;
@@ -75,8 +72,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_WhenLaneHitEventQueued_ProcessesGoodHit()
         {
             // Arrange
-            var (inputManager, compat) = CreateMockInputManagerWithEvents();
-            var judgementManager = new JudgementManager(inputManager, CreateTestChartManager());
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
 
             JudgementEvent? captured = null;
             judgementManager.JudgementMade += (_, e) => captured = e;
@@ -114,21 +111,24 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_DoubleHit_PreventsDoubleJudgement()
         {
             // Arrange
-            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
+            // compat.TriggerLaneHit validates the OnLaneHit subscription wiring:
+            // JudgementManager must have subscribed to ModularInputManager.OnLaneHit so
+            // that queued hits drive judgement, unlike the direct hit helper used in HitWindowTests.
+            var compat = CreateMockInputManagerWithEvents();
             var chartManager = CreateTestChartManager();
-            var judgementManager = new JudgementManager(mockInputManager, chartManager);
+            var judgementManager = new JudgementManager(compat, chartManager);
 
             int eventCount = 0;
             judgementManager.JudgementMade += (sender, e) => eventCount++;
 
             // Simulate lane hit event for lane 0
-            mockModularInputManager.TriggerLaneHit(0);
+            compat.TriggerLaneHit(0);
 
             // Act - First hit
             judgementManager.Update(1000.0);
             
             // Simulate second hit on same note
-            mockModularInputManager.TriggerLaneHit(0);
+            compat.TriggerLaneHit(0);
             
             // Second hit attempt on same note
             judgementManager.Update(1010.0);
@@ -141,16 +141,19 @@ namespace DTXMania.Test.Stage.Performance
         public void GetStatistics_AfterHits_ReturnsCorrectCounts()
         {
             // Arrange
-            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
+            // compat.TriggerLaneHit validates the OnLaneHit subscription wiring:
+            // JudgementManager must have subscribed to ModularInputManager.OnLaneHit so
+            // that queued hits drive judgement, unlike the direct hit helper used in HitWindowTests.
+            var compat = CreateMockInputManagerWithEvents();
             var chartManager = CreateTestChartManager();
-            var judgementManager = new JudgementManager(mockInputManager, chartManager);
+            var judgementManager = new JudgementManager(compat, chartManager);
 
             // Simulate lane hit for lane 0 (Just hit)
-            mockModularInputManager.TriggerLaneHit(0);
+            compat.TriggerLaneHit(0);
             judgementManager.Update(1000.0); // Just hit
 
             // Simulate lane hit for lane 1 (Great hit, 40ms late)
-            mockModularInputManager.TriggerLaneHit(1);
+            compat.TriggerLaneHit(1);
             judgementManager.Update(1540.0); // Great hit (40ms late)
 
             // Act
@@ -172,9 +175,9 @@ namespace DTXMania.Test.Stage.Performance
             // Test that all lanes map to correct indices
             var expectedLanes = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
-            var (mockInputManager, mockModularInputManager) = CreateMockInputManagerWithEvents();
+            var compat = CreateMockInputManagerWithEvents();
             var chartManager = CreateMultiLaneTestChart();
-            var judgementManager = new JudgementManager(mockInputManager, chartManager);
+            var judgementManager = new JudgementManager(compat, chartManager);
 
             foreach (var expectedLane in expectedLanes)
             {
@@ -183,7 +186,7 @@ namespace DTXMania.Test.Stage.Performance
                 judgementManager.JudgementMade += handler;
 
                 // Simulate lane hit event for the expected lane
-                mockModularInputManager.TriggerLaneHit(expectedLane);
+                compat.TriggerLaneHit(expectedLane);
                 judgementManager.Update(1000.0 + expectedLane * 100); // Each lane has note at different time
 
                 Assert.NotNull(capturedEvent);
@@ -259,96 +262,9 @@ namespace DTXMania.Test.Stage.Performance
         /// <summary>
         /// Creates a mock IInputManagerCompat with event simulation capabilities
         /// </summary>
-        private static (IInputManagerCompat mock, DTXMania.Test.Helpers.MockInputManagerCompat modular) CreateMockInputManagerWithEvents()
+        private static DTXMania.Test.Helpers.MockInputManagerCompat CreateMockInputManagerWithEvents()
         {
-            var mockInputManager = new DTXMania.Test.Helpers.MockInputManagerCompat();
-            return (mockInputManager, mockInputManager);
-        }
-    }
-
-    /// <summary>
-    /// Test implementation of IInputManagerCompat using direct implementation for reliable testing
-    /// </summary>
-    internal class TestInputManagerCompat : IInputManagerCompat
-    {
-        public TestModularInputManager TestModularInputManager { get; }
-        private readonly ModularInputManager _realModularInputManager;
-
-        public TestInputManagerCompat()
-        {
-            TestModularInputManager = new TestModularInputManager();
-            _realModularInputManager = TestModularInputManager.AsModularInputManager();
-        }
-
-        public ModularInputManager ModularInputManager => _realModularInputManager;
-        public bool HasPendingCommands => false;
-
-        public bool IsKeyPressed(int keyCode) => false;
-        public bool IsKeyDown(int keyCode) => false;
-        public bool IsKeyReleased(int keyCode) => false;
-        public bool IsKeyTriggered(int keyCode) => false;
-        public bool IsBackActionTriggered() => false;
-        public InputCommand? GetNextCommand() => null;
-        public bool IsCommandPressed(InputCommandType commandType) => false;
-        public void Update(double deltaTime) { }
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// Simple stub that implements the minimal ModularInputManager interface for testing
-    /// </summary>
-    internal class TestModularInputManager
-    {
-        private ModularInputManager? _realManager;
-
-        /// <summary>
-        /// Event for lane hits - matches ModularInputManager interface
-        /// </summary>
-        public event EventHandler<LaneHitEventArgs>? OnLaneHit;
-
-        /// <summary>
-        /// Helper method to raise lane hit events for testing
-        /// </summary>
-        public void RaiseLaneHit(int lane)
-        {
-            var buttonState = new DTXMania.Game.Lib.Input.ButtonState($"TestButton{lane}", true, 1.0f);
-            var eventArgs = new LaneHitEventArgs(lane, buttonState);
-            OnLaneHit?.Invoke(this, eventArgs);
-            
-            // Also forward to real manager if available
-            _realManager?.GetType().GetMethod("OnInputRouterLaneHit", 
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
-                .Invoke(_realManager, new object[] { this, eventArgs });
-        }
-
-        /// <summary>
-        /// Creates a simple mock that handles event subscription correctly
-        /// </summary>
-        public ModularInputManager AsModularInputManager()
-        {
-            // Use a completely manual approach with a mock that doesn't require a constructor
-            var mock = new Mock<ModularInputManager>();
-            
-            // Track subscribers manually 
-            EventHandler<LaneHitEventArgs>? subscribers = null;
-            
-            // Setup event add
-            mock.SetupAdd(m => m.OnLaneHit += It.IsAny<EventHandler<LaneHitEventArgs>>())
-                .Callback<EventHandler<LaneHitEventArgs>>(handler => 
-                {
-                    subscribers += handler;
-                    OnLaneHit += handler; // Also subscribe to our test event
-                });
-                
-            // Setup event remove
-            mock.SetupRemove(m => m.OnLaneHit -= It.IsAny<EventHandler<LaneHitEventArgs>>())
-                .Callback<EventHandler<LaneHitEventArgs>>(handler => 
-                {
-                    subscribers -= handler;
-                    OnLaneHit -= handler; // Also unsubscribe from our test event
-                });
-            
-            return mock.Object;
+            return new DTXMania.Test.Helpers.MockInputManagerCompat();
         }
     }
 }
