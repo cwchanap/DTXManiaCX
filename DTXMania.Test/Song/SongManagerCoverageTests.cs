@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -97,7 +98,7 @@ public class SongManagerCoverageTests : IDisposable
             _manager,
             "ParseBoxDefinitionAsync",
             Path.Combine(_testRoot, "missing-box.def"),
-            System.Threading.CancellationToken.None);
+            CancellationToken.None);
 
         Assert.NotNull(task);
         Assert.Null(await task!);
@@ -111,7 +112,7 @@ public class SongManagerCoverageTests : IDisposable
             "ParseSetDefinitionAsync",
             Path.Combine(_testRoot, "missing-set.def"),
             null!,
-            System.Threading.CancellationToken.None);
+            CancellationToken.None);
 
         Assert.NotNull(task);
         Assert.Empty(await task!);
@@ -276,7 +277,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songsRoot, "cancelled.dtx"), "Cancelled Song", "Coverage Bot", "Rock", 35);
 
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-        using var cancellation = new System.Threading.CancellationTokenSource();
+        using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
         var result = await _manager.EnumerateSongsAsync(new[] { songsRoot }, cancellationToken: cancellation.Token);

@@ -157,6 +157,9 @@ public class JudgementTextPopupLogicTests
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
     }
 
+    // Uses FormatterServices.GetUninitializedObject to bypass JudgementTextPopupManager's
+    // constructor, which requires GraphicsDevice and IResourceManager unavailable in unit tests.
+    // Private fields (_activePopups, _disposed) are injected via ReflectionHelpers.SetPrivateField.
     private static JudgementTextPopupManager CreateManager(bool disposed = false)
     {
 #pragma warning disable SYSLIB0050
