@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Song;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -651,12 +652,17 @@ namespace DTXMania.Game.Lib.Song.Entities
             {
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Invalid database file detected at: {_databasePath}");
 
+                // Clear pooled SQLite connections so retries do not keep using the broken file handle.
+                SqliteConnection.ClearAllPools();
+
                 // Simply delete the corrupted file - no backup needed since it's corrupted anyway
                 if (File.Exists(_databasePath))
                 {
                     File.Delete(_databasePath);
                     System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Corrupted database file deleted. Fresh database will be created.");
                 }
+
+                SqliteConnection.ClearAllPools();
 
                 // Small delay to ensure file system has processed the deletion
                 await Task.Delay(100);

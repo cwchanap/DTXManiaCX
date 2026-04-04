@@ -29,7 +29,7 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "Category=Audio"
 
 # Run with coverage
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --results-directory ./TestResults
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
 
 # Run application
 dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -195,7 +195,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 
 GitHub Actions (`.github/workflows/build-and-test.yml`):
 - **Windows job**: Builds Windows project, runs full test suite (`DTXMania.Test.csproj`) with `ALSOFT_DRIVERS=null` for audio driver workaround, Coverlet MSBuild coverage
-- **macOS job**: Builds Mac project, runs Mac test suite (`DTXMania.Test.Mac.csproj`) with XPlat Code Coverage
+- **macOS job**: Builds Mac project, runs Mac test suite (`DTXMania.Test.Mac.csproj`) with XPlat Code Coverage using `coverlet.runsettings`
 - **Artifacts job**: Manual dispatch only, builds release artifacts for both platforms
 
 ## Troubleshooting
