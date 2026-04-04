@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Input;
 
+[Trait("Category", "Unit")]
 public class InputManagerStateTests
 {
     [Fact]

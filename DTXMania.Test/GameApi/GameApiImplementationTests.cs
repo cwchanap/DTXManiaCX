@@ -442,7 +442,7 @@ namespace DTXMania.Test.GameApi
 
             var api = new GameApiImplementation(gameContext.Object, logger.Object);
 
-            var input = new GameInput { Type = InputType.KeyPress, Data = System.Text.Json.JsonSerializer.SerializeToElement("Enter") };
+            var input = new GameInput { Type = InputType.KeyPress, Data = JsonSerializer.SerializeToElement("Enter") };
             var result = await api.SendInputAsync(input);
 
             Assert.False(result);

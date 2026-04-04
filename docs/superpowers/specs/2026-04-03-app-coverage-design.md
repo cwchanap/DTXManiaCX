@@ -73,7 +73,7 @@ Add tests for metadata parsing from `SkinConfig.ini` and skin completeness calcu
 
 ### Remove entirely
 
-- `DTXMania.Test/Config/GameConstantsTests.cs`
+- None. `GameConstantsTests` is retained in this scope.
 
 ### Remove individual low-value tests
 

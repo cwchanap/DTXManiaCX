@@ -1,6 +1,9 @@
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Test.Helpers;
+using DTXMania.Test.TestData;
 using Moq;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
@@ -19,28 +22,28 @@ namespace DTXMania.Test.GameApi
             return (new GameApiImplementation(gameContext.Object), inputManager);
         }
 
-        [Theory]
-        [InlineData("\"Down\"", InputType.KeyPress)]
-        [InlineData("\"Key.Escape\"", InputType.KeyRelease)]
-        [InlineData("40", InputType.KeyPress)]
-        public async Task SendInputAsync_WithParsableKeyPayload_ReturnsTrue(string json, InputType inputType)
+        private static ButtonState AssertSingleInjectedButton(MockInputManagerCompat inputManager)
         {
-            var (api, inputManager) = CreateSut();
-            using var document = JsonDocument.Parse(json);
+            var queue = ReflectionHelpers.GetPrivateField<ConcurrentQueue<ButtonState>>(
+                inputManager.ModularInputManager,
+                "_injectedButtonQueue");
 
-            var result = await api.SendInputAsync(new GameInput
-            {
-                Type = inputType,
-                Data = document.RootElement.Clone()
-            });
-
-            Assert.True(result);
+            Assert.NotNull(queue);
+            Assert.True(queue!.TryDequeue(out var buttonState));
+            Assert.NotNull(buttonState);
+            Assert.False(queue.TryDequeue(out _));
+            return buttonState!;
         }
 
         [Theory]
-        [InlineData("{\"key\":\"Down\"}", InputType.KeyPress)]
-        [InlineData("{\"key\":\"Key.Escape\"}", InputType.KeyRelease)]
-        public async Task SendInputAsync_WithObjectKeyPayload_ReturnsTrue(string json, InputType inputType)
+        [InlineData("\"Down\"", InputType.KeyPress, "Key.Down", true)]
+        [InlineData("\"Key.Escape\"", InputType.KeyRelease, "Key.Escape", false)]
+        [InlineData("40", InputType.KeyPress, "Key.Down", true)]
+        public async Task SendInputAsync_WithParsableKeyPayload_InjectsExpectedButton(
+            string json,
+            InputType inputType,
+            string expectedButtonId,
+            bool expectedPressed)
         {
             var (api, inputManager) = CreateSut();
             using var document = JsonDocument.Parse(json);
@@ -52,6 +55,33 @@ namespace DTXMania.Test.GameApi
             });
 
             Assert.True(result);
+            var buttonState = AssertSingleInjectedButton(inputManager);
+            Assert.Equal(expectedButtonId, buttonState.Id);
+            Assert.Equal(expectedPressed, buttonState.IsPressed);
+        }
+
+        [Theory]
+        [InlineData("{\"key\":\"Down\"}", InputType.KeyPress, "Key.Down", true)]
+        [InlineData("{\"key\":\"Key.Escape\"}", InputType.KeyRelease, "Key.Escape", false)]
+        public async Task SendInputAsync_WithObjectKeyPayload_InjectsExpectedButton(
+            string json,
+            InputType inputType,
+            string expectedButtonId,
+            bool expectedPressed)
+        {
+            var (api, inputManager) = CreateSut();
+            using var document = JsonDocument.Parse(json);
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = inputType,
+                Data = document.RootElement.Clone()
+            });
+
+            Assert.True(result);
+            var buttonState = AssertSingleInjectedButton(inputManager);
+            Assert.Equal(expectedButtonId, buttonState.Id);
+            Assert.Equal(expectedPressed, buttonState.IsPressed);
         }
 
         [Theory]

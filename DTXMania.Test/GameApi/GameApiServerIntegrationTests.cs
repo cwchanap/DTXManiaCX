@@ -3,7 +3,6 @@ using Moq;
 using System;
 using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -13,25 +12,11 @@ namespace DTXMania.Test.GameApi
     [Trait("Category", "Integration")]
     public class GameApiServerIntegrationTests
     {
-        private static int GetAvailablePort()
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            try
-            {
-                return ((IPEndPoint)listener.LocalEndpoint).Port;
-            }
-            finally
-            {
-                listener.Stop();
-            }
-        }
-
-        private static HttpClient CreateClient(int port, string? apiKey = null)
+        private static HttpClient CreateClient(GameApiServer server, string? apiKey = null)
         {
             var client = new HttpClient(new SocketsHttpHandler { UseCookies = false })
             {
-                BaseAddress = new Uri($"http://localhost:{port}")
+                BaseAddress = new Uri(server.GetServerUrl())
             };
 
             if (!string.IsNullOrEmpty(apiKey))
@@ -59,13 +44,12 @@ namespace DTXMania.Test.GameApi
         public async Task StartAsync_CalledTwice_ShouldRemainRunning()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
 
             await server.StartAsync();
             await server.StartAsync();
 
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
             using var response = await client.GetAsync("/health");
 
             Assert.True(server.IsRunning);
@@ -75,10 +59,10 @@ namespace DTXMania.Test.GameApi
         [Fact]
         public async Task StartAsync_WithPortAlreadyInUse_ShouldThrowAndLeaveServerStopped()
         {
-            var port = GetAvailablePort();
-            await using var firstServer = new GameApiServer(CreateGameApiMock().Object, port: port);
-            await using var secondServer = new GameApiServer(CreateGameApiMock().Object, port: port);
+            await using var firstServer = new GameApiServer(CreateGameApiMock().Object, port: 0);
             await firstServer.StartAsync();
+            var port = new Uri(firstServer.GetServerUrl()).Port;
+            await using var secondServer = new GameApiServer(CreateGameApiMock().Object, port: port);
 
             await Assert.ThrowsAnyAsync<Exception>(() => secondServer.StartAsync());
 
@@ -89,10 +73,9 @@ namespace DTXMania.Test.GameApi
         public async Task HealthEndpoint_WithApiKeyConfigured_ShouldBypassAuthentication()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port, apiKey: "secret");
+            await using var server = new GameApiServer(gameApi.Object, port: 0, apiKey: "secret");
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.GetAsync("/health");
             var body = await response.Content.ReadAsStringAsync();
@@ -107,10 +90,9 @@ namespace DTXMania.Test.GameApi
         public async Task GameStateEndpoint_WithMissingApiKey_ShouldReturnUnauthorized()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port, apiKey: "secret");
+            await using var server = new GameApiServer(gameApi.Object, port: 0, apiKey: "secret");
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.GetAsync("/game/state");
             var body = await response.Content.ReadAsStringAsync();
@@ -130,10 +112,9 @@ namespace DTXMania.Test.GameApi
                 Score = 42
             });
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port, apiKey: "secret");
+            await using var server = new GameApiServer(gameApi.Object, port: 0, apiKey: "secret");
             await server.StartAsync();
-            using var client = CreateClient(port, apiKey: "secret");
+            using var client = CreateClient(server, apiKey: "secret");
 
             using var response = await client.GetAsync("/game/state");
             var body = await response.Content.ReadAsStringAsync();
@@ -150,10 +131,9 @@ namespace DTXMania.Test.GameApi
             var gameApi = CreateGameApiMock();
             gameApi.Setup(api => api.GetGameStateAsync()).ThrowsAsync(new InvalidOperationException("boom"));
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.GetAsync("/game/state");
             var body = await response.Content.ReadAsStringAsync();
@@ -173,10 +153,9 @@ namespace DTXMania.Test.GameApi
                 Title = "DTXManiaCX"
             });
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.GetAsync("/game/window");
             var body = await response.Content.ReadAsStringAsync();
@@ -189,15 +168,30 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
+        public async Task GameWindowEndpoint_WithMissingApiKey_ShouldReturnUnauthorized()
+        {
+            var gameApi = CreateGameApiMock();
+            await using var server = new GameApiServer(gameApi.Object, port: 0, apiKey: "secret");
+            await server.StartAsync();
+            using var client = CreateClient(server);
+
+            using var response = await client.GetAsync("/game/window");
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Contains("Unauthorized", body);
+            gameApi.Verify(api => api.GetWindowInfoAsync(), Times.Never);
+        }
+
+        [Fact]
         public async Task GameWindowEndpoint_WhenGameApiThrows_ShouldReturnInternalServerError()
         {
             var gameApi = CreateGameApiMock();
             gameApi.Setup(api => api.GetWindowInfoAsync()).ThrowsAsync(new InvalidOperationException("boom"));
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.GetAsync("/game/window");
             var body = await response.Content.ReadAsStringAsync();
@@ -212,10 +206,9 @@ namespace DTXMania.Test.GameApi
             var gameApi = CreateGameApiMock();
             gameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.PostAsync("/game/input", JsonBody(new
             {
@@ -238,10 +231,9 @@ namespace DTXMania.Test.GameApi
         public async Task InputEndpoint_WithJsonNull_ShouldReturnBadRequest()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.PostAsync("/game/input", RawJsonBody("null"));
             var body = await response.Content.ReadAsStringAsync();
@@ -255,10 +247,9 @@ namespace DTXMania.Test.GameApi
         public async Task InputEndpoint_WithInvalidJson_ShouldReturnBadRequest()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.PostAsync("/game/input", RawJsonBody("{"));
             var body = await response.Content.ReadAsStringAsync();
@@ -271,10 +262,9 @@ namespace DTXMania.Test.GameApi
         public async Task InputEndpoint_WithInvalidInput_ShouldReturnBadRequest()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.PostAsync("/game/input", JsonBody(new
             {
@@ -291,10 +281,9 @@ namespace DTXMania.Test.GameApi
         public async Task InputEndpoint_WithOversizedPayload_ShouldReturnPayloadTooLarge()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             var oversizedPayload = JsonSerializer.Serialize(new
             {
@@ -315,10 +304,9 @@ namespace DTXMania.Test.GameApi
             var gameApi = CreateGameApiMock();
             gameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ThrowsAsync(new InvalidOperationException("boom"));
 
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
             await server.StartAsync();
-            using var client = CreateClient(port);
+            using var client = CreateClient(server);
 
             using var response = await client.PostAsync("/game/input", JsonBody(new
             {
@@ -335,8 +323,7 @@ namespace DTXMania.Test.GameApi
         public async Task StopAsync_CalledTwiceAfterStart_ShouldLeaveServerStopped()
         {
             var gameApi = CreateGameApiMock();
-            var port = GetAvailablePort();
-            await using var server = new GameApiServer(gameApi.Object, port: port);
+            await using var server = new GameApiServer(gameApi.Object, port: 0);
 
             await server.StartAsync();
             await server.StopAsync();
