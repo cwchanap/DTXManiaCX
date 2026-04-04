@@ -79,7 +79,7 @@ public class UIListInputTests
     }
 
     [Fact]
-    public void HandleMouseInput_WhenMousePositionIsInvalid_ReturnsFalseAndStateIsUnchanged()
+    public void HandleMouseInput_WhenMousePositionIsInvalid_ReturnsFalseAndClearsHoveredIndex()
     {
         var list = CreateActiveList(3);
         list.SelectedIndex = 2;
@@ -92,7 +92,7 @@ public class UIListInputTests
 
         Assert.False(handled);
         Assert.Equal(2, list.SelectedIndex);
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(list, "_hoveredIndex"));
+        Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(list, "_hoveredIndex"));
     }
 
     [Fact]

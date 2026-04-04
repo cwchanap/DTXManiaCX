@@ -450,6 +450,7 @@ namespace DTXMania.Game.Lib.UI.Components
             var mousePos = inputState.MousePosition;
             if (float.IsNaN(mousePos.X) || float.IsNaN(mousePos.Y) || float.IsInfinity(mousePos.X) || float.IsInfinity(mousePos.Y))
             {
+                _hoveredIndex = -1;
                 return false;
             }
 
