@@ -70,6 +70,24 @@ namespace DTXMania.Test.JsonRpc
             Assert.Equal(8080, uri.Port);
         }
 
+        [Fact]
+        public void Constructor_WithPortZero_ShouldThrowArgumentOutOfRangeException()
+        {
+            var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new JsonRpcServer(_mockGameApi.Object, port: 0));
+
+            Assert.Equal("port", ex.ParamName);
+            Assert.Equal(0, ex.ActualValue);
+        }
+
+        [Fact]
+        public void Constructor_WithPortAboveRange_ShouldThrowArgumentOutOfRangeException()
+        {
+            var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new JsonRpcServer(_mockGameApi.Object, port: 65536));
+
+            Assert.Equal("port", ex.ParamName);
+            Assert.Equal(65536, ex.ActualValue);
+        }
+
         #endregion
 
         #region GetServerUrl Tests
@@ -156,6 +174,29 @@ namespace DTXMania.Test.JsonRpc
 
             // Act & Assert - should not throw
             server.Dispose();
+        }
+
+        [Fact]
+        public async Task StopAsync_AfterDisposeAsync_ShouldThrowObjectDisposedException()
+        {
+            var server = new JsonRpcServer(_mockGameApi.Object);
+            await server.DisposeAsync();
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => server.StopAsync());
+        }
+
+        [Fact]
+        public void Dispose_CalledTwice_ShouldNotThrow()
+        {
+            var server = new JsonRpcServer(_mockGameApi.Object);
+
+            var exception = Record.Exception(() =>
+            {
+                server.Dispose();
+                server.Dispose();
+            });
+
+            Assert.Null(exception);
         }
 
         #endregion
