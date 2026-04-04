@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -140,6 +141,17 @@ namespace DTXMania.Test.Song
 
             Assert.Contains("Parent", child.BreadcrumbPath);
             Assert.Contains("Child", child.BreadcrumbPath);
+        }
+
+        [Fact]
+        public void CreateBoxNode_WithParentWithoutBreadcrumb_ShouldFallbackToTitle()
+        {
+            var parent = SongListNode.CreateBoxNode("Parent", "/parent");
+            parent.BreadcrumbPath = string.Empty;
+
+            var child = SongListNode.CreateBoxNode("Child", "/child", parent);
+
+            Assert.Equal("Child", child.BreadcrumbPath);
         }
 
         [Fact]
@@ -303,6 +315,37 @@ namespace DTXMania.Test.Song
             Assert.Equal("A Artist", parent.Children[0].DatabaseSong?.Artist);
         }
 
+        [Fact]
+        public void SortChildren_WithDifferentNonBoxTypes_ShouldStillUseRequestedCriteria()
+        {
+            var parent = SongListNode.CreateBoxNode("Parent", "/parent");
+            var backNode = SongListNode.CreateBackNode(parent);
+            var scoreNode = new SongListNode { Type = NodeType.Score, Title = "!! Score" };
+
+            parent.AddChild(backNode);
+            parent.AddChild(scoreNode);
+
+            parent.SortChildren(SongSortCriteria.Title);
+
+            Assert.Same(scoreNode, parent.Children[0]);
+        }
+
+        [Fact]
+        public void SortChildren_WithUnknownCriteria_ShouldFallbackToTitleSort()
+        {
+            var parent = SongListNode.CreateBoxNode("Parent", "/parent");
+            var childB = new SongListNode { Title = "B Song" };
+            var childA = new SongListNode { Title = "A Song" };
+
+            parent.AddChild(childB);
+            parent.AddChild(childA);
+
+            parent.SortChildren((SongSortCriteria)999);
+
+            Assert.Equal("A Song", parent.Children[0].Title);
+            Assert.Equal("B Song", parent.Children[1].Title);
+        }
+
         #endregion
 
         #region RemoveChild Tests
@@ -341,6 +384,17 @@ namespace DTXMania.Test.Song
             var result = parent.RemoveChild(child);
 
             Assert.False(result);
+        }
+
+        [Fact]
+        public void AddChild_WithEmptyParentBreadcrumb_ShouldUseChildTitle()
+        {
+            var parent = new SongListNode { Title = "Parent", BreadcrumbPath = string.Empty };
+            var child = new SongListNode { Title = "Child" };
+
+            parent.AddChild(child);
+
+            Assert.Equal("Child", child.BreadcrumbPath);
         }
 
         #endregion
@@ -446,6 +500,55 @@ namespace DTXMania.Test.Song
             var score = new SongScore { DifficultyLevel = 7 };
             node.SetScore(-1, score); // Should not throw
             node.SetScore(10, score); // Should not throw
+        }
+
+        #endregion
+
+        #region Database Integration Tests
+
+        [Fact]
+        public void PopulateScoresFromDatabase_WithNullDatabaseSongId_ShouldLeaveScoresEmpty()
+        {
+            var node = new SongListNode
+            {
+                DatabaseSongId = null,
+                DatabaseSong = new SongEntity()
+            };
+
+            node.PopulateScoresFromDatabase(null!);
+
+            Assert.False(node.Scores.Any(score => score != null));
+        }
+
+        [Fact]
+        public void PopulateScoresFromDatabase_WithAvailableInstruments_ShouldPopulateScores()
+        {
+            var chart = new SongChart
+            {
+                DrumLevel = 7,
+                GuitarLevel = 5,
+                BassLevel = 4,
+                HasDrumChart = true,
+                HasGuitarChart = true,
+                HasBassChart = true
+            };
+            var song = new SongEntity
+            {
+                Charts = { chart }
+            };
+            var node = new SongListNode
+            {
+                DatabaseSongId = 1,
+                DatabaseSong = song
+            };
+
+            node.PopulateScoresFromDatabase(null!);
+
+            var populatedScores = node.Scores.Where(score => score != null).ToList();
+            Assert.Equal(3, populatedScores.Count);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.DRUMS && score.DifficultyLevel == 7);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.GUITAR && score.DifficultyLevel == 5);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.BASS && score.DifficultyLevel == 4);
         }
 
         #endregion

@@ -53,7 +53,10 @@ public class GameApiServer : IDisposable, IAsyncDisposable
 
         try
         {
-            _host = Host.CreateDefaultBuilder()
+            // Use HostBuilder directly to avoid resolving the current working directory,
+            // which can fail if the process cwd has been deleted or changed unexpectedly.
+            _host = new HostBuilder()
+                .UseContentRoot(AppContext.BaseDirectory)
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseKestrel(options =>

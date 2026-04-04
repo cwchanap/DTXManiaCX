@@ -1,370 +1,347 @@
 using System;
 using System.Collections.Generic;
-using Xunit;
 using DTXMania.Game.Lib.Stage;
-using DTXMania.Game;
-using Microsoft.Xna.Framework;
-using DTXMania.Game.Lib.Input;
+using DTXMania.Test.TestData;
 
 namespace DTXMania.Test.Stage
 {
-    /// <summary>
-    /// Unit tests for StageManager transition functionality
-    /// Tests stage transitions, shared data passing, and phase management
-    /// </summary>
+    [Trait("Category", "Unit")]
     public class StageManagerTransitionTests : IDisposable
     {
-        private readonly MockStageManager _stageManager;
+        private readonly StageManager _stageManager;
+        private readonly TestStage _titleStage;
+        private readonly TestStage _configStage;
+        private readonly TestStage _resultStage;
 
         public StageManagerTransitionTests()
         {
-            _stageManager = new MockStageManager();
+            _stageManager = new StageManager(ReflectionHelpers.CreateGame());
+            _titleStage = new TestStage(StageType.Title);
+            _configStage = new TestStage(StageType.Config);
+            _resultStage = new TestStage(StageType.Result);
+
+            RegisterStage(_titleStage);
+            RegisterStage(_configStage);
+            RegisterStage(_resultStage);
         }
 
         public void Dispose()
         {
-            _stageManager?.Dispose();
-        }
-
-        #region Basic Transition Tests
-
-        [Fact]
-        public void StageManager_ShouldSupportInstantTransition()
-        {
-            // Act
-            _stageManager.ChangeStage(StageType.Title);
-
-            // Assert
-            Assert.Equal(StageType.Title, _stageManager.CurrentStage?.Type);
-            Assert.False(_stageManager.IsTransitioning);
-        }
-
-        [Fact]
-        public void StageManager_ShouldSupportCustomTransition()
-        {
-            // Arrange
-            var transition = new FadeTransition(0.5);
-
-            // Act
-            _stageManager.ChangeStage(StageType.Title, transition);
-
-            // Assert
-            Assert.True(_stageManager.IsTransitioning);
-            Assert.Equal(StagePhase.FadeOut, _stageManager.CurrentPhase);
-        }
-
-        [Fact]
-        public void StageManager_ShouldCompleteTransitionAfterDuration()
-        {
-            // Arrange
-            var transition = new FadeTransition(0.05, 0.05); // Short duration for test (0.1 total)
-
-            // Verify initial state
-            Assert.Null(_stageManager.CurrentStage);
-            Assert.False(_stageManager.IsTransitioning);
-
-            _stageManager.ChangeStage(StageType.Title, transition);
-
-            // Verify transition started
-            Assert.True(_stageManager.IsTransitioning);
-
-            // Act - Update beyond transition duration
-            _stageManager.Update(0.2);
-
-            // Assert
-            Assert.False(_stageManager.IsTransitioning);
-            Assert.Equal(StageType.Title, _stageManager.CurrentStage?.Type);
-        }
-
-        #endregion
-
-        #region Shared Data Tests
-
-        [Fact]
-        public void StageManager_ShouldPassSharedDataBetweenStages()
-        {
-            // Arrange
-            var sharedData = new Dictionary<string, object>
-            {
-                ["TestKey"] = "TestValue",
-                ["Number"] = 42
-            };
-
-            // Act
-            _stageManager.ChangeStage(StageType.Title, new InstantTransition(), sharedData);
-
-            // Assert
-            var titleStage = _stageManager.CurrentStage as MockStage;
-            Assert.NotNull(titleStage);
-            Assert.True(titleStage.HasSharedData("TestKey"));
-            Assert.Equal("TestValue", titleStage.GetSharedData<string>("TestKey"));
-            Assert.Equal(42, titleStage.GetSharedData<int>("Number"));
-        }
-
-        #endregion
-
-        #region Error Handling Tests
-
-        [Fact]
-        public void StageManager_ShouldIgnoreTransitionWhenAlreadyTransitioning()
-        {
-            // Arrange
-            var longTransition = new FadeTransition(1.0);
-            _stageManager.ChangeStage(StageType.Title, longTransition);
-            var originalStage = _stageManager.CurrentStage;
-
-            // Act - Try to change stage while transitioning
-            _stageManager.ChangeStage(StageType.Config);
-
-            // Assert - Should ignore the second change
-            Assert.True(_stageManager.IsTransitioning);
-            Assert.Same(originalStage, _stageManager.CurrentStage);
-        }
-
-        [Fact]
-        public void StageManager_ShouldHandleInvalidStageType()
-        {
-            // Arrange
-            var invalidStageType = (StageType)999;
-
-            // Act
-            _stageManager.ChangeStage(invalidStageType);
-
-            // Assert - Should not crash, current stage should remain null
-            Assert.Null(_stageManager.CurrentStage);
-            Assert.False(_stageManager.IsTransitioning);
-        }
-
-        #endregion
-
-        #region Phase Management Tests
-
-        [Fact]
-        public void StageManager_ShouldReportCorrectPhase()
-        {
-            // Arrange
-            _stageManager.ChangeStage(StageType.Title);
-
-            // Assert
-            Assert.Equal(StagePhase.Normal, _stageManager.CurrentPhase);
-        }
-
-        [Fact]
-        public void StageManager_ShouldReportInactiveWhenNoStage()
-        {
-            // Assert
-            Assert.Equal(StagePhase.Inactive, _stageManager.CurrentPhase);
-        }
-
-        #endregion
-
-        #region Disposal Tests
-
-        [Fact]
-        public void StageManager_ShouldHandleDisposalDuringTransition()
-        {
-            // Arrange
-            var transition = new FadeTransition(1.0);
-            _stageManager.ChangeStage(StageType.Title, transition);
-
-            // Act & Assert - Should not throw
             _stageManager.Dispose();
         }
 
-        #endregion
-
-        #region Helper Classes        /// <summary>
-        /// Mock stage manager for testing without MonoGame dependencies
-        /// </summary>
-        private class MockStageManager : IStageManager, IDisposable
+        [Fact]
+        public void Constructor_WithNullGame_ShouldThrowArgumentNullException()
         {
-            private readonly Dictionary<StageType, IStage> _stages;
-            private IStage? _currentStage;
-            private bool _isTransitioning;
-            private StagePhase _currentPhase = StagePhase.Inactive;
-            private IStageTransition? _currentTransition;
-            private double _transitionElapsed;
-            private IStage? _targetStage;
-            private Dictionary<string, object>? _targetSharedData;
-            
-            public MockStageManager()
-            {
-                _stages = new Dictionary<StageType, IStage>
-                {
-                    [StageType.Title] = new MockStage(StageType.Title),
-                    [StageType.Config] = new MockStage(StageType.Config)
-                };
-
-                foreach (var stage in _stages.Values)
-                {
-                    stage.StageManager = this;
-                }
-            }
-
-            public IStage CurrentStage => _currentStage;
-            public StagePhase CurrentPhase => _currentPhase;
-            public bool IsTransitioning => _isTransitioning;
-
-            public void ChangeStage(StageType stageType)
-            {
-                ChangeStage(stageType, null, null);
-            }
-
-            public void ChangeStage(StageType stageType, IStageTransition transition)
-            {
-                ChangeStage(stageType, transition, null);
-            }
-
-            public void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData)
-            {
-                if (_isTransitioning)
-                    return;
-
-                if (!_stages.TryGetValue(stageType, out var newStage))
-                    return;
-
-                if (transition == null || transition is InstantTransition)
-                {
-                    // Instant transition
-                    _currentStage?.Deactivate();
-                    _currentStage = newStage;
-                    _currentPhase = StagePhase.Normal;
-
-                    _currentStage.Activate(sharedData);
-                }
-                else
-                {
-                    // Transition with effects
-                    _isTransitioning = true;
-                    _currentTransition = transition;
-                    _currentTransition.Start(); // Start the transition!
-                    _transitionElapsed = 0;
-                    _currentPhase = StagePhase.FadeOut;
-
-                    // Store the target stage for later
-                    _targetStage = newStage;
-                    _targetSharedData = sharedData;
-                }
-            }
-
-            public void Update(double deltaTime)
-            {
-                if (_isTransitioning && _currentTransition != null)
-                {
-                    // Update the transition
-                    _currentTransition.Update(deltaTime);
-
-                    if (_currentTransition.IsComplete)
-                    {
-                        // Complete transition
-                        _currentStage?.Deactivate();
-                        _currentStage = _targetStage;
-
-                        _currentStage.Activate(_targetSharedData);
-
-                        _isTransitioning = false;
-                        _currentPhase = StagePhase.Normal;
-                        _currentTransition = null;
-                        _transitionElapsed = 0;
-                        _targetStage = null;
-                        _targetSharedData = null;
-                    }
-                }
-
-                _currentStage?.Update(deltaTime);
-            }
-
-            public void Draw(double deltaTime)
-            {
-                _currentStage?.Draw(deltaTime);
-            }
-
-            public void Dispose()
-            {
-                foreach (var stage in _stages.Values)
-                {
-                    stage?.Dispose();
-                }
-                _stages.Clear();
-            }
+            Assert.Throws<ArgumentNullException>(() => new StageManager(null!));
         }
 
-        /// <summary>
-        /// Mock stage implementation for testing
-        /// </summary>
-        private class MockStage : IStage
+        [Fact]
+        public void ChangeStage_WithoutExplicitTransition_ShouldUseInstantTransition()
         {
-            private Dictionary<string, object> _sharedData = new Dictionary<string, object>();
-            private bool _isActive;
+            _stageManager.ChangeStage(StageType.Title);
 
-            public MockStage(StageType type)
+            Assert.Same(_titleStage, _stageManager.CurrentStage);
+            Assert.False(_stageManager.IsTransitioning);
+            Assert.Equal(StagePhase.Normal, _stageManager.CurrentPhase);
+            Assert.Equal(1, _titleStage.ActivateCount);
+            Assert.Equal(1, _titleStage.TransitionInCount);
+            Assert.Equal(1, _titleStage.TransitionCompleteCount);
+        }
+
+        [Fact]
+        public void ChangeStage_WithInstantTransition_ShouldDeactivatePreviousStageAndPassSharedData()
+        {
+            var sharedData = new Dictionary<string, object> { ["Mode"] = "Config" };
+            SetCurrentStage(_titleStage);
+
+            _stageManager.ChangeStage(StageType.Config, new InstantTransition(), sharedData);
+
+            Assert.Same(_configStage, _stageManager.CurrentStage);
+            Assert.False(_stageManager.IsTransitioning);
+            Assert.Equal(1, _titleStage.TransitionOutCount);
+            Assert.Equal(1, _titleStage.DeactivateCount);
+            Assert.Equal(1, _configStage.ActivateWithSharedDataCount);
+            Assert.Equal("Config", _configStage.GetSharedData<string>("Mode"));
+            Assert.Equal(1, _configStage.TransitionInCount);
+            Assert.Equal(1, _configStage.TransitionCompleteCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_pendingSharedData"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_currentTransition"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_previousStage"));
+        }
+
+        [Fact]
+        public void ChangeStage_WhenDisposed_ShouldIgnoreRequestedTransition()
+        {
+            SetCurrentStage(_titleStage);
+            ReflectionHelpers.SetPrivateField(_stageManager, "_disposed", true);
+
+            _stageManager.ChangeStage(StageType.Config);
+
+            Assert.Same(_titleStage, _stageManager.CurrentStage);
+            Assert.False(_stageManager.IsTransitioning);
+            Assert.Equal(0, _configStage.ActivateCount);
+        }
+
+        [Fact]
+        public void ChangeStage_WhenAlreadyTransitioning_ShouldIgnoreNewRequest()
+        {
+            var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f);
+            SetCurrentStage(_titleStage);
+
+            _stageManager.ChangeStage(StageType.Config, transition);
+            _stageManager.ChangeStage(StageType.Result);
+
+            Assert.True(_stageManager.IsTransitioning);
+            Assert.Equal(StageType.Config, ReflectionHelpers.GetPrivateField<StageType>(_stageManager, "_targetStageType"));
+            Assert.Equal(1, _titleStage.TransitionOutCount);
+            Assert.Equal(0, _resultStage.ActivateCount);
+        }
+
+        [Fact]
+        public void ChangeStage_WithUnknownStageType_ShouldThrowArgumentException()
+        {
+            var ex = Assert.Throws<ArgumentException>(() => _stageManager.ChangeStage((StageType)999));
+
+            Assert.Contains("Unknown stage type", ex.Message);
+        }
+
+        [Fact]
+        public void Update_WhenTransitionCompletes_ShouldActivateTargetAndUpdateIt()
+        {
+            var sharedData = new Dictionary<string, object> { ["Screen"] = "Options" };
+            var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f)
+            {
+                CompleteAfterUpdate = true
+            };
+            SetCurrentStage(_titleStage);
+
+            _stageManager.ChangeStage(StageType.Config, transition, sharedData);
+            _stageManager.Update(0.25);
+
+            Assert.False(_stageManager.IsTransitioning);
+            Assert.Same(_configStage, _stageManager.CurrentStage);
+            Assert.Equal(1, _titleStage.DeactivateCount);
+            Assert.Equal(1, _configStage.ActivateWithSharedDataCount);
+            Assert.Equal("Options", _configStage.GetSharedData<string>("Screen"));
+            Assert.Equal(1, _configStage.TransitionInCount);
+            Assert.Equal(1, _configStage.TransitionCompleteCount);
+            Assert.Equal(1, _configStage.UpdateCount);
+        }
+
+        [Fact]
+        public void Update_WhenDisposed_ShouldNotUpdateCurrentStage()
+        {
+            SetCurrentStage(_titleStage);
+            ReflectionHelpers.SetPrivateField(_stageManager, "_disposed", true);
+
+            _stageManager.Update(0.25);
+
+            Assert.Equal(0, _titleStage.UpdateCount);
+        }
+
+        [Fact]
+        public void Draw_WhenNotTransitioning_ShouldDrawCurrentStage()
+        {
+            SetCurrentStage(_titleStage);
+
+            _stageManager.Draw(0.1);
+
+            Assert.Equal(1, _titleStage.DrawCount);
+        }
+
+        [Fact]
+        public void Draw_WhenTransitionFadeOutAlphaPositive_ShouldDrawCurrentStage()
+        {
+            SetCurrentStage(_titleStage);
+            _stageManager.ChangeStage(StageType.Config, new TestTransition(isComplete: false, fadeOutAlpha: 0.5f));
+
+            _stageManager.Draw(0.1);
+
+            Assert.Equal(1, _titleStage.DrawCount);
+            Assert.Equal(0, _configStage.DrawCount);
+        }
+
+        [Fact]
+        public void Draw_WhenTransitionFadeOutAlphaZero_ShouldSkipCurrentStageDraw()
+        {
+            SetCurrentStage(_titleStage);
+            _stageManager.ChangeStage(StageType.Config, new TestTransition(isComplete: false, fadeOutAlpha: 0.0f));
+
+            _stageManager.Draw(0.1);
+
+            Assert.Equal(0, _titleStage.DrawCount);
+        }
+
+        [Fact]
+        public void Draw_WhenDisposed_ShouldNotDrawCurrentStage()
+        {
+            SetCurrentStage(_titleStage);
+            ReflectionHelpers.SetPrivateField(_stageManager, "_disposed", true);
+
+            _stageManager.Draw(0.1);
+
+            Assert.Equal(0, _titleStage.DrawCount);
+        }
+
+        [Fact]
+        public void Dispose_ShouldDeactivateCurrentStageAndDisposeCachedStages()
+        {
+            SetCurrentStage(_titleStage);
+
+            _stageManager.Dispose();
+
+            Assert.Equal(1, _titleStage.DeactivateCount);
+            Assert.Equal(1, _titleStage.DisposeCount);
+            Assert.Equal(1, _configStage.DisposeCount);
+            Assert.Equal(1, _resultStage.DisposeCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_currentStage"));
+
+            var stages = ReflectionHelpers.GetPrivateField<Dictionary<StageType, IStage>>(_stageManager, "_stages");
+            Assert.NotNull(stages);
+            Assert.Empty(stages!);
+        }
+
+        private void RegisterStage(TestStage stage)
+        {
+            stage.StageManager = _stageManager;
+            var stages = ReflectionHelpers.GetPrivateField<Dictionary<StageType, IStage>>(_stageManager, "_stages");
+            Assert.NotNull(stages);
+            stages![stage.Type] = stage;
+        }
+
+        private void SetCurrentStage(TestStage stage)
+        {
+            stage.StageManager = _stageManager;
+            stage.Activate();
+            ReflectionHelpers.SetPrivateField(_stageManager, "_currentStage", stage);
+        }
+
+        private sealed class TestStage : IStage
+        {
+            private readonly Dictionary<string, object> _sharedData = new();
+
+            public TestStage(StageType type)
             {
                 Type = type;
             }
 
             public StageType Type { get; }
             public StagePhase CurrentPhase { get; private set; } = StagePhase.Inactive;
-            public IStageManager? StageManager { get; set; }
+            public IStageManager StageManager { get; set; } = null!;
+            public int ActivateCount { get; private set; }
+            public int ActivateWithSharedDataCount { get; private set; }
+            public int DeactivateCount { get; private set; }
+            public int UpdateCount { get; private set; }
+            public int DrawCount { get; private set; }
+            public int TransitionInCount { get; private set; }
+            public int TransitionOutCount { get; private set; }
+            public int TransitionCompleteCount { get; private set; }
+            public int DisposeCount { get; private set; }
 
             public void Activate()
             {
-                _isActive = true;
+                ActivateCount++;
                 CurrentPhase = StagePhase.Normal;
             }
 
             public void Activate(Dictionary<string, object> sharedData)
             {
-                if (sharedData != null)
-                    SetSharedData(sharedData);
+                ActivateWithSharedDataCount++;
+                foreach (var pair in sharedData ?? new Dictionary<string, object>())
+                {
+                    _sharedData[pair.Key] = pair.Value;
+                }
+
                 Activate();
             }
 
             public void Deactivate()
             {
-                _isActive = false;
+                DeactivateCount++;
                 CurrentPhase = StagePhase.Inactive;
-                _sharedData.Clear();
             }
 
-            public void Update(double deltaTime) { }
-            public void Draw(double deltaTime) { }
+            public void Update(double deltaTime)
+            {
+                UpdateCount++;
+            }
+
+            public void Draw(double deltaTime)
+            {
+                DrawCount++;
+            }
 
             public void OnTransitionIn(IStageTransition transition)
             {
+                TransitionInCount++;
                 CurrentPhase = StagePhase.FadeIn;
             }
 
             public void OnTransitionOut(IStageTransition transition)
             {
+                TransitionOutCount++;
                 CurrentPhase = StagePhase.FadeOut;
             }
 
             public void OnTransitionComplete()
             {
+                TransitionCompleteCount++;
                 CurrentPhase = StagePhase.Normal;
             }
 
-            public void SetSharedData(Dictionary<string, object> sharedData)
+            public void Dispose()
             {
-                _sharedData = new Dictionary<string, object>(sharedData);
+                DisposeCount++;
             }
 
-            // Expose shared data methods for testing
-            public T GetSharedData<T>(string key, T defaultValue = default(T))
+            public T GetSharedData<T>(string key)
             {
-                if (_sharedData.TryGetValue(key, out var value) && value is T typedValue)
-                    return typedValue;
-                return defaultValue;
+                return (T)_sharedData[key];
             }
-
-            public bool HasSharedData(string key)
-            {
-                return _sharedData.ContainsKey(key);
-            }
-
-            public void Dispose() { }
         }
 
-        #endregion
+        private sealed class TestTransition : IStageTransition
+        {
+            private readonly float _fadeOutAlpha;
+
+            public TestTransition(bool isComplete, float fadeOutAlpha)
+            {
+                IsComplete = isComplete;
+                _fadeOutAlpha = fadeOutAlpha;
+            }
+
+            public bool CompleteAfterUpdate { get; set; }
+            public double Duration => 1.0;
+            public double Progress { get; private set; }
+            public bool IsComplete { get; private set; }
+            public int StartCount { get; private set; }
+            public int UpdateCount { get; private set; }
+
+            public void Start()
+            {
+                StartCount++;
+            }
+
+            public void Update(double deltaTime)
+            {
+                UpdateCount++;
+                Progress += deltaTime;
+                if (CompleteAfterUpdate)
+                {
+                    IsComplete = true;
+                }
+            }
+
+            public float GetFadeOutAlpha() => _fadeOutAlpha;
+
+            public float GetFadeInAlpha() => 1.0f - _fadeOutAlpha;
+
+            public void Reset()
+            {
+                Progress = 0;
+                IsComplete = false;
+            }
+        }
     }
 }

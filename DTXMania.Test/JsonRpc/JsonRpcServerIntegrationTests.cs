@@ -339,6 +339,102 @@ namespace DTXMania.Test.JsonRpc
             _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
         }
 
+        [Fact]
+        public async Task SendInput_WithInvalidInputType_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 999, data = "Enter" }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_MouseClick_WithStringData_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 0, data = "not-an-object" }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_KeyPress_WithOutOfRangeNumericKey_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = 300 }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_KeyPress_WithObjectMissingKeyProperty_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = new { holdDurationMs = 50, clientId = "default" } }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_KeyPress_WithNonStringObjectKey_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = new { key = 123, holdDurationMs = 50, clientId = "default" } }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SendInput_KeyPress_WithBooleanData_ShouldReturnInvalidInput()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new
+            {
+                jsonrpc = "2.0", id = 1, method = "sendInput",
+                @params = new { type = 2, data = true }
+            };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32002", body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
         #endregion
 
         #region takeScreenshot

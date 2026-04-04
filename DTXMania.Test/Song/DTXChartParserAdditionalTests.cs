@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
@@ -131,6 +132,52 @@ namespace DTXMania.Test.Song
             Assert.Equal(1, chart.TotalNotes);
         }
 
+        [Theory]
+        [InlineData("BPM: 180")]
+        [InlineData("#BPM 180")]
+        public async Task ParseAsync_WithMalformedHeaderCommand_ShouldIgnoreHeaderLine(string malformedHeader)
+        {
+            var content =
+                malformedHeader + "\n" +
+                "#00011: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(120.0, chart.Bpm);
+            Assert.Equal(1, chart.TotalNotes);
+        }
+
+        [Theory]
+        [InlineData("#00011 01000000")]
+        [InlineData("#ABC11: 01000000")]
+        public async Task ParseAsync_WithMalformedTimelineLine_ShouldSkipLineAndContinue(string malformedLine)
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                malformedLine + "\n" +
+                "#00012: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(1, chart.TotalNotes);
+        }
+
+        [Fact]
+        public async Task ParseAsync_WithEmptyBpmValue_ShouldKeepDefaultBpm()
+        {
+            var content =
+                "#BPM:\n" +
+                "#00011: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(120.0, chart.Bpm);
+            Assert.Equal(1, chart.TotalNotes);
+        }
+
         [Fact]
         public async Task ParseAsync_WithEmptyNoteData_ShouldSkipEmptyNotes()
         {
@@ -158,6 +205,39 @@ namespace DTXMania.Test.Song
             // Background audio path should be set and refer to the WAV definition's filename
             Assert.False(string.IsNullOrWhiteSpace(chart.BackgroundAudioPath));
             Assert.Equal("bgm.ogg", System.IO.Path.GetFileName(chart.BackgroundAudioPath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_WithAbsoluteWavPath_ShouldPreserveAbsoluteBackgroundAudioPath()
+        {
+            var absoluteWavPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.ogg");
+            File.WriteAllBytes(absoluteWavPath, Array.Empty<byte>());
+
+            var content =
+                "#BPM: 120.0\n" +
+                $"#WAV01: {absoluteWavPath}\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(absoluteWavPath, chart.BackgroundAudioPath);
+        }
+
+        [Fact]
+        public async Task ParseAsync_WithExistingDtxRelativeWavPath_ShouldResolveToDtxDirectory()
+        {
+            var fileName = $"{Guid.NewGuid():N}.ogg";
+            var expectedPath = Path.Combine(_tempDir, fileName);
+            File.WriteAllBytes(expectedPath, Array.Empty<byte>());
+
+            var content =
+                "#BPM: 120.0\n" +
+                $"#WAV01: {fileName}\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(expectedPath, chart.BackgroundAudioPath);
         }
 
         [Fact]
@@ -242,6 +322,22 @@ namespace DTXMania.Test.Song
             var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(path);
 
             Assert.Equal(7, chart.DrumLevel);
+            Assert.True(chart.HasDrumChart);
+        }
+
+        [Fact]
+        public async Task ParseSongEntitiesAsync_WithDecimalDrumLevel_ShouldRoundToNearestInteger()
+        {
+            var content =
+                "#TITLE: Test\n" +
+                "#BPM: 120.0\n" +
+                "#DLEVEL: 5.7\n";
+            var path = CreateTempDtx(content);
+
+            var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(path);
+
+            Assert.Equal("Test", song.Title);
+            Assert.Equal(6, chart.DrumLevel);
             Assert.True(chart.HasDrumChart);
         }
 
@@ -430,6 +526,27 @@ namespace DTXMania.Test.Song
             Assert.False(DTXChartParser.IsSupportedFile(""));
         }
 
+        [Theory]
+        [InlineData("abc\uFFFDef")]
+        [InlineData("???")]
+        [InlineData("\u0081\u0082")]
+        [InlineData("\u0001")]
+        public void IsTextProperlyDecoded_WithCorruptedText_ShouldReturnFalse(string text)
+        {
+            var isProperlyDecoded = InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", text);
+
+            Assert.False(isProperlyDecoded);
+        }
+
         #endregion
+
+        private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
+        {
+            var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var result = method!.Invoke(null, args);
+            Assert.NotNull(result);
+            return (T)result!;
+        }
     }
 }
