@@ -413,16 +413,6 @@ namespace DTXMania.Game.Lib.Config
                 }
             }
 
-            if (Config.SystemKeyBindings.Count > 0)
-            {
-                sb.AppendLine();
-                sb.AppendLine("[SystemKeyBindings]");
-                foreach (var kvp in Config.SystemKeyBindings)
-                {
-                    sb.AppendLine($"{kvp.Key}={kvp.Value}");
-                }
-            }
-
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
         }
 
