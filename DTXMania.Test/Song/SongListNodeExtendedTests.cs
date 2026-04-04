@@ -506,27 +506,29 @@ namespace DTXMania.Test.Song
 
         #region Database Integration Tests
 
-        [Fact]
-        public void PopulateScoresFromDatabase_WithNullDatabaseSongId_ShouldLeaveScoresEmpty()
+    [Fact]
+    public void PopulateScoresFromDatabase_WithNullDatabaseSongId_ShouldLeaveScoresEmpty()
+    {
+        using var databaseService = CreateDatabaseService();
+        var node = new SongListNode
         {
-            var node = new SongListNode
-            {
-                DatabaseSongId = null,
-                DatabaseSong = new SongEntity()
-            };
+            DatabaseSongId = null,
+            DatabaseSong = new SongEntity()
+        };
 
-            node.PopulateScoresFromDatabase(null!);
+        node.PopulateScoresFromDatabase(databaseService);
 
-            Assert.False(node.Scores.Any(score => score != null));
-        }
+        Assert.False(node.Scores.Any(score => score != null));
+    }
 
-        [Fact]
-        public void PopulateScoresFromDatabase_WithAvailableInstruments_ShouldPopulateScores()
+    [Fact]
+    public void PopulateScoresFromDatabase_WithAvailableInstruments_ShouldPopulateScores()
+    {
+        using var databaseService = CreateDatabaseService();
+        var chart = new SongChart
         {
-            var chart = new SongChart
-            {
-                DrumLevel = 7,
-                GuitarLevel = 5,
+            DrumLevel = 7,
+            GuitarLevel = 5,
                 BassLevel = 4,
                 HasDrumChart = true,
                 HasGuitarChart = true,
@@ -537,21 +539,23 @@ namespace DTXMania.Test.Song
                 Charts = { chart }
             };
             var node = new SongListNode
-            {
-                DatabaseSongId = 1,
-                DatabaseSong = song
-            };
+        {
+            DatabaseSongId = 1,
+            DatabaseSong = song
+        };
 
-            node.PopulateScoresFromDatabase(null!);
+        node.PopulateScoresFromDatabase(databaseService);
 
-            var populatedScores = node.Scores.Where(score => score != null).ToList();
-            Assert.Equal(3, populatedScores.Count);
-            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.DRUMS && score.DifficultyLevel == 7);
-            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.GUITAR && score.DifficultyLevel == 5);
-            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.BASS && score.DifficultyLevel == 4);
-        }
+        var populatedScores = node.Scores.Where(score => score != null).ToList();
+        Assert.Equal(3, populatedScores.Count);
+        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.DRUMS && score.DifficultyLevel == 7);
+        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.GUITAR && score.DifficultyLevel == 5);
+        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.BASS && score.DifficultyLevel == 4);
+    }
 
-        #endregion
+    private static SongDatabaseService CreateDatabaseService() => new(":memory:");
+
+    #endregion
 
         #region Note Tests
 

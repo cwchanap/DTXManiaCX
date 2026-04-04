@@ -2,6 +2,7 @@ using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.JsonRpc;
 using Moq;
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -46,9 +47,26 @@ namespace DTXMania.Test.JsonRpc
         private static StringContent RpcBody(object request) =>
             new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
+        private static StringContent RawRpcBody(string request) =>
+            new StringContent(request, Encoding.UTF8, "application/json");
+
         private static int _portBase = 11000;
         private static readonly object _portLock = new();
         private static int NextPort() { lock (_portLock) return _portBase++; }
+
+        public static IEnumerable<object[]> InvalidSendInputRequests()
+        {
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"   \"}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"   \",\"holdDurationMs\":50,\"clientId\":\"default\"}}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":999,\"data\":\"Enter\"}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":\"not-an-object\"}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":300}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"holdDurationMs\":50,\"clientId\":\"default\"}}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":123,\"holdDurationMs\":50,\"clientId\":\"default\"}}}" };
+            yield return new object[] { "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":true}}" };
+        }
 
         #region Health endpoint
 
@@ -261,52 +279,6 @@ namespace DTXMania.Test.JsonRpc
         }
 
         [Fact]
-        public async Task SendInput_MouseClick_WithoutPositionData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 0 } // MouseClick without data
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body); // InvalidInput
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithoutKeyData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2 } // KeyPress without data
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body); // InvalidInput
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithWhitespaceStringKey_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = "   " }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body); // InvalidInput
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
         public async Task SendInput_KeyPress_WithValidObjectKey_ShouldCallGameApi()
         {
             _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
@@ -323,112 +295,12 @@ namespace DTXMania.Test.JsonRpc
             _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
         }
 
-        [Fact]
-        public async Task SendInput_KeyPress_WithWhitespaceObjectKey_ShouldReturnInvalidInput()
+        [Theory]
+        [MemberData(nameof(InvalidSendInputRequests))]
+        public async Task SendInput_InvalidInputs_ShouldReturnInvalidInput(string requestJson)
         {
             using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = new { key = "   ", holdDurationMs = 50, clientId = "default" } }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body); // InvalidInput
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_WithInvalidInputType_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 999, data = "Enter" }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseClick_WithStringData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 0, data = "not-an-object" }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithOutOfRangeNumericKey_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = 300 }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithObjectMissingKeyProperty_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = new { holdDurationMs = 50, clientId = "default" } }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithNonStringObjectKey_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = new { key = 123, holdDurationMs = 50, clientId = "default" } }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithBooleanData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var request = new
-            {
-                jsonrpc = "2.0", id = 1, method = "sendInput",
-                @params = new { type = 2, data = true }
-            };
-            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
             var body = await response.Content.ReadAsStringAsync();
 
             Assert.Contains("-32002", body);

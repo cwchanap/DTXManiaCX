@@ -442,7 +442,17 @@ namespace DTXMania.Game.Lib.UI.Components
         /// <returns>True if input was handled</returns>
         private bool HandleMouseInput(IInputState inputState)
         {
+            if (inputState == null)
+            {
+                return false;
+            }
+
             var mousePos = inputState.MousePosition;
+            if (float.IsNaN(mousePos.X) || float.IsNaN(mousePos.Y) || float.IsInfinity(mousePos.X) || float.IsInfinity(mousePos.Y))
+            {
+                return false;
+            }
+
             var bounds = Bounds;
 
             if (!bounds.Contains(mousePos))

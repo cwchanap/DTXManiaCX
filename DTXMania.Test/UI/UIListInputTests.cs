@@ -7,54 +7,24 @@ using Moq;
 
 namespace DTXMania.Test.UI;
 
+[Trait("Category", "Unit")]
 public class UIListInputTests
 {
-    [Fact]
-    public void HandleInput_WhenUpPressedOnFirstItem_WrapsToLastItem()
+    [Theory]
+    [InlineData(0, Keys.Up, 2)]
+    [InlineData(2, Keys.Down, 0)]
+    [InlineData(3, Keys.Home, 0)]
+    [InlineData(0, Keys.End, 3)]
+    public void HandleInput_WhenNavigationKeysArePressed_UpdatesSelection(int initialIndex, Keys keyPressed, int expectedIndex)
     {
-        var list = CreateActiveList(3);
-        list.SelectedIndex = 0;
+        var itemCount = keyPressed is Keys.Up or Keys.Down ? 3 : 4;
+        var list = CreateActiveList(itemCount);
+        list.SelectedIndex = initialIndex;
 
-        var handled = list.HandleInput(CreateInputState(keyPressed: Keys.Up).Object);
+        var handled = list.HandleInput(CreateInputState(keyPressed: keyPressed).Object);
 
         Assert.True(handled);
-        Assert.Equal(2, list.SelectedIndex);
-    }
-
-    [Fact]
-    public void HandleInput_WhenDownPressedOnLastItem_WrapsToFirstItem()
-    {
-        var list = CreateActiveList(3);
-        list.SelectedIndex = 2;
-
-        var handled = list.HandleInput(CreateInputState(keyPressed: Keys.Down).Object);
-
-        Assert.True(handled);
-        Assert.Equal(0, list.SelectedIndex);
-    }
-
-    [Fact]
-    public void HandleInput_WhenHomePressed_SelectsFirstItem()
-    {
-        var list = CreateActiveList(4);
-        list.SelectedIndex = 3;
-
-        var handled = list.HandleInput(CreateInputState(keyPressed: Keys.Home).Object);
-
-        Assert.True(handled);
-        Assert.Equal(0, list.SelectedIndex);
-    }
-
-    [Fact]
-    public void HandleInput_WhenEndPressed_SelectsLastItem()
-    {
-        var list = CreateActiveList(4);
-        list.SelectedIndex = 0;
-
-        var handled = list.HandleInput(CreateInputState(keyPressed: Keys.End).Object);
-
-        Assert.True(handled);
-        Assert.Equal(3, list.SelectedIndex);
+        Assert.Equal(expectedIndex, list.SelectedIndex);
     }
 
     [Fact]
@@ -70,6 +40,18 @@ public class UIListInputTests
     }
 
     [Fact]
+    public void HandleInput_WhenInputStateIsNull_ReturnsFalseAndSelectionIsUnchanged()
+    {
+        var list = CreateActiveList(3);
+        list.SelectedIndex = 1;
+
+        var handled = list.HandleInput(null!);
+
+        Assert.False(handled);
+        Assert.Equal(1, list.SelectedIndex);
+    }
+
+    [Fact]
     public void HandleInput_WhenMouseIsOutsideBounds_ClearsHoveredIndex()
     {
         var list = CreateActiveList(3);
@@ -82,6 +64,35 @@ public class UIListInputTests
 
         Assert.False(handled);
         Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(list, "_hoveredIndex"));
+    }
+
+    [Fact]
+    public void HandleMouseInput_WhenInputStateIsNull_ReturnsFalseAndHoverIsUnchanged()
+    {
+        var list = CreateActiveList(3);
+        ReflectionHelpers.SetPrivateField(list, "_hoveredIndex", 1);
+
+        var handled = ReflectionHelpers.InvokePrivateMethod<bool>(list, "HandleMouseInput", new object[] { null! });
+
+        Assert.False(handled);
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(list, "_hoveredIndex"));
+    }
+
+    [Fact]
+    public void HandleMouseInput_WhenMousePositionIsInvalid_ReturnsFalseAndStateIsUnchanged()
+    {
+        var list = CreateActiveList(3);
+        list.SelectedIndex = 2;
+        ReflectionHelpers.SetPrivateField(list, "_hoveredIndex", 1);
+
+        var handled = ReflectionHelpers.InvokePrivateMethod<bool>(
+            list,
+            "HandleMouseInput",
+            CreateInputState(mousePosition: new Vector2(float.NaN, float.NaN)).Object);
+
+        Assert.False(handled);
+        Assert.Equal(2, list.SelectedIndex);
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(list, "_hoveredIndex"));
     }
 
     [Fact]

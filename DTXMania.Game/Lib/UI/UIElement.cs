@@ -186,7 +186,7 @@ namespace DTXMania.Game.Lib.UI
 
         public virtual bool HandleInput(IInputState inputState)
         {
-            if (!_isActive || !_enabled)
+            if (inputState == null || !_isActive || !_enabled)
                 return false;
 
             // Check for mouse clicks

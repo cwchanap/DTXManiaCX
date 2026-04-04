@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Config;
 
+[Trait("Category", "Unit")]
 public class ConfigStageLogicTests
 {
     [Fact]

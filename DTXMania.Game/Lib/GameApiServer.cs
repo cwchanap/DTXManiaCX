@@ -2,6 +2,8 @@
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +30,7 @@ public class GameApiServer : IDisposable, IAsyncDisposable
     private readonly ILogger<GameApiServer>? _logger;
     private readonly int _port;
     private readonly string _apiKey;
+    private int _boundPort;
     private IHost? _host;
     private bool _isRunning;
     private CancellationTokenSource? _cancellationTokenSource;
@@ -39,6 +42,7 @@ public class GameApiServer : IDisposable, IAsyncDisposable
         _port = port;
         _apiKey = apiKey;
         _logger = logger;
+        _boundPort = port;
     }
 
     /// <summary>
@@ -227,10 +231,11 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                 .Build();
 
             await _host.StartAsync(_cancellationTokenSource.Token);
+            _boundPort = ResolveBoundPort();
             _isRunning = true;
 
-            System.Diagnostics.Debug.WriteLine($"Game API server started on http://localhost:{_port}");
-            _logger?.LogInformation("Game API server started on port {Port}", _port);
+            System.Diagnostics.Debug.WriteLine($"Game API server started on http://localhost:{_boundPort}");
+            _logger?.LogInformation("Game API server started on port {Port}", _boundPort);
         }
         catch (Exception ex)
         {
@@ -275,13 +280,31 @@ public class GameApiServer : IDisposable, IAsyncDisposable
     /// </summary>
     public string GetServerUrl()
     {
-        return $"http://localhost:{_port}";
+        return $"http://localhost:{_boundPort}";
     }
 
     /// <summary>
     /// Check if server is running
     /// </summary>
     public bool IsRunning => _isRunning;
+
+    private int ResolveBoundPort()
+    {
+        if (_host == null)
+        {
+            return _port;
+        }
+
+        var server = _host.Services.GetService<IServer>();
+        var address = server?.Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();
+
+        if (address != null && Uri.TryCreate(address, UriKind.Absolute, out var uri))
+        {
+            return uri.Port;
+        }
+
+        return _port;
+    }
 
     /// <summary>
     /// Validate game input for security and correctness
