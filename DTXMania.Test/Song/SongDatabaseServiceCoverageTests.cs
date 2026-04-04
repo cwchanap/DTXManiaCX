@@ -83,6 +83,7 @@ public class SongDatabaseServiceCoverageTests : IDisposable
 
         var restoredSong = Assert.Single(songs);
         Assert.Equal("Restore Me", restoredSong.Title);
+        // RestoreDatabaseAsync reads from the backup but does not delete it
         Assert.True(File.Exists(backupPath));
     }
 

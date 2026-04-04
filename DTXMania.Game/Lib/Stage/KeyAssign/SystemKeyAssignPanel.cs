@@ -288,7 +288,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
         {
-            if (!IsActive) return;
+            if (!IsActive || spriteBatch == null) return;
 
             // Dark overlay
             if (whitePixel != null)

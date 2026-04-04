@@ -252,6 +252,9 @@ public class KeyAssignPanelCoverageTests
         return (int)field!.GetValue(null)!;
     }
 
+    // Uses FormatterServices.GetUninitializedObject to bypass ModularInputManager's constructor,
+    // which requires complex dependency/initialization unsuitable for unit tests. The private
+    // _keyBindings field is then injected via reflection. SYSLIB0050 suppression is intentional.
     private static ModularInputManager CreateUnusedModularInputManager(KeyBindings liveBindings)
     {
 #pragma warning disable SYSLIB0050
