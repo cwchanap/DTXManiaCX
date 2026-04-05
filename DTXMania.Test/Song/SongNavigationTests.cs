@@ -12,6 +12,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for song navigation functionality
     /// Tests BOX navigation, breadcrumb tracking, and song list management
     /// </summary>
+    [Trait("Category", "Unit")]
     [Collection("SongManager")]
     public class SongNavigationTests : IDisposable
     {
@@ -28,6 +29,7 @@ namespace DTXMania.Test.Song
         public void Dispose()
         {
             _songManager?.Clear();
+            SongManager.ResetInstanceForTesting();
         }
 
         private SongListNode CreateTestSongNode(string title, string artist = "Test Artist")
