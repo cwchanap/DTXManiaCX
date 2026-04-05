@@ -184,6 +184,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await context.Database.CloseConnectionAsync();
                 }
 
+                // Clear all pooled SQLite connections so the file is no longer locked
+                SqliteConnection.ClearAllPools();
+
                 // Delete the database file completely
                 if (File.Exists(_databasePath))
                 {
@@ -228,11 +231,13 @@ namespace DTXMania.Game.Lib.Song.Entities
                 throw new FileNotFoundException($"Backup file not found: {backupPath}");
             }
 
-            // Close any existing connections
+            // Close any existing connections and clear pooled connections
             using (var context = new SongDbContext(_options))
             {
                 await context.Database.CloseConnectionAsync();
             }
+
+            SqliteConnection.ClearAllPools();
 
             // Copy backup over current database
             await Task.Run(() => File.Copy(backupPath, _databasePath, overwrite: true));
