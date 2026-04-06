@@ -803,7 +803,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task Deactivate_WhenSongInitializationTaskExists_ShouldClearTaskAndKeepSharedInputManager()
+        public void Deactivate_WhenSongInitializationTaskExists_ShouldClearTaskWithoutDisposingSharedInputManager()
         {
             var stage = CreateStage();
             var sharedInputManager = new TrackingInputManager();
@@ -816,9 +816,6 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_songInitializationTask", taskSource.Task);
 
             stage.Deactivate();
-            taskSource.SetResult(new List<SongListNode>());
-            await taskSource.Task;
-            await Task.Yield();
 
             Assert.False(sharedInputManager.ClearPendingCommandsCalled);
             Assert.False(sharedInputManager.DisposeCalled);

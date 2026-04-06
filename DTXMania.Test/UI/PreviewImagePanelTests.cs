@@ -286,6 +286,7 @@ public class PreviewImagePanelTests
         InvokePrivateVoid(panel, "AssignDefaultPreviewTexture");
 
         Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        // Production expects callers to release the old preview before AssignDefaultPreviewTexture() runs.
         existingPreview.Verify(x => x.RemoveReference(), Times.Never);
     }
 
