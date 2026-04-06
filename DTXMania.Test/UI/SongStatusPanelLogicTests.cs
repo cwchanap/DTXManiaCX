@@ -104,6 +104,8 @@ public class SongStatusPanelLogicTests
         var difficultyFrame = new Mock<ITexture>().Object;
         var graphDrums = new Mock<ITexture>().Object;
         var graphGb = new Mock<ITexture>().Object;
+        var skillPointPanel = new Mock<ITexture>().Object;
+        var skillIcon = new Mock<ITexture>().Object;
 
         rm.Setup(x => x.LoadTexture(TexturePath.SongStatusPanel)).Returns(status);
         rm.Setup(x => x.LoadTexture(TexturePath.BpmBackground)).Returns(bpm);
@@ -111,6 +113,8 @@ public class SongStatusPanelLogicTests
         rm.Setup(x => x.LoadTexture(TexturePath.DifficultyFrame)).Returns(difficultyFrame);
         rm.Setup(x => x.LoadTexture(TexturePath.GraphPanelDrums)).Returns(graphDrums);
         rm.Setup(x => x.LoadTexture(TexturePath.GraphPanelGuitarBass)).Returns(graphGb);
+        rm.Setup(x => x.LoadTexture(TexturePath.SkillPointPanel)).Returns(skillPointPanel);
+        rm.Setup(x => x.LoadTexture(TexturePath.SkillIcon)).Returns(skillIcon);
 
         panel.InitializeAuthenticGraphics(rm.Object);
 
@@ -120,6 +124,8 @@ public class SongStatusPanelLogicTests
         Assert.Same(difficultyFrame, GetField<ITexture>(panel, "_difficultyFrameTexture"));
         Assert.Same(graphDrums, GetField<ITexture>(panel, "_graphPanelDrumsTexture"));
         Assert.Same(graphGb, GetField<ITexture>(panel, "_graphPanelGuitarBassTexture"));
+        Assert.Same(skillPointPanel, GetField<ITexture>(panel, "_skillPointPanelTexture"));
+        Assert.Same(skillIcon, GetField<ITexture>(panel, "_skillIconTexture"));
     }
 
     [Fact]
@@ -133,6 +139,8 @@ public class SongStatusPanelLogicTests
         var difficultyFrame = new Mock<ITexture>();
         var graphDrums = new Mock<ITexture>();
         var graphGb = new Mock<ITexture>();
+        var skillPointPanel = new Mock<ITexture>();
+        var skillIcon = new Mock<ITexture>();
 
         SetField(panel, "_statusPanelTexture", status.Object);
         SetField(panel, "_bpmBackgroundTexture", bpm.Object);
@@ -140,6 +148,8 @@ public class SongStatusPanelLogicTests
         SetField(panel, "_difficultyFrameTexture", difficultyFrame.Object);
         SetField(panel, "_graphPanelDrumsTexture", graphDrums.Object);
         SetField(panel, "_graphPanelGuitarBassTexture", graphGb.Object);
+        SetField(panel, "_skillPointPanelTexture", skillPointPanel.Object);
+        SetField(panel, "_skillIconTexture", skillIcon.Object);
 
         panel.Dispose();
 
@@ -149,6 +159,8 @@ public class SongStatusPanelLogicTests
         difficultyFrame.Verify(x => x.RemoveReference(), Times.Once);
         graphDrums.Verify(x => x.RemoveReference(), Times.Once);
         graphGb.Verify(x => x.RemoveReference(), Times.Once);
+        skillPointPanel.Verify(x => x.RemoveReference(), Times.Once);
+        skillIcon.Verify(x => x.RemoveReference(), Times.Once);
     }
 
     [Fact]
@@ -180,6 +192,16 @@ public class SongStatusPanelLogicTests
         Assert.NotNull(inRange);
         Assert.Null(negative);
         Assert.Null(outOfRange);
+    }
+
+    [Fact]
+    public void GetCurrentScore_ShouldReturnNullWhenSongOrScoresAreMissing()
+    {
+        var panel = new SongStatusPanel();
+        var nodeWithoutScores = new SongListNode { Type = NodeType.Score, Scores = null };
+
+        Assert.Null(InvokePrivate<SongScore?>(panel, "GetCurrentScore", null!, 0));
+        Assert.Null(InvokePrivate<SongScore?>(panel, "GetCurrentScore", nodeWithoutScores, 0));
     }
 
     [Fact]
@@ -413,6 +435,19 @@ public class SongStatusPanelLogicTests
         Assert.Null(GetField<ITexture?>(panel, "_bpmBackgroundTexture"));
         Assert.Null(GetField<ITexture?>(panel, "_difficultyPanelTexture"));
         Assert.Null(GetField<ITexture?>(panel, "_difficultyFrameTexture"));
+    }
+
+    [Fact]
+    public void SkillTextureLoaders_WhenResourceManagerIsNull_ShouldKeepSkillTexturesNull()
+    {
+        var panel = new SongStatusPanel();
+
+        SetField(panel, "_resourceManager", null);
+        InvokePrivate<object?>(panel, "LoadSkillPointPanelTexture");
+        InvokePrivate<object?>(panel, "LoadSkillIconTexture");
+
+        Assert.Null(GetField<ITexture?>(panel, "_skillPointPanelTexture"));
+        Assert.Null(GetField<ITexture?>(panel, "_skillIconTexture"));
     }
 
     [Fact]
