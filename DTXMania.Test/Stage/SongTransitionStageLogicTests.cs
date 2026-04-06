@@ -233,6 +233,65 @@ namespace DTXMania.Test.Stage
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_previewTexture"));
         }
 
+        [Fact]
+        public void Activate_WhenSharedDataProvided_ShouldCaptureSelectionBeforeGraphicsInitialization()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var game = ReflectionHelpers.CreateGame();
+            var selectedSong = CreateSongNode(new SongChart { DrumLevel = 42, HasDrumChart = true });
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            var stage = CreateStage(game);
+            var sharedData = new Dictionary<string, object>
+            {
+                ["selectedSong"] = selectedSong,
+                ["selectedDifficulty"] = 3,
+                ["songId"] = 99
+            };
+
+            Assert.ThrowsAny<Exception>(() => stage.Activate(sharedData));
+
+            Assert.Same(selectedSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
+            Assert.Equal(99, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
+        }
+
+        [Fact]
+        public void LoadBackground_WhenReloadFails_ShouldReleaseExistingTextureAndFallbackToNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingBackground = new Mock<ITexture>();
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", existingBackground.Object);
+            resourceManager
+                .Setup(x => x.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath))
+                .Throws(new InvalidOperationException("missing background"));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadBackground");
+
+            existingBackground.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_backgroundTexture"));
+        }
+
+        [Fact]
+        public void LoadSound_WhenPrimarySoundFails_ShouldFallbackToDecideSound()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var fallbackSound = new Mock<ISound>();
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Now loading.ogg"))
+                .Throws(new InvalidOperationException("missing now loading"));
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Returns(fallbackSound.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSound");
+
+            Assert.Same(fallbackSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_nowLoadingSound"));
+        }
+
         private static SongTransitionStage CreateStage(BaseGame? game = null)
         {
             game ??= ReflectionHelpers.CreateGame();

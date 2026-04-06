@@ -182,6 +182,65 @@ namespace DTXMania.Test.Stage
             Assert.False(TitleStage.IsMenuSelectTriggered(nonActivateInputManager));
         }
 
+        [Fact]
+        public void LoadMenuTexture_WhenResourceLoadFails_ShouldLeaveMenuTextureUnset()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.TitleMenu))
+                .Throws(new InvalidOperationException("missing texture"));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadMenuTexture");
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_menuTexture"));
+        }
+
+        [Fact]
+        public void LoadSoundEffects_WhenGameStartSoundMissing_ShouldFallbackToDecideSound()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var cursorSound = CreateSoundReturningInstance();
+            var selectSound = CreateSoundReturningInstance();
+
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Move.ogg"))
+                .Returns(cursorSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Returns(selectSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Game start.ogg"))
+                .Throws(new InvalidOperationException("missing game start"));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
+
+            Assert.Same(selectSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+            resourceManager.Verify(x => x.LoadSound("Sounds/Decide.ogg"), Times.Exactly(2));
+        }
+
+        [Fact]
+        public void Deactivate_ShouldResetMenuAndInputTrackingState()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 12.3d);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_titlePhase", Enum.Parse(ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.GetType(), "Normal"));
+
+            stage.Deactivate();
+
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_elapsedTime"));
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
+            Assert.Equal("FadeIn", ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.ToString());
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+        }
+
         private static TitleStage CreateStage(BaseGame? game = null)
         {
             return new TitleStage(game ?? ReflectionHelpers.CreateGame());
