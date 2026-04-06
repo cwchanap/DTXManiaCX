@@ -303,6 +303,88 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void QueueTextureGenerationForNewBars_WhenScrollWrapsNegative_ShouldQueueWrappedSelectedRequestFirst()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+
+        SetField(display, "_currentScrollCounter", -100);
+        SetField(display, "_currentDifficulty", 2);
+
+        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        queue.Clear();
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        barInfoCache.Clear();
+
+        InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
+
+        var requestType = typeof(SongListDisplay).Assembly.GetType("DTXMania.Game.Lib.Song.Components.TextureGenerationRequest");
+        Assert.NotNull(requestType);
+        Assert.NotEmpty(queue.Cast<object>());
+
+        var firstRequest = queue[0];
+        Assert.Equal(display.CurrentList[2], requestType!.GetProperty("SongNode")!.GetValue(firstRequest));
+        Assert.Equal(2, requestType.GetProperty("SongIndex")!.GetValue(firstRequest));
+        Assert.Equal(2, requestType.GetProperty("Difficulty")!.GetValue(firstRequest));
+        Assert.True((bool)requestType.GetProperty("IsSelected")!.GetValue(firstRequest)!);
+        Assert.Equal(100, requestType.GetProperty("Priority")!.GetValue(firstRequest));
+
+        var queuedIndices = queue
+            .Cast<object>()
+            .Select(item => (int)requestType.GetProperty("SongIndex")!.GetValue(item)!)
+            .Distinct()
+            .OrderBy(index => index)
+            .ToArray();
+        Assert.Equal(new[] { 0, 1, 2 }, queuedIndices);
+    }
+
+    [Fact]
+    public void QueueTextureGenerationForNewBars_WhenOnlyDifferentDifficultyCached_ShouldQueueCurrentDifficultyRequests()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+
+        SetField(display, "_currentScrollCounter", 0);
+        SetField(display, "_currentDifficulty", 1);
+
+        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        queue.Clear();
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        barInfoCache.Clear();
+        foreach (var song in display.CurrentList)
+        {
+            barInfoCache[$"{song.GetHashCode()}_0"] = new SongBarInfo();
+        }
+
+        InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
+
+        var requestType = typeof(SongListDisplay).Assembly.GetType("DTXMania.Game.Lib.Song.Components.TextureGenerationRequest");
+        Assert.NotNull(requestType);
+        var visibleItems = (int)typeof(SongListDisplay)
+            .GetField("VISIBLE_ITEMS", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetRawConstantValue()!;
+        Assert.Equal(visibleItems, queue.Count);
+
+        var queuedBarIndices = queue
+            .Cast<object>()
+            .Select(item => (int)requestType!.GetProperty("BarIndex")!.GetValue(item)!)
+            .OrderBy(index => index)
+            .ToArray();
+        Assert.Equal(Enumerable.Range(0, visibleItems).ToArray(), queuedBarIndices);
+
+        Assert.All(queue.Cast<object>(), item =>
+        {
+            Assert.Equal(1, requestType!.GetProperty("Difficulty")!.GetValue(item));
+        });
+    }
+
+    [Fact]
     public void InsertTextureRequestSorted_ShouldKeepDescendingPriorityOrder()
     {
         var display = new SongListDisplay();
