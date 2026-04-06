@@ -124,6 +124,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void UpdateCurrentPhase_WhenAsyncTaskFaultedBeforeMinimumDuration_ShouldStayInCurrentPhase()
+        {
+            var faultedTask = Task.FromException(new InvalidOperationException("boom"));
+            var stage = CreateStage(
+                phase: StartupPhase.LoadScoreCache,
+                elapsedTime: 0.2,
+                phaseStartTime: 0.0,
+                currentAsyncTask: faultedTask);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.LoadScoreCache, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Contains("Error", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Same(faultedTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+        }
+
+        [Fact]
         public void UpdateCurrentPhase_WhenAsyncPhaseHasNoTask_ShouldRemainInCurrentPhase()
         {
             var stage = CreateStage(
@@ -323,6 +341,19 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()), Times.Never);
         }
 
+        [Fact]
+        public void Dispose_WhenAsyncTaskFaults_ShouldSwallowExceptionAndReleaseTaskState()
+        {
+            var stage = CreateStage(currentAsyncTask: Task.FromException(new InvalidOperationException("boom")));
+
+            var exception = Record.Exception(() => InvokeDispose(stage, true));
+
+            Assert.Null(exception);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+        }
+
         private static StartupStage CreateStage(
             StartupPhase phase = StartupPhase.SystemSounds,
             double elapsedTime = 0.0,
@@ -379,6 +410,18 @@ namespace DTXMania.Test.Stage
                 { StartupPhase.SaveSongsDB, ("Saving song database...", 0.2) },
                 { StartupPhase.Complete, ("Setup done.", 0.1) }
             };
+        }
+
+        private static void InvokeDispose(StartupStage stage, bool disposing)
+        {
+            var method = typeof(StartupStage).GetMethod(
+                "Dispose",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(bool) },
+                modifiers: null);
+            Assert.NotNull(method);
+            method!.Invoke(stage, new object[] { disposing });
         }
     }
 }

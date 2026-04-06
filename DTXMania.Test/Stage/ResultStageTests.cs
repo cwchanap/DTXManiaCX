@@ -217,6 +217,60 @@ namespace DTXMania.Test.Stage
             Assert.True(typeof(IStage).IsAssignableFrom(typeof(ResultStage)));
         }
 
+        [Fact]
+        public void HandleInput_WhenInputManagerIsNull_ShouldReturnWithoutThrowing()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+
+            SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "HandleInput"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_WhenTransitionIsDebounced_ShouldNotChangeStage()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.Back, 0.0));
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+            Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_WhenCommandIsNotNavigation_ShouldIgnoreIt()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveDown, 0.0));
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+            Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
         #endregion
 
         #region Helper Methods
