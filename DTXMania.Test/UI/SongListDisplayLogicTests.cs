@@ -233,7 +233,7 @@ public class SongListDisplayLogicTests
             CurrentList = CreateSongs(20)
         };
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
@@ -261,7 +261,7 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentScrollCounter", 0);
         SetField(display, "_currentDifficulty", 0);
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
@@ -285,7 +285,7 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentScrollCounter", 0);
         SetField(display, "_currentDifficulty", 0);
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
@@ -313,7 +313,7 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentScrollCounter", -100);
         SetField(display, "_currentDifficulty", 2);
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
@@ -583,7 +583,7 @@ public class SongListDisplayLogicTests
         var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
         visible.Add(999);
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         display.InvalidateVisuals();
