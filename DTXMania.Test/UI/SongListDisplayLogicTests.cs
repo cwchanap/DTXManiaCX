@@ -211,7 +211,7 @@ public class SongListDisplayLogicTests
             CurrentList = CreateSongs(20)
         };
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         SetField(display, "_selectedIndex", 10);
@@ -321,20 +321,17 @@ public class SongListDisplayLogicTests
 
         InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
 
-        var requestType = typeof(SongListDisplay).Assembly.GetType("DTXMania.Game.Lib.Song.Components.TextureGenerationRequest");
-        Assert.NotNull(requestType);
-        Assert.NotEmpty(queue.Cast<object>());
+        Assert.NotEmpty(queue);
 
         var firstRequest = queue[0];
-        Assert.Equal(display.CurrentList[2], requestType!.GetProperty("SongNode")!.GetValue(firstRequest));
-        Assert.Equal(2, requestType.GetProperty("SongIndex")!.GetValue(firstRequest));
-        Assert.Equal(2, requestType.GetProperty("Difficulty")!.GetValue(firstRequest));
-        Assert.True((bool)requestType.GetProperty("IsSelected")!.GetValue(firstRequest)!);
-        Assert.Equal(100, requestType.GetProperty("Priority")!.GetValue(firstRequest));
+        Assert.Equal(display.CurrentList[2], firstRequest.SongNode);
+        Assert.Equal(2, firstRequest.SongIndex);
+        Assert.Equal(2, firstRequest.Difficulty);
+        Assert.True(firstRequest.IsSelected);
+        Assert.Equal(100, firstRequest.Priority);
 
         var queuedIndices = queue
-            .Cast<object>()
-            .Select(item => (int)requestType.GetProperty("SongIndex")!.GetValue(item)!)
+            .Select(item => item.SongIndex)
             .Distinct()
             .OrderBy(index => index)
             .ToArray();
@@ -352,7 +349,7 @@ public class SongListDisplayLogicTests
         SetField(display, "_currentScrollCounter", 0);
         SetField(display, "_currentDifficulty", 1);
 
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
         var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
@@ -364,23 +361,20 @@ public class SongListDisplayLogicTests
 
         InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
 
-        var requestType = typeof(SongListDisplay).Assembly.GetType("DTXMania.Game.Lib.Song.Components.TextureGenerationRequest");
-        Assert.NotNull(requestType);
         var visibleItems = (int)typeof(SongListDisplay)
             .GetField("VISIBLE_ITEMS", BindingFlags.NonPublic | BindingFlags.Static)!
             .GetRawConstantValue()!;
         Assert.Equal(visibleItems, queue.Count);
 
         var queuedBarIndices = queue
-            .Cast<object>()
-            .Select(item => (int)requestType!.GetProperty("BarIndex")!.GetValue(item)!)
+            .Select(item => item.BarIndex)
             .OrderBy(index => index)
             .ToArray();
         Assert.Equal(Enumerable.Range(0, visibleItems).ToArray(), queuedBarIndices);
 
-        Assert.All(queue.Cast<object>(), item =>
+        Assert.All(queue, item =>
         {
-            Assert.Equal(1, requestType!.GetProperty("Difficulty")!.GetValue(item));
+            Assert.Equal(1, item.Difficulty);
         });
     }
 
@@ -388,35 +382,24 @@ public class SongListDisplayLogicTests
     public void InsertTextureRequestSorted_ShouldKeepDescendingPriorityOrder()
     {
         var display = new SongListDisplay();
-        var queue = (IList)GetField<object>(display, "_textureGenerationQueue");
+        var queue = GetTextureGenerationQueue(display);
         queue.Clear();
 
-        var requestType = typeof(SongListDisplay).Assembly.GetType("DTXMania.Game.Lib.Song.Components.TextureGenerationRequest");
-        Assert.NotNull(requestType);
-
-        object CreateRequest(int priority)
+        static TextureGenerationRequest CreateRequest(int priority) => new()
         {
-            var request = Activator.CreateInstance(requestType!);
-            requestType!.GetProperty("SongNode")!.SetValue(request, new SongListNode { Type = NodeType.Score, Title = "S" + priority });
-            requestType.GetProperty("SongIndex")!.SetValue(request, priority);
-            requestType.GetProperty("BarIndex")!.SetValue(request, 0);
-            requestType.GetProperty("Difficulty")!.SetValue(request, 0);
-            requestType.GetProperty("IsSelected")!.SetValue(request, false);
-            requestType.GetProperty("Priority")!.SetValue(request, priority);
-            return request!;
-        }
+            SongNode = new SongListNode { Type = NodeType.Score, Title = "S" + priority },
+            SongIndex = priority,
+            BarIndex = 0,
+            Difficulty = 0,
+            IsSelected = false,
+            Priority = priority
+        };
 
         InvokePrivate<object?>(display, "InsertTextureRequestSorted", CreateRequest(50));
         InvokePrivate<object?>(display, "InsertTextureRequestSorted", CreateRequest(100));
         InvokePrivate<object?>(display, "InsertTextureRequestSorted", CreateRequest(75));
 
-        var priorities = new List<int>();
-        foreach (var item in queue)
-        {
-            priorities.Add((int)requestType!.GetProperty("Priority")!.GetValue(item)!);
-        }
-
-        Assert.Equal(new[] { 100, 75, 50 }, priorities);
+        Assert.Equal(new[] { 100, 75, 50 }, queue.Select(item => item.Priority).ToArray());
     }
 
     [Fact]
@@ -855,7 +838,7 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void MovePrevious_ShouldWrapToLastSongAndRaiseSelectionEvent()
+    public void MovePrevious_WhenAtFirstSong_ShouldSelectLastSongAndRaiseSelectionEvent()
     {
         var display = new SongListDisplay
         {
@@ -958,6 +941,11 @@ public class SongListDisplayLogicTests
         }
 
         return songs;
+    }
+
+    private static List<TextureGenerationRequest> GetTextureGenerationQueue(SongListDisplay display)
+    {
+        return GetField<List<TextureGenerationRequest>>(display, "_textureGenerationQueue");
     }
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)
