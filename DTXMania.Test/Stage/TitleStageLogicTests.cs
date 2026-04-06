@@ -3,8 +3,10 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
+using System.Runtime.Serialization;
 
 namespace DTXMania.Test.Stage
 {
@@ -241,6 +243,46 @@ namespace DTXMania.Test.Stage
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
 
+        [Fact]
+        public void Dispose_ShouldReleaseTitleResourcesAndClearFields()
+        {
+            var stage = CreateStage();
+            var menuTexture = new Mock<ITexture>();
+            var resourceManager = new Mock<IResourceManager>();
+            var cursorSound = CreateSoundReturningInstance();
+            var selectSound = CreateSoundReturningInstance();
+            var gameStartSound = CreateSoundReturningInstance();
+#pragma warning disable SYSLIB0050
+            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+            var spriteBatch = (TrackingSpriteBatch)FormatterServices.GetUninitializedObject(typeof(TrackingSpriteBatch));
+#pragma warning restore SYSLIB0050
+
+            ReflectionHelpers.SetPrivateField(stage, "_menuTexture", menuTexture.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", whitePixel);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
+
+            stage.Dispose();
+
+            menuTexture.Verify(x => x.RemoveReference(), Times.Once);
+            resourceManager.Verify(x => x.Dispose(), Times.Once);
+            cursorSound.Verify(x => x.Dispose(), Times.Once);
+            selectSound.Verify(x => x.Dispose(), Times.Once);
+            gameStartSound.Verify(x => x.Dispose(), Times.Once);
+            Assert.True(whitePixel.WasDisposed);
+            Assert.True(spriteBatch.WasDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_menuTexture"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IResourceManager>(stage, "_resourceManager"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_cursorMoveSound"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_selectSound"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+        }
+
         private static TitleStage CreateStage(BaseGame? game = null)
         {
             return new TitleStage(game ?? ReflectionHelpers.CreateGame());
@@ -289,6 +331,34 @@ namespace DTXMania.Test.Stage
 
             public void Update(double deltaTime)
             {
+            }
+        }
+
+        private sealed class TrackingSpriteBatch : SpriteBatch
+        {
+            public TrackingSpriteBatch() : base(null!)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
+        }
+
+        private sealed class TrackingTexture2D : Texture2D
+        {
+            public TrackingTexture2D() : base(null!, 1, 1)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
             }
         }
     }
