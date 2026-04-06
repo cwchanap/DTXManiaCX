@@ -84,6 +84,23 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void HasStatusPanel_WhenDisabled_ShouldUseFallbackPositionAndMetrics()
+    {
+        var panel = new PreviewImagePanel
+        {
+            HasStatusPanel = false
+        };
+
+        var panelBounds = InvokePrivate<Rectangle>(panel, "GetPanelBounds");
+        var contentBounds = InvokePrivate<Rectangle>(panel, "GetContentBounds", panelBounds);
+
+        Assert.Equal(new Vector2(18, 88), panel.Position);
+        Assert.Equal(new Vector2(368, 368), panel.Size);
+        Assert.Equal(new Rectangle(18, 88, 368, 368), panelBounds);
+        Assert.Equal(new Rectangle(55, 112, 294, 294), contentBounds);
+    }
+
+    [Fact]
     public void ShouldDisplayPreview_ShouldRequireScoreNodeDelayAndTexture()
     {
         var panel = new PreviewImagePanel();
@@ -219,6 +236,60 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void UpdateSelectedSong_WhenSongUnchanged_ShouldNotResetDelayOrReloadPreview()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var song = new SongListNode
+        {
+            Type = NodeType.Score,
+            Title = "Song",
+            DatabaseSong = new SongEntity { Charts = new List<SongChart>() }
+        };
+
+        SetField(panel, "_resourceManager", resourceManager.Object);
+        SetField(panel, "_currentSong", song);
+        SetField(panel, "_displayDelay", 0.25);
+
+        panel.UpdateSelectedSong(song);
+
+        Assert.Equal(0.25, GetField<double>(panel, "_displayDelay"), 3);
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Initialize_WhenDefaultAndPanelTexturesUnavailable_ShouldLeaveTextureReferencesNull()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.DefaultPreview)).Throws(new FileNotFoundException("missing default"));
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.PreimagePanel)).Returns(false);
+
+        panel.Initialize(resourceManager.Object);
+
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+        Assert.Null(GetFieldValue(panel, "_preimagePanelTexture"));
+        Assert.Equal(new Vector2(250, 34), panel.Position);
+        Assert.Equal(new Vector2(292, 292), panel.Size);
+    }
+
+    [Fact]
+    public void AssignDefaultPreviewTexture_WhenDefaultTextureMissing_ShouldClearCurrentPreview()
+    {
+        var panel = new PreviewImagePanel();
+        var existingPreview = new Mock<ITexture>();
+
+        SetField(panel, "_currentPreviewTexture", existingPreview.Object);
+        SetField(panel, "_defaultPreviewTexture", null);
+
+        InvokePrivateVoid(panel, "AssignDefaultPreviewTexture");
+
+        Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        existingPreview.Verify(x => x.RemoveReference(), Times.Never);
+    }
+
+    [Fact]
     public void DrawPreviewContent_WhenDefaultTextureIsDisposed_ShouldClearDefaultReference()
     {
         var panel = new PreviewImagePanel();
@@ -243,6 +314,36 @@ public class PreviewImagePanelTests
 
         Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
         Assert.False(InvokePrivate<bool>(panel, "ShouldDisplayPreview"));
+    }
+
+    [Fact]
+    public void DrawPreviewContent_WhenCurrentPreviewIsDisposed_ShouldClearOnlyCurrentPreviewReference()
+    {
+        var panel = new PreviewImagePanel();
+        var disposedPreview = new Mock<ITexture>();
+        var defaultTexture = new Mock<ITexture>();
+
+        disposedPreview
+            .Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Throws(new ObjectDisposedException("preview"));
+
+        SetField(panel, "_currentSong", new SongListNode { Type = NodeType.Score, Title = "Song" });
+        SetField(panel, "_displayDelay", 0.5);
+        SetField(panel, "_currentPreviewTexture", disposedPreview.Object);
+        SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+        InvokePrivateVoid(panel, "DrawPreviewContent", null!, new Rectangle(250, 34, 308, 308));
+
+        Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        Assert.Same(defaultTexture.Object, GetField<ITexture>(panel, "_defaultPreviewTexture"));
     }
 
     [Fact]

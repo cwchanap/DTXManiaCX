@@ -6,6 +6,7 @@ using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Moq;
@@ -747,12 +748,131 @@ public class SongListDisplayLogicTests
         Assert.Equal(0f, pos.X);
     }
 
+    [Fact]
+    public void MoveNext_ShouldAdvanceSelectionAndRaiseIncompleteSelectionEvent()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+        SongSelectionChangedEventArgs? args = null;
+
+        display.SelectionChanged += (_, e) => args = e;
+        SetField(display, "_selectedIndex", 0);
+        SetField(display, "_targetScrollCounter", 0);
+        SetField(display, "_currentScrollCounter", 0);
+
+        display.MoveNext();
+
+        Assert.Equal(1, GetField<int>(display, "_selectedIndex"));
+        Assert.Equal(100, GetField<int>(display, "_targetScrollCounter"));
+        Assert.Same(display.CurrentList[1], display.SelectedSong);
+        Assert.NotNull(args);
+        Assert.Same(display.CurrentList[1], args!.SelectedSong);
+        Assert.False(args.IsScrollComplete);
+    }
+
+    [Fact]
+    public void MovePrevious_ShouldWrapToLastSongAndRaiseSelectionEvent()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+        SongSelectionChangedEventArgs? args = null;
+
+        display.SelectionChanged += (_, e) => args = e;
+        SetField(display, "_selectedIndex", 0);
+        SetField(display, "_targetScrollCounter", 0);
+        SetField(display, "_currentScrollCounter", 0);
+
+        display.MovePrevious();
+
+        Assert.Equal(-1, GetField<int>(display, "_selectedIndex"));
+        Assert.Equal(-100, GetField<int>(display, "_targetScrollCounter"));
+        Assert.Same(display.CurrentList[2], display.SelectedSong);
+        Assert.NotNull(args);
+        Assert.Same(display.CurrentList[2], args!.SelectedSong);
+    }
+
+    [Fact]
+    public void SelectedIndex_WhenValueUnchanged_ShouldNotRaiseSelectionChangedOrUpdateTarget()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+        var fired = false;
+
+        display.SelectionChanged += (_, _) => fired = true;
+        SetField(display, "_selectedIndex", 1);
+        SetField(display, "_targetScrollCounter", 150);
+
+        display.SelectedIndex = 1;
+
+        Assert.False(fired);
+        Assert.Equal(1, GetField<int>(display, "_selectedIndex"));
+        Assert.Equal(150, GetField<int>(display, "_targetScrollCounter"));
+    }
+
+    [Fact]
+    public void CycleDifficulty_WhenOnlyCurrentDifficultyExists_ShouldKeepDifficultyAndRaiseEvent()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    Scores = new SongScore[5]
+                }
+            }
+        };
+        DifficultyChangedEventArgs? args = null;
+
+        display.CurrentList[0].Scores![2] = new SongScore { DifficultyLevel = 2, DifficultyLabel = "Hard" };
+        display.DifficultyChanged += (_, e) => args = e;
+        display.CurrentDifficulty = 2;
+
+        display.CycleDifficulty();
+
+        Assert.Equal(2, display.CurrentDifficulty);
+        Assert.NotNull(args);
+        Assert.Same(display.SelectedSong, args!.Song);
+        Assert.Equal(2, args.NewDifficulty);
+    }
+
+    [Fact]
+    public void ActivateSelected_ShouldRaiseSongActivatedWithCurrentDifficulty()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(2)
+        };
+        SongActivatedEventArgs? args = null;
+
+        display.SongActivated += (_, e) => args = e;
+        display.CurrentDifficulty = 4;
+        display.ActivateSelected();
+
+        Assert.NotNull(args);
+        Assert.Same(display.SelectedSong, args!.Song);
+        Assert.Equal(4, args.Difficulty);
+    }
+
     private static List<SongListNode> CreateSongs(int count)
     {
         var songs = new List<SongListNode>();
         for (int i = 0; i < count; i++)
         {
-            songs.Add(new SongListNode { Type = NodeType.Score, Title = $"Song {i}" });
+            songs.Add(new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = $"Song {i}",
+                Scores = new SongScore[5]
+            });
         }
 
         return songs;

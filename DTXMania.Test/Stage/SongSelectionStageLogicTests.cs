@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
@@ -742,6 +743,108 @@ namespace DTXMania.Test.Stage
             Assert.Same(newInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
         }
 
+        [Fact]
+        public void AssignInputManager_WhenReplacingOwnedFallback_ShouldDisposeOwnedManagerAndUseSharedManager()
+        {
+            var stage = CreateStage();
+            var ownedInputManager = new TrackingInputManager();
+            var sharedInputManager = new TrackingInputManager();
+
+            SetPrivateField(stage, "_inputManager", ownedInputManager);
+            SetPrivateField(stage, "_ownsInputManager", true);
+
+            InvokePrivateMethod(stage, "AssignInputManager", sharedInputManager);
+
+            Assert.True(ownedInputManager.ClearPendingCommandsCalled);
+            Assert.True(ownedInputManager.DisposeCalled);
+            Assert.Same(sharedInputManager, GetPrivateField<InputManager>(stage, "_inputManager"));
+            Assert.False(GetPrivateField<bool>(stage, "_ownsInputManager"));
+        }
+
+        [Fact]
+        public void Deactivate_WhenNoInitializationTaskAndOwnedInputManager_ShouldDisposeOwnedResourcesAndResetPhase()
+        {
+            var stage = CreateStage();
+            var ownedInputManager = new TrackingInputManager();
+            var headerTexture = new Mock<ITexture>();
+            var footerTexture = new Mock<ITexture>();
+            var previewSound = new Mock<ISound>();
+            var backgroundMusicInstance = new Mock<ISoundInstance>();
+            var cursorSound = new Mock<ISound>();
+            var gameStartSound = new Mock<ISound>();
+
+            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
+            SetPrivateField(stage, "_inputManager", ownedInputManager);
+            SetPrivateField(stage, "_ownsInputManager", true);
+            SetPrivateField(stage, "_headerPanelTexture", headerTexture.Object);
+            SetPrivateField(stage, "_footerPanelTexture", footerTexture.Object);
+            SetPrivateField(stage, "_previewSound", previewSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", backgroundMusicInstance.Object);
+            SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
+            SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            SetPrivateField(stage, "_selectionPhase", SongSelectionPhase.Normal);
+
+            stage.Deactivate();
+
+            Assert.True(ownedInputManager.ClearPendingCommandsCalled);
+            Assert.True(ownedInputManager.DisposeCalled);
+            headerTexture.Verify(x => x.RemoveReference(), Times.Once);
+            footerTexture.Verify(x => x.RemoveReference(), Times.Once);
+            previewSound.Verify(x => x.RemoveReference(), Times.Once);
+            backgroundMusicInstance.Verify(x => x.Dispose(), Times.Once);
+            cursorSound.Verify(x => x.RemoveReference(), Times.Once);
+            gameStartSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetPrivateField<InputManager>(stage, "_inputManager"));
+            Assert.False(GetPrivateField<bool>(stage, "_ownsInputManager"));
+            Assert.Null(GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+            Assert.Equal(SongSelectionPhase.Inactive, GetPrivateField<SongSelectionPhase>(stage, "_selectionPhase"));
+        }
+
+        [Fact]
+        public async Task Deactivate_WhenSongInitializationTaskExists_ShouldClearTaskAndKeepSharedInputManager()
+        {
+            var stage = CreateStage();
+            var sharedInputManager = new TrackingInputManager();
+            var cancellationTokenSource = new CancellationTokenSource();
+            var taskSource = new TaskCompletionSource<List<SongListNode>>();
+
+            SetPrivateField(stage, "_inputManager", sharedInputManager);
+            SetPrivateField(stage, "_ownsInputManager", false);
+            SetPrivateField(stage, "_cancellationTokenSource", cancellationTokenSource);
+            SetPrivateField(stage, "_songInitializationTask", taskSource.Task);
+
+            stage.Deactivate();
+            taskSource.SetResult(new List<SongListNode>());
+            await taskSource.Task;
+            await Task.Yield();
+
+            Assert.False(sharedInputManager.ClearPendingCommandsCalled);
+            Assert.False(sharedInputManager.DisposeCalled);
+            Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
+            Assert.Null(GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+        }
+
+        [Fact]
+        public void CreateFallbackFont_WhenFontLoadFailsAgain_ShouldReturnNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadFont(
+                    SongSelectionUILayout.Background.DefaultFontName,
+                    SongSelectionUILayout.Background.DefaultFontSize,
+                    FontStyle.Regular))
+                .Throws(new InvalidOperationException("font-failed"));
+
+            AttachResourceManager(stage, resourceManager.Object);
+
+            var fallbackFont = InvokePrivateMethod<IFont?>(stage, "CreateFallbackFont");
+
+            Assert.Null(fallbackFont);
+        }
+
         private static void AttachCoreUi(
             SongSelectionStage stage,
             SongListDisplay? display = null,
@@ -837,6 +940,25 @@ namespace DTXMania.Test.Stage
             public void Enqueue(InputCommand command)
             {
                 EnqueueCommand(command);
+            }
+        }
+
+        private sealed class TrackingInputManager : InputManager
+        {
+            public bool ClearPendingCommandsCalled { get; private set; }
+
+            public bool DisposeCalled { get; private set; }
+
+            public override void ClearPendingCommands()
+            {
+                ClearPendingCommandsCalled = true;
+                base.ClearPendingCommands();
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                DisposeCalled = true;
+                base.Dispose(disposing);
             }
         }
     }
