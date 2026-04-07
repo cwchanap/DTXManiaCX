@@ -9,8 +9,10 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.UI;
 
@@ -573,6 +575,23 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void Update_WhenActive_ShouldAnimateScrollAndTolerateMissingRenderer()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+
+        SetField(display, "_currentScrollCounter", 0);
+        SetField(display, "_targetScrollCounter", 200);
+        display.Activate();
+
+        display.Update(1.0 / 60.0);
+
+        Assert.InRange(GetField<int>(display, "_currentScrollCounter"), 1, 200);
+    }
+
+    [Fact]
     public void InvalidateVisuals_ShouldClearVisibleIndices_AndQueueVisibleRequests()
     {
         var display = new SongListDisplay
@@ -740,12 +759,18 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void LoadSkinBarTextures_WhenCoreTextureMissing_ShouldDisableSkinFlag()
+    public void LoadSkinBarTextures_WhenCoreTextureResourceMissing_ShouldDisableSkinFlagAndSkipLoad()
     {
         var display = new SongListDisplay();
         var rm = new Mock<IResourceManager>();
 
-        rm.Setup(x => x.LoadTexture(TexturePath.BarScore)).Throws(new Exception("missing-score"));
+        rm.Setup(x => x.ResourceExists(TexturePath.BarScore)).Returns(false);
+        rm.Setup(x => x.ResourceExists(TexturePath.BarScoreSelected)).Returns(true);
+        rm.Setup(x => x.ResourceExists(TexturePath.BarBox)).Returns(true);
+        rm.Setup(x => x.ResourceExists(TexturePath.BarBoxSelected)).Returns(true);
+        rm.Setup(x => x.ResourceExists(TexturePath.BarOther)).Returns(true);
+        rm.Setup(x => x.ResourceExists(TexturePath.BarOtherSelected)).Returns(true);
+
         rm.Setup(x => x.LoadTexture(TexturePath.BarScoreSelected)).Returns(new Mock<ITexture>().Object);
         rm.Setup(x => x.LoadTexture(TexturePath.BarBox)).Returns(new Mock<ITexture>().Object);
         rm.Setup(x => x.LoadTexture(TexturePath.BarBoxSelected)).Returns(new Mock<ITexture>().Object);
@@ -755,8 +780,10 @@ public class SongListDisplayLogicTests
         SetField(display, "_resourceManager", rm.Object);
         InvokePrivate<object?>(display, "LoadSkinBarTextures");
 
+        rm.Verify(x => x.LoadTexture(TexturePath.BarScore), Times.Never);
         Assert.False(GetField<bool>(display, "_skinBarTexturesLoaded"));
         Assert.Null(GetField<ITexture?>(display, "_barScoreTexture"));
+        Assert.NotNull(GetField<ITexture?>(display, "_barScoreSelectedTexture"));
     }
 
     [Fact]
@@ -927,6 +954,176 @@ public class SongListDisplayLogicTests
         Assert.Equal(4, args.Difficulty);
     }
 
+    [Fact]
+    public void Draw_WhenUsingManagedFontAndSkinTextures_ShouldRenderBasicSongList()
+    {
+        var managedFont = CreateManagedFont();
+        var selectedBarTexture = CreateTexture(width: 640, height: 96);
+        var scoreBarTexture = CreateTexture(width: 620, height: 48);
+        var commentBarTexture = CreateTexture(width: 620, height: 60);
+        var scrollbarTexture = CreateTexture(width: 12, height: 373);
+        var display = new SongListDisplay
+        {
+            ManagedFont = managedFont.Object,
+            WhitePixel = null,
+            CurrentList = CreateSongsForDraw()
+        };
+
+        SetField(display, "_useEnhancedRendering", false);
+        SetField(display, "_skinBarTexturesLoaded", true);
+        SetField(display, "_barScoreSelectedTexture", selectedBarTexture.Object);
+        SetField(display, "_barScoreTexture", scoreBarTexture.Object);
+        SetField(display, "_commentBarTexture", commentBarTexture.Object);
+        SetField(display, "_scrollbarTexture", scrollbarTexture.Object);
+        display.Activate();
+
+        display.Draw(null!, 0);
+
+        selectedBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.AtLeastOnce);
+        scoreBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.AtLeastOnce);
+        commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        scrollbarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeast(14));
+    }
+
+    [Fact]
+    public void Draw_WhenCurrentListEmptyAndManagedFontPresent_ShouldRenderEmptyMessage()
+    {
+        var managedFont = CreateManagedFont();
+        var display = new SongListDisplay
+        {
+            ManagedFont = managedFont.Object,
+            WhitePixel = null,
+            CurrentList = new List<SongListNode>()
+        };
+        display.Activate();
+
+        display.Draw(null!, 0);
+
+        managedFont.Verify(x => x.MeasureString("No songs found"), Times.Once);
+        managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "No songs found", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Once);
+    }
+
+    [Fact]
+    public void DrawBarInfoWithPerspective_WhenTexturesExist_ShouldDrawBarPartsAndArtist()
+    {
+        var managedFont = CreateManagedFont();
+        var selectedBarTexture = CreateTexture(width: 640, height: 96);
+        var titleTexture = CreateTexture(width: 240, height: 32);
+        var previewTexture = CreateTexture(width: 64, height: 64);
+        var clearLampTexture = CreateTexture(width: 7, height: 41);
+        var display = new SongListDisplay
+        {
+            ManagedFont = managedFont.Object
+        };
+        var barInfo = new SongBarInfo
+        {
+            SongNode = CreateSongsForDraw()[0],
+            BarType = BarType.Score,
+            TitleTexture = titleTexture.Object,
+            PreviewImage = previewTexture.Object,
+            ClearLamp = clearLampTexture.Object,
+            TitleString = "Song 0"
+        };
+
+        SetField(display, "_skinBarTexturesLoaded", true);
+        SetField(display, "_barScoreSelectedTexture", selectedBarTexture.Object);
+
+        InvokePrivate<object?>(display, "DrawBarInfoWithPerspective", null!, barInfo, new Rectangle(665, 269, 510, 48), true, true, 1f, 1f);
+
+        selectedBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+        clearLampTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+        previewTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+        titleTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
+    public void DrawCommentBar_WhenSelectedSongIsScore_ShouldDrawBackgroundTexture()
+    {
+        var display = new SongListDisplay();
+        var commentBarTexture = CreateTexture(width: 620, height: 60);
+
+        display.CurrentList = CreateSongsForDraw();
+        SetField(display, "_commentBarTexture", commentBarTexture.Object);
+
+        InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!);
+
+        commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
+    public void DrawScrollbar_WhenTextureAvailable_ShouldDrawTrack()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongsForDraw()
+        };
+        var scrollbarTexture = CreateTexture(width: 12, height: 373);
+
+        SetField(display, "_scrollbarTexture", scrollbarTexture.Object);
+        SetField(display, "_selectedIndex", 1);
+        SetField(display, "_whitePixel", null);
+
+        InvokePrivate<object?>(display, "DrawScrollbar", (SpriteBatch)null!);
+
+        scrollbarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
+    public void Dispose_ShouldReleaseManagedTexturesAndClearCaches()
+    {
+        var display = new SongListDisplay();
+        var scrollbar = new Mock<ITexture>();
+        var score = new Mock<ITexture>();
+        var scoreSelected = new Mock<ITexture>();
+        var box = new Mock<ITexture>();
+        var boxSelected = new Mock<ITexture>();
+        var other = new Mock<ITexture>();
+        var otherSelected = new Mock<ITexture>();
+        var comment = new Mock<ITexture>();
+        var title = new Mock<ITexture>();
+        var preview = new Mock<ITexture>();
+        var lamp = new Mock<ITexture>();
+
+        SetField(display, "_scrollbarTexture", scrollbar.Object);
+        SetField(display, "_barScoreTexture", score.Object);
+        SetField(display, "_barScoreSelectedTexture", scoreSelected.Object);
+        SetField(display, "_barBoxTexture", box.Object);
+        SetField(display, "_barBoxSelectedTexture", boxSelected.Object);
+        SetField(display, "_barOtherTexture", other.Object);
+        SetField(display, "_barOtherSelectedTexture", otherSelected.Object);
+        SetField(display, "_commentBarTexture", comment.Object);
+        SetField(display, "_skinBarTexturesLoaded", true);
+
+        var songBarCache = (IDictionary)GetField<object>(display, "_songBarCache");
+        songBarCache[1] = new SongBar();
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        barInfoCache["info"] = new SongBarInfo
+        {
+            TitleTexture = title.Object,
+            PreviewImage = preview.Object,
+            ClearLamp = lamp.Object
+        };
+
+        display.Dispose();
+
+        scrollbar.Verify(x => x.RemoveReference(), Times.Once);
+        score.Verify(x => x.RemoveReference(), Times.Once);
+        scoreSelected.Verify(x => x.RemoveReference(), Times.Once);
+        box.Verify(x => x.RemoveReference(), Times.Once);
+        boxSelected.Verify(x => x.RemoveReference(), Times.Once);
+        other.Verify(x => x.RemoveReference(), Times.Once);
+        otherSelected.Verify(x => x.RemoveReference(), Times.Once);
+        comment.Verify(x => x.RemoveReference(), Times.Once);
+        title.Verify(x => x.RemoveReference(), Times.Once);
+        preview.Verify(x => x.RemoveReference(), Times.Once);
+        lamp.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Empty((IDictionary)GetField<object>(display, "_songBarCache"));
+        Assert.Empty((IDictionary)GetField<object>(display, "_barInfoCache"));
+        Assert.False(GetField<bool>(display, "_skinBarTexturesLoaded"));
+    }
+
     private static List<SongListNode> CreateSongs(int count)
     {
         var songs = new List<SongListNode>();
@@ -941,6 +1138,58 @@ public class SongListDisplayLogicTests
         }
 
         return songs;
+    }
+
+    private static List<SongListNode> CreateSongsForDraw()
+    {
+        return
+        [
+            new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song 0",
+                DatabaseSong = new SongEntity
+                {
+                    Title = "Song 0",
+                    Artist = "Artist 0",
+                    Comment = ""
+                },
+                Scores = new SongScore[5]
+            },
+            new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song 1",
+                DatabaseSong = new SongEntity
+                {
+                    Title = "Song 1",
+                    Artist = "Artist 1",
+                    Comment = ""
+                },
+                Scores = new SongScore[5]
+            }
+        ];
+    }
+
+    private static Mock<IFont> CreateManagedFont()
+    {
+        var font = new Mock<IFont>();
+        font.SetupGet(x => x.SpriteFont).Returns((Microsoft.Xna.Framework.Graphics.SpriteFont?)null);
+        font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string text) => new Vector2(text.Length * 8, 16));
+        font.Setup(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()));
+        return font;
+    }
+
+    private static Mock<ITexture> CreateTexture(int width = 64, int height = 64)
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(width);
+        texture.SetupGet(x => x.Height).Returns(height);
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()));
+        return texture;
     }
 
     private static List<TextureGenerationRequest> GetTextureGenerationQueue(SongListDisplay display)
