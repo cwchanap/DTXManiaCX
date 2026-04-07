@@ -83,7 +83,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Preview sound functionality
         private ISound _previewSound;
-        private SoundEffectInstance _previewSoundInstance;
+        private ISoundInstance _previewSoundInstance;
         private ISound _backgroundMusic; // Reference to BGM
         private ISoundInstance _backgroundMusicInstance;
         
@@ -1181,7 +1181,7 @@ namespace DTXMania.Game.Lib.Stage
                                 _previewSoundInstance = null;
                             }
 
-                            _previewSoundInstance = _previewSound.CreateInstance();
+                            _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
                             if (_previewSoundInstance != null)
                             {
                                 _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
@@ -1402,6 +1402,12 @@ namespace DTXMania.Game.Lib.Stage
         {
             sound?.RemoveReference();
             sound = null;
+        }
+
+        private static ISoundInstance CreatePreviewSoundInstance(ISound previewSound)
+        {
+            var rawInstance = previewSound?.CreateInstance();
+            return rawInstance == null ? null : new SoundInstanceWrapper(rawInstance);
         }
 
         /// <summary>

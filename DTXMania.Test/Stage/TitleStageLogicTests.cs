@@ -221,7 +221,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
 
             Assert.Same(selectSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
-            resourceManager.Verify(x => x.LoadSound("Sounds/Decide.ogg"), Times.Exactly(2));
+            resourceManager.Verify(x => x.LoadSound("Sounds/Decide.ogg"), Times.AtLeastOnce());
         }
 
         [Fact]

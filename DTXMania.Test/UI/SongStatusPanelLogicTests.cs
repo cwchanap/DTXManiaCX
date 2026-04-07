@@ -9,11 +9,13 @@ using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using Xunit;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.UI;
 
+[Trait("Category", "UI")]
 public class SongStatusPanelLogicTests
 {
     [Fact]
@@ -527,7 +529,7 @@ public class SongStatusPanelLogicTests
         var difficultyFrameTexture = CreateTexture(width: 80, height: 60);
         var graphTexture = CreateTexture(width: 240, height: 321);
         var skillPointTexture = CreateTexture(width: 187, height: 64);
-        var skillIconTexture = CreateTexture(width: RankIconWidth * 9, height: 16);
+        var skillIconTexture = CreateTexture(width: 350, height: 53);
 
         SetField(panel, "_bpmBackgroundTexture", bpmTexture.Object);
         SetField(panel, "_difficultyPanelTexture", difficultyPanelTexture.Object);
@@ -751,8 +753,6 @@ public class SongStatusPanelLogicTests
 
         Assert.Equal(new Vector2(490, 385), drawnPosition);
     }
-
-    private const int RankIconWidth = 32;
 
     private static Mock<IFont> CreateManagedFont()
     {

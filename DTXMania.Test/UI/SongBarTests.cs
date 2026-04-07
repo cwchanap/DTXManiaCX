@@ -15,6 +15,7 @@ namespace DTXMania.Test.UI
     /// <summary>
     /// Unit tests for SongBar component (Phase 4 enhancement)
     /// </summary>
+    [Trait("Category", "UI")]
     public class SongBarTests : IDisposable
     {
         private readonly SongBar _songBar;

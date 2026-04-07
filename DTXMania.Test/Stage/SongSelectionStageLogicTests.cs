@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -763,28 +762,38 @@ namespace DTXMania.Test.Stage
             var baseDir = CreateWorkspacePath("preview-load-noop");
 
             Directory.CreateDirectory(baseDir);
-            AttachResourceManager(stage, resourceManager.Object);
-            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
-            SetPrivateField(stage, "_isPreviewDelayActive", true);
-
-            InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Blank", chart: new SongChart
+            try
             {
-                FilePath = Path.Combine(baseDir, "blank.dtx"),
-                PreviewFile = "",
-                HasDrumChart = true,
-                DrumLevel = 20
-            }));
-            InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Missing", chart: new SongChart
-            {
-                FilePath = Path.Combine(baseDir, "missing.dtx"),
-                PreviewFile = "missing.ogg",
-                HasDrumChart = true,
-                DrumLevel = 20
-            }));
+                AttachResourceManager(stage, resourceManager.Object);
+                SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+                SetPrivateField(stage, "_isPreviewDelayActive", true);
 
-            resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
-            Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+                InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Blank", chart: new SongChart
+                {
+                    FilePath = Path.Combine(baseDir, "blank.dtx"),
+                    PreviewFile = "",
+                    HasDrumChart = true,
+                    DrumLevel = 20
+                }));
+                InvokePrivateMethod(stage, "LoadPreviewSound", CreateScoreNode("Missing", chart: new SongChart
+                {
+                    FilePath = Path.Combine(baseDir, "missing.dtx"),
+                    PreviewFile = "missing.ogg",
+                    HasDrumChart = true,
+                    DrumLevel = 20
+                }));
+
+                resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
+                Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+                Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            }
+            finally
+            {
+                if (Directory.Exists(baseDir))
+                {
+                    Directory.Delete(baseDir, true);
+                }
+            }
         }
 
         [Fact]
@@ -872,20 +881,22 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var previewSound = new Mock<ISound>();
-#pragma warning disable SYSLIB0050
-            var previewInstance = (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
-#pragma warning restore SYSLIB0050
+            var previewInstance = new Mock<ISoundInstance>();
+
+            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            previewInstance.Setup(x => x.Stop()).Throws(new InvalidOperationException("stop failed"));
 
             SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", previewInstance);
+            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
             SetPrivateField(stage, "_isBgmFadingOut", true);
             SetPrivateField(stage, "_isBgmFadingIn", false);
 
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "StopCurrentPreview"));
 
             Assert.Null(ex);
+            previewInstance.Verify(x => x.Stop(), Times.Once);
             previewSound.Verify(x => x.RemoveReference(), Times.Once);
-            Assert.Null(GetPrivateField<SoundEffectInstance>(stage, "_previewSoundInstance"));
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
             Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
             Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
         }
@@ -908,7 +919,7 @@ namespace DTXMania.Test.Stage
             Assert.Null(ex);
             previewSound.Verify(x => x.CreateInstance(), Times.Once);
             Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            Assert.Null(GetPrivateField<SoundEffectInstance>(stage, "_previewSoundInstance"));
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
             Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
         }
 
@@ -940,24 +951,22 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var previewSound = new Mock<ISound>();
-#pragma warning disable SYSLIB0050
-            var oldInstance = (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
-            var newInstance = (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
-#pragma warning restore SYSLIB0050
+            var oldInstance = new Mock<ISoundInstance>();
 
-            SetSoundEffectState(oldInstance, SoundState.Stopped);
-            previewSound.Setup(x => x.CreateInstance()).Returns(newInstance);
+            oldInstance.SetupGet(x => x.State).Returns(SoundState.Stopped);
+            previewSound.Setup(x => x.CreateInstance()).Returns((SoundEffectInstance)null!);
 
             SetPrivateField(stage, "_previewSound", previewSound.Object);
-            SetPrivateField(stage, "_previewSoundInstance", oldInstance);
+            SetPrivateField(stage, "_previewSoundInstance", oldInstance.Object);
             SetPrivateField(stage, "_isPreviewDelayActive", true);
             SetPrivateField(stage, "_previewPlayDelay", SongSelectionUILayout.Audio.PreviewPlayDelaySeconds - 0.01);
 
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.02));
 
             Assert.Null(ex);
+            oldInstance.Verify(x => x.Dispose(), Times.Once);
             previewSound.Verify(x => x.CreateInstance(), Times.Once);
-            Assert.Null(GetPrivateField<SoundEffectInstance>(stage, "_previewSoundInstance"));
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
             Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
         }
 
@@ -965,17 +974,17 @@ namespace DTXMania.Test.Stage
         public void StopCurrentPreview_WhenPreviewInstanceStateIsPlaying_ShouldStopAndClearInstance()
         {
             var stage = CreateStage();
-#pragma warning disable SYSLIB0050
-            var previewInstance = (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
-#pragma warning restore SYSLIB0050
+            var previewInstance = new Mock<ISoundInstance>();
 
-            SetSoundEffectState(previewInstance, SoundState.Playing);
-            SetPrivateField(stage, "_previewSoundInstance", previewInstance);
+            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
 
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "StopCurrentPreview"));
 
             Assert.Null(ex);
-            Assert.Null(GetPrivateField<SoundEffectInstance>(stage, "_previewSoundInstance"));
+            previewInstance.Verify(x => x.Stop(), Times.Once);
+            previewInstance.Verify(x => x.Dispose(), Times.Once);
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
         }
 
         [Fact]
@@ -1337,13 +1346,6 @@ namespace DTXMania.Test.Stage
             }
 
             return path;
-        }
-
-        private static void SetSoundEffectState(SoundEffectInstance instance, SoundState state)
-        {
-            var field = typeof(SoundEffectInstance).GetField("SoundState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Assert.NotNull(field);
-            field!.SetValue(instance, state);
         }
 
         private sealed class QueuedInputManager : InputManager

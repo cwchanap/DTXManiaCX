@@ -34,6 +34,7 @@ public class UIButtonLogicTests
         var pressed = new ButtonStateAppearance();
         var disabled = new ButtonStateAppearance();
 
+        button.Text = "Test";
         button.Text = null!;
         button.IdleAppearance = idle;
         button.HoverAppearance = hover;
