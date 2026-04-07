@@ -1442,6 +1442,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Track which bar indices are currently visible
             var newVisibleIndices = new HashSet<int>();
+            var seenCacheKeys = new HashSet<string>();
 
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
@@ -1450,9 +1451,9 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Implement infinite looping: wrap song index using modulo arithmetic
                 songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
-                newVisibleIndices.Add(songIndex);                // Only queue if not already cached using sorted insertion
+                newVisibleIndices.Add(songIndex);                // Only queue if not already cached and not already queued this pass
                 var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";
-                if (!_barInfoCache.ContainsKey(cacheKey))
+                if (!_barInfoCache.ContainsKey(cacheKey) && seenCacheKeys.Add(cacheKey))
                 {
                     var request = new TextureGenerationRequest
                     {

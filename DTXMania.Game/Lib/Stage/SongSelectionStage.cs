@@ -257,6 +257,7 @@ namespace DTXMania.Game.Lib.Stage
             StopCurrentPreview();
             _backgroundMusicInstance?.Dispose();
             _backgroundMusicInstance = null;
+            _backgroundMusic?.RemoveReference();
             _backgroundMusic = null;
 
             // Clean up navigation sound (same as TitleStage)
@@ -1374,7 +1375,6 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         _previewSoundInstance.Stop();
                     }
-                    _previewSoundInstance.Dispose();
                 }
                 catch (Exception ex)
                 {
@@ -1383,6 +1383,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 finally
                 {
+                    _previewSoundInstance.Dispose();
                     _previewSoundInstance = null;
                 }
             }

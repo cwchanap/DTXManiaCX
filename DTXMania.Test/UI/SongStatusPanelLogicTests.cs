@@ -479,7 +479,7 @@ public class SongStatusPanelLogicTests
     [InlineData(6, 0, 0, 255)]
     [InlineData(7, 0, 128, 0)]
     [InlineData(8, 0, 255, 255)]
-    public void GetDrumLaneColor_ShouldMapAllNamedLanes(int lane, byte r, byte g, byte b)
+    public void GetDrumLaneColor_MapsCommonNamedLanes(int lane, byte r, byte g, byte b)
     {
         var panel = new SongStatusPanel();
 
