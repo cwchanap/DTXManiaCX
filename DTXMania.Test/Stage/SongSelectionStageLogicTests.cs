@@ -895,6 +895,7 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(ex);
             previewInstance.Verify(x => x.Stop(), Times.Once);
+            previewInstance.Verify(x => x.Dispose(), Times.Once);
             previewSound.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
             Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
@@ -1173,6 +1174,7 @@ namespace DTXMania.Test.Stage
             var headerTexture = new Mock<ITexture>();
             var footerTexture = new Mock<ITexture>();
             var previewSound = new Mock<ISound>();
+            var backgroundMusic = new Mock<ISound>();
             var backgroundMusicInstance = new Mock<ISoundInstance>();
             var cursorSound = new Mock<ISound>();
             var gameStartSound = new Mock<ISound>();
@@ -1183,6 +1185,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_headerPanelTexture", headerTexture.Object);
             SetPrivateField(stage, "_footerPanelTexture", footerTexture.Object);
             SetPrivateField(stage, "_previewSound", previewSound.Object);
+            SetPrivateField(stage, "_backgroundMusic", backgroundMusic.Object);
             SetPrivateField(stage, "_backgroundMusicInstance", backgroundMusicInstance.Object);
             SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
             SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
@@ -1196,6 +1199,7 @@ namespace DTXMania.Test.Stage
             headerTexture.Verify(x => x.RemoveReference(), Times.Once);
             footerTexture.Verify(x => x.RemoveReference(), Times.Once);
             previewSound.Verify(x => x.RemoveReference(), Times.Once);
+            backgroundMusic.Verify(x => x.RemoveReference(), Times.Once);
             backgroundMusicInstance.Verify(x => x.Dispose(), Times.Once);
             cursorSound.Verify(x => x.RemoveReference(), Times.Once);
             gameStartSound.Verify(x => x.RemoveReference(), Times.Once);

@@ -363,16 +363,14 @@ public class SongListDisplayLogicTests
 
         InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
 
-        var visibleItems = (int)typeof(SongListDisplay)
-            .GetField("VISIBLE_ITEMS", BindingFlags.NonPublic | BindingFlags.Static)!
-            .GetRawConstantValue()!;
-        Assert.Equal(visibleItems, queue.Count);
+        // Deduplication: each unique song is enqueued at most once, so queue size equals unique song count
+        Assert.Equal(display.CurrentList.Count, queue.Count);
 
-        var queuedBarIndices = queue
-            .Select(item => item.BarIndex)
+        var queuedSongIndices = queue
+            .Select(item => item.SongIndex)
             .OrderBy(index => index)
             .ToArray();
-        Assert.Equal(Enumerable.Range(0, visibleItems).ToArray(), queuedBarIndices);
+        Assert.Equal(new[] { 0, 1, 2 }, queuedSongIndices);
 
         Assert.All(queue, item =>
         {
