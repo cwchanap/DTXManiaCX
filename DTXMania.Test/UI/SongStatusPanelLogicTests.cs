@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -466,6 +467,41 @@ public class SongStatusPanelLogicTests
         Assert.Equal(Color.White, gbUnknown);
     }
 
+    [Theory]
+    [InlineData(0, 128, 0, 128)]
+    [InlineData(1, 255, 255, 0)]
+    [InlineData(2, 128, 0, 128)]
+    [InlineData(3, 255, 0, 0)]
+    [InlineData(4, 0, 0, 255)]
+    [InlineData(5, 255, 165, 0)]
+    [InlineData(6, 0, 0, 255)]
+    [InlineData(7, 0, 128, 0)]
+    [InlineData(8, 0, 255, 255)]
+    public void GetDrumLaneColor_ShouldMapAllNamedLanes(int lane, byte r, byte g, byte b)
+    {
+        var panel = new SongStatusPanel();
+
+        var color = InvokePrivate<Color>(panel, "GetDrumLaneColor", lane);
+
+        Assert.Equal(new Color(r, g, b), color);
+    }
+
+    [Theory]
+    [InlineData(0, 255, 0, 0)]
+    [InlineData(1, 0, 128, 0)]
+    [InlineData(2, 0, 0, 255)]
+    [InlineData(3, 255, 255, 0)]
+    [InlineData(4, 128, 0, 128)]
+    [InlineData(5, 255, 165, 0)]
+    public void GetGuitarBassLaneColor_ShouldMapAllNamedLanes(int lane, byte r, byte g, byte b)
+    {
+        var panel = new SongStatusPanel();
+
+        var color = InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", lane);
+
+        Assert.Equal(new Color(r, g, b), color);
+    }
+
     [Fact]
     public void GetInstrumentFromDifficulty_ShouldAlwaysReturnDrums()
     {
@@ -473,6 +509,323 @@ public class SongStatusPanelLogicTests
 
         Assert.Equal("DRUMS", InvokePrivate<string>(panel, "GetInstrumentFromDifficulty", 0));
         Assert.Equal("DRUMS", InvokePrivate<string>(panel, "GetInstrumentFromDifficulty", 4));
+    }
+
+    [Fact]
+    public void Draw_WhenScoreSongUsesManagedFontAndTextures_ShouldRenderAuthenticSections()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            Size = new Vector2(640, 480),
+            ManagedFont = font.Object,
+            ManagedSmallFont = font.Object,
+            WhitePixel = null
+        };
+        var bpmTexture = CreateTexture(width: 187, height: 67);
+        var difficultyPanelTexture = CreateTexture(width: 240, height: 321);
+        var difficultyFrameTexture = CreateTexture(width: 80, height: 60);
+        var graphTexture = CreateTexture(width: 240, height: 321);
+        var skillPointTexture = CreateTexture(width: 187, height: 64);
+        var skillIconTexture = CreateTexture(width: RankIconWidth * 9, height: 16);
+
+        SetField(panel, "_bpmBackgroundTexture", bpmTexture.Object);
+        SetField(panel, "_difficultyPanelTexture", difficultyPanelTexture.Object);
+        SetField(panel, "_difficultyFrameTexture", difficultyFrameTexture.Object);
+        SetField(panel, "_graphPanelDrumsTexture", graphTexture.Object);
+        SetField(panel, "_skillPointPanelTexture", skillPointTexture.Object);
+        SetField(panel, "_skillIconTexture", skillIconTexture.Object);
+
+        panel.UpdateSongInfo(CreateScoreNodeForDraw(), 0);
+        panel.Activate();
+
+        panel.Draw(null!, 0);
+
+        bpmTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        difficultyPanelTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        difficultyFrameTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        graphTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+        skillPointTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        skillIconTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()), Times.AtLeastOnce);
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeast(8));
+    }
+
+    [Fact]
+    public void Draw_WhenSelectedNodeIsNonScore_ShouldRenderSimplifiedInfo()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            Size = new Vector2(320, 240),
+            ManagedFont = font.Object,
+            WhitePixel = null
+        };
+
+        panel.UpdateSongInfo(new SongListNode { Type = NodeType.Box, Title = "Folder" }, 0);
+        panel.Activate();
+
+        panel.Draw(null!, 0);
+
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "📁 FOLDER", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "Folder", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void Draw_WhenSongMissing_ShouldRenderNoSongMessageWithManagedFont()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            Size = new Vector2(320, 240),
+            ManagedFont = font.Object,
+            WhitePixel = null
+        };
+        panel.Activate();
+
+        panel.Draw(null!, 0);
+
+        font.Verify(x => x.MeasureString("No song selected"), Times.Once);
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "No song selected", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DrawNotesCounter_WhenChartHasNoNotes_ShouldRenderNoNotesMessage()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+        var chart = new SongChart();
+
+        InvokePrivate<object?>(panel, "DrawNotesCounter", null!, chart, new Vector2(100, 200));
+
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "No notes", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DrawNotesCounter_WhenChartIsNull_ShouldReturnWithoutDrawing()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "DrawNotesCounter", null!, null!, new Vector2(100, 200)));
+
+        Assert.Null(ex);
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
+    }
+
+    [Fact]
+    public void DrawNotesCounter_WhenCurrentInstrumentHasNoNotes_ShouldRenderTotalOnlyText()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+        var chart = new SongChart
+        {
+            GuitarNoteCount = 123,
+            HasGuitarChart = true,
+            GuitarLevel = 40
+        };
+
+        InvokePrivate<object?>(panel, "DrawNotesCounter", null!, chart, new Vector2(100, 200));
+
+        font.Verify(x => x.MeasureString("123 notes"), Times.Once);
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "123 notes", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(NodeType.Score, "♪ SONG")]
+    [InlineData(NodeType.BackBox, "⬅ BACK")]
+    [InlineData((NodeType)(-1), "UNKNOWN")]
+    public void DrawSongTypeInfo_ShouldRenderAdditionalTypeLabels(NodeType nodeType, string expectedLabel)
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+        float x = 10f;
+        float y = 20f;
+
+        InvokePrivate<object?>(
+            panel,
+            "DrawSongTypeInfo",
+            null!,
+            x,
+            y,
+            300f,
+            new SongListNode { Type = nodeType, Title = "Node" },
+            0);
+
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), expectedLabel, It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DrawNoSongMessage_WhenNoFontsAvailable_ShouldNotThrow()
+    {
+        var panel = new SongStatusPanel();
+
+        InvokePrivate<object?>(panel, "DrawNoSongMessage", null!, new Rectangle(0, 0, 320, 240));
+
+        Assert.Null(panel.ManagedFont);
+        Assert.Null(panel.Font);
+        Assert.Null(panel.SmallFont);
+    }
+
+    [Fact]
+    public void DrawSongTypeInfo_WhenTitleIsLongAndNodeIsRandom_ShouldTruncateAndUseRandomLabel()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+        float x = 10f;
+        float y = 20f;
+        var longTitle = new string('A', 35);
+
+        InvokePrivate<object?>(
+            panel,
+            "DrawSongTypeInfo",
+            null!,
+            x,
+            y,
+            300f,
+            new SongListNode { Type = NodeType.Random, Title = longTitle },
+            0);
+
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), "🎲 RANDOM", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+        font.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), $"{new string('A', 27)}...", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DrawBPMBackground_WhenTextureDisposed_ShouldClearCachedTexture()
+    {
+        var panel = new SongStatusPanel();
+        var bpmTexture = new Mock<ITexture>();
+        bpmTexture
+            .Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()))
+            .Throws(new ObjectDisposedException("bpm"));
+        SetField(panel, "_bpmBackgroundTexture", bpmTexture.Object);
+
+        InvokePrivate<object?>(panel, "DrawBPMBackground", (SpriteBatch)null!);
+
+        Assert.Null(GetField<ITexture?>(panel, "_bpmBackgroundTexture"));
+    }
+
+    [Fact]
+    public void DrawGraphPanelBackground_WhenTextureDisposed_ShouldClearDrumGraphTexture()
+    {
+        var panel = new SongStatusPanel();
+        var graphTexture = new Mock<ITexture>();
+        graphTexture.SetupGet(x => x.Width).Returns(220);
+        graphTexture.SetupGet(x => x.Height).Returns(180);
+        graphTexture
+            .Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Throws(new ObjectDisposedException("graph"));
+        SetField(panel, "_graphPanelDrumsTexture", graphTexture.Object);
+
+        InvokePrivate<object?>(panel, "DrawGraphPanelBackground", null!, new Vector2(1, 2), new Vector2(220, 180));
+
+        Assert.Null(GetField<ITexture?>(panel, "_graphPanelDrumsTexture"));
+    }
+
+    [Fact]
+    public void DrawBPMBackground_WhenStandaloneEnabled_ShouldDrawAtStandaloneOrigin()
+    {
+        var panel = new SongStatusPanel { UseStandaloneBPMBackground = true };
+        var bpmTexture = new Mock<ITexture>();
+        Vector2? drawnPosition = null;
+        bpmTexture
+            .Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()))
+            .Callback<Microsoft.Xna.Framework.Graphics.SpriteBatch, Vector2>((_, position) => drawnPosition = position);
+        SetField(panel, "_bpmBackgroundTexture", bpmTexture.Object);
+
+        InvokePrivate<object?>(panel, "DrawBPMBackground", (SpriteBatch)null!);
+
+        Assert.Equal(new Vector2(490, 385), drawnPosition);
+    }
+
+    private const int RankIconWidth = 32;
+
+    private static Mock<IFont> CreateManagedFont()
+    {
+        var font = new Mock<IFont>();
+        font.SetupGet(x => x.SpriteFont).Returns((Microsoft.Xna.Framework.Graphics.SpriteFont?)null);
+        font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string text) => new Vector2(text.Length * 8, 16));
+        font.Setup(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()));
+        return font;
+    }
+
+    private static Mock<ITexture> CreateTexture(int width = 64, int height = 64)
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(width);
+        texture.SetupGet(x => x.Height).Returns(height);
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()));
+        texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()));
+        return texture;
+    }
+
+    private static SongListNode CreateScoreNodeForDraw()
+    {
+        var chart = new SongChart
+        {
+            FilePath = "song.dtx",
+            Duration = 125,
+            Bpm = 180,
+            DifficultyLevel = 3,
+            DrumLevel = 68,
+            HasDrumChart = true,
+            DrumNoteCount = 321,
+            Scores = new List<SongScore>
+            {
+                new()
+                {
+                    Instrument = EInstrumentPart.DRUMS,
+                    PlayCount = 7,
+                    BestRank = 95,
+                    FullCombo = true
+                }
+            }
+        };
+        var song = new SongEntity
+        {
+            Title = "Draw Song",
+            Charts = new List<SongChart> { chart }
+        };
+        chart.Song = song;
+
+        return new SongListNode
+        {
+            Type = NodeType.Score,
+            Title = "Draw Song",
+            DatabaseSong = song,
+            DatabaseChart = chart,
+            Scores =
+            [
+                new SongScore
+                {
+                    Instrument = EInstrumentPart.DRUMS,
+                    PlayCount = 5,
+                    HighSkill = 88.88,
+                    BestRank = 95,
+                    FullCombo = true
+                },
+                null,
+                null,
+                null,
+                null
+            ]
+        };
     }
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)

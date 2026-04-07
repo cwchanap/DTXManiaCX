@@ -1,11 +1,13 @@
 using Xunit;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using System.Reflection;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Entities;
+using Moq;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
@@ -162,6 +164,139 @@ namespace DTXMania.Test.UI
             // Assert
             Assert.Equal(testNode, _songBar.SongNode);
             Assert.Equal(nodeType, _songBar.SongNode.Type);
+        }
+
+        [Fact]
+        public void Draw_WhenScoreNodeHasTextures_ShouldDrawTitlePreviewAndClearLamp()
+        {
+            var titleTexture = CreateTextureMock();
+            var previewTexture = CreateTextureMock();
+            var clearLampTexture = CreateTextureMock();
+
+            _songBar.SongNode = _testSongNode;
+            _songBar.SetTextures(titleTexture.Object, previewTexture.Object, clearLampTexture.Object);
+            _songBar.Activate();
+
+            _songBar.Draw(null!, 0);
+
+            clearLampTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+            previewTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+            titleTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        }
+
+        [Fact]
+        public void Draw_WhenNodeIsNotScore_ShouldSkipClearLamp()
+        {
+            var titleTexture = CreateTextureMock();
+            var previewTexture = CreateTextureMock();
+            var clearLampTexture = CreateTextureMock();
+            var folderNode = new SongListNode { Type = NodeType.Box, Title = "Folder" };
+
+            _songBar.SongNode = folderNode;
+            _songBar.SetTextures(titleTexture.Object, previewTexture.Object, clearLampTexture.Object);
+            _songBar.Activate();
+
+            _songBar.Draw(null!, 0);
+
+            clearLampTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Never);
+            previewTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
+            titleTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        }
+
+        [Theory]
+        [InlineData(null, "Unknown")]
+        [InlineData(NodeType.BackBox, ".. (Back)")]
+        [InlineData(NodeType.Box, "[Folder]")]
+        [InlineData(NodeType.Random, "*** RANDOM SELECT ***")]
+        [InlineData(NodeType.Score, "Song")]
+        public void GetDisplayText_ShouldMapNodeTypes(NodeType? nodeType, string expected)
+        {
+            _songBar.SongNode = nodeType.HasValue
+                ? new SongListNode { Type = nodeType.Value, Title = nodeType == NodeType.Box ? "Folder" : "Song" }
+                : null!;
+
+            var text = InvokePrivate<string>(_songBar, "GetDisplayText");
+
+            Assert.Equal(expected, text);
+        }
+
+        [Fact]
+        public void Draw_WhenSongNodeIsNull_ShouldReturnWithoutThrowing()
+        {
+            _songBar.Activate();
+
+            var ex = Record.Exception(() => _songBar.Draw(null!, 0));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SongNode_WhenChanged_ShouldInvalidateAllCachedTextures()
+        {
+            _songBar.SetTextures(CreateTextureMock().Object, CreateTextureMock().Object, CreateTextureMock().Object);
+
+            _songBar.SongNode = _testSongNode;
+
+            Assert.Null(GetField<ITexture?>(_songBar, "_titleTexture"));
+            Assert.Null(GetField<ITexture?>(_songBar, "_previewImageTexture"));
+            Assert.Null(GetField<ITexture?>(_songBar, "_clearLampTexture"));
+        }
+
+        [Fact]
+        public void CurrentDifficulty_WhenChanged_ShouldInvalidateOnlyClearLamp()
+        {
+            var titleTexture = CreateTextureMock().Object;
+            var previewTexture = CreateTextureMock().Object;
+            var clearLampTexture = CreateTextureMock().Object;
+            _songBar.SetTextures(titleTexture, previewTexture, clearLampTexture);
+
+            _songBar.CurrentDifficulty = 2;
+
+            Assert.Same(titleTexture, GetField<ITexture?>(_songBar, "_titleTexture"));
+            Assert.Same(previewTexture, GetField<ITexture?>(_songBar, "_previewImageTexture"));
+            Assert.Null(GetField<ITexture?>(_songBar, "_clearLampTexture"));
+        }
+
+        [Fact]
+        public void InitializeGraphicsGenerator_WithNullRenderTarget_ShouldDisableGenerator()
+        {
+            var ex = Record.Exception(() => _songBar.InitializeGraphicsGenerator(null!, null!));
+
+            Assert.Null(ex);
+            Assert.Null(GetField<object?>(_songBar, "_graphicsGenerator"));
+        }
+
+        [Fact]
+        public void DrawNodeTypeIndicator_WhenWhitePixelIsMissing_ShouldReturnWithoutThrowing()
+        {
+            _songBar.SongNode = _testSongNode;
+
+            var ex = Record.Exception(() => InvokePrivate<object?>(_songBar, "DrawNodeTypeIndicator", null!, new Rectangle(0, 0, 100, 32)));
+
+            Assert.Null(ex);
+        }
+
+        private static Mock<ITexture> CreateTextureMock()
+        {
+            var texture = new Mock<ITexture>();
+            texture.SetupGet(x => x.Height).Returns(32);
+            texture.Setup(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>()));
+            texture.Setup(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()));
+            return texture;
+        }
+
+        private static T InvokePrivate<T>(object target, string methodName, params object[] args)
+        {
+            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return (T)method!.Invoke(target, args)!;
+        }
+
+        private static T GetField<T>(object target, string fieldName)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return (T)field!.GetValue(target)!;
         }
 
 
