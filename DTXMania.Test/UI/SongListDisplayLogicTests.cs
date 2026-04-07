@@ -1084,6 +1084,10 @@ public class SongListDisplayLogicTests
         var title = new Mock<ITexture>();
         var preview = new Mock<ITexture>();
         var lamp = new Mock<ITexture>();
+#pragma warning disable SYSLIB0050
+        var cachedTitleTexture = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+        var cachedPreviewTexture = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+#pragma warning restore SYSLIB0050
 
         SetField(display, "_scrollbarTexture", scrollbar.Object);
         SetField(display, "_barScoreTexture", score.Object);
@@ -1106,6 +1110,12 @@ public class SongListDisplayLogicTests
             ClearLamp = lamp.Object
         };
 
+        var titleBarCache = (IDictionary)GetField<object>(display, "_titleBarCache");
+        titleBarCache[1] = cachedTitleTexture;
+
+        var previewImageCache = (IDictionary)GetField<object>(display, "_previewImageCache");
+        previewImageCache[1] = cachedPreviewTexture;
+
         display.Dispose();
 
         scrollbar.Verify(x => x.RemoveReference(), Times.Once);
@@ -1119,6 +1129,10 @@ public class SongListDisplayLogicTests
         title.Verify(x => x.RemoveReference(), Times.Once);
         preview.Verify(x => x.RemoveReference(), Times.Once);
         lamp.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.True(cachedTitleTexture.WasDisposed);
+        Assert.True(cachedPreviewTexture.WasDisposed);
+        Assert.Empty((IDictionary)GetField<object>(display, "_titleBarCache"));
+        Assert.Empty((IDictionary)GetField<object>(display, "_previewImageCache"));
         Assert.Empty((IDictionary)GetField<object>(display, "_songBarCache"));
         Assert.Empty((IDictionary)GetField<object>(display, "_barInfoCache"));
         Assert.False(GetField<bool>(display, "_skinBarTexturesLoaded"));
@@ -1254,5 +1268,19 @@ public class SongListDisplayLogicTests
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (T)field!.GetValue(target)!;
+    }
+
+    private sealed class TrackingTexture2D : Texture2D
+    {
+        public TrackingTexture2D() : base(null!, 1, 1)
+        {
+        }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+        }
     }
 }

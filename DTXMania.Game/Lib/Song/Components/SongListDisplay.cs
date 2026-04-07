@@ -1573,6 +1573,18 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 _songBarCache.Clear();
 
+                foreach (var titleTexture in _titleBarCache.Values)
+                {
+                    titleTexture?.Dispose();
+                }
+                _titleBarCache.Clear();
+
+                foreach (var previewTexture in _previewImageCache.Values)
+                {
+                    previewTexture?.Dispose();
+                }
+                _previewImageCache.Clear();
+
                 // Phase 2: Dispose bar information cache
                 foreach (var barInfo in _barInfoCache.Values)
                 {

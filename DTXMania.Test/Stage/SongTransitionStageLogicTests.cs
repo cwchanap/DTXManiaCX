@@ -248,7 +248,7 @@ namespace DTXMania.Test.Stage
                 ["songId"] = 99
             };
 
-            Assert.ThrowsAny<Exception>(() => stage.Activate(sharedData));
+            Assert.Throws<NullReferenceException>(() => stage.Activate(sharedData));
 
             Assert.Same(selectedSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
             Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
