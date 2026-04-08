@@ -1442,7 +1442,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Track which bar indices are currently visible
             var newVisibleIndices = new HashSet<int>();
-            var seenCacheKeys = new HashSet<string>();
+            var pendingRequests = new Dictionary<string, TextureGenerationRequest>();
 
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
@@ -1451,23 +1451,36 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Implement infinite looping: wrap song index using modulo arithmetic
                 songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
-                newVisibleIndices.Add(songIndex);                // Only queue if not already cached and not already queued this pass
+                newVisibleIndices.Add(songIndex);
                 var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";
-                if (!_barInfoCache.ContainsKey(cacheKey) && seenCacheKeys.Add(cacheKey))
+                if (_barInfoCache.ContainsKey(cacheKey))
                 {
-                    var request = new TextureGenerationRequest
-                    {
-                        SongNode = _currentList[songIndex],
-                        SongIndex = songIndex,
-                        BarIndex = barIndex,
-                        Difficulty = _currentDifficulty,
-                        IsSelected = (barIndex == CENTER_INDEX),
-                        Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
-                    };
-
-                    InsertTextureRequestSorted(request);
+                    continue;
                 }
-            }            // Update visible bar indices
+
+                var request = new TextureGenerationRequest
+                {
+                    SongNode = _currentList[songIndex],
+                    SongIndex = songIndex,
+                    BarIndex = barIndex,
+                    Difficulty = _currentDifficulty,
+                    IsSelected = (barIndex == CENTER_INDEX),
+                    Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
+                };
+
+                if (!pendingRequests.TryGetValue(cacheKey, out var existingRequest)
+                    || request.Priority > existingRequest.Priority
+                    || (request.Priority == existingRequest.Priority && request.IsSelected && !existingRequest.IsSelected))
+                {
+                    pendingRequests[cacheKey] = request;
+                }
+            }
+
+            foreach (var request in pendingRequests.Values.OrderByDescending(item => item.Priority))
+            {
+                InsertTextureRequestSorted(request);
+            }
+            // Update visible bar indices
             _visibleBarIndices.Clear();
             foreach (var index in newVisibleIndices)
             {
