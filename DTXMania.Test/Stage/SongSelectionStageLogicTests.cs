@@ -825,7 +825,7 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var sound = new Mock<ISound>();
-            sound.Setup(x => x.Play(0.9f)).Throws(new InvalidOperationException("play"));
+            sound.Setup(x => x.Play(SongSelectionUILayout.Audio.GameStartSoundVolume)).Throws(new InvalidOperationException("play"));
             SetPrivateField(stage, "_gameStartSound", sound.Object);
 
             var ex = Record.Exception(() => InvokePrivateMethod(stage, "PlayGameStartSound"));
