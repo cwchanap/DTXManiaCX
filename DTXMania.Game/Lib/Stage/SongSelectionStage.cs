@@ -1452,7 +1452,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                _gameStartSound?.Play(0.9f); // Play at 90% volume (same as TitleStage)
+                _gameStartSound?.Play(SongSelectionUILayout.Audio.GameStartSoundVolume);
             }
             catch (Exception ex)
             {

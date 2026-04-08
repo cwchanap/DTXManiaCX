@@ -731,11 +731,14 @@ public class SongStatusPanelLogicTests
         graphTexture
             .Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
             .Throws(new ObjectDisposedException("graph"));
+        var guitarBassTexture = new Mock<ITexture>();
         SetField(panel, "_graphPanelDrumsTexture", graphTexture.Object);
+        SetField(panel, "_graphPanelGuitarBassTexture", guitarBassTexture.Object);
 
         InvokePrivate<object?>(panel, "DrawGraphPanelBackground", null!, new Vector2(1, 2), new Vector2(220, 180));
 
         Assert.Null(GetField<ITexture?>(panel, "_graphPanelDrumsTexture"));
+        Assert.Same(guitarBassTexture.Object, GetField<ITexture?>(panel, "_graphPanelGuitarBassTexture"));
     }
 
     [Fact]

@@ -543,6 +543,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             // Volume levels
             public const float PreviewSoundVolume = 0.8f;  // 80% volume for preview sounds
             public const float NavigationSoundVolume = 0.7f; // 70% volume for navigation sounds
+            public const float GameStartSoundVolume = 0.9f;  // 90% volume for game start sound
             
             // BGM fade settings
             public const double BgmFadeOutDuration = 0.5;  // 500ms fade
