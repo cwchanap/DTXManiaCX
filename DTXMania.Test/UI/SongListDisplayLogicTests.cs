@@ -35,6 +35,16 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void GetDisplayText_WhenScoreTitleMissing_ShouldFallbackToUnknownSong()
+    {
+        var display = new SongListDisplay();
+
+        var text = InvokePrivate<string>(display, "GetDisplayText", new SongListNode { Type = NodeType.Score, Title = null });
+
+        Assert.Equal("Unknown", text);
+    }
+
+    [Fact]
     public void TruncateTextToWidth_ShouldReturnOriginalOrTruncated()
     {
         var display = new SongListDisplay();
@@ -124,6 +134,63 @@ public class SongListDisplayLogicTests
         InvokePrivate<object?>(display, "UpdateScrollAnimation", 1.0 / 60.0);
         var backward = GetField<int>(display, "_currentScrollCounter");
         Assert.InRange(backward, -300, -1);
+    }
+
+    [Fact]
+    public void UpdateScrollAnimation_WhenCrossingTwoBars_ShouldQueueTextureGenerationForVisibleBars()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(12)
+        };
+        var queue = GetTextureGenerationQueue(display);
+        queue.Clear();
+
+        SetField(display, "_selectedIndex", 5);
+        SetField(display, "_currentDifficulty", 1);
+        SetField(display, "_currentScrollCounter", 0);
+        SetField(display, "_targetScrollCounter", 300);
+
+        InvokePrivate<object?>(display, "UpdateScrollAnimation", 1.0);
+
+        Assert.Equal(300, GetField<int>(display, "_currentScrollCounter"));
+        Assert.NotEmpty(queue);
+    }
+
+    [Fact]
+    public void CycleDifficulty_WhenCurrentSlotIsMissing_ShouldWrapToNextAvailableScore()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList =
+            [
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    Scores =
+                    [
+                        null,
+                        new SongScore { DifficultyLevel = 1 },
+                        null,
+                        null,
+                        new SongScore { DifficultyLevel = 4 }
+                    ]
+                }
+            ]
+        };
+
+        DifficultyChangedEventArgs? args = null;
+        display.DifficultyChanged += (_, e) => args = e;
+        display.CurrentDifficulty = 0;
+
+        display.CycleDifficulty();
+        Assert.Equal(1, display.CurrentDifficulty);
+        Assert.NotNull(args);
+        Assert.Equal(1, args!.NewDifficulty);
+
+        display.CycleDifficulty();
+        Assert.Equal(4, display.CurrentDifficulty);
     }
 
     [Fact]
@@ -1047,6 +1114,42 @@ public class SongListDisplayLogicTests
         InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!);
 
         commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
+    public void DrawCommentBar_WhenTextureMissingAndResourceManagerAvailable_ShouldLazyLoadAndDraw()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList =
+            [
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song 0",
+                    DatabaseSong = new SongEntity
+                    {
+                        Title = "Song 0",
+                        Artist = "Artist 0",
+                        Comment = "A comment"
+                    },
+                    Scores = new SongScore[5]
+                }
+            ]
+        };
+        var resourceManager = new Mock<IResourceManager>();
+        var commentBarTexture = CreateTexture(width: 620, height: 60);
+
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Returns(commentBarTexture.Object);
+        SetField(display, "_resourceManager", resourceManager.Object);
+        SetField(display, "_commentBarTexture", null);
+        SetField(display, "_font", null);
+
+        InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!);
+
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.CommentBar), Times.Once);
+        commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+        Assert.Same(commentBarTexture.Object, GetField<ITexture>(display, "_commentBarTexture"));
     }
 
     [Fact]

@@ -3,8 +3,12 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -271,6 +275,98 @@ namespace DTXMania.Test.Stage
             Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
 
+        [Fact]
+        public void OnUpdate_WhenQueuedBackCommandExists_ShouldProcessInputAndReturnToSongSelect()
+        {
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            var inputManager = new TrackingInputManager();
+
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_uiManager", new UIManager());
+            SetPrivateField(stage, "_elapsedTime", 0.0);
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.25);
+
+            Assert.True(inputManager.UpdateCalled);
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.SongSelect,
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
+                    null),
+                Times.Once);
+            Assert.Equal(2.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void ReturnToSongSelect_ShouldUseFadeTransitionWithNullSharedData()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ReturnToSongSelect");
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.SongSelect,
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
+                    null),
+                Times.Once);
+        }
+
+        [Fact]
+        public void CleanupComponents_ShouldDisposeTrackedResourcesAndClearFields()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+            var font = (TrackingBitmapFont)FormatterServices.GetUninitializedObject(typeof(TrackingBitmapFont));
+#pragma warning restore SYSLIB0050
+
+            SetPrivateField(stage, "_whitePixel", whitePixel);
+            SetPrivateField(stage, "_resultFont", font);
+
+            InvokePrivateMethod(stage, "CleanupComponents");
+
+            Assert.True(whitePixel.WasDisposed);
+            Assert.True(font.WasDisposed);
+            Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            Assert.Null(GetPrivateField<BitmapFont>(stage, "_resultFont"));
+        }
+
+        [Fact]
+        public void Dispose_WhenDisposing_ShouldReleaseSpriteBatchAndCleanupComponents()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+            var spriteBatch = (TrackingSpriteBatch)FormatterServices.GetUninitializedObject(typeof(TrackingSpriteBatch));
+            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+            var font = (TrackingBitmapFont)FormatterServices.GetUninitializedObject(typeof(TrackingBitmapFont));
+#pragma warning restore SYSLIB0050
+
+            SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
+            SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            SetPrivateField(stage, "_uiManager", new UIManager());
+            SetPrivateField(stage, "_whitePixel", whitePixel);
+            SetPrivateField(stage, "_resultFont", font);
+            SetPrivateField(stage, "_disposed", false);
+
+            InvokeDispose(stage, true);
+
+            Assert.True(spriteBatch.WasDisposed);
+            Assert.True(whitePixel.WasDisposed);
+            Assert.True(font.WasDisposed);
+        }
+
         #endregion
 
         #region Helper Methods
@@ -319,6 +415,76 @@ namespace DTXMania.Test.Stage
                 type = type.BaseType;
             }
             Assert.Fail($"Field '{fieldName}' not found");
+        }
+
+        private static void InvokeDispose(ResultStage stage, bool disposing)
+        {
+            var method = typeof(ResultStage).GetMethod(
+                "Dispose",
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(bool) },
+                modifiers: null);
+            Assert.NotNull(method);
+            method!.Invoke(stage, new object[] { disposing });
+        }
+
+        private sealed class TrackingInputManager : InputManager
+        {
+            public bool UpdateCalled { get; private set; }
+
+            public void Enqueue(InputCommand command)
+            {
+                EnqueueCommand(command);
+            }
+
+            public override void Update(double deltaTime = 0)
+            {
+                UpdateCalled = true;
+                base.Update(deltaTime);
+            }
+        }
+
+        private sealed class TrackingSpriteBatch : SpriteBatch
+        {
+            public TrackingSpriteBatch() : base(null!)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
+        }
+
+        private sealed class TrackingTexture2D : Texture2D
+        {
+            public TrackingTexture2D() : base(null!, 1, 1)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
+        }
+
+        private sealed class TrackingBitmapFont : BitmapFont
+        {
+            public TrackingBitmapFont() : base((IResourceManager)null!, new BitmapFont.BitmapFontConfig(), allowNullGraphicsDevice: true)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
         }
 
         #endregion

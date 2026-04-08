@@ -337,6 +337,66 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void SelectRandomSong_WhenNoPlayableSongsExist_ShouldNotTransition()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                CreateBoxNode("Folder"),
+                new SongListNode { Type = NodeType.Random, Title = "Random" },
+                new SongListNode { Type = NodeType.BackBox, Title = ".." }
+            });
+
+            InvokePrivateMethod(stage, "SelectRandomSong");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void OnSongActivated_WhenSongIsNull_ShouldLeaveStageStateUnchanged()
+        {
+            var stage = CreateStage();
+            var currentSongList = new List<SongListNode> { CreateScoreNode("Song") };
+            var navigationStack = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
+
+            SetPrivateField(stage, "_currentSongList", currentSongList);
+            navigationStack.Push(new SongListNode { Title = "Root" });
+
+            InvokePrivateMethod(stage, "OnSongActivated", stage, new SongActivatedEventArgs(null!, 0));
+
+            Assert.Same(currentSongList, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Single(navigationStack);
+        }
+
+        [Fact]
+        public void HandleSongActivation_WhenBackBoxNodeProvided_ShouldNavigateBack()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var rootSongs = new List<SongListNode> { CreateScoreNode("Root Song") };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("Child Song") });
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Child");
+            GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(new SongListNode { Children = rootSongs, Title = "Root" });
+
+            InvokePrivateMethod(stage, "HandleSongActivation", new SongListNode { Type = NodeType.BackBox, Title = ".. (Back)" });
+
+            Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Same(rootSongs[0], display.CurrentList[0]);
+        }
+
+        [Fact]
         public void UpdateBreadcrumb_ShouldUseRootFallbackAndCurrentBreadcrumb()
         {
             var stage = CreateStage();
@@ -371,10 +431,38 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExecuteInputCommand_MoveDown_ShouldMoveSelectionAndPlayCursorSound()
+        public void OnUpdate_WhenOwnedInputManagerHasQueuedMoveDown_ShouldProcessInputAndAdvancePhase()
         {
             var stage = CreateStage();
             var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode> { CreateScoreNode("Song A"), CreateScoreNode("Song B") }
+            };
+            var inputManager = new UpdatingQueuedInputManager();
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_ownsInputManager", true);
+            SetPrivateField(stage, "_uiManager", new DTXMania.Game.Lib.UI.UIManager());
+            SetPrivateField(stage, "_selectionPhase", SongSelectionPhase.FadeIn);
+            SetPrivateField(stage, "_currentPhase", StagePhase.FadeIn);
+            SetPrivateField(stage, "_elapsedTime", 0.0);
+            SetPrivateField(stage, "_phaseStartTime", 0.0);
+
+            InvokePrivateMethod(stage, "OnUpdate", SongSelectionUILayout.Timing.FadeInDuration);
+
+            Assert.True(inputManager.UpdateCalled);
+            Assert.Equal(SongSelectionPhase.Normal, GetPrivateField<SongSelectionPhase>(stage, "_selectionPhase"));
+            Assert.Equal(StagePhase.Normal, stage.CurrentPhase);
+            Assert.Equal("Song B", display.SelectedSong.Title);
+        }
+
+        [Fact]
+    public void ExecuteInputCommand_MoveDown_ShouldMoveSelectionAndPlayCursorSound()
+    {
+        var stage = CreateStage();
+        var display = new SongListDisplay
             {
                 CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
             };
@@ -387,15 +475,82 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveDown, 0.0));
 
             Assert.Equal("B", display.SelectedSong!.Title);
-            Assert.Equal(3.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
-            cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-        }
+        Assert.Equal(3.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
+        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+    }
 
-        [Fact]
-        public void ExecuteInputCommand_MoveLeftInStatusPanel_ShouldCycleBackwardDifficulty()
+    [Fact]
+    public void ExecuteInputCommand_MoveUp_ShouldMoveSelectionAndPlayCursorSound()
+    {
+        var stage = CreateStage();
+        var display = new SongListDisplay
         {
-            var stage = CreateStage();
-            var song = CreateScoreNode("Song", CreateScores(0, 2, 4));
+            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+        };
+        var cursorSound = new Mock<ISound>();
+
+        AttachCoreUi(stage, display: display);
+        display.MoveNext();
+        SetPrivateField(stage, "_elapsedTime", 2.5);
+        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+
+        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveUp, 0.0));
+
+        Assert.Equal("A", display.SelectedSong!.Title);
+        Assert.Equal(2.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
+        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+    }
+
+    [Fact]
+    public void ExecuteInputCommand_MoveUpInStatusPanel_ShouldStillMoveSelectionAndPlayCursorSound()
+    {
+        var stage = CreateStage();
+        var display = new SongListDisplay
+        {
+            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+        };
+        var cursorSound = new Mock<ISound>();
+
+        AttachCoreUi(stage, display: display);
+        display.MoveNext();
+        SetPrivateField(stage, "_isInStatusPanel", true);
+        SetPrivateField(stage, "_elapsedTime", 4.5);
+        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+
+        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveUp, 0.0));
+
+        Assert.Equal("A", display.SelectedSong!.Title);
+        Assert.Equal(4.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
+        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+    }
+
+    [Fact]
+    public void ExecuteInputCommand_MoveDownInStatusPanel_ShouldStillMoveSelectionAndPlayCursorSound()
+    {
+        var stage = CreateStage();
+        var display = new SongListDisplay
+        {
+            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+        };
+        var cursorSound = new Mock<ISound>();
+
+        AttachCoreUi(stage, display: display);
+        SetPrivateField(stage, "_isInStatusPanel", true);
+        SetPrivateField(stage, "_elapsedTime", 5.5);
+        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+
+        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveDown, 0.0));
+
+        Assert.Equal("B", display.SelectedSong!.Title);
+        Assert.Equal(5.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
+        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+    }
+
+    [Fact]
+    public void ExecuteInputCommand_MoveLeftInStatusPanel_ShouldCycleBackwardDifficulty()
+    {
+        var stage = CreateStage();
+        var song = CreateScoreNode("Song", CreateScores(0, 2, 4));
             var display = new SongListDisplay
             {
                 CurrentList = [song]
@@ -505,11 +660,11 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void HandleActivateInput_WhenSongSelected_ShouldEnterStatusPanel()
-        {
-            var stage = CreateStage();
-            var statusPanel = new SongStatusPanel { Visible = false };
-            var selectedSong = CreateScoreNode("Song");
+    public void HandleActivateInput_WhenSongSelected_ShouldEnterStatusPanel()
+    {
+        var stage = CreateStage();
+        var statusPanel = new SongStatusPanel { Visible = false };
+        var selectedSong = CreateScoreNode("Song");
 
             AttachCoreUi(stage, statusPanel: statusPanel);
             SetPrivateField(stage, "_selectedSong", selectedSong);
@@ -517,14 +672,31 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "HandleActivateInput");
 
-            Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
-            Assert.True(statusPanel.Visible);
-        }
+        Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+        Assert.True(statusPanel.Visible);
+    }
 
-        [Fact]
-        public void HandleActivateInput_WhenInStatusPanel_ShouldSelectSong()
-        {
-            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+    [Fact]
+    public void ExecuteInputCommand_Activate_ShouldDelegateToActivateHandler()
+    {
+        var stage = CreateStage();
+        var statusPanel = new SongStatusPanel { Visible = false };
+        var selectedSong = CreateScoreNode("Song");
+
+        AttachCoreUi(stage, statusPanel: statusPanel);
+        SetPrivateField(stage, "_selectedSong", selectedSong);
+        SetPrivateField(stage, "_isInStatusPanel", false);
+
+        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
+
+        Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+        Assert.True(statusPanel.Visible);
+    }
+
+    [Fact]
+    public void HandleActivateInput_WhenInStatusPanel_ShouldSelectSong()
+    {
+        var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
             var stage = CreateStage(game);
             var stageManager = new Mock<IStageManager>();
             var selectedSong = CreateScoreNode("Song", songId: 99);
@@ -1149,6 +1321,31 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void SetBackgroundMusic_WhenOldCleanupThrows_ShouldStillReplaceReferences()
+        {
+            var stage = CreateStage();
+            var oldSound = new Mock<ISound>();
+            var oldInstance = new Mock<ISoundInstance>();
+            var newSound = new Mock<ISound>();
+            var newInstance = new Mock<ISoundInstance>();
+
+            oldSound.Setup(x => x.RemoveReference()).Throws(new InvalidOperationException("remove failed"));
+            oldInstance.Setup(x => x.Stop()).Throws(new InvalidOperationException("stop failed"));
+
+            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
+
+            var exception = Record.Exception(() => stage.SetBackgroundMusic(newSound.Object, newInstance.Object));
+
+            Assert.Null(exception);
+            oldSound.Verify(x => x.RemoveReference(), Times.Once);
+            oldInstance.Verify(x => x.Stop(), Times.Once);
+            oldInstance.Verify(x => x.Dispose(), Times.Never);
+            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
+            Assert.Same(newInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
+        }
+
+        [Fact]
         public void AssignInputManager_WhenReplacingOwnedFallback_ShouldDisposeOwnedManagerAndUseSharedManager()
         {
             var stage = CreateStage();
@@ -1357,6 +1554,22 @@ namespace DTXMania.Test.Stage
             public void Enqueue(InputCommand command)
             {
                 EnqueueCommand(command);
+            }
+        }
+
+        private sealed class UpdatingQueuedInputManager : InputManager
+        {
+            public bool UpdateCalled { get; private set; }
+
+            public void Enqueue(InputCommand command)
+            {
+                EnqueueCommand(command);
+            }
+
+            public override void Update(double deltaTime = 0)
+            {
+                UpdateCalled = true;
+                base.Update(deltaTime);
             }
         }
 

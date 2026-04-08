@@ -757,6 +757,123 @@ public class SongStatusPanelLogicTests
         Assert.Equal(new Vector2(490, 385), drawnPosition);
     }
 
+    [Fact]
+    public void DrawBPMSection_WhenAuthenticTextureMissing_ShouldUseFallbackLabels()
+    {
+        var panel = new SongStatusPanel();
+        var managedFont = CreateManagedFont();
+        var song = CreateScoreNodeForDraw();
+
+        panel.ManagedFont = managedFont.Object;
+        panel.ManagedSmallFont = managedFont.Object;
+
+        InvokePrivate<object?>(panel, "DrawBPMSection", null!, Rectangle.Empty, song, 0);
+
+        managedFont.Verify(
+            x => x.DrawString(It.IsAny<SpriteBatch>(), "Length: 2:05", It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Exactly(2));
+        managedFont.Verify(
+            x => x.DrawString(It.IsAny<SpriteBatch>(), "BPM: 180", It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public void DrawRankSymbol_WhenScoreHasRankAndFullCombo_ShouldDrawRankAndBadge()
+    {
+        var panel = new SongStatusPanel();
+        var sourceRects = new List<Rectangle?>();
+        var skillIcon = new Mock<ITexture>();
+        skillIcon.SetupGet(x => x.Height).Returns(20);
+        skillIcon
+            .Setup(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()))
+            .Callback<SpriteBatch, Vector2, Rectangle?>((_, _, sourceRect) => sourceRects.Add(sourceRect));
+
+        SetField(panel, "_skillIconTexture", skillIcon.Object);
+
+        var score = new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            PlayCount = 5,
+            BestRank = 95,
+            FullCombo = true
+        };
+        var chartInfo = new SongStatusPanel.ChartLevelInfo
+        {
+            InstrumentColumn = 0,
+            InstrumentName = "DRUMS",
+            Chart = new SongChart
+            {
+                Scores = new List<SongScore> { score }
+            }
+        };
+
+        InvokePrivate<object?>(panel, "DrawRankSymbol", null!, 10, 20, chartInfo, 0);
+
+        var expectedRankIndex = SongScore.ComputeRankIndex(SongScore.NormalizeStoredBestRank(score.BestRank));
+        Assert.Equal(2, sourceRects.Count);
+        Assert.Equal(new Rectangle(35 * expectedRankIndex, 0, 35, 20), sourceRects[0]);
+        Assert.Equal(new Rectangle(35 * 8, 0, 35, 20), sourceRects[1]);
+    }
+
+    [Fact]
+    public void LaneColorHelpers_ShouldReturnExpectedDrumAndGuitarBassColors()
+    {
+        var panel = new SongStatusPanel();
+
+        Assert.Equal(Color.Purple, InvokePrivate<Color>(panel, "GetDrumLaneColor", 0));
+        Assert.Equal(Color.Yellow, InvokePrivate<Color>(panel, "GetDrumLaneColor", 1));
+        Assert.Equal(Color.Orange, InvokePrivate<Color>(panel, "GetDrumLaneColor", 5));
+        Assert.Equal(Color.White, InvokePrivate<Color>(panel, "GetDrumLaneColor", 99));
+
+        Assert.Equal(Color.Red, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 0));
+        Assert.Equal(Color.Green, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 1));
+        Assert.Equal(Color.Purple, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 4));
+        Assert.Equal(Color.White, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 99));
+    }
+
+    [Fact]
+    public void GetAvailableChartsWithLevels_ShouldExpandSupportedInstrumentsAndDeduplicateByGridSlot()
+    {
+        var panel = new SongStatusPanel();
+        var chart1 = new SongChart { DifficultyLevel = 1, HasDrumChart = true, DrumLevel = 30, HasGuitarChart = true, GuitarLevel = 45 };
+        var chart2 = new SongChart { DifficultyLevel = 1, HasDrumChart = true, DrumLevel = 60, HasBassChart = true, BassLevel = 25 };
+        var chart3 = new SongChart { DifficultyLevel = 3, HasDrumChart = true, DrumLevel = 80 };
+        var song = new SongEntity { Charts = new List<SongChart> { chart1, chart2, chart3 } };
+
+        SetField(panel, "_currentSong", new SongListNode { Type = NodeType.Score, DatabaseSong = song });
+
+        var chartLevels = InvokePrivate<List<SongStatusPanel.ChartLevelInfo>>(panel, "GetAvailableChartsWithLevels");
+
+        Assert.Equal(4, chartLevels.Count);
+        Assert.Contains(chartLevels, info => info.Chart == chart1 && info.InstrumentColumn == 0 && info.Level == 30);
+        Assert.DoesNotContain(chartLevels, info => info.Chart == chart2 && info.InstrumentColumn == 0);
+        Assert.Contains(chartLevels, info => info.Chart == chart1 && info.InstrumentColumn == 1 && info.Level == 45);
+        Assert.Contains(chartLevels, info => info.Chart == chart2 && info.InstrumentColumn == 2 && info.Level == 25);
+        Assert.Contains(chartLevels, info => info.Chart == chart3 && info.InstrumentColumn == 0 && info.Level == 80);
+    }
+
+    [Fact]
+    public void IsChartSelected_ShouldRequireMatchingInstrumentAndCurrentChart()
+    {
+        var panel = new SongStatusPanel();
+        var chart1 = new SongChart { DifficultyLevel = 1, HasDrumChart = true, DrumLevel = 30, HasGuitarChart = true, GuitarLevel = 45 };
+        var chart2 = new SongChart { DifficultyLevel = 2, HasDrumChart = true, DrumLevel = 60 };
+        var song = new SongEntity { Charts = new List<SongChart> { chart1, chart2 } };
+
+        SetField(panel, "_currentSong", new SongListNode { Type = NodeType.Score, DatabaseSong = song });
+        SetField(panel, "_currentDifficulty", 0);
+
+        var chartLevels = InvokePrivate<List<SongStatusPanel.ChartLevelInfo>>(panel, "GetAvailableChartsWithLevels");
+        var selectedDrum = chartLevels.Single(info => info.Chart == chart1 && info.InstrumentColumn == 0);
+        var guitarInfo = chartLevels.Single(info => info.Chart == chart1 && info.InstrumentColumn == 1);
+        var method = typeof(SongStatusPanel).GetMethod("IsChartSelected", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        Assert.False((bool)method!.Invoke(panel, new object?[] { null })!);
+        Assert.True(InvokePrivate<bool>(panel, "IsChartSelected", selectedDrum));
+        Assert.False(InvokePrivate<bool>(panel, "IsChartSelected", guitarInfo));
+    }
+
     private static Mock<IFont> CreateManagedFont()
     {
         var font = new Mock<IFont>();

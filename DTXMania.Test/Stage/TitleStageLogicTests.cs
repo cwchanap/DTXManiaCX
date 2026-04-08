@@ -1,4 +1,5 @@
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
@@ -7,6 +8,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using System.Runtime.Serialization;
+using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace DTXMania.Test.Stage
 {
@@ -225,6 +227,105 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandleInput_WhenMoveDownPressed_ShouldAdvanceCursor()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var inputManager = new StubInputManagerCompat();
+            var cursorSound = CreateSoundReturningInstance();
+            var stage = CreateStage(game);
+
+            inputManager.SetPressedCommand(InputCommandType.MoveDown);
+            ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            cursorSound.Verify(x => x.Play(0.7f), Times.Once);
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenHoverChanges_ShouldUpdateCursorAndPlaySound()
+        {
+            const int menuX = 506;
+            const int menuY = 513;
+            const int itemHeight = 39;
+
+            var stage = CreateStage();
+            var cursorSound = CreateSoundReturningInstance();
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", -1);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(menuX + 10, menuY + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
+            cursorSound.Verify(x => x.Play(0.7f), Times.Once);
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenLeftClickPressedOnHoveredItem_ShouldSelectHoveredEntry()
+        {
+            const int menuX = 506;
+            const int menuY = 513;
+            const int itemHeight = 39;
+
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var selectSound = CreateSoundReturningInstance();
+
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Config,
+                    It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
+                Times.Once);
+            selectSound.Verify(x => x.Play(0.8f), Times.Once);
+        }
+
+        [Fact]
+        public void IsMouseButtonPressed_ShouldDetectRightAndMiddleEdgeTransitions()
+        {
+            var stage = CreateStage();
+            var mouseButtonType = typeof(TitleStage).GetNestedType("MouseButton", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(mouseButtonType);
+
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released));
+
+            var rightPressed = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "IsMouseButtonPressed", Enum.Parse(mouseButtonType!, "Right"));
+            var middlePressed = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "IsMouseButtonPressed", Enum.Parse(mouseButtonType!, "Middle"));
+
+            Assert.True(rightPressed);
+            Assert.True(middlePressed);
+        }
+
+        [Fact]
+        public void PlaySelectSound_WhenSoundThrows_ShouldNotPropagate()
+        {
+            var stage = CreateStage();
+            var sound = new Mock<ISound>();
+            sound.Setup(x => x.Play(0.8f)).Throws(new InvalidOperationException("audio failed"));
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", sound.Object);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "PlaySelectSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void Deactivate_ShouldResetMenuAndInputTrackingState()
         {
             var stage = CreateStage();
@@ -331,6 +432,30 @@ namespace DTXMania.Test.Stage
 
             public void Update(double deltaTime)
             {
+            }
+        }
+
+        private sealed class StubInputManagerCompat : InputManagerCompat
+        {
+            private readonly HashSet<InputCommandType> _pressedCommands = new();
+            private bool _backTriggered;
+
+            public StubInputManagerCompat() : base(new ConfigManager())
+            {
+            }
+
+            public override bool IsBackActionTriggered() => _backTriggered;
+
+            public override bool IsCommandPressed(InputCommandType command) => _pressedCommands.Contains(command);
+
+            public void SetBackTriggered(bool value)
+            {
+                _backTriggered = value;
+            }
+
+            public void SetPressedCommand(InputCommandType command)
+            {
+                _pressedCommands.Add(command);
             }
         }
 

@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
@@ -290,6 +292,104 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.InvokePrivateMethod(stage, "LoadSound");
 
             Assert.Same(fallbackSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_nowLoadingSound"));
+        }
+
+        [Fact]
+        public void OnUpdate_WhenAutoTransitionDelayElapsed_ShouldTransitionToPerformance()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 3.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart { DrumLevel = 55, HasDrumChart = true }));
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", SongTransitionUILayout.Timing.AutoTransitionDelay);
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.0);
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Performance,
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Once);
+            Assert.Equal(3.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void LoadFonts_WhenReloadFails_ShouldReleaseExistingFontsAndLeaveFieldsNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var titleFont = new Mock<IFont>();
+            var artistFont = new Mock<IFont>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_titleFont", titleFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_artistFont", artistFont.Object);
+
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize))
+                .Throws(new InvalidOperationException("missing title font"));
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize))
+                .Throws(new InvalidOperationException("missing artist font"));
+
+            InvokePrivateMethod(stage, "LoadFonts");
+
+            titleFont.Verify(x => x.RemoveReference(), Times.Once);
+            artistFont.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_titleFont"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_artistFont"));
+        }
+
+        [Fact]
+        public void LoadPreviewImage_WhenPrimaryPreviewExists_ShouldLoadAbsolutePreviewPath()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var previewTexture = new Mock<ITexture>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var chartPath = Path.Combine(tempDir, "sample.dtx");
+                var previewFileName = "preview.png";
+                var previewPath = Path.Combine(tempDir, previewFileName);
+                File.WriteAllText(chartPath, "chart");
+                File.WriteAllText(previewPath, "preview");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+                {
+                    FilePath = chartPath,
+                    PreviewImage = previewFileName
+                }));
+                resourceManager
+                    .Setup(x => x.LoadTexture(Path.GetFullPath(previewPath)))
+                    .Returns(previewTexture.Object);
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                resourceManager.Verify(x => x.LoadTexture(Path.GetFullPath(previewPath)), Times.Once);
+                Assert.Same(previewTexture.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void GetDifficultyName_WhenDifficultyOutsideKnownRange_ShouldReturnUnknown()
+        {
+            var stage = CreateStage();
+
+            var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", 9);
+
+            Assert.Equal("Unknown", result);
         }
 
         private static SongTransitionStage CreateStage(BaseGame? game = null)
