@@ -236,6 +236,168 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void LoadPreviewImageComprehensive_WhenPreviewMissingAndDefaultTextureUnavailable_ShouldClearCurrentPreview()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var existingPreview = new Mock<ITexture>();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-preview-empty", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var scoreNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "NoPreviewSong",
+                DirectoryPath = dir
+            };
+
+            SetField(panel, "_resourceManager", resourceManager.Object);
+            SetField(panel, "_currentPreviewTexture", existingPreview.Object);
+
+            InvokePrivate<object?>(panel, "LoadPreviewImageComprehensive", scoreNode);
+
+            existingPreview.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LoadPreviewImageComprehensive_WhenNodeIsNotScore_ShouldReleaseCurrentPreviewAndSkipLoading()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var existingPreview = new Mock<ITexture>();
+
+        SetField(panel, "_resourceManager", resourceManager.Object);
+        SetField(panel, "_currentPreviewTexture", existingPreview.Object);
+
+        InvokePrivate<object?>(panel, "LoadPreviewImageComprehensive", new SongListNode { Type = NodeType.Box, Title = "Folder" });
+
+        existingPreview.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void LoadPreviewImageComprehensive_WhenPreviewMissingAndDefaultTextureExists_ShouldAssignDefaultTexture()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var defaultTexture = new Mock<ITexture>();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-preview-default", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var scoreNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "DefaultPreviewSong",
+                DirectoryPath = dir
+            };
+
+            SetField(panel, "_resourceManager", resourceManager.Object);
+            SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+            InvokePrivate<object?>(panel, "LoadPreviewImageComprehensive", scoreNode);
+
+            defaultTexture.Verify(x => x.AddReference(), Times.Once);
+            Assert.Same(defaultTexture.Object, GetField<ITexture>(panel, "_currentPreviewTexture"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LoadPreviewImageComprehensive_WhenUnexpectedLoadFailureOccurs_ShouldFallbackToDefaultTexture()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var defaultTexture = new Mock<ITexture>();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-preview-invalid-op", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var previewPath = Path.Combine(dir, "preview.jpg");
+            File.WriteAllText(previewPath, "x");
+
+            var scoreNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "FallbackSong",
+                DirectoryPath = dir
+            };
+
+            resourceManager.Setup(x => x.LoadTexture(previewPath)).Throws(new InvalidOperationException("broken preview"));
+            SetField(panel, "_resourceManager", resourceManager.Object);
+            SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+            InvokePrivate<object?>(panel, "LoadPreviewImageComprehensive", scoreNode);
+
+            defaultTexture.Verify(x => x.AddReference(), Times.Once);
+            Assert.Same(defaultTexture.Object, GetField<ITexture>(panel, "_currentPreviewTexture"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LoadPreviewImageComprehensive_WhenUnexpectedLoadFailureOccursWithoutDefault_ShouldClearPreview()
+    {
+        var panel = new PreviewImagePanel();
+        var resourceManager = new Mock<IResourceManager>();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-preview-invalid-op-null", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var previewPath = Path.Combine(dir, "preview.jpg");
+            File.WriteAllText(previewPath, "x");
+
+            var scoreNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "NoDefaultFallbackSong",
+                DirectoryPath = dir
+            };
+
+            resourceManager.Setup(x => x.LoadTexture(previewPath)).Throws(new InvalidOperationException("broken preview"));
+            SetField(panel, "_resourceManager", resourceManager.Object);
+
+            InvokePrivate<object?>(panel, "LoadPreviewImageComprehensive", scoreNode);
+
+            Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void UpdateSelectedSong_WhenSongUnchanged_ShouldNotResetDelayOrReloadPreview()
     {
         var panel = new PreviewImagePanel();
@@ -402,6 +564,19 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void ResolveSongDirectoryPath_WhenAllFallbacksReceiveInvalidPath_ShouldReturnOriginalValue()
+    {
+        var panel = new PreviewImagePanel();
+        var invalidPath = "invalid\0preview";
+
+        panel.SongsRootPath = Path.GetTempPath();
+
+        var resolved = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", invalidPath);
+
+        Assert.Equal(invalidPath, resolved);
+    }
+
+    [Fact]
     public void FindPreviewImageFile_ShouldFindPreviewByKnownNamesAndExtensions()
     {
         var panel = new PreviewImagePanel();
@@ -424,6 +599,109 @@ public class PreviewImagePanelTests
                 Directory.Delete(dir, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public void FindPreviewImageFile_WhenNoKnownPreviewExists_ShouldReturnNull()
+    {
+        var panel = new PreviewImagePanel();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-preview-none", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "notes.txt"), "x");
+
+            var found = InvokePrivate<string?>(panel, "FindPreviewImageFile", dir);
+
+            Assert.Null(found);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void DrawBackground_WhenFrameTextureIsLoaded_ShouldUseNaturalTextureBounds()
+    {
+        var panel = new PreviewImagePanel();
+        var frameTexture = new Mock<ITexture>();
+        Rectangle? drawnBounds = null;
+
+        frameTexture.SetupGet(x => x.Width).Returns(308);
+        frameTexture.SetupGet(x => x.Height).Returns(308);
+        frameTexture
+            .Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (_, destination, _, _, _, _, _, _) => drawnBounds = destination);
+
+        SetField(panel, "_preimagePanelTexture", frameTexture.Object);
+
+        InvokePrivateVoid(panel, "DrawBackground", null!, new Rectangle(10, 20, 400, 400));
+
+        Assert.Equal(new Rectangle(10, 20, 308, 308), drawnBounds);
+    }
+
+    [Fact]
+    public void DrawPreviewContent_WhenPreviewDrawThrowsUnexpectedException_ShouldKeepTextureReference()
+    {
+        var panel = new PreviewImagePanel();
+        var previewTexture = new Mock<ITexture>();
+
+        previewTexture
+            .Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Throws(new InvalidOperationException("boom"));
+
+        SetField(panel, "_currentSong", new SongListNode { Type = NodeType.Score, Title = "Song" });
+        SetField(panel, "_displayDelay", 0.5);
+        SetField(panel, "_currentPreviewTexture", previewTexture.Object);
+
+        var exception = Record.Exception(() => InvokePrivateVoid(panel, "DrawPreviewContent", null!, new Rectangle(250, 34, 308, 308)));
+
+        Assert.Null(exception);
+        Assert.Same(previewTexture.Object, GetField<ITexture>(panel, "_currentPreviewTexture"));
+    }
+
+    [Fact]
+    public void Dispose_ShouldReleaseCurrentDefaultAndFrameTextures()
+    {
+        var panel = new PreviewImagePanel();
+        var currentPreview = new Mock<ITexture>();
+        var defaultPreview = new Mock<ITexture>();
+        var frameTexture = new Mock<ITexture>();
+
+        SetField(panel, "_currentPreviewTexture", currentPreview.Object);
+        SetField(panel, "_defaultPreviewTexture", defaultPreview.Object);
+        SetField(panel, "_preimagePanelTexture", frameTexture.Object);
+
+        panel.Dispose();
+
+        currentPreview.Verify(x => x.RemoveReference(), Times.Once);
+        defaultPreview.Verify(x => x.RemoveReference(), Times.Once);
+        frameTexture.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+        Assert.Null(GetFieldValue(panel, "_preimagePanelTexture"));
     }
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)

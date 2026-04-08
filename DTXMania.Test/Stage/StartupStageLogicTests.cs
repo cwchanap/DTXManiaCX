@@ -106,6 +106,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void UpdateCurrentPhase_WhenAsyncTaskCompletedBeforeMinimumDuration_ShouldStayInCurrentPhase()
+        {
+            var completedTask = Task.CompletedTask;
+            var stage = CreateStage(
+                phase: StartupPhase.SongListDB,
+                elapsedTime: 0.1,
+                phaseStartTime: 0.0,
+                currentAsyncTask: completedTask);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.SongListDB, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Contains("Complete", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Same(completedTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+        }
+
+        [Fact]
         public void UpdateCurrentPhase_WhenAsyncTaskFaulted_ShouldAdvanceAfterMinimumDuration()
         {
             var faultedTask = Task.FromException(new InvalidOperationException("boom"));
@@ -232,6 +250,17 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", phase, 0.0);
 
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+        }
+
+        [Fact]
+        public void PerformPhaseOperationSync_WhenAsyncTaskAlreadyExists_ShouldNotReplaceIt()
+        {
+            var existingTask = Task.Delay(Timeout.Infinite, new CancellationToken(true));
+            var stage = CreateStage(currentAsyncTask: existingTask);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.LoadScoreCache, 0.0);
+
+            Assert.Same(existingTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
         [Fact]
