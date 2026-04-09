@@ -15,6 +15,10 @@ namespace DTXMania.Test.Stage
     [Trait("Category", "Unit")]
     public class TitleStageLogicTests
     {
+        private const int MenuX = 506;
+        private const int MenuY = 513;
+        private const int ItemHeight = 39;
+
         [Fact]
         public void MoveCursorUp_FromFirstItem_ShouldWrapToLastAndPlaySound()
         {
@@ -235,7 +239,7 @@ namespace DTXMania.Test.Stage
             var stage = CreateStage(game);
 
             inputManager.SetPressedCommand(InputCommandType.MoveDown);
-            ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
             ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -247,18 +251,14 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void HandleMouseInput_WhenHoverChanges_ShouldUpdateCursorAndPlaySound()
         {
-            const int menuX = 506;
-            const int menuY = 513;
-            const int itemHeight = 39;
-
             var stage = CreateStage();
             var cursorSound = CreateSoundReturningInstance();
 
             ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", -1);
             ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(menuX + 10, menuY + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
-            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(MenuX + 10, MenuY + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(MenuX + 10, MenuY + ItemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
 
@@ -270,10 +270,6 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void HandleMouseInput_WhenLeftClickPressedOnHoveredItem_ShouldSelectHoveredEntry()
         {
-            const int menuX = 506;
-            const int menuY = 513;
-            const int itemHeight = 39;
-
             var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
             var stage = CreateStage(game);
             var stageManager = new Mock<IStageManager>();
@@ -281,8 +277,8 @@ namespace DTXMania.Test.Stage
 
             stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
-            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(menuX + 10, menuY + itemHeight + 10, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(MenuX + 10, MenuY + ItemHeight + 10, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(MenuX + 10, MenuY + ItemHeight + 10, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
 
@@ -295,8 +291,10 @@ namespace DTXMania.Test.Stage
             selectSound.Verify(x => x.Play(0.8f), Times.Once);
         }
 
-        [Fact]
-        public void IsMouseButtonPressed_ShouldDetectRightAndMiddleEdgeTransitions()
+        [Theory]
+        [InlineData("Right")]
+        [InlineData("Middle")]
+        public void IsMouseButtonPressed_WhenEdgeTransitionOccurs_ShouldReturnTrue(string mouseButtonName)
         {
             var stage = CreateStage();
             var mouseButtonType = typeof(TitleStage).GetNestedType("MouseButton", System.Reflection.BindingFlags.NonPublic);
@@ -305,11 +303,12 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
             ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released));
 
-            var rightPressed = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "IsMouseButtonPressed", Enum.Parse(mouseButtonType!, "Right"));
-            var middlePressed = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "IsMouseButtonPressed", Enum.Parse(mouseButtonType!, "Middle"));
+            var pressed = ReflectionHelpers.InvokePrivateMethod<bool>(
+                stage,
+                "IsMouseButtonPressed",
+                Enum.Parse(mouseButtonType!, mouseButtonName));
 
-            Assert.True(rightPressed);
-            Assert.True(middlePressed);
+            Assert.True(pressed);
         }
 
         [Fact]

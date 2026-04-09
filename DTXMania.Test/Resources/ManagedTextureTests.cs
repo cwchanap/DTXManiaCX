@@ -1,9 +1,9 @@
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.IO;
-using System.Reflection;
 using System.Runtime.Serialization;
 using Xunit;
 
@@ -13,6 +13,7 @@ namespace DTXMania.Test.Resources
     /// Basic unit tests for ManagedTexture interfaces and data structures
     /// Tests core functionality without MonoGame dependencies
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ManagedTextureTests : IDisposable
     {
         private readonly string _testImagePath;
@@ -182,28 +183,19 @@ namespace DTXMania.Test.Resources
 
         private static ManagedTexture CreateManagedTexture(Texture2D? texture = null, bool disposed = false)
         {
-#pragma warning disable SYSLIB0050
             var managedTexture = (ManagedTexture)FormatterServices.GetUninitializedObject(typeof(ManagedTexture));
-#pragma warning restore SYSLIB0050
 
-            SetField(managedTexture, "_texture", texture);
-            SetField(managedTexture, "_sourcePath", "TestTexture");
-            SetField(managedTexture, "_referenceCount", 0);
-            SetField(managedTexture, "_disposed", disposed);
-            SetField(managedTexture, "_lockObject", new object());
-            SetField(managedTexture, "_transparency", 255);
-            SetField(managedTexture, "_scaleRatio", Vector3.One);
-            SetField(managedTexture, "_zAxisRotation", 0f);
-            SetField(managedTexture, "_additiveBlending", false);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_texture", texture);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_sourcePath", "TestTexture");
+            ReflectionHelpers.SetPrivateField(managedTexture, "_referenceCount", 0);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_disposed", disposed);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_lockObject", new object());
+            ReflectionHelpers.SetPrivateField(managedTexture, "_transparency", 255);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_scaleRatio", Vector3.One);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_zAxisRotation", 0f);
+            ReflectionHelpers.SetPrivateField(managedTexture, "_additiveBlending", false);
 
             return managedTexture;
-        }
-
-        private static void SetField(object target, string fieldName, object? value)
-        {
-            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(field);
-            field!.SetValue(target, value);
         }
     }
 }

@@ -3,12 +3,13 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -16,25 +17,17 @@ namespace DTXMania.Test.Stage.Performance
     [Trait("Category", "Performance")]
     public class PooledEffectsManagerTests
     {
-        private static readonly int InitialPoolSize =
-            (int)typeof(PooledEffectsManager)
-                .GetField("InitialPoolSize", BindingFlags.Static | BindingFlags.NonPublic)!
-                .GetRawConstantValue()!;
-
-        private static readonly int MaxPoolSize =
-            (int)typeof(PooledEffectsManager)
-                .GetField("MaxPoolSize", BindingFlags.Static | BindingFlags.NonPublic)!
-                .GetRawConstantValue()!;
-
         [Fact]
         public void SpawnHitEffect_WhenPoolContainsReusableInstance_ShouldUsePoolAndTrackHit()
         {
-            var manager = CreateManager(totalSprites: 4);
+            using var fixture = CreateManager(totalSprites: 4);
+            var manager = fixture.Manager;
+            var initialPoolSize = manager.GetPoolingStats().PoolSize;
 
             manager.SpawnHitEffect(3);
 
             var stats = manager.GetPoolingStats();
-            Assert.Equal(InitialPoolSize - 1, stats.PoolSize);
+            Assert.Equal(initialPoolSize - 1, stats.PoolSize);
             Assert.Equal(1, stats.ActiveInstances);
             Assert.Equal(1, stats.TotalRequests);
             Assert.Equal(1, stats.PoolHits);
@@ -48,8 +41,11 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void SpawnHitEffect_WhenInitialPoolIsExhausted_ShouldCreateNewInstanceAndTrackMiss()
         {
-            var manager = CreateManager(totalSprites: 5);
-            for (int i = 0; i < InitialPoolSize; i++)
+            using var fixture = CreateManager(totalSprites: 5);
+            var manager = fixture.Manager;
+            var initialPoolSize = manager.GetPoolingStats().PoolSize;
+
+            for (int i = 0; i < initialPoolSize; i++)
             {
                 manager.SpawnHitEffect(i % PerformanceUILayout.LaneCount);
             }
@@ -57,48 +53,78 @@ namespace DTXMania.Test.Stage.Performance
             manager.SpawnHitEffect(5);
 
             var stats = manager.GetPoolingStats();
-            Assert.Equal(InitialPoolSize + 1, stats.ActiveInstances);
-            Assert.Equal(InitialPoolSize + 1, stats.TotalRequests);
-            Assert.Equal(InitialPoolSize, stats.PoolHits);
+            Assert.Equal(initialPoolSize + 1, stats.ActiveInstances);
+            Assert.Equal(initialPoolSize + 1, stats.TotalRequests);
+            Assert.Equal(initialPoolSize, stats.PoolHits);
             Assert.Equal(1, stats.PoolMisses);
             Assert.Equal(0, stats.PoolSize);
         }
 
         [Fact]
-        public void SpawnHitEffect_WhenActiveEffectsAlreadyAtMaxPoolSize_ShouldSkipAddingNewEffect()
+        public void SpawnHitEffect_WhenActiveEffectsAlreadyAtCapacity_ShouldSkipAddingNewEffect()
         {
-            var manager = CreateManager(totalSprites: 3);
-            for (int i = 0; i < MaxPoolSize; i++)
+            using var fixture = CreateManager(totalSprites: 3);
+            var manager = fixture.Manager;
+            var previousStats = manager.GetPoolingStats();
+            EffectPoolingStats? skippedEffectStats = null;
+
+            for (int i = 0; i < 1000; i++)
             {
                 manager.SpawnHitEffect(i % PerformanceUILayout.LaneCount);
+                var currentStats = manager.GetPoolingStats();
+                if (currentStats.ActiveInstances == previousStats.ActiveInstances)
+                {
+                    skippedEffectStats = currentStats;
+                    Assert.Equal(previousStats.TotalRequests + 1, currentStats.TotalRequests);
+                    Assert.Equal(previousStats.PoolHits, currentStats.PoolHits);
+                    Assert.Equal(previousStats.PoolMisses + 1, currentStats.PoolMisses);
+                    break;
+                }
+
+                previousStats = currentStats;
             }
+
+            Assert.NotNull(skippedEffectStats);
 
             manager.SpawnHitEffect(1);
 
             var stats = manager.GetPoolingStats();
-            Assert.Equal(MaxPoolSize, stats.ActiveInstances);
-            Assert.Equal(MaxPoolSize + 1, stats.TotalRequests);
-            Assert.Equal(InitialPoolSize, stats.PoolHits);
-            Assert.Equal((MaxPoolSize + 1) - InitialPoolSize, stats.PoolMisses);
+            Assert.Equal(skippedEffectStats!.ActiveInstances, stats.ActiveInstances);
+            Assert.Equal(skippedEffectStats.TotalRequests + 1, stats.TotalRequests);
+            Assert.Equal(skippedEffectStats.PoolHits, stats.PoolHits);
+            Assert.Equal(skippedEffectStats.PoolMisses + 1, stats.PoolMisses);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(PerformanceUILayout.LaneCount)]
+        public void SpawnHitEffect_InvalidLane_ThrowsArgumentOutOfRange(int lane)
+        {
+            using var fixture = CreateManager(totalSprites: 4);
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => fixture.Manager.SpawnHitEffect(lane));
         }
 
         [Fact]
         public void Update_WhenActiveEffectExpires_ShouldReturnItToPool()
         {
-            var manager = CreateManager(totalSprites: 2);
+            using var fixture = CreateManager(totalSprites: 2);
+            var manager = fixture.Manager;
+            var initialPoolSize = manager.GetPoolingStats().PoolSize;
             manager.SpawnHitEffect(0);
 
             manager.Update(1.0);
 
             var stats = manager.GetPoolingStats();
             Assert.Equal(0, stats.ActiveInstances);
-            Assert.Equal(InitialPoolSize, stats.PoolSize);
+            Assert.Equal(initialPoolSize, stats.PoolSize);
         }
 
         [Fact]
         public void ResetStats_ShouldClearCountersWithoutChangingActiveEffectCounts()
         {
-            var manager = CreateManager(totalSprites: 4);
+            using var fixture = CreateManager(totalSprites: 4);
+            var manager = fixture.Manager;
             manager.SpawnHitEffect(0);
             manager.SpawnHitEffect(1);
 
@@ -114,7 +140,9 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void ClearAllEffects_ShouldMoveActiveEffectsBackToPool()
         {
-            var manager = CreateManager(totalSprites: 3);
+            using var fixture = CreateManager(totalSprites: 3);
+            var manager = fixture.Manager;
+            var initialPoolSize = manager.GetPoolingStats().PoolSize;
             manager.SpawnHitEffect(0);
             manager.SpawnHitEffect(1);
 
@@ -122,55 +150,28 @@ namespace DTXMania.Test.Stage.Performance
 
             var stats = manager.GetPoolingStats();
             Assert.Equal(0, stats.ActiveInstances);
-            Assert.Equal(InitialPoolSize, stats.PoolSize);
+            Assert.Equal(initialPoolSize, stats.PoolSize);
         }
 
         [Fact]
         public void Dispose_ShouldClearEffectsAndDisposeHitTexture()
         {
-            var manager = CreateManager(totalSprites: 3);
-            var hitTexture = ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(manager, "_hitEffectTexture")!;
+            using var fixture = CreateManager(totalSprites: 3);
+            var manager = fixture.Manager;
+            var initialPoolSize = manager.GetPoolingStats().PoolSize;
             manager.SpawnHitEffect(0);
 
             manager.Dispose();
 
             var stats = manager.GetPoolingStats();
             Assert.Equal(0, stats.ActiveInstances);
-            Assert.Equal(InitialPoolSize, stats.PoolSize);
-            Assert.True(hitTexture.IsDisposed);
+            Assert.Equal(initialPoolSize, stats.PoolSize);
+            Assert.True(fixture.HitTexture.WasDisposed);
         }
 
-        private static PooledEffectsManager CreateManager(int totalSprites)
+        private static ManagerFixture CreateManager(int totalSprites)
         {
-#pragma warning disable SYSLIB0050
-            var manager = (PooledEffectsManager)FormatterServices.GetUninitializedObject(typeof(PooledEffectsManager));
-            var hitTexture = (ManagedSpriteTexture)FormatterServices.GetUninitializedObject(typeof(ManagedSpriteTexture));
-#pragma warning restore SYSLIB0050
-
-            ReflectionHelpers.SetPrivateField(hitTexture, "_spriteWidth", 8);
-            ReflectionHelpers.SetPrivateField(hitTexture, "_spriteHeight", 32);
-            ReflectionHelpers.SetPrivateField(hitTexture, "_spritesPerRow", totalSprites);
-            ReflectionHelpers.SetPrivateField(hitTexture, "_totalSprites", totalSprites);
-            ReflectionHelpers.SetPrivateField(hitTexture, "_lockObject", new object());
-
-            ReflectionHelpers.SetPrivateField(manager, "_effectPool", CreatePrivateCollection("_effectPool"));
-            ReflectionHelpers.SetPrivateField(manager, "_activeEffects", CreatePrivateCollection("_activeEffects"));
-            ReflectionHelpers.SetPrivateField(manager, "_hitEffectTexture", hitTexture);
-            ReflectionHelpers.SetPrivateField(manager, "_activeLock", new object());
-            ReflectionHelpers.SetPrivateField(manager, "_totalRequests", 0L);
-            ReflectionHelpers.SetPrivateField(manager, "_poolHits", 0L);
-            ReflectionHelpers.SetPrivateField(manager, "_poolMisses", 0L);
-            ReflectionHelpers.InvokePrivateMethod(manager, "InitializePool");
-
-            return manager;
-        }
-
-        private static object CreatePrivateCollection(string fieldName)
-        {
-            var fieldType = typeof(PooledEffectsManager)
-                .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
-                .FieldType;
-            return Activator.CreateInstance(fieldType)!;
+            return new ManagerFixture(totalSprites);
         }
 
         private static IReadOnlyList<object> GetActiveEffects(PooledEffectsManager manager)
@@ -178,6 +179,61 @@ namespace DTXMania.Test.Stage.Performance
             return ((IEnumerable)ReflectionHelpers.GetPrivateField<object>(manager, "_activeEffects")!)
                 .Cast<object>()
                 .ToList();
+        }
+
+        private static Microsoft.Xna.Framework.Graphics.GraphicsDevice CreateGraphicsDeviceStub()
+        {
+            return (Microsoft.Xna.Framework.Graphics.GraphicsDevice)RuntimeHelpers.GetUninitializedObject(
+                typeof(Microsoft.Xna.Framework.Graphics.GraphicsDevice));
+        }
+
+        private static TrackingTexture2D CreateTrackingTexture(int width, int height)
+        {
+            var texture = (TrackingTexture2D)RuntimeHelpers.GetUninitializedObject(typeof(TrackingTexture2D));
+            ReflectionHelpers.SetPrivateField(texture, "width", width);
+            ReflectionHelpers.SetPrivateField(texture, "height", height);
+            ReflectionHelpers.SetPrivateField(texture, "<TexelWidth>k__BackingField", 1f / width);
+            ReflectionHelpers.SetPrivateField(texture, "<TexelHeight>k__BackingField", 1f / height);
+            return texture;
+        }
+
+        private sealed class ManagerFixture : IDisposable
+        {
+            public ManagerFixture(int totalSprites)
+            {
+                HitTexture = CreateTrackingTexture(width: 8 * totalSprites, height: 32);
+                var graphicsDevice = CreateGraphicsDeviceStub();
+                var loadedTexture = new ManagedTexture(graphicsDevice, HitTexture, "Graphics/hit_fx.png");
+                var resourceManager = new Mock<IResourceManager>();
+                resourceManager
+                    .Setup(x => x.LoadTexture("Graphics/hit_fx.png"))
+                    .Returns(loadedTexture);
+
+                Manager = new PooledEffectsManager(graphicsDevice, resourceManager.Object);
+            }
+
+            public PooledEffectsManager Manager { get; }
+
+            public TrackingTexture2D HitTexture { get; }
+
+            public void Dispose()
+            {
+                Manager.Dispose();
+            }
+        }
+
+        private sealed class TrackingTexture2D : Microsoft.Xna.Framework.Graphics.Texture2D
+        {
+            public TrackingTexture2D() : base(null!, 1, 1)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
         }
     }
 }

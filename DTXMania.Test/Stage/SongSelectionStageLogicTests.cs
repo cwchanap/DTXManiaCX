@@ -458,93 +458,41 @@ namespace DTXMania.Test.Stage
             Assert.Equal("Song B", display.SelectedSong.Title);
         }
 
-        [Fact]
-    public void ExecuteInputCommand_MoveDown_ShouldMoveSelectionAndPlayCursorSound()
-    {
-        var stage = CreateStage();
-        var display = new SongListDisplay
+        [Theory]
+        [InlineData(InputCommandType.MoveDown, false, false, 3.5, "B")]
+        [InlineData(InputCommandType.MoveUp, false, true, 2.5, "A")]
+        [InlineData(InputCommandType.MoveUp, true, true, 4.5, "A")]
+        [InlineData(InputCommandType.MoveDown, true, false, 5.5, "B")]
+        public void ExecuteInputCommand_MoveNavigation_ShouldMoveSelectionAndPlayCursorSound(
+            InputCommandType command,
+            bool isInStatusPanel,
+            bool startAtSecondItem,
+            double elapsedTime,
+            string expectedSelectedTitle)
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
             {
                 CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
             };
             var cursorSound = new Mock<ISound>();
 
             AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_elapsedTime", 3.5);
+            if (startAtSecondItem)
+            {
+                display.MoveNext();
+            }
+
+            SetPrivateField(stage, "_isInStatusPanel", isInStatusPanel);
+            SetPrivateField(stage, "_elapsedTime", elapsedTime);
             SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
 
-            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveDown, 0.0));
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(command, 0.0));
 
-            Assert.Equal("B", display.SelectedSong!.Title);
-        Assert.Equal(3.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
-        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-    }
-
-    [Fact]
-    public void ExecuteInputCommand_MoveUp_ShouldMoveSelectionAndPlayCursorSound()
-    {
-        var stage = CreateStage();
-        var display = new SongListDisplay
-        {
-            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
-        };
-        var cursorSound = new Mock<ISound>();
-
-        AttachCoreUi(stage, display: display);
-        display.MoveNext();
-        SetPrivateField(stage, "_elapsedTime", 2.5);
-        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
-
-        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveUp, 0.0));
-
-        Assert.Equal("A", display.SelectedSong!.Title);
-        Assert.Equal(2.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
-        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-    }
-
-    [Fact]
-    public void ExecuteInputCommand_MoveUpInStatusPanel_ShouldStillMoveSelectionAndPlayCursorSound()
-    {
-        var stage = CreateStage();
-        var display = new SongListDisplay
-        {
-            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
-        };
-        var cursorSound = new Mock<ISound>();
-
-        AttachCoreUi(stage, display: display);
-        display.MoveNext();
-        SetPrivateField(stage, "_isInStatusPanel", true);
-        SetPrivateField(stage, "_elapsedTime", 4.5);
-        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
-
-        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveUp, 0.0));
-
-        Assert.Equal("A", display.SelectedSong!.Title);
-        Assert.Equal(4.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
-        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-    }
-
-    [Fact]
-    public void ExecuteInputCommand_MoveDownInStatusPanel_ShouldStillMoveSelectionAndPlayCursorSound()
-    {
-        var stage = CreateStage();
-        var display = new SongListDisplay
-        {
-            CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
-        };
-        var cursorSound = new Mock<ISound>();
-
-        AttachCoreUi(stage, display: display);
-        SetPrivateField(stage, "_isInStatusPanel", true);
-        SetPrivateField(stage, "_elapsedTime", 5.5);
-        SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
-
-        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveDown, 0.0));
-
-        Assert.Equal("B", display.SelectedSong!.Title);
-        Assert.Equal(5.5, GetPrivateField<double>(stage, "_lastNavigationTime"));
-        cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-    }
+            Assert.Equal(expectedSelectedTitle, display.SelectedSong!.Title);
+            Assert.Equal(elapsedTime, GetPrivateField<double>(stage, "_lastNavigationTime"));
+            cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+        }
 
     [Fact]
     public void ExecuteInputCommand_MoveLeftInStatusPanel_ShouldCycleBackwardDifficulty()
@@ -1340,7 +1288,7 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
             oldSound.Verify(x => x.RemoveReference(), Times.Once);
             oldInstance.Verify(x => x.Stop(), Times.Once);
-            oldInstance.Verify(x => x.Dispose(), Times.Never);
+            oldInstance.Verify(x => x.Dispose(), Times.Once);
             Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
             Assert.Same(newInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
         }

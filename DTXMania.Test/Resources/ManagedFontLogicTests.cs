@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -11,6 +11,7 @@ using Moq;
 
 namespace DTXMania.Test.Resources;
 
+[Collection("ManagedFont")]
 [Trait("Category", "Unit")]
 public class ManagedFontLogicTests
 {
@@ -70,9 +71,7 @@ public class ManagedFontLogicTests
     {
         var state = CaptureFontFactoryState();
         var spriteFont = CreateUninitializedSpriteFont();
-#pragma warning disable SYSLIB0050
-        var contentManager = (ContentManager)FormatterServices.GetUninitializedObject(typeof(ContentManager));
-#pragma warning restore SYSLIB0050
+        var contentManager = (ContentManager)RuntimeHelpers.GetUninitializedObject(typeof(ContentManager));
 
         try
         {
@@ -245,9 +244,7 @@ public class ManagedFontLogicTests
     public void CreateTextTexture_WhenSharedRenderTargetIsNullAndSpriteFontExists_ShouldThrowArgumentNullException()
     {
         var font = CreateManagedFont();
-#pragma warning disable SYSLIB0050
-        var spriteFont = (SpriteFont)FormatterServices.GetUninitializedObject(typeof(SpriteFont));
-#pragma warning restore SYSLIB0050
+        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
         ReflectionHelpers.SetPrivateField(font, "_spriteFont", spriteFont);
 
         Assert.Throws<ArgumentNullException>(() => font.CreateTextTexture(null!, "text", new TextRenderOptions(), null!));
@@ -330,12 +327,10 @@ public class ManagedFontLogicTests
         int lineSpacing = 16,
         bool includeCustomTexture = true)
     {
-#pragma warning disable SYSLIB0050
-        var font = (ManagedFont)FormatterServices.GetUninitializedObject(typeof(ManagedFont));
+        var font = (ManagedFont)RuntimeHelpers.GetUninitializedObject(typeof(ManagedFont));
         var customTexture = includeCustomTexture
-            ? (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D))
+            ? (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D))
             : null;
-#pragma warning restore SYSLIB0050
 
         ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
         ReflectionHelpers.SetPrivateField(font, "_sourcePath", "TestFont");
@@ -359,17 +354,50 @@ public class ManagedFontLogicTests
         return font;
     }
 
+    // SpriteFont's LineSpacing storage differs across MonoGame/compiler builds, so the helper
+    // verifies the runtime member shape before setting it instead of assuming one backing-field name.
     private static SpriteFont CreateUninitializedSpriteFont(int lineSpacing = 0)
     {
-#pragma warning disable SYSLIB0050
-        var spriteFont = (SpriteFont)FormatterServices.GetUninitializedObject(typeof(SpriteFont));
-#pragma warning restore SYSLIB0050
+        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
+        var bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
 
-        var lineSpacingField = typeof(SpriteFont).GetField("<LineSpacing>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(lineSpacingField);
-        lineSpacingField!.SetValue(spriteFont, lineSpacing);
+        foreach (var fieldName in new[] { "<LineSpacing>k__BackingField", "LineSpacing", "_lineSpacing", "lineSpacing" })
+        {
+            var lineSpacingField = typeof(SpriteFont).GetField(fieldName, bindingFlags);
+            if (lineSpacingField?.FieldType == typeof(int))
+            {
+                lineSpacingField.SetValue(spriteFont, lineSpacing);
+                return spriteFont;
+            }
+        }
 
-        return spriteFont;
+        var fallbackField = typeof(SpriteFont)
+            .GetFields(bindingFlags)
+            .FirstOrDefault(field =>
+                field.FieldType == typeof(int) &&
+                field.Name.Contains("LineSpacing", StringComparison.OrdinalIgnoreCase));
+        if (fallbackField != null)
+        {
+            fallbackField.SetValue(spriteFont, lineSpacing);
+            return spriteFont;
+        }
+
+        var property = typeof(SpriteFont).GetProperty("LineSpacing", bindingFlags);
+        var setter = property?.GetSetMethod(nonPublic: true);
+        if (property?.PropertyType == typeof(int) && setter != null)
+        {
+            setter.Invoke(spriteFont, new object[] { lineSpacing });
+            return spriteFont;
+        }
+
+        var availableMembers = string.Join(
+            ", ",
+            typeof(SpriteFont)
+                .GetMembers(bindingFlags)
+                .Where(member => member.MemberType is MemberTypes.Field or MemberTypes.Property)
+                .Select(member => $"{member.MemberType}:{member.Name}"));
+        throw new InvalidOperationException(
+            $"Unable to initialize SpriteFont.LineSpacing. Expected a writable field or property matching LineSpacing. Available members: {availableMembers}");
     }
 
     private static T InvokePrivate<T>(object target, string methodName, params object?[] args)
