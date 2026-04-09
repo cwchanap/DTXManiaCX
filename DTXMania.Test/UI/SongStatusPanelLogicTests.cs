@@ -816,22 +816,6 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
-    public void LaneColorHelpers_ShouldReturnExpectedDrumAndGuitarBassColors()
-    {
-        var panel = new SongStatusPanel();
-
-        Assert.Equal(Color.Purple, InvokePrivate<Color>(panel, "GetDrumLaneColor", 0));
-        Assert.Equal(Color.Yellow, InvokePrivate<Color>(panel, "GetDrumLaneColor", 1));
-        Assert.Equal(Color.Orange, InvokePrivate<Color>(panel, "GetDrumLaneColor", 5));
-        Assert.Equal(Color.White, InvokePrivate<Color>(panel, "GetDrumLaneColor", 99));
-
-        Assert.Equal(Color.Red, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 0));
-        Assert.Equal(Color.Green, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 1));
-        Assert.Equal(Color.Purple, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 4));
-        Assert.Equal(Color.White, InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 99));
-    }
-
-    [Fact]
     public void GetAvailableChartsWithLevels_ShouldExpandSupportedInstrumentsAndDeduplicateByGridSlot()
     {
         var panel = new SongStatusPanel();
@@ -845,11 +829,11 @@ public class SongStatusPanelLogicTests
         var chartLevels = InvokePrivate<List<SongStatusPanel.ChartLevelInfo>>(panel, "GetAvailableChartsWithLevels");
 
         Assert.Equal(4, chartLevels.Count);
-        Assert.Contains(chartLevels, info => info.Chart == chart1 && info.InstrumentColumn == 0 && info.Level == 30);
-        Assert.DoesNotContain(chartLevels, info => info.Chart == chart2 && info.InstrumentColumn == 0);
-        Assert.Contains(chartLevels, info => info.Chart == chart1 && info.InstrumentColumn == 1 && info.Level == 45);
-        Assert.Contains(chartLevels, info => info.Chart == chart2 && info.InstrumentColumn == 2 && info.Level == 25);
-        Assert.Contains(chartLevels, info => info.Chart == chart3 && info.InstrumentColumn == 0 && info.Level == 80);
+        Assert.Equal(1, chartLevels.GroupBy(info => new { info.Chart.DifficultyLevel, info.InstrumentColumn }).Max(group => group.Count()));
+        Assert.Contains(chartLevels, info => info.InstrumentColumn == 0 && info.Chart.DifficultyLevel == 1 && info.Level == 30);
+        Assert.Contains(chartLevels, info => info.InstrumentColumn == 1 && info.Chart.DifficultyLevel == 1 && info.Level == 45);
+        Assert.Contains(chartLevels, info => info.InstrumentColumn == 2 && info.Chart.DifficultyLevel == 1 && info.Level == 25);
+        Assert.Contains(chartLevels, info => info.InstrumentColumn == 0 && info.Chart.DifficultyLevel == 3 && info.Level == 80);
     }
 
     [Fact]

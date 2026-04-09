@@ -1529,11 +1529,19 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     _backgroundMusicInstance.Stop();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongSelectionStage.SetBackgroundMusic: Error stopping previous BGM instance: {ex.Message}");
+                }
+
+                try
+                {
                     _backgroundMusicInstance.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    // Log but don't throw - cleanup should be best-effort
                     System.Diagnostics.Debug.WriteLine(
                         $"SongSelectionStage.SetBackgroundMusic: Error disposing previous BGM instance: {ex.Message}");
                 }

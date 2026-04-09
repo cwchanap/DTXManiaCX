@@ -62,6 +62,16 @@ namespace DTXMania.Test.TestData
             field!.SetValue(target, value);
         }
 
+        internal static void SetProperty(object target, string propertyName, object? value)
+        {
+            var property = GetProperty(target.GetType(), propertyName);
+            Assert.NotNull(property);
+
+            var setter = property!.GetSetMethod(nonPublic: true);
+            Assert.NotNull(setter);
+            setter!.Invoke(target, new[] { value });
+        }
+
         internal static FieldInfo? GetField(Type type, string fieldName)
         {
             while (type != null)
@@ -86,6 +96,22 @@ namespace DTXMania.Test.TestData
                 if (method != null)
                 {
                     return method;
+                }
+
+                type = type.BaseType!;
+            }
+
+            return null;
+        }
+
+        internal static PropertyInfo? GetProperty(Type type, string propertyName)
+        {
+            while (type != null)
+            {
+                var property = type.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (property != null)
+                {
+                    return property;
                 }
 
                 type = type.BaseType!;

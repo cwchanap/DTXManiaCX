@@ -1,6 +1,5 @@
 using System;
-using System.Linq;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
@@ -14,6 +13,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for PadRenderer component
     /// Tests pad visual state management without requiring graphics rendering
     /// </summary>
+    [Trait("Category", "Performance")]
     public class PadRendererTests
     {
         [Fact]
@@ -74,16 +74,17 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0.0, visuals[4].TimePressed);
         }
 
-        [Fact]
-        public void TriggerPadPress_WhenLaneIsInvalid_ShouldLeavePadVisualsUnchanged()
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(PerformanceUILayout.LaneCount)]
+        public void TriggerPadPress_WhenLaneIsInvalid_ShouldLeavePadVisualsUnchanged(int laneIndex)
         {
             var renderer = CreateRenderer();
             var visuals = GetPadVisuals(renderer);
             visuals[2].State = PadState.Pressed;
             visuals[2].TimePressed = 12.0;
 
-            renderer.TriggerPadPress(-1);
-            renderer.TriggerPadPress(PerformanceUILayout.LaneCount);
+            renderer.TriggerPadPress(laneIndex);
 
             Assert.Equal(PadState.Pressed, visuals[2].State);
             Assert.Equal(12.0, visuals[2].TimePressed);
@@ -172,16 +173,15 @@ namespace DTXMania.Test.Stage.Performance
 
         private static PadRenderer CreateRenderer()
         {
-#pragma warning disable SYSLIB0050
-            var renderer = (PadRenderer)FormatterServices.GetUninitializedObject(typeof(PadRenderer));
-#pragma warning restore SYSLIB0050
-            ReflectionHelpers.SetPrivateField(
-                renderer,
-                "_padVisuals",
-                Enumerable.Range(0, PerformanceUILayout.LaneCount)
-                    .Select(_ => new PadVisual())
-                    .ToArray());
-            return renderer;
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            return new PadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
+        }
+
+        private static Microsoft.Xna.Framework.Graphics.GraphicsDevice CreateGraphicsDeviceStub()
+        {
+            return (Microsoft.Xna.Framework.Graphics.GraphicsDevice)RuntimeHelpers.GetUninitializedObject(
+                typeof(Microsoft.Xna.Framework.Graphics.GraphicsDevice));
         }
 
         private static PadVisual[] GetPadVisuals(PadRenderer renderer)
