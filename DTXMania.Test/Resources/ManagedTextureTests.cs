@@ -183,7 +183,9 @@ namespace DTXMania.Test.Resources
 
         private static ManagedTexture CreateManagedTexture(Texture2D? texture = null, bool disposed = false)
         {
+#pragma warning disable SYSLIB0050
             var managedTexture = (ManagedTexture)FormatterServices.GetUninitializedObject(typeof(ManagedTexture));
+#pragma warning restore SYSLIB0050
 
             ReflectionHelpers.SetPrivateField(managedTexture, "_texture", texture);
             ReflectionHelpers.SetPrivateField(managedTexture, "_sourcePath", "TestTexture");
