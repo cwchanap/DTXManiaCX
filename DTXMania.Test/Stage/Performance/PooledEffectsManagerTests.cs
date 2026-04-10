@@ -169,6 +169,41 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(fixture.HitTexture.WasDisposed);
         }
 
+        [Fact]
+        public void Constructor_WhenResourceManagerIsNull_ShouldThrowNullReferenceException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+
+            Assert.Throws<NullReferenceException>(() =>
+                new PooledEffectsManager(graphicsDevice, null!));
+        }
+
+        [Fact]
+        public void Constructor_WhenLoadTextureReturnsNull_ShouldThrowNullReferenceException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(It.IsAny<string>()))
+                .Returns((ManagedTexture?)null!);
+
+            Assert.Throws<NullReferenceException>(() =>
+                new PooledEffectsManager(graphicsDevice, resourceManager.Object));
+        }
+
+        [Fact]
+        public void Constructor_WhenLoadTextureThrows_ShouldPropagateException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(It.IsAny<string>()))
+                .Throws(new InvalidOperationException("Texture load failed"));
+
+            Assert.Throws<InvalidOperationException>(() =>
+                new PooledEffectsManager(graphicsDevice, resourceManager.Object));
+        }
+
         private static ManagerFixture CreateManager(int totalSprites)
         {
             return new ManagerFixture(totalSprites);

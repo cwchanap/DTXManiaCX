@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.IO;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -88,9 +88,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void ExistingTextureConstructor_WhenSourcePathIsNull_ShouldFallbackToUnknown()
         {
-#pragma warning disable SYSLIB0050
-            var texture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-#pragma warning restore SYSLIB0050
+            var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
 
             var managedTexture = new ManagedTexture(null!, texture, null!);
 
@@ -183,9 +181,7 @@ namespace DTXMania.Test.Resources
 
         private static ManagedTexture CreateManagedTexture(Texture2D? texture = null, bool disposed = false)
         {
-#pragma warning disable SYSLIB0050
-            var managedTexture = (ManagedTexture)FormatterServices.GetUninitializedObject(typeof(ManagedTexture));
-#pragma warning restore SYSLIB0050
+            var managedTexture = (ManagedTexture)RuntimeHelpers.GetUninitializedObject(typeof(ManagedTexture));
 
             ReflectionHelpers.SetPrivateField(managedTexture, "_texture", texture);
             ReflectionHelpers.SetPrivateField(managedTexture, "_sourcePath", "TestTexture");
