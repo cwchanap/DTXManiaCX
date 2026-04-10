@@ -118,22 +118,33 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void Properties_WhenTextureIsMissing_ShouldUseSafeDefaultsAndClampValues()
+        public void Properties_WhenTextureIsMissing_ShouldUseSafeDefaults()
         {
             var managedTexture = CreateManagedTexture();
 
-            managedTexture.Transparency = 999;
             managedTexture.ZAxisRotation = 1.25f;
             managedTexture.ScaleRatio = new Vector3(2f, 3f, 1f);
             managedTexture.AdditiveBlending = true;
 
             Assert.Equal(0L, managedTexture.MemoryUsage);
-            Assert.Equal(255, managedTexture.Transparency);
-            managedTexture.Transparency = -5;
-            Assert.Equal(0, managedTexture.Transparency);
             Assert.Equal(1.25f, managedTexture.ZAxisRotation);
             Assert.Equal(new Vector3(2f, 3f, 1f), managedTexture.ScaleRatio);
             Assert.True(managedTexture.AdditiveBlending);
+        }
+
+        [Theory]
+        [InlineData(999, 255)]
+        [InlineData(-5, 0)]
+        [InlineData(0, 0)]
+        [InlineData(255, 255)]
+        [InlineData(128, 128)]
+        public void Transparency_ShouldClampToByteRange(int input, int expected)
+        {
+            var managedTexture = CreateManagedTexture();
+
+            managedTexture.Transparency = input;
+
+            Assert.Equal(expected, managedTexture.Transparency);
         }
 
         [Fact]
@@ -156,11 +167,20 @@ namespace DTXMania.Test.Resources
         public void CloneAndColorOperations_WhenTextureIsMissing_ShouldThrowObjectDisposedException()
         {
             var managedTexture = CreateManagedTexture();
+            var tempPath = Path.Combine(Path.GetTempPath(), "texture.png");
 
             Assert.Throws<ObjectDisposedException>(() => managedTexture.Clone());
             Assert.Throws<ObjectDisposedException>(() => managedTexture.GetColorData());
             Assert.Throws<ObjectDisposedException>(() => managedTexture.SetColorData(Array.Empty<Color>()));
-            Assert.Throws<ObjectDisposedException>(() => managedTexture.SaveToFile(Path.Combine(Path.GetTempPath(), "texture.png")));
+            try
+            {
+                Assert.Throws<ObjectDisposedException>(() => managedTexture.SaveToFile(tempPath));
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
         }
 
         public void Dispose()
