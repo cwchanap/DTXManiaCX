@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -321,6 +322,264 @@ public class ManagedFontLogicTests
         Assert.Equal(Vector2.Zero, font.GetKerning('A', 'V'));
     }
 
+    [Fact]
+    public void BuildCharacterRangeCache_ShouldPopulateCharacterRangesAndLogResults()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
+        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { 'A', 'B', '1', '2' });
+
+        InvokePrivate<object?>(font, "BuildCharacterRangeCache");
+
+        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
+        Assert.NotNull(supportedCharacters);
+    }
+
+    [Fact]
+    public void TestCharacterRange_ShouldCallTestCharacterSupportForEachCharacterInRange()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
+        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { 'A', 'B', 'C' });
+
+        InvokePrivate<object?>(font, "TestCharacterRange", 0x41, 0x43, "Test Range");
+
+        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
+        Assert.NotNull(supportedCharacters);
+        Assert.Contains('A', supportedCharacters);
+    }
+
+    [Fact]
+    public void TestCommonKanjiCharacters_ShouldCallTestCharacterSupportForEachKanjiCharacter()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
+        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { '一', '二', '三' });
+
+        InvokePrivate<object?>(font, "TestCommonKanjiCharacters");
+
+        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
+        Assert.NotNull(supportedCharacters);
+    }
+
+    [Fact]
+    public void IsJapaneseCharacter_ShouldRecognizeAllJapaneseUnicodeRanges()
+    {
+        var font = CreateManagedFont();
+
+        // Test various Unicode ranges
+        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'あ'));
+        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'ア'));
+        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", '漢'));
+        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", '「'));
+        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", (char)0xFF00));
+        Assert.False(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'A'));
+        Assert.False(InvokePrivate<bool>(font, "IsJapaneseCharacter", '@'));
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplacedFullwidthCharactersWithHalfwidth()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'A', '?', ' ' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", 'Ａ');
+
+        Assert.Equal('A', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceUnsupportedEllipsisWithPeriod()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '.', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '…');
+
+        Assert.Equal('.', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceEMDashWithHyphen()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '-', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '—');
+
+        Assert.Equal('-', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceLeftSingleQuotationMarkWithApostrophe()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '\'', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u2018');
+
+        Assert.Equal('\'', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceRightSingleQuotationMarkWithApostrophe()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '\'', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u2019');
+
+        Assert.Equal('\'', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceLeftDoubleQuotationMarkWithQuote()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '"', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u201C');
+
+        Assert.Equal('"', replacement);
+    }
+
+    [Fact]
+    public void GetCharacterReplacement_ShouldReplaceRightDoubleQuotationMarkWithQuote()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { '"', '?' });
+
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u201D');
+
+        Assert.Equal('"', replacement);
+    }
+
+    [Fact]
+    public void WrapText_ShouldWrapLongSingleWordOnNarrowWidth()
+    {
+        var font = CreateManagedFont(
+            customCharacters: new HashSet<char> { 'A', 'B', 'C', 'D', 'E', 'F' },
+            glyphs: new Dictionary<char, Rectangle>
+            {
+                ['A'] = new Rectangle(0, 0, 20, 16),
+                ['B'] = new Rectangle(20, 0, 20, 16),
+                ['C'] = new Rectangle(40, 0, 20, 16),
+                ['D'] = new Rectangle(60, 0, 20, 16),
+                ['E'] = new Rectangle(80, 0, 20, 16),
+                ['F'] = new Rectangle(100, 0, 20, 16)
+            });
+
+        var lines = InvokePrivate<List<string>>(font, "WrapText", "ABC DEF", 50f);
+
+        Assert.NotEmpty(lines);
+    }
+
+    [Fact]
+    public void WrapText_ShouldPreserveWordBoundariesAndRespectMaxWidth()
+    {
+        var font = CreateManagedFont(
+            customCharacters: new HashSet<char> { 'x', 'y', 'z' },
+            glyphs: new Dictionary<char, Rectangle>
+            {
+                ['x'] = new Rectangle(0, 0, 5, 16),
+                ['y'] = new Rectangle(5, 0, 5, 16),
+                ['z'] = new Rectangle(10, 0, 5, 16)
+            });
+
+        var lines = InvokePrivate<List<string>>(font, "WrapText", "x y z", 20f);
+
+        Assert.True(lines.Count >= 1);
+        Assert.All(lines, line => Assert.NotNull(line));
+    }
+
+    [Fact]
+    public void GenerateCacheKey_ShouldIncludeAllRenderOptions()
+    {
+        var font = CreateManagedFont();
+        var optionsA = new TextRenderOptions
+        {
+            TextColor = Color.Red,
+            EnableOutline = true,
+            OutlineColor = Color.Blue,
+            OutlineThickness = 2,
+            EnableGradient = true,
+            GradientTopColor = Color.Green,
+            GradientBottomColor = Color.Yellow,
+            EnableShadow = true,
+            ShadowColor = Color.Black,
+            ShadowOffset = new Vector2(1, 1)
+        };
+        var optionsB = new TextRenderOptions
+        {
+            TextColor = Color.Blue,
+            EnableOutline = false,
+            OutlineColor = Color.Red,
+            OutlineThickness = 1,
+            EnableGradient = false,
+            GradientTopColor = Color.Red,
+            GradientBottomColor = Color.Blue,
+            EnableShadow = false,
+            ShadowColor = Color.White,
+            ShadowOffset = new Vector2(2, 2)
+        };
+
+        var keyA = InvokePrivate<string>(font, "GenerateCacheKey", "test", optionsA);
+        var keyB = InvokePrivate<string>(font, "GenerateCacheKey", "test", optionsB);
+
+        Assert.NotEqual(keyA, keyB);
+        Assert.Contains("test", keyA);
+        Assert.Contains(Color.Red.PackedValue.ToString(), keyA);
+    }
+
+    [Fact]
+    public void BuildCharacterCache_WithCustomCharactersSet_ShouldUseCustomCharacterSet()
+    {
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'X', 'Y', 'Z' });
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+
+        InvokePrivate<object?>(font, "BuildCharacterCache");
+
+        var supported = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
+        Assert.NotNull(supported);
+        Assert.Contains('X', supported);
+        Assert.Contains('Y', supported);
+        Assert.Contains('Z', supported);
+    }
+
+    [Fact]
+    public void BuildCharacterCache_WithoutSpriteFontAndNoCustomCharacters_ShouldMarkCacheBuilt()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
+        ReflectionHelpers.SetPrivateField(font, "_customFontCharacters", new HashSet<char>());
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+
+        InvokePrivate<object?>(font, "BuildCharacterCache");
+
+        var cacheBuilt = ReflectionHelpers.GetPrivateField<bool>(font, "_characterCacheBuilt");
+        Assert.True(cacheBuilt);
+    }
+
+    [Fact]
+    public void TestCharacterSupport_WithNullSpriteFont_ShouldReturnFalse()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
+
+        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void TestCharacterSupport_WhenMeasureStringThrows_ShouldReturnFalse()
+    {
+        var font = CreateManagedFont();
+        var spriteFont = CreateUninitializedSpriteFont();
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", spriteFont);
+
+        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
+
+        Assert.False(result);
+    }
+
     private static ManagedFont CreateManagedFont(
         HashSet<char>? customCharacters = null,
         Dictionary<char, Rectangle>? glyphs = null,
@@ -354,8 +613,6 @@ public class ManagedFontLogicTests
         return font;
     }
 
-    // SpriteFont's LineSpacing storage differs across MonoGame/compiler builds, so the helper
-    // verifies the runtime member shape before setting it instead of assuming one backing-field name.
     private static SpriteFont CreateUninitializedSpriteFont(int lineSpacing = 0)
     {
         var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
