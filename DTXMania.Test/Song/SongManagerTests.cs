@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 using DTXMania.Game.Lib.Song.Entities;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song
 {
@@ -614,5 +618,358 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        #region Database Wrapper and Rebuild Tests
+
+        [Fact]
+        public async Task BuildSongListsAsync_WithNoSongs_ShouldReturnFalse()
+        {
+            var result = await _manager.BuildSongListsAsync();
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task BuildSongListsAsync_WithExistingRootSongs_ShouldReturnTrue()
+        {
+            var rootSongs = GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
+            rootSongs.Add(new SongListNode { Title = "Existing Song", Type = NodeType.Score });
+
+            var result = await _manager.BuildSongListsAsync();
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public async Task SaveSongsDBAsync_WithoutDatabaseService_ShouldReturnFalse()
+        {
+            var result = await _manager.SaveSongsDBAsync();
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SaveSongsDBAsync_AfterInitialization_ShouldReturnTrue()
+        {
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+            var result = await _manager.SaveSongsDBAsync();
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public async Task SaveSongsDBAsync_WithBrokenDatabaseService_ShouldReturnFalse()
+        {
+            var originalDatabaseService = _manager.DatabaseService;
+
+            try
+            {
+                SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+                var result = await _manager.SaveSongsDBAsync();
+
+                Assert.False(result);
+            }
+            finally
+            {
+                SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+            }
+        }
+
+        [Fact]
+        public async Task DatabaseExistsAsync_WithoutDatabaseService_ShouldReturnFalse()
+        {
+            var result = await _manager.DatabaseExistsAsync();
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task DatabaseExistsAsync_AfterInitialization_ShouldReturnTrue()
+        {
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+            var result = await _manager.DatabaseExistsAsync();
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public async Task DatabaseExistsAsync_WithBrokenDatabaseService_ShouldReturnFalse()
+        {
+            var originalDatabaseService = _manager.DatabaseService;
+
+            try
+            {
+                SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+                var result = await _manager.DatabaseExistsAsync();
+
+                Assert.False(result);
+            }
+            finally
+            {
+                SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+            }
+        }
+
+        [Fact]
+        public async Task IsDatabaseCorruptedAsync_WithoutDatabaseService_ShouldReturnFalse()
+        {
+            var result = await _manager.IsDatabaseCorruptedAsync();
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task IsDatabaseCorruptedAsync_AfterInitialization_ShouldReturnFalse()
+        {
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+            var result = await _manager.IsDatabaseCorruptedAsync();
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task IsDatabaseCorruptedAsync_WithBrokenDatabaseService_ShouldReturnTrue()
+        {
+            var originalDatabaseService = _manager.DatabaseService;
+
+            try
+            {
+                SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+                var result = await _manager.IsDatabaseCorruptedAsync();
+
+                Assert.True(result);
+            }
+            finally
+            {
+                SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+            }
+        }
+
+        [Fact]
+        public async Task GetDatabaseStatsAsync_WithoutDatabaseService_ShouldReturnNull()
+        {
+            var stats = await _manager.GetDatabaseStatsAsync();
+
+            Assert.Null(stats);
+        }
+
+        [Fact]
+        public async Task GetDatabaseStatsAsync_AfterInitialization_ShouldReturnStats()
+        {
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+            var stats = await _manager.GetDatabaseStatsAsync();
+
+            Assert.NotNull(stats);
+            Assert.Equal(0, stats.ScoreCount);
+        }
+
+        [Fact]
+        public async Task GetDatabaseStatsAsync_WithBrokenDatabaseService_ShouldReturnNull()
+        {
+            var originalDatabaseService = _manager.DatabaseService;
+
+            try
+            {
+                SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+                var stats = await _manager.GetDatabaseStatsAsync();
+
+                Assert.Null(stats);
+            }
+            finally
+            {
+                SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+            }
+        }
+
+        [Fact]
+        public async Task EnumerateSongsOnlyAsync_WithMultipleSongs_ShouldPopulateRootSongs()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"SongManagerEnumerateOnly_{Guid.NewGuid():N}");
+
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+                for (int i = 1; i <= 3; i++)
+                {
+                    await File.WriteAllTextAsync(
+                        Path.Combine(tempDir, $"song{i}.dtx"),
+                        $@"#TITLE: Enumerate Song {i}
+#ARTIST: Enumerate Artist {i}
+#DLEVEL: {40 + i}
+");
+                }
+
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+                var result = await _manager.EnumerateSongsOnlyAsync(new[] { tempDir });
+
+                Assert.Equal(3, result);
+                Assert.Equal(3, _manager.RootSongs.Count);
+                Assert.All(_manager.RootSongs, node => Assert.Equal(NodeType.Score, node.Type));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task BuildSongListFromDatabasePublicAsync_WithNestedBoxesAndManyRootSongs_ShouldRestoreHierarchy()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"SongManagerRebuild_{Guid.NewGuid():N}");
+            var parentBoxDir = Path.Combine(tempDir, "DTXFiles.Parent");
+            var childBoxDir = Path.Combine(parentBoxDir, "DTXFiles.Child");
+
+            try
+            {
+                Directory.CreateDirectory(childBoxDir);
+
+                for (int i = 1; i <= 6; i++)
+                {
+                    await File.WriteAllTextAsync(
+                        Path.Combine(tempDir, $"root{i}.dtx"),
+                        $@"#TITLE: Root Song {i}
+#ARTIST: Root Artist {i}
+#DLEVEL: {40 + i}
+");
+                }
+
+                await File.WriteAllTextAsync(
+                    Path.Combine(childBoxDir, "child1.dtx"),
+                    @"#TITLE: Child Song 1
+#ARTIST: Box Artist
+#DLEVEL: 55
+");
+                await File.WriteAllTextAsync(
+                    Path.Combine(childBoxDir, "child2.dtx"),
+                    @"#TITLE: Child Song 2
+#ARTIST: Box Artist
+#DLEVEL: 65
+");
+
+                await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+                await _manager.EnumerateSongsAsync(new[] { tempDir });
+
+                GetPrivateField<List<SongListNode>>(_manager, "_rootSongs").Clear();
+
+                await _manager.BuildSongListFromDatabasePublicAsync(new[] { tempDir });
+
+                Assert.True(_manager.RootSongs.Count > 5);
+                var parentBox = Assert.Single(_manager.RootSongs, n => n.Type == NodeType.Box && n.Title == "DTXFiles.Parent");
+                var childBox = Assert.Single(parentBox.Children, n => n.Type == NodeType.Box && n.Title == "DTXFiles.Child");
+                Assert.Equal(2, childBox.Children.Count);
+                Assert.Contains(_manager.RootSongs, node => node.Type == NodeType.Score && node.Title == "Root Song 1");
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task BuildSongListFromDatabasePublicAsync_WithBrokenDatabaseService_ShouldLeaveRootSongsEmpty()
+        {
+            var originalDatabaseService = _manager.DatabaseService;
+
+            try
+            {
+                SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+                await _manager.BuildSongListFromDatabasePublicAsync(new[] { Path.GetTempPath() });
+
+                Assert.Empty(_manager.RootSongs);
+            }
+            finally
+            {
+                SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+            }
+        }
+
+        [Fact]
+        public async Task BuildHierarchyFromCharts_WithBlankOrMissingPaths_ShouldSkipCharts()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"SongManagerHierarchy_{Guid.NewGuid():N}");
+
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+
+                var charts = new List<(SongEntity song, SongChart chart)>
+                {
+                    (new SongEntity { Title = "Blank Path", Artist = "Tester" }, new SongChart { FilePath = "" }),
+                    (new SongEntity { Title = "Missing File", Artist = "Tester" }, new SongChart { FilePath = Path.Combine(tempDir, "missing.dtx") })
+                };
+
+                var result = await InvokePrivateAsync<List<SongListNode>>(_manager, "BuildHierarchyFromCharts", tempDir, charts);
+
+                Assert.Empty(result);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Theory]
+        [InlineData("#  TITLE Sample Song", "#TITLE Sample Song")]
+        [InlineData("#TITLE  Sample Song", "#TITLE Sample Song")]
+        [InlineData("#ABC  Value", "#ABC Value")]
+        [InlineData("  plain text  ", "plain text")]
+        public void NormalizeSetDefLine_ShouldNormalizeSupportedFormats(string line, string expected)
+        {
+            var normalized = InvokePrivate<string>(_manager, "NormalizeSetDefLine", line);
+
+            Assert.Equal(expected, normalized);
+        }
+
+        #endregion
+
+        private static SongDatabaseService CreateBrokenDatabaseService()
+        {
+            return (SongDatabaseService)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabaseService));
+        }
+
+        private static T GetPrivateField<T>(object instance, string fieldName)
+        {
+            var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return (T)field!.GetValue(instance)!;
+        }
+
+        private static void SetPrivateField(object instance, string fieldName, object? value)
+        {
+            var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field!.SetValue(instance, value);
+        }
+
+        private static T InvokePrivate<T>(object instance, string methodName, params object[] args)
+        {
+            var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return (T)method!.Invoke(instance, args)!;
+        }
+
+        private static async Task<T> InvokePrivateAsync<T>(object instance, string methodName, params object[] args)
+        {
+            var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var task = method!.Invoke(instance, args) as Task<T>;
+            Assert.NotNull(task);
+
+            return await task!;
+        }
     }
 }
