@@ -799,6 +799,42 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadUIGraphics_WhenHeaderLoadFails_ShouldStillLoadFooterTexture()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var footer = new Mock<ITexture>().Object;
+
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionHeaderPanel)).Throws(new InvalidOperationException("header"));
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionFooterPanel)).Returns(footer);
+            AttachResourceManager(stage, resourceManager.Object);
+
+            var ex = Record.Exception(() => InvokePrivateMethod(stage, "LoadUIGraphics"));
+
+            Assert.Null(ex);
+            Assert.Null(GetPrivateField<ITexture>(stage, "_headerPanelTexture"));
+            Assert.Same(footer, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
+        }
+
+        [Fact]
+        public void LoadUIGraphics_WhenBothLoadsSucceed_ShouldSetHeaderAndFooterTextures()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var header = new Mock<ITexture>().Object;
+            var footer = new Mock<ITexture>().Object;
+
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionHeaderPanel)).Returns(header);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionFooterPanel)).Returns(footer);
+            AttachResourceManager(stage, resourceManager.Object);
+
+            InvokePrivateMethod(stage, "LoadUIGraphics");
+
+            Assert.Same(header, GetPrivateField<ITexture>(stage, "_headerPanelTexture"));
+            Assert.Same(footer, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
+        }
+
+        [Fact]
         public void LoadNavigationSound_WhenNowLoadingFails_ShouldFallbackToDecideSound()
         {
             var stage = CreateStage();
@@ -830,6 +866,23 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(GetPrivateField<ISound>(stage, "_cursorMoveSound"));
             Assert.Null(GetPrivateField<ISound>(stage, "_gameStartSound"));
+        }
+
+        [Fact]
+        public void LoadNavigationSound_WhenCursorLoadFailsButNowLoadingSucceeds_ShouldKeepGameStartSound()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var nowLoading = new Mock<ISound>().Object;
+
+            resourceManager.Setup(x => x.LoadSound("Sounds/Move.ogg")).Throws(new InvalidOperationException("cursor"));
+            resourceManager.Setup(x => x.LoadSound("Sounds/Now loading.ogg")).Returns(nowLoading);
+            AttachResourceManager(stage, resourceManager.Object);
+
+            InvokePrivateMethod(stage, "LoadNavigationSound");
+
+            Assert.Null(GetPrivateField<ISound>(stage, "_cursorMoveSound"));
+            Assert.Same(nowLoading, GetPrivateField<ISound>(stage, "_gameStartSound"));
         }
 
         [Fact]
@@ -925,6 +978,27 @@ namespace DTXMania.Test.Stage
 
             Assert.NotNull(GetPrivateField<InputManager>(stage, "_inputManager"));
             Assert.True(GetPrivateField<bool>(stage, "_ownsInputManager"));
+        }
+
+        [Fact]
+        public void CreateFallbackFont_WhenLoadSucceeds_ShouldReturnLoadedFont()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var expectedFont = new Mock<IFont>().Object;
+
+            resourceManager
+                .Setup(x => x.LoadFont(
+                    SongSelectionUILayout.Background.DefaultFontName,
+                    SongSelectionUILayout.Background.DefaultFontSize,
+                    FontStyle.Regular))
+                .Returns(expectedFont);
+
+            AttachResourceManager(stage, resourceManager.Object);
+
+            var fallbackFont = InvokePrivateMethod<IFont?>(stage, "CreateFallbackFont");
+
+            Assert.Same(expectedFont, fallbackFont);
         }
 
         [Fact]
@@ -1393,6 +1467,179 @@ namespace DTXMania.Test.Stage
             var fallbackFont = InvokePrivateMethod<IFont?>(stage, "CreateFallbackFont");
 
             Assert.Null(fallbackFont);
+        }
+
+        [Fact]
+        public void HandleSongActivation_WhenRandomNodeProvided_ShouldSelectRandomPlayableSong()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var onlySong = CreateScoreNode("Only Song", songId: 55);
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                CreateBoxNode("Folder"),
+                onlySong
+            });
+
+            InvokePrivateMethod(stage, "HandleSongActivation", new SongListNode { Type = NodeType.Random, Title = "Random" });
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], onlySong))),
+                Times.Once);
+        }
+
+        [Fact]
+        public void SelectSong_WhenSongNodeIsNull_ShouldReturnWithoutTransition()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "SelectSong", new object[] { null! });
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void SelectSong_WhenNodeIsNotScore_ShouldReturnWithoutTransition()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "SelectSong", new SongListNode { Type = NodeType.Box, Title = "Folder" });
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void HandleActivateInput_WhenBackBoxSelected_ShouldNavigateBack()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var rootSongs = new List<SongListNode> { CreateScoreNode("Root Song") };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_selectedSong", new SongListNode { Type = NodeType.BackBox, Title = ".." });
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("Child Song") });
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Child");
+            GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(new SongListNode { Children = rootSongs, Title = "Root" });
+
+            InvokePrivateMethod(stage, "HandleActivateInput");
+
+            Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Same(rootSongs[0], display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void HandleInput_WhenInputManagerNull_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "HandleInput"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ProcessInputCommands_WhenInputManagerNull_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "ProcessInputCommands"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void InitializeSongList_WhenSongManagerAlreadyInitialized_ShouldPopulateCurrentAndDisplayedSongs()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+            var song = CreateScoreNode("Initialized Song");
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(song);
+                SetPrivateField(songManager, "_isInitialized", true);
+
+                InvokePrivateMethod(stage, "InitializeSongList");
+
+                Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Same(song, GetPrivateField<List<SongListNode>>(stage, "_currentSongList")![0]);
+                Assert.Single(display.CurrentList);
+                Assert.Same(song, display.CurrentList[0]);
+                Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
+        }
+
+        [Fact]
+        public void InitializeSongList_WhenSongManagerIsNotInitialized_ShouldStartBackgroundTaskAndKeepDisplayEmpty()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalSongs = new List<SongListNode>(rootSongs);
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+            var song = CreateScoreNode("Deferred Song");
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                rootSongs.Clear();
+                rootSongs.Add(song);
+                SetPrivateField(songManager, "_isInitialized", false);
+
+                InvokePrivateMethod(stage, "InitializeSongList");
+
+                var initializationTask = GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask");
+                Assert.NotNull(initializationTask);
+                Assert.Empty(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
+                Assert.Empty(display.CurrentList);
+                initializationTask!.Wait();
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalSongs);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
         }
 
         private static void AttachCoreUi(
