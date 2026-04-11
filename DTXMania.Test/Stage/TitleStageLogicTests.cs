@@ -206,6 +206,32 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadBackgroundTexture_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "LoadBackgroundTexture"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void LoadMenuTexture_WhenResourceLoadSucceeds_ShouldAssignMenuTexture()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var menuTexture = new Mock<ITexture>();
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.TitleMenu))
+                .Returns(menuTexture.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadMenuTexture");
+
+            Assert.Same(menuTexture.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_menuTexture"));
+        }
+
+        [Fact]
         public void LoadSoundEffects_WhenGameStartSoundMissing_ShouldFallbackToDecideSound()
         {
             var stage = CreateStage();
@@ -231,6 +257,84 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadSoundEffects_WhenCursorMoveSoundMissing_ShouldContinueLoadingOtherSounds()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var selectSound = CreateSoundReturningInstance();
+            var gameStartSound = CreateSoundReturningInstance();
+
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Move.ogg"))
+                .Throws(new InvalidOperationException("missing move"));
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Returns(selectSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Game start.ogg"))
+                .Returns(gameStartSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_cursorMoveSound"));
+            Assert.Same(selectSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_selectSound"));
+            Assert.Same(gameStartSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+        }
+
+        [Fact]
+        public void LoadSoundEffects_WhenSelectSoundMissing_ShouldLeaveSelectSoundUnset()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var cursorSound = CreateSoundReturningInstance();
+            var gameStartSound = CreateSoundReturningInstance();
+
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Move.ogg"))
+                .Returns(cursorSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Throws(new InvalidOperationException("missing decide"));
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Game start.ogg"))
+                .Returns(gameStartSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
+
+            Assert.Same(cursorSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_cursorMoveSound"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_selectSound"));
+            Assert.Same(gameStartSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+        }
+
+        [Fact]
+        public void LoadSoundEffects_WhenGameStartAndFallbackMissing_ShouldLeaveGameStartSoundUnset()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var cursorSound = CreateSoundReturningInstance();
+            var selectSound = CreateSoundReturningInstance();
+
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Move.ogg"))
+                .Returns(cursorSound.Object);
+            resourceManager
+                .SetupSequence(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Returns(selectSound.Object)
+                .Throws(new InvalidOperationException("missing fallback decide"));
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Game start.ogg"))
+                .Throws(new InvalidOperationException("missing game start"));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
+
+            Assert.Same(selectSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_selectSound"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+        }
+
+        [Fact]
         public void HandleInput_WhenMoveDownPressed_ShouldAdvanceCursor()
         {
             var game = ReflectionHelpers.CreateGame();
@@ -246,6 +350,65 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
             cursorSound.Verify(x => x.Play(0.7f), Times.Once);
+        }
+
+        [Fact]
+        public void HandleInput_WhenBackTriggeredAndTransitionAllowed_ShouldReturnBeforeOtherInput()
+        {
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var inputManager = new StubInputManagerCompat();
+            var stage = CreateStage(game);
+
+            inputManager.SetBackTriggered(true);
+            inputManager.SetPressedCommand(InputCommandType.MoveDown);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(2.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void HandleInput_WhenBackTriggeredButTransitionBlocked_ShouldStillReturnWithoutMoving()
+        {
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+            var inputManager = new StubInputManagerCompat();
+            var stage = CreateStage(game);
+
+            inputManager.SetBackTriggered(true);
+            inputManager.SetPressedCommand(InputCommandType.MoveDown);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void HandleInput_WhenActivatePressed_ShouldSelectCurrentMenuItem()
+        {
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var inputManager = new StubInputManagerCompat();
+            var stageManager = new Mock<IStageManager>();
+            var selectSound = CreateSoundReturningInstance();
+            var stage = CreateStage(game);
+
+            inputManager.SetPressedCommand(InputCommandType.Activate);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
+            stage.StageManager = stageManager.Object;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Config,
+                    It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
+                Times.Once);
+            selectSound.Verify(x => x.Play(0.8f), Times.Once);
         }
 
         [Fact]
@@ -265,6 +428,25 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
             Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
             cursorSound.Verify(x => x.Play(0.7f), Times.Once);
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenMouseIsOutsideMenu_ShouldClearHoverWithoutPlayingSound()
+        {
+            var stage = CreateStage();
+            var cursorSound = CreateSoundReturningInstance();
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
+            cursorSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
         }
 
         [Fact]
@@ -291,6 +473,24 @@ namespace DTXMania.Test.Stage
             selectSound.Verify(x => x.Play(0.8f), Times.Once);
         }
 
+        [Fact]
+        public void IsMouseButtonPressed_WhenLeftEdgeTransitionOccurs_ShouldReturnTrue()
+        {
+            var stage = CreateStage();
+            var mouseButtonType = typeof(TitleStage).GetNestedType("MouseButton", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(mouseButtonType);
+
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            var pressed = ReflectionHelpers.InvokePrivateMethod<bool>(
+                stage,
+                "IsMouseButtonPressed",
+                Enum.Parse(mouseButtonType!, "Left"));
+
+            Assert.True(pressed);
+        }
+
         [Theory]
         [InlineData("Right")]
         [InlineData("Middle")]
@@ -312,6 +512,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void IsMouseButtonPressed_WhenUnknownButton_ShouldReturnFalse()
+        {
+            var stage = CreateStage();
+            var mouseButtonType = typeof(TitleStage).GetNestedType("MouseButton", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(mouseButtonType);
+
+            var pressed = ReflectionHelpers.InvokePrivateMethod<bool>(
+                stage,
+                "IsMouseButtonPressed",
+                Enum.ToObject(mouseButtonType!, 99));
+
+            Assert.False(pressed);
+        }
+
+        [Fact]
+        public void PlayCursorMoveSound_WhenSoundThrows_ShouldNotPropagate()
+        {
+            var stage = CreateStage();
+            var sound = new Mock<ISound>();
+            sound.Setup(x => x.Play(0.7f)).Throws(new InvalidOperationException("audio failed"));
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", sound.Object);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "PlayCursorMoveSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void PlaySelectSound_WhenSoundThrows_ShouldNotPropagate()
         {
             var stage = CreateStage();
@@ -320,6 +548,37 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_selectSound", sound.Object);
 
             var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "PlaySelectSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void PlayGameStartSound_WhenSoundThrows_ShouldNotPropagate()
+        {
+            var stage = CreateStage();
+            var sound = new Mock<ISound>();
+            sound.Setup(x => x.Play(0.9f)).Throws(new InvalidOperationException("audio failed"));
+            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", sound.Object);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "PlayGameStartSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawHelpers_WhenRequiredTexturesAreMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", -1);
+
+            var exception = Record.Exception(() =>
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawVersionInfo");
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawMenu");
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawMenuWithTexture");
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawMenuCursor", MenuY, 0);
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawMenuWithRectangles");
+            });
 
             Assert.Null(exception);
         }
