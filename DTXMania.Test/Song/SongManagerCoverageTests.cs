@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.TestData;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song;
 
@@ -436,6 +437,286 @@ public class SongManagerCoverageTests : IDisposable
         Assert.Empty(await _manager.FindSongsBySearchAsync("anything"));
         Assert.Empty(await _manager.GetSongsByGenreAsync("anything"));
         Assert.False(await _manager.BuildSongListsAsync());
+    }
+
+    [Fact]
+    public void NormalizeSetDefLine_WithSpacedCommand_ShouldNotReturnEmpty()
+    {
+        var result = ReflectionHelpers.InvokePrivateMethod<string>(_manager, "NormalizeSetDefLine", "# L 5 F I L E hard.dtx");
+        
+        Assert.NotNull(result);
+        Assert.NotEmpty(result!);
+        Assert.Contains("hard.dtx", result);
+    }
+
+    [Fact]
+    public void NormalizeSetDefLine_WithL1LabelSpacedPattern_ShouldNotReturnEmpty()
+    {
+        var result = ReflectionHelpers.InvokePrivateMethod<string>(_manager, "NormalizeSetDefLine", "# L 1 L A B E L Expert");
+        
+        Assert.NotNull(result);
+        Assert.NotEmpty(result!);
+        Assert.Contains("Expert", result);
+    }
+
+    [Fact]
+    public async Task ParseSetDefinitionAsync_WithNoTitleInDtx_ShouldUseFilenameOrDirectory()
+    {
+        var setFolder = Path.Combine(_testRoot, "NoTitleSet");
+        var setDefPath = Path.Combine(setFolder, "set.def");
+        Directory.CreateDirectory(setFolder);
+        
+        await File.WriteAllTextAsync(setDefPath, """
+#L1FILE notitle.dtx
+""");
+        
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "notitle.dtx"), """
+#BPM: 140
+#DLEVEL: 50
+#00002:11111111
+""");
+        
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        
+        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+            _manager,
+            "ParseSetDefinitionAsync",
+            setDefPath,
+            null!,
+            CancellationToken.None);
+        
+        Assert.NotNull(task);
+        var results = await task!;
+        
+        var node = Assert.Single(results);
+        Assert.True(node.Title == "NoTitleSet" || node.Title == "notitle");
+    }
+
+    [Fact]
+    public async Task ParseSetDefinitionAsync_WithCancelledToken_ShouldReturnEmptyList()
+    {
+        var setFolder = Path.Combine(_testRoot, "CancelledSet");
+        var setDefPath = Path.Combine(setFolder, "set.def");
+        Directory.CreateDirectory(setFolder);
+        
+        await File.WriteAllTextAsync(setDefPath, """
+#TITLE: Cancelled Song
+#L1FILE cancelled.dtx
+""");
+        
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "cancelled.dtx"), """
+#TITLE: Cancelled Song
+#BPM: 140
+#DLEVEL: 50
+#00002:11111111
+""");
+        
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        
+        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+            _manager,
+            "ParseSetDefinitionAsync",
+            setDefPath,
+            null!,
+            cancellation.Token);
+        
+        Assert.NotNull(task);
+        var results = await task!;
+        
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task ParseBoxDefinitionAsync_WithColorLines_ShouldParseColors()
+    {
+        var boxFolder = Path.Combine(_testRoot, "ColorBox");
+        var boxDefPath = Path.Combine(boxFolder, "box.def");
+        Directory.CreateDirectory(boxFolder);
+        
+        await File.WriteAllTextAsync(boxDefPath, """
+#TITLE: Colorful Box
+#BGCOLOR: #FF5733
+#TEXTCOLOR: #33FF57
+""");
+        
+        var task = ReflectionHelpers.InvokePrivateMethod<Task<BoxDefinition?>>(
+            _manager,
+            "ParseBoxDefinitionAsync",
+            boxDefPath,
+            CancellationToken.None);
+        
+        Assert.NotNull(task);
+        var boxDef = await task!;
+        
+        Assert.NotNull(boxDef);
+        Assert.Equal("Colorful Box", boxDef!.Title);
+        Assert.Equal(System.Drawing.ColorTranslator.FromHtml("#FF5733"), boxDef.BackgroundColor);
+        Assert.Equal(System.Drawing.ColorTranslator.FromHtml("#33FF57"), boxDef.TextColor);
+    }
+
+    [Fact]
+    public void CreateSongNodeFromDatabaseEntities_WithGuitarOnlyChart_ShouldSelectGuitar()
+    {
+        var song = new SongEntity
+        {
+            Title = "Guitar Song",
+            Artist = "Coverage Bot",
+            Genre = "Rock"
+        };
+        
+        var guitarChart = new SongChart
+        {
+            FilePath = Path.Combine(_testRoot, "guitar.dtx"),
+            HasDrumChart = false,
+            HasGuitarChart = true,
+            HasBassChart = false,
+            DrumLevel = 0,
+            GuitarLevel = 75,
+            BassLevel = 0
+        };
+        
+        var charts = new[]
+        {
+            guitarChart,
+            new SongChart
+            {
+                FilePath = Path.Combine(_testRoot, "supporting.dtx"),
+                HasDrumChart = true,
+                DrumLevel = 35
+            }
+        };
+        
+        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+        
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Scores[0]);
+        Assert.Equal(EInstrumentPart.GUITAR, result.Scores[0]!.Instrument);
+        Assert.Equal(75, result.Scores[0].DifficultyLevel);
+    }
+
+    [Fact]
+    public void CreateSongNodeFromDatabaseEntities_WithBassOnlyChart_ShouldSelectBass()
+    {
+        var song = new SongEntity
+        {
+            Title = "Bass Song",
+            Artist = "Coverage Bot",
+            Genre = "Funk"
+        };
+        
+        var bassChart = new SongChart
+        {
+            FilePath = Path.Combine(_testRoot, "bass.dtx"),
+            HasDrumChart = false,
+            HasGuitarChart = false,
+            HasBassChart = true,
+            DrumLevel = 0,
+            GuitarLevel = 0,
+            BassLevel = 88
+        };
+        
+        var charts = new[]
+        {
+            bassChart,
+            new SongChart
+            {
+                FilePath = Path.Combine(_testRoot, "supporting.dtx"),
+                HasDrumChart = true,
+                DrumLevel = 35
+            }
+        };
+        
+        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+        
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Scores[0]);
+        Assert.Equal(EInstrumentPart.BASS, result.Scores[0]!.Instrument);
+        Assert.Equal(88, result.Scores[0].DifficultyLevel);
+    }
+
+    [Fact]
+    public void CreateSongNodeFromDatabaseEntities_WithMultipleCharts_ShouldCapAtFiveDifficulties()
+    {
+        var song = new SongEntity
+        {
+            Title = "Multi Song",
+            Artist = "Coverage Bot",
+            Genre = "Rock"
+        };
+        
+        var charts = Enumerable.Range(1, 7).Select(i => new SongChart
+        {
+            FilePath = Path.Combine(_testRoot, $"chart{i}.dtx"),
+            HasDrumChart = true,
+            DrumLevel = i * 10
+        }).ToArray();
+        
+        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+        
+        Assert.NotNull(result);
+        Assert.Equal(5, result!.Scores.Count(s => s != null));
+        Assert.Equal("Level 5", result.DifficultyLabels[4]);
+    }
+
+    [Fact]
+    public void CreateSongNodeFromDatabaseEntities_WithNullSong_ShouldReturnNull()
+    {
+        var charts = new[] { new SongChart { FilePath = "dummy.dtx", HasDrumChart = true, DrumLevel = 50 } };
+        
+        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", null!, charts);
+        
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task CheckDatabaseFilesStillExist_WithMissingFileNotFound_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "MissingFileSongs");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        var chartPath = Path.Combine(songFolder, "missing.dtx");
+        
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(chartPath, "Missing Song", "Coverage Bot", "Rock", 50);
+        
+        await InitializeAndEnumerateAsync(songsRoot);
+        
+        File.Delete(chartPath);
+        
+        ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", new[] { Path.Combine(_testRoot, "NonExistentPath") });
+        
+        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+        Assert.NotNull(checkTask);
+        
+        var changeDetected = await checkTask!;
+        
+        Assert.True(changeDetected);
+    }
+
+    [Fact]
+    public async Task IsLikelyMatchAsync_WithMissingOriginalPath_ShouldReturnTrue()
+    {
+        var missingPath = Path.Combine(_testRoot, "missing.dtx");
+        var candidatePath = Path.Combine(_testRoot, "missing.dtx");
+        
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "IsLikelyMatchAsync", missingPath, candidatePath);
+        
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task IsLikelyMatchAsync_WithSizeMismatch_ShouldReturnFalse()
+    {
+        var originalPath = Path.Combine(_testRoot, "original.dtx");
+        var candidatePath = Path.Combine(_testRoot, "candidate.dtx");
+        
+        await File.WriteAllTextAsync(originalPath, "short");
+        await File.WriteAllTextAsync(candidatePath, "this is a much longer file content");
+        
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "IsLikelyMatchAsync", originalPath, candidatePath);
+        
+        Assert.False(result);
     }
 
     public void Dispose()
