@@ -987,6 +987,84 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void WrapTextWithMeasurement_WhenTextFitsOnOneLine_ShouldReturnSingleLine()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "hello world", 200f, measureText);
+
+        Assert.Single(lines);
+        Assert.Equal("hello world", lines[0]);
+    }
+
+    [Fact]
+    public void WrapTextWithMeasurement_WhenTextExceedsWidth_ShouldWrapAtWordBoundaries()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "hello world foo", 100f, measureText);
+
+        Assert.Equal(2, lines.Length);
+        Assert.Equal("hello", lines[0]);
+        Assert.Equal("world foo", lines[1]);
+    }
+
+    [Fact]
+    public void WrapTextWithMeasurement_WhenMultipleWordsExceedWidth_ShouldWrapMultipleTimes()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "one two three four five", 80f, measureText);
+
+        Assert.Equal(4, lines.Length);
+        Assert.Equal("one two", lines[0]);
+        Assert.Equal("three", lines[1]);
+        Assert.Equal("four", lines[2]);
+        Assert.Equal("five", lines[3]);
+    }
+
+    [Fact]
+    public void WrapTextWithMeasurement_WhenSingleWordExceedsWidth_ShouldAddWordAnyway()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "superlongword", 50f, measureText);
+
+        Assert.Single(lines);
+        Assert.Equal("superlongword", lines[0]);
+    }
+
+    [Fact]
+    public void WrapTextWithMeasurement_WhenSingleWordExceedsWidthInMiddle_ShouldPlaceOnNewLine()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "short superlongword end", 100f, measureText);
+
+        Assert.Equal(3, lines.Length);
+        Assert.Equal("short", lines[0]);
+        Assert.Equal("superlongword", lines[1]);
+        Assert.Equal("end", lines[2]);
+    }
+
+    [Fact]
+    public void WrapTextWithMeasurement_WhenExactlyFitsWidth_ShouldNotWrap()
+    {
+        var display = new SongListDisplay();
+        System.Func<string, float> measureText = text => text.Length * 10f;
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextWithMeasurement", "hello", 50f, measureText);
+
+        Assert.Single(lines);
+        Assert.Equal("hello", lines[0]);
+    }
+
+    [Fact]
     public void CalculateBarTextureBounds_WhenTextureSizeProvided_ShouldUseProvidedSize()
     {
         var display = new SongListDisplay();
