@@ -704,6 +704,290 @@ public class PreviewImagePanelTests
         Assert.Null(GetFieldValue(panel, "_preimagePanelTexture"));
     }
 
+    [Fact]
+    public void LoadDefaultPreviewTexture_WhenResourceManagerIsNull_ShouldLeaveDefaultPreviewNull()
+    {
+        var panel = new PreviewImagePanel();
+        SetField(panel, "_resourceManager", null);
+
+        InvokePrivateVoid(panel, "LoadDefaultPreviewTexture");
+
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+    }
+
+    [Fact]
+    public void LoadDefaultPreviewTexture_WhenLoadTextureThrows_ShouldLeaveDefaultPreviewNull()
+    {
+        var panel = new PreviewImagePanel();
+        var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.LoadTexture(TexturePath.DefaultPreview))
+            .Throws(new FileNotFoundException("default preview missing"));
+
+        SetField(panel, "_resourceManager", rm.Object);
+
+        InvokePrivateVoid(panel, "LoadDefaultPreviewTexture");
+
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+    }
+
+    [Fact]
+    public void LoadPreimagePanelTexture_WhenResourceExistsReturnsFalse_ShouldLeavePanelTextureNull()
+    {
+        var panel = new PreviewImagePanel();
+        var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.ResourceExists(TexturePath.PreimagePanel)).Returns(false);
+
+        SetField(panel, "_resourceManager", rm.Object);
+
+        InvokePrivateVoid(panel, "LoadPreimagePanelTexture");
+
+        Assert.Null(GetFieldValue(panel, "_preimagePanelTexture"));
+        rm.Verify(x => x.LoadTexture(TexturePath.PreimagePanel), Times.Never);
+    }
+
+    [Fact]
+    public void LoadPreimagePanelTexture_WhenLoadTextureThrows_ShouldLeavePanelTextureNull()
+    {
+        var panel = new PreviewImagePanel();
+        var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.ResourceExists(TexturePath.PreimagePanel)).Returns(true);
+        rm.Setup(x => x.LoadTexture(TexturePath.PreimagePanel))
+            .Throws(new InvalidOperationException("panel texture corrupted"));
+
+        SetField(panel, "_resourceManager", rm.Object);
+
+        InvokePrivateVoid(panel, "LoadPreimagePanelTexture");
+
+        Assert.Null(GetFieldValue(panel, "_preimagePanelTexture"));
+    }
+
+    [Fact]
+    public void AssignDefaultPreviewTexture_WhenDefaultPreviewPresent_ShouldAddReferenceAndAssign()
+    {
+        var panel = new PreviewImagePanel();
+        var defaultTexture = new Mock<ITexture>();
+
+        SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+        InvokePrivateVoid(panel, "AssignDefaultPreviewTexture");
+
+        defaultTexture.Verify(x => x.AddReference(), Times.Once);
+        Assert.Same(defaultTexture.Object, GetField<ITexture>(panel, "_currentPreviewTexture"));
+    }
+
+    [Fact]
+    public void GetSongDirectoryFromNode_WhenDatabaseSongHasChartPath_ShouldReturnChartDirectory()
+    {
+        var panel = new PreviewImagePanel();
+        var chartFile = Path.Combine("DTXFiles", "genre", "song", "chart.dtx");
+        var node = new SongListNode
+        {
+            Type = NodeType.Score,
+            DatabaseSong = new SongEntity
+            {
+                Charts = new List<SongChart> { new SongChart { FilePath = chartFile } }
+            },
+            DirectoryPath = "should-not-use-this"
+        };
+
+        var result = InvokePrivate<string>(panel, "GetSongDirectoryFromNode", node);
+
+        Assert.Equal(Path.GetDirectoryName(chartFile), result);
+    }
+
+    [Fact]
+    public void GetSongDirectoryFromNode_WhenChartPathMissing_ShouldFallbackToDirectoryPath()
+    {
+        var panel = new PreviewImagePanel();
+        var node = new SongListNode
+        {
+            Type = NodeType.Score,
+            DatabaseSong = new SongEntity { Charts = new List<SongChart>() },
+            DirectoryPath = "fallback-directory"
+        };
+
+        var result = InvokePrivate<string>(panel, "GetSongDirectoryFromNode", node);
+
+        Assert.Equal("fallback-directory", result);
+    }
+
+    [Fact]
+    public void ResolveSongDirectoryPath_WhenRelativePathExistsUnderSongsRootPath_ShouldResolveToThatPath()
+    {
+        var panel = new PreviewImagePanel();
+        var root = Path.Combine(Path.GetTempPath(), "dtx-resolve-root", Guid.NewGuid().ToString("N"));
+        var relative = Path.Combine("category", "songname");
+        var expected = Path.Combine(root, relative);
+        Directory.CreateDirectory(expected);
+
+        try
+        {
+            panel.SongsRootPath = root;
+
+            var result = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", relative);
+
+            Assert.Equal(Path.GetFullPath(expected), result);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void FindPreviewImageFile_ShouldSearchInOrderPreviewJacketBanner()
+    {
+        var panel = new PreviewImagePanel();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-search-order", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "jacket.png"), "jacket");
+            File.WriteAllText(Path.Combine(dir, "banner.jpg"), "banner");
+
+            var found = InvokePrivate<string>(panel, "FindPreviewImageFile", dir);
+
+            Assert.EndsWith(Path.Combine(dir, "jacket.png"), found);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void FindPreviewImageFile_ShouldPrioritizePreviewOverJacket()
+    {
+        var panel = new PreviewImagePanel();
+        var dir = Path.Combine(Path.GetTempPath(), "dtx-priority", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "preview.png"), "preview");
+            File.WriteAllText(Path.Combine(dir, "jacket.jpg"), "jacket");
+
+            var found = InvokePrivate<string>(panel, "FindPreviewImageFile", dir);
+
+            Assert.EndsWith(Path.Combine(dir, "preview.png"), found);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ClearDisposedTextureReference_WhenMatchesCurrentPreview_ShouldClearCurrentPreviewOnly()
+    {
+        var panel = new PreviewImagePanel();
+        var currentTexture = new Mock<ITexture>();
+        var defaultTexture = new Mock<ITexture>();
+
+        SetField(panel, "_currentPreviewTexture", currentTexture.Object);
+        SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+        InvokePrivateVoid(panel, "ClearDisposedTextureReference", currentTexture.Object);
+
+        Assert.Null(GetFieldValue(panel, "_currentPreviewTexture"));
+        Assert.Same(defaultTexture.Object, GetField<ITexture>(panel, "_defaultPreviewTexture"));
+    }
+
+    [Fact]
+    public void ClearDisposedTextureReference_WhenMatchesDefaultPreview_ShouldClearDefaultPreviewOnly()
+    {
+        var panel = new PreviewImagePanel();
+        var currentTexture = new Mock<ITexture>();
+        var defaultTexture = new Mock<ITexture>();
+
+        SetField(panel, "_currentPreviewTexture", currentTexture.Object);
+        SetField(panel, "_defaultPreviewTexture", defaultTexture.Object);
+
+        InvokePrivateVoid(panel, "ClearDisposedTextureReference", defaultTexture.Object);
+
+        Assert.Same(currentTexture.Object, GetField<ITexture>(panel, "_currentPreviewTexture"));
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+    }
+
+    [Fact]
+    public void OnDraw_WhenNotVisible_ShouldReturnEarly()
+    {
+        var panel = new PreviewImagePanel { Visible = false };
+        var frameTexture = new Mock<ITexture>();
+
+        SetField(panel, "_preimagePanelTexture", frameTexture.Object);
+
+        InvokePrivateVoid(panel, "OnDraw", null!, 0.016);
+
+        frameTexture.Verify(x => x.Draw(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<Rectangle>(),
+            It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(),
+            It.IsAny<float>(),
+            It.IsAny<Vector2>(),
+            It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.Never);
+    }
+
+    [Fact]
+    public void DrawPlaceholder_WhenWhitePixelIsNull_ShouldReturnEarly()
+    {
+        var panel = new PreviewImagePanel();
+        SetField(panel, "_whitePixel", null);
+
+        var exception = Record.Exception(() =>
+            InvokePrivateVoid(panel, "DrawPlaceholder", null!, new Rectangle(0, 0, 100, 100)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawBackground_WhenPanelTextureIsNullAndWhitePixelIsNull_ShouldReturnEarly()
+    {
+        var panel = new PreviewImagePanel();
+        SetField(panel, "_preimagePanelTexture", null);
+        SetField(panel, "_whitePixel", null);
+
+        var exception = Record.Exception(() =>
+            InvokePrivateVoid(panel, "DrawBackground", null!, new Rectangle(0, 0, 100, 100)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void WhitePixel_ShouldGetAndSetValue()
+    {
+        var panel = new PreviewImagePanel();
+
+        panel.WhitePixel = null;
+        Assert.Null(panel.WhitePixel);
+
+        // We can't easily create a real Texture2D in a unit test,
+        // so we just verify the property getter/setter logic works with null
+    }
+
+    [Fact]
+    public void SongsRootPath_ShouldGetAndSetValue()
+    {
+        var panel = new PreviewImagePanel();
+        var rootPath = "/test/songs";
+
+        panel.SongsRootPath = rootPath;
+
+        Assert.Equal(rootPath, panel.SongsRootPath);
+    }
+
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)
     {
         var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
