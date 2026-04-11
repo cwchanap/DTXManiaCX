@@ -16,6 +16,55 @@ namespace DTXMania.Test.Resources;
 [Trait("Category", "Unit")]
 public class ManagedFontLogicTests
 {
+    private sealed class SuccessfulConstructorManagedFont : ManagedFont
+    {
+        public SuccessfulConstructorManagedFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
+            : base(graphicsDevice, fontPath, size, style)
+        {
+        }
+
+        protected override void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
+        {
+        }
+    }
+
+    private sealed class FailingConstructorManagedFont : ManagedFont
+    {
+        public FailingConstructorManagedFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
+            : base(graphicsDevice, fontPath, size, style)
+        {
+        }
+
+        protected override void LoadFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style)
+        {
+            throw new InvalidOperationException("font load failed");
+        }
+    }
+
+    private sealed class FakeContentManager : ContentManager
+    {
+        private sealed class EmptyServiceProvider : IServiceProvider
+        {
+            public object? GetService(Type serviceType) => null;
+        }
+
+        private readonly Func<string, object> _loader;
+
+        public List<string> RequestedAssets { get; } = new();
+
+        public FakeContentManager(Func<string, object> loader)
+            : base(new EmptyServiceProvider())
+        {
+            _loader = loader;
+        }
+
+        public override T Load<T>(string assetName)
+        {
+            RequestedAssets.Add(assetName);
+            return (T)_loader(assetName);
+        }
+    }
+
     private class TestableManagedFont : ManagedFont
     {
         private HashSet<char>? _testCharacters;
@@ -40,6 +89,24 @@ public class ManagedFontLogicTests
     public void InitializeFontFactory_WhenContentManagerIsNull_ShouldThrowArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() => ManagedFont.InitializeFontFactory(null!));
+    }
+
+    [Fact]
+    public void InitializeFontFactory_WhenContentManagerProvided_ShouldStoreStaticReference()
+    {
+        var state = CaptureFontFactoryState();
+        var contentManager = (ContentManager)RuntimeHelpers.GetUninitializedObject(typeof(ContentManager));
+
+        try
+        {
+            ManagedFont.InitializeFontFactory(contentManager);
+
+            Assert.Same(contentManager, CaptureFontFactoryState().ContentManager);
+        }
+        finally
+        {
+            RestoreFontFactoryState(state.ContentManager, state.DefaultFont, state.LoadedFonts);
+        }
     }
 
     [Fact]
@@ -88,6 +155,65 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
+    public void CreateFont_WhenRequestedSizeNotCached_ShouldLoadClosestSpriteFontAsset()
+    {
+        var state = CaptureFontFactoryState();
+        var spriteFont = CreateUninitializedSpriteFont(lineSpacing: 48);
+        var contentManager = new FakeContentManager(assetName =>
+        {
+            Assert.Equal("NotoSerifJP-48", assetName);
+            return spriteFont;
+        });
+
+        try
+        {
+            RestoreFontFactoryState(contentManager, defaultFont: null, loadedFonts: new Dictionary<string, SpriteFont>());
+
+            var font = ManagedFont.CreateFont((GraphicsDevice)null!, "LoadedFont", 40);
+
+            Assert.Same(spriteFont, font.SpriteFont);
+            Assert.Equal(["NotoSerifJP-48"], contentManager.RequestedAssets);
+            Assert.Same(spriteFont, CaptureFontFactoryState().LoadedFonts["NotoSerifJP-48"]);
+        }
+        finally
+        {
+            RestoreFontFactoryState(state.ContentManager, state.DefaultFont, state.LoadedFonts);
+        }
+    }
+
+    [Fact]
+    public void CreateFont_WhenSpecificAssetLoadFails_ShouldFallBackToDefaultSpriteFont()
+    {
+        var state = CaptureFontFactoryState();
+        var defaultFont = CreateUninitializedSpriteFont(lineSpacing: 14);
+        var contentManager = new FakeContentManager(assetName =>
+        {
+            if (assetName == "NotoSerifJP-48")
+            {
+                throw new InvalidOperationException("missing font");
+            }
+
+            Assert.Equal("NotoSerifJP", assetName);
+            return defaultFont;
+        });
+
+        try
+        {
+            RestoreFontFactoryState(contentManager, defaultFont: null, loadedFonts: new Dictionary<string, SpriteFont>());
+
+            var font = ManagedFont.CreateFont((GraphicsDevice)null!, "FallbackFont", 40);
+
+            Assert.Same(defaultFont, font.SpriteFont);
+            Assert.Equal(["NotoSerifJP-48", "NotoSerifJP"], contentManager.RequestedAssets);
+            Assert.Same(defaultFont, CaptureFontFactoryState().DefaultFont);
+        }
+        finally
+        {
+            RestoreFontFactoryState(state.ContentManager, state.DefaultFont, state.LoadedFonts);
+        }
+    }
+
+    [Fact]
     public void CreateFont_WhenClosestCachedSpriteFontExists_ShouldReuseCachedFont()
     {
         var state = CaptureFontFactoryState();
@@ -113,6 +239,45 @@ public class ManagedFontLogicTests
         {
             RestoreFontFactoryState(state.ContentManager, state.DefaultFont, state.LoadedFonts);
         }
+    }
+
+    [Fact]
+    public void ProtectedConstructor_WhenGraphicsDeviceIsNull_ShouldThrowArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new SuccessfulConstructorManagedFont(null!, "font.ttf", 18));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ProtectedConstructor_WhenPathIsNullOrEmpty_ShouldThrowArgumentException(string? path)
+    {
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+        Assert.Throws<ArgumentException>(() => new SuccessfulConstructorManagedFont(graphicsDevice, path!, 18));
+    }
+
+    [Fact]
+    public void ProtectedConstructor_WhenLoadFontThrows_ShouldWrapExceptionInFontLoadException()
+    {
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+        var exception = Assert.Throws<FontLoadException>(() => new FailingConstructorManagedFont(graphicsDevice, "font.ttf", 18));
+
+        Assert.Contains("Failed to load font from font.ttf", exception.Message);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void ProtectedConstructor_WhenLoadFontSucceeds_ShouldStoreConstructorArguments()
+    {
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+        var font = new SuccessfulConstructorManagedFont(graphicsDevice, "font.ttf", 18, FontStyle.Bold);
+
+        Assert.Equal("font.ttf", font.SourcePath);
+        Assert.Equal(18, font.Size);
+        Assert.Equal(FontStyle.Bold, font.Style);
     }
 
     [Fact]
@@ -158,6 +323,25 @@ public class ManagedFontLogicTests
         ReflectionHelpers.SetPrivateField(font, "_disposed", true);
 
         Assert.Throws<ObjectDisposedException>(() => font.AddReference());
+    }
+
+    [Fact]
+    public void LineSpacing_WhenSpriteFontMissing_ShouldUseCustomLineSpacing()
+    {
+        var font = CreateManagedFont(lineSpacing: 23);
+
+        Assert.Equal(23, font.LineSpacing);
+    }
+
+    [Fact]
+    public void DefaultCharacter_WhenSpriteFontMissing_ShouldUpdateStoredValue()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
+
+        font.DefaultCharacter = '!';
+
+        Assert.Equal('!', font.DefaultCharacter);
     }
 
     [Fact]
@@ -241,6 +425,45 @@ public class ManagedFontLogicTests
         var exception = Record.Exception(() => font.DrawString(null!, "AA?", Vector2.Zero, Color.White));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringCustom_WhenTextHasNewlineAndUnknownCharacterWithoutFallbackGlyph_ShouldSkipDrawingAndNotThrow()
+    {
+        var font = CreateManagedFont(glyphs: new Dictionary<char, Rectangle>());
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(font, "DrawStringCustom", null!, "\nZ", Vector2.Zero, Color.White));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringCustom_WhenUnknownCharacterHasDefaultGlyph_ShouldSwallowDrawFailure()
+    {
+        var font = CreateManagedFont(glyphs: new Dictionary<char, Rectangle>
+        {
+            ['?'] = new Rectangle(0, 0, 8, 16)
+        });
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(font, "DrawStringCustom", null!, "Z", Vector2.Zero, Color.White));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void MeasureStringCustom_WhenTextContainsNewlinesAndUnknownCharacters_ShouldUseGlyphWidthsAndLineSpacing()
+    {
+        var font = CreateManagedFont(
+            glyphs: new Dictionary<char, Rectangle>
+            {
+                ['A'] = new Rectangle(0, 0, 10, 16),
+                ['B'] = new Rectangle(10, 0, 12, 16)
+            },
+            lineSpacing: 18);
+
+        var size = InvokePrivate<Vector2>(font, "MeasureStringCustom", "A\nBZ");
+
+        Assert.Equal(new Vector2(20, 36), size);
     }
 
     [Fact]
@@ -601,6 +824,50 @@ public class ManagedFontLogicTests
         var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
 
         Assert.False(result);
+    }
+
+    [Fact]
+    public void FontAtlas_Properties_ShouldRoundTripAssignedValues()
+    {
+        var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+        var characters = new Dictionary<char, CharacterData>
+        {
+            ['A'] = new CharacterData { Character = 'A', Width = 12, Height = 18 }
+        };
+
+        var atlas = new FontAtlas
+        {
+            Texture = texture,
+            Characters = characters,
+            LineSpacing = 24
+        };
+
+        Assert.Same(texture, atlas.Texture);
+        Assert.Same(characters, atlas.Characters);
+        Assert.Equal(24, atlas.LineSpacing);
+    }
+
+    [Fact]
+    public void CharacterData_Properties_ShouldRoundTripAssignedValues()
+    {
+        var characterData = new CharacterData
+        {
+            Character = 'B',
+            Width = 14,
+            Height = 20,
+            AtlasX = 1,
+            AtlasY = 2,
+            AtlasWidth = 15,
+            AtlasHeight = 21
+        };
+
+        Assert.Equal('B', characterData.Character);
+        Assert.Equal(14, characterData.Width);
+        Assert.Equal(20, characterData.Height);
+        Assert.Equal(1, characterData.AtlasX);
+        Assert.Equal(2, characterData.AtlasY);
+        Assert.Equal(15, characterData.AtlasWidth);
+        Assert.Equal(21, characterData.AtlasHeight);
     }
 
     private static ManagedFont CreateManagedFont(
