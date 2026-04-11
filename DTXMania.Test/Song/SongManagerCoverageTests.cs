@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
@@ -719,6 +720,321 @@ public class SongManagerCoverageTests : IDisposable
         Assert.False(result);
     }
 
+    [Fact]
+    public async Task EnumerateSongsAsync_WhenEnumerationAlreadyInProgress_ShouldReturnZero()
+    {
+        ReflectionHelpers.SetPrivateField(_manager, "_enumCancellation", new CancellationTokenSource());
+
+        var result = await _manager.EnumerateSongsAsync(new[] { _testRoot });
+
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public async Task CheckDatabaseFilesStillExist_WithoutDatabaseService_ShouldReturnFalse()
+    {
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task CheckDatabaseFilesStillExist_WithBrokenDatabaseService_ShouldReturnFalse()
+    {
+        var originalDatabaseService = _manager.DatabaseService;
+
+        try
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+
+            Assert.False(result);
+        }
+        finally
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+        }
+    }
+
+    [Fact]
+    public async Task FindMovedFileAsync_WhenOriginalPathHasNoFilename_ShouldReturnNull()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(_manager, "FindMovedFileAsync", Path.DirectorySeparatorChar.ToString());
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task FindMovedFileAsync_WithoutCurrentSearchPaths_ShouldFallbackToDefaultsAndReturnNull()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", Array.Empty<string>());
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<string?>>(
+            _manager,
+            "FindMovedFileAsync",
+            Path.Combine(_testRoot, "missing.dtx"));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task DetectFilesystemChangesAsync_WithoutEnumerationTimestamp_ShouldReturnTrue()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "DetectFilesystemChangesAsync",
+            (object)new[] { _testRoot });
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckDirectoryForChangesAsync_WhenDirectoryWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "DirectoryModified");
+        Directory.CreateDirectory(songsRoot);
+        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
+        Directory.SetLastWriteTime(songsRoot, DateTime.Now);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckDirectoryForChangesAsync",
+            songsRoot,
+            lastEnumerationTime);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckDirectoryForChangesAsync_WhenDtxFileWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "DirectoryFileModified");
+        Directory.CreateDirectory(songsRoot);
+        var dtxPath = Path.Combine(songsRoot, "changed.dtx");
+        await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
+
+        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
+        Directory.SetLastWriteTime(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTime(dtxPath, DateTime.Now);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckDirectoryForChangesAsync",
+            songsRoot,
+            lastEnumerationTime);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckDirectoryForChangesAsync_WithInvalidPath_ShouldReturnTrue()
+    {
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckDirectoryForChangesAsync",
+            "\0invalid",
+            DateTime.Now);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckSubdirectoriesForChangesAsync_WhenMaxDepthReached_ShouldReturnFalse()
+    {
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckSubdirectoriesForChangesAsync",
+            _testRoot,
+            DateTime.Now,
+            10,
+            10);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task CheckSubdirectoriesForChangesAsync_WhenOnlySkippedDirectoriesExist_ShouldReturnFalse()
+    {
+        Directory.CreateDirectory(Path.Combine(_testRoot, "System"));
+        Directory.CreateDirectory(Path.Combine(_testRoot, "Cache"));
+        Directory.CreateDirectory(Path.Combine(_testRoot, ".hidden"));
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckSubdirectoriesForChangesAsync",
+            _testRoot,
+            DateTime.Now,
+            0,
+            10);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SubdirModified");
+        var subdir = Path.Combine(songsRoot, "Pack");
+        Directory.CreateDirectory(subdir);
+        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
+        Directory.SetLastWriteTime(subdir, DateTime.Now);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckSubdirectoriesForChangesAsync",
+            songsRoot,
+            lastEnumerationTime,
+            0,
+            10);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryDtxWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SubdirFileModified");
+        var subdir = Path.Combine(songsRoot, "Pack");
+        Directory.CreateDirectory(subdir);
+        var dtxPath = Path.Combine(subdir, "changed.dtx");
+        await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
+
+        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
+        Directory.SetLastWriteTime(subdir, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTime(dtxPath, DateTime.Now);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckSubdirectoriesForChangesAsync",
+            songsRoot,
+            lastEnumerationTime,
+            0,
+            10);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CheckSubdirectoriesForChangesAsync_WithInvalidPath_ShouldReturnTrue()
+    {
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckSubdirectoriesForChangesAsync",
+            "\0invalid",
+            DateTime.Now,
+            0,
+            10);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task GetLastEnumerationTimestampAsync_WithMissingDatabaseFile_ShouldReturnNull()
+    {
+        ReflectionHelpers.SetPrivateField(
+            _manager,
+            "_databaseService",
+            new SongDatabaseService(Path.Combine(_testRoot, "missing.db")));
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<DateTime?>>(_manager, "GetLastEnumerationTimestampAsync");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLastEnumerationTimestampAsync_WithEmptyDatabase_ShouldReturnNull()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<DateTime?>>(_manager, "GetLastEnumerationTimestampAsync");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GroupSongNodesBySong_WithoutDatabaseService_ShouldReturnOriginalNodes()
+    {
+        var nodes = new List<SongListNode> { new() { Title = "Loose Song", Type = NodeType.Score } };
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(_manager, "GroupSongNodesBySong", nodes);
+
+        Assert.Same(nodes, result);
+    }
+
+    [Fact]
+    public async Task GroupSongNodesBySong_WhenSongLookupFails_ShouldFallbackToFirstNode()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+        var firstNode = new SongListNode
+        {
+            Title = "Grouped Song",
+            Type = NodeType.Score,
+            DatabaseSongId = 9999,
+            DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
+        };
+        var secondNode = new SongListNode
+        {
+            Title = "Grouped Song",
+            Type = NodeType.Score,
+            DatabaseSongId = 9999,
+            DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
+        };
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+            _manager,
+            "GroupSongNodesBySong",
+            new List<SongListNode> { firstNode, secondNode });
+
+        var groupedNode = Assert.Single(result);
+        Assert.Same(firstNode, groupedNode);
+    }
+
+    [Fact]
+    public async Task GroupSongNodesBySong_WithBrokenDatabaseService_ShouldReturnOriginalNodes()
+    {
+        var originalDatabaseService = _manager.DatabaseService;
+        var nodes = new List<SongListNode>
+        {
+            new()
+            {
+                Title = "Grouped Song",
+                Type = NodeType.Score,
+                DatabaseSongId = 123,
+                DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
+            },
+            new()
+            {
+                Title = "Grouped Song",
+                Type = NodeType.Score,
+                DatabaseSongId = 123,
+                DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
+            }
+        };
+
+        try
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+                _manager,
+                "GroupSongNodesBySong",
+                nodes);
+
+            Assert.Same(nodes, result);
+        }
+        finally
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalDatabaseService);
+        }
+    }
+
     public void Dispose()
     {
         _manager.Clear();
@@ -772,5 +1088,10 @@ public class SongManagerCoverageTests : IDisposable
     {
         Assert.NotNull(_manager.DatabaseService);
         File.SetLastWriteTime(_manager.DatabaseService!.DatabasePath, lastWriteTime);
+    }
+
+    private static SongDatabaseService CreateBrokenDatabaseService()
+    {
+        return (SongDatabaseService)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabaseService));
     }
 }
