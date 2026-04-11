@@ -355,10 +355,21 @@ namespace DTXMania.Test.Resources
 
             var currentSkinPath = GetPrivateField<string>(resourceManager, "_currentSkinPath");
             var fallbackSkinPath = GetPrivateField<string>(resourceManager, "_fallbackSkinPath");
-            Assert.NotNull(currentSkinPath);
-            Assert.NotNull(fallbackSkinPath);
-            Assert.False(string.IsNullOrEmpty(currentSkinPath));
-            Assert.Equal(currentSkinPath, fallbackSkinPath);
+            var expectedSystemPath = Path.Combine(nonExistentRoot, "System");
+            var normalizedExpectedPath = expectedSystemPath.Replace('\\', Path.DirectorySeparatorChar)
+                                                            .Replace('/', Path.DirectorySeparatorChar);
+            if (!normalizedExpectedPath.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                normalizedExpectedPath += Path.DirectorySeparatorChar;
+            }
+
+            Assert.Equal(normalizedExpectedPath, currentSkinPath);
+            Assert.Equal(normalizedExpectedPath, fallbackSkinPath);
+
+            // Verify directory structure was created
+            Assert.True(Directory.Exists(expectedSystemPath), "System directory should be created");
+            Assert.True(Directory.Exists(Path.Combine(expectedSystemPath, "Graphics")), "Graphics subdirectory should be created");
+            Assert.True(Directory.Exists(Path.Combine(expectedSystemPath, "Fonts")), "Fonts subdirectory should be created");
         }
 
         public void Dispose()

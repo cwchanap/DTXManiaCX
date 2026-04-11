@@ -586,7 +586,8 @@ namespace DTXMania.Game.Lib.Resources
         private void InitializeDefaultSkinPath()
         {
             // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
-            var defaultPath = NormalizePath(AppPaths.GetDefaultSystemSkinRoot());
+            // Use cached app data root for testability and consistency
+            var defaultPath = NormalizePath(Path.Combine(_cachedAppDataRoot, "System"));
 
             if (ValidateSkinPath(defaultPath))
             {
@@ -608,7 +609,8 @@ namespace DTXMania.Game.Lib.Resources
         {
             try
             {
-                var systemPath = AppPaths.GetDefaultSystemSkinRoot();
+                // Use cached app data root for testability and consistency
+                var systemPath = Path.Combine(_cachedAppDataRoot, "System");
                 var graphicsPath = Path.Combine(systemPath, "Graphics");
                 var fontsPath = Path.Combine(systemPath, "Fonts");
 
