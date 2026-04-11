@@ -347,6 +347,35 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadFonts_WhenReloadSucceeds_ShouldReplaceExistingFonts()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var oldTitleFont = new Mock<IFont>();
+            var oldArtistFont = new Mock<IFont>();
+            var newTitleFont = new Mock<IFont>();
+            var newArtistFont = new Mock<IFont>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_titleFont", oldTitleFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_artistFont", oldArtistFont.Object);
+
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize))
+                .Returns(newTitleFont.Object);
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize))
+                .Returns(newArtistFont.Object);
+
+            InvokePrivateMethod(stage, "LoadFonts");
+
+            oldTitleFont.Verify(x => x.RemoveReference(), Times.Once);
+            oldArtistFont.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Same(newTitleFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_titleFont"));
+            Assert.Same(newArtistFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_artistFont"));
+        }
+
+        [Fact]
         public void LoadPreviewImage_WhenPrimaryPreviewExists_ShouldLoadAbsolutePreviewPath()
         {
             var stage = CreateStage();
@@ -385,6 +414,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadPreviewImage_WhenSelectedSongMissing_ShouldLoadDefaultPreview()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var defaultPreview = new Mock<ITexture>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", null);
+            resourceManager
+                .Setup(x => x.LoadTexture("Graphics/5_preimage default.png"))
+                .Returns(defaultPreview.Object);
+
+            InvokePrivateMethod(stage, "LoadPreviewImage");
+
+            Assert.Same(defaultPreview.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+        }
+
+        [Fact]
         public void GetDifficultyName_WhenDifficultyOutsideKnownRange_ShouldReturnUnknown()
         {
             var stage = CreateStage();
@@ -392,6 +439,21 @@ namespace DTXMania.Test.Stage
             var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", 9);
 
             Assert.Equal("Unknown", result);
+        }
+
+        [Theory]
+        [InlineData(0, "Basic")]
+        [InlineData(1, "Advanced")]
+        [InlineData(2, "Extreme")]
+        [InlineData(3, "Master")]
+        [InlineData(4, "Ultimate")]
+        public void GetDifficultyName_WhenDifficultyInKnownRange_ShouldReturnExpectedLabel(int difficulty, string expected)
+        {
+            var stage = CreateStage();
+
+            var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", difficulty);
+
+            Assert.Equal(expected, result);
         }
 
         [Fact]
@@ -646,6 +708,18 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void PlayNowLoadingSound_WhenSoundExists_ShouldPlayConfiguredVolume()
+        {
+            var stage = CreateStage();
+            var sound = new Mock<ISound>();
+            ReflectionHelpers.SetPrivateField(stage, "_nowLoadingSound", sound.Object);
+
+            InvokePrivateMethod(stage, "PlayNowLoadingSound");
+
+            sound.Verify(x => x.Play(0.9f), Times.Once);
+        }
+
+        [Fact]
         public void HandleInput_WhenInputManagerIsNull_ShouldReturnEarly()
         {
             var stage = CreateStage();
@@ -718,6 +792,89 @@ namespace DTXMania.Test.Stage
 
             Assert.NotNull(result);
             Assert.IsType<InputManager>(result);
+        }
+
+        [Fact]
+        public void LoadDifficultySprite_WhenBaseTextureMissing_ShouldLeaveDifficultySpriteNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.DifficultySprite))
+                .Returns((ITexture?)null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "LoadDifficultySprite"));
+
+            Assert.Null(exception);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_difficultySprite"));
+        }
+
+        [Fact]
+        public void OnDraw_WhenSpriteBatchIsNull_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnDraw", 0.0));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawText_WhenFontsMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_titleFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_artistFont", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawText"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawDifficultyBackground_WhenWhitePixelMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawDifficultyBackground"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawDifficultySprite_WhenDifficultySpriteMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_difficultySprite", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawDifficultySprite"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawDifficultyLevelNumber_WhenLevelNumberFontMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_levelNumberFont", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawDifficultyLevelNumber"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DrawPreviewImage_WhenPreviewTextureMissing_ShouldReturnWithoutThrowing()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_previewTexture", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawPreviewImage"));
+
+            Assert.Null(exception);
         }
 
         private static SongTransitionStage CreateStage(BaseGame? game = null)
