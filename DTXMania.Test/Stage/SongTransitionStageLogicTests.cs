@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
@@ -390,6 +392,203 @@ namespace DTXMania.Test.Stage
             var result = InvokePrivateMethod<string>(stage, "GetDifficultyName", 9);
 
             Assert.Equal("Unknown", result);
+        }
+
+        [Fact]
+        public void LoadPreviewImage_WhenPrimaryPreviewMissingButFallbackExists_ShouldReleaseOldAndLoadFallback()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreview = new Mock<ITexture>();
+            var fallbackTexture = new Mock<ITexture>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var chartPath = Path.Combine(tempDir, "sample.dtx");
+                var previewFileName = "missing-preview.png";
+                var fallbackPreviewPath = Path.Combine(tempDir, "preview.jpg");
+                File.WriteAllText(chartPath, "chart");
+                File.WriteAllText(fallbackPreviewPath, "fallback");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_previewTexture", existingPreview.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+                {
+                    FilePath = chartPath,
+                    PreviewImage = previewFileName
+                }));
+
+                resourceManager
+                    .Setup(x => x.LoadTexture(fallbackPreviewPath))
+                    .Returns(fallbackTexture.Object);
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                existingPreview.Verify(x => x.RemoveReference(), Times.Once);
+                resourceManager.Verify(x => x.LoadTexture(fallbackPreviewPath), Times.Once);
+                Assert.Same(fallbackTexture.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void LoadPreviewImage_WhenAllFallbacksFail_ShouldAttemptDefaultPreview()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var defaultPreview = new Mock<ITexture>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var chartPath = Path.Combine(tempDir, "sample.dtx");
+                File.WriteAllText(chartPath, "chart");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+                {
+                    FilePath = chartPath,
+                    PreviewImage = null
+                }));
+
+                resourceManager
+                    .Setup(x => x.LoadTexture("Graphics/5_preimage default.png"))
+                    .Returns(defaultPreview.Object);
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                Assert.Same(defaultPreview.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void LoadPreviewImage_WhenDefaultPreviewFails_ShouldLeavePreviewNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var chartPath = Path.Combine(tempDir, "sample.dtx");
+                File.WriteAllText(chartPath, "chart");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+                {
+                    FilePath = chartPath,
+                    PreviewImage = null
+                }));
+
+                resourceManager
+                    .Setup(x => x.LoadTexture("Graphics/5_preimage default.png"))
+                    .Throws(new InvalidOperationException("default failed"));
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void LoadSound_WhenReloadWithExistingSound_ShouldReleaseOldBeforeLoadingNew()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingSound = new Mock<ISound>();
+            var newSound = new Mock<ISound>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_nowLoadingSound", existingSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Now loading.ogg"))
+                .Returns(newSound.Object);
+
+            InvokePrivateMethod(stage, "LoadSound");
+
+            existingSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Same(newSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_nowLoadingSound"));
+        }
+
+        [Fact]
+        public void LoadSound_WhenBothPrimaryAndFallbackFail_ShouldLeaveNowLoadingSoundNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Now loading.ogg"))
+                .Throws(new InvalidOperationException("primary failed"));
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Throws(new InvalidOperationException("fallback failed"));
+
+            InvokePrivateMethod(stage, "LoadSound");
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_nowLoadingSound"));
+        }
+
+        [Fact]
+        public void PlayNowLoadingSound_WhenSoundIsNull_ShouldReturnEarly()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_nowLoadingSound", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "PlayNowLoadingSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void HandleInput_WhenInputManagerIsNull_ShouldReturnEarly()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "HandleInput"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void GetCurrentDifficultyLevel_WhenSelectedSongIsNull_ShouldReturnZero()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", null);
+
+            var result = InvokePrivateMethod<float>(stage, "GetCurrentDifficultyLevel");
+
+            Assert.Equal(0f, result);
+        }
+
+        [Fact]
+        public void CreateConfiguredInputManager_WhenConfigManagerIsNotConcrete_ShouldReturnDefaultInputManager()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var mockConfigManager = new Mock<IConfigManager>();
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", mockConfigManager.Object);
+            var stage = CreateStage(game);
+
+            var result = InvokePrivateMethod<InputManager>(stage, "CreateConfiguredInputManager");
+
+            Assert.NotNull(result);
+            Assert.IsType<InputManager>(result);
         }
 
         private static SongTransitionStage CreateStage(BaseGame? game = null)
