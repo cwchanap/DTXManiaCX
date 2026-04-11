@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -81,6 +83,23 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
+    public void InitializeGraphicsGenerator_WhenResourceManagerAlreadyAvailable_ShouldAttemptLevelFontLoadAndKeepGeneratorDisabled()
+    {
+        var panel = new SongStatusPanel();
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
+        SetField(panel, "_resourceManager", resourceManager.Object);
+
+        var ex = Record.Exception(() => panel.InitializeGraphicsGenerator(graphicsDevice, null!));
+
+        Assert.Null(ex);
+        Assert.Same(graphicsDevice, GetField<GraphicsDevice>(panel, "_cachedGraphicsDevice"));
+        Assert.Null(GetField<object?>(panel, "_graphicsGenerator"));
+        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
+    }
+
+    [Fact]
     public void InitializeAuthenticGraphics_WithThrowingResourceManager_ShouldNotThrow()
     {
         var panel = new SongStatusPanel();
@@ -132,6 +151,41 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
+    public void InitializeAuthenticGraphics_WhenCachedGraphicsDeviceIsPresent_ShouldContinueAfterLevelFontFailure()
+    {
+        var panel = new SongStatusPanel();
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var rm = new Mock<IResourceManager>();
+
+        var status = new Mock<ITexture>().Object;
+        var bpm = new Mock<ITexture>().Object;
+        var difficultyPanel = new Mock<ITexture>().Object;
+        var difficultyFrame = new Mock<ITexture>().Object;
+        var graphDrums = new Mock<ITexture>().Object;
+        var graphGb = new Mock<ITexture>().Object;
+        var skillPointPanel = new Mock<ITexture>().Object;
+        var skillIcon = new Mock<ITexture>().Object;
+
+        rm.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
+        rm.Setup(x => x.LoadTexture(TexturePath.SongStatusPanel)).Returns(status);
+        rm.Setup(x => x.LoadTexture(TexturePath.BpmBackground)).Returns(bpm);
+        rm.Setup(x => x.LoadTexture(TexturePath.DifficultyPanel)).Returns(difficultyPanel);
+        rm.Setup(x => x.LoadTexture(TexturePath.DifficultyFrame)).Returns(difficultyFrame);
+        rm.Setup(x => x.LoadTexture(TexturePath.GraphPanelDrums)).Returns(graphDrums);
+        rm.Setup(x => x.LoadTexture(TexturePath.GraphPanelGuitarBass)).Returns(graphGb);
+        rm.Setup(x => x.LoadTexture(TexturePath.SkillPointPanel)).Returns(skillPointPanel);
+        rm.Setup(x => x.LoadTexture(TexturePath.SkillIcon)).Returns(skillIcon);
+        SetField(panel, "_cachedGraphicsDevice", graphicsDevice);
+
+        var ex = Record.Exception(() => panel.InitializeAuthenticGraphics(rm.Object));
+
+        Assert.Null(ex);
+        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
+        Assert.Same(status, GetField<ITexture>(panel, "_statusPanelTexture"));
+        Assert.Same(skillIcon, GetField<ITexture>(panel, "_skillIconTexture"));
+    }
+
+    [Fact]
     public void Dispose_ShouldReleaseManagedTexturesWithRemoveReference()
     {
         var panel = new SongStatusPanel();
@@ -176,6 +230,45 @@ public class SongStatusPanelLogicTests
 
         Assert.Equal("2:05", shortText);
         Assert.Equal("1:02:05", longText);
+    }
+
+    [Fact]
+    public void LoadLevelNumberFont_WhenResourceManagerIsNull_ShouldReturnWithoutCreatingFont()
+    {
+        var panel = new SongStatusPanel();
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", graphicsDevice));
+
+        Assert.Null(ex);
+        Assert.Null(GetField<object?>(panel, "_levelNumberFont"));
+    }
+
+    [Fact]
+    public void LoadLevelNumberFont_WhenGraphicsDeviceIsNull_ShouldReturnWithoutCreatingFont()
+    {
+        var panel = new SongStatusPanel();
+        SetField(panel, "_resourceManager", new Mock<IResourceManager>().Object);
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", (object)null!));
+
+        Assert.Null(ex);
+        Assert.Null(GetField<object?>(panel, "_levelNumberFont"));
+    }
+
+    [Fact]
+    public void LoadLevelNumberFont_WhenBitmapFontCreationFails_ShouldLeaveFontUnloaded()
+    {
+        var panel = new SongStatusPanel();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
+        SetField(panel, "_resourceManager", resourceManager.Object);
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", graphicsDevice));
+
+        Assert.Null(ex);
+        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
     }
 
     [Fact]
@@ -426,6 +519,17 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
+    public void LoadStatusPanelGraphics_WhenResourceManagerIsNull_ShouldLeaveStatusTextureNull()
+    {
+        var panel = new SongStatusPanel();
+
+        SetField(panel, "_resourceManager", null);
+        InvokePrivate<object?>(panel, "LoadStatusPanelGraphics");
+
+        Assert.Null(GetField<ITexture?>(panel, "_statusPanelTexture"));
+    }
+
+    [Fact]
     public void PrivateTextureLoaders_WhenResourceManagerIsNull_ShouldReturnWithoutAssigning()
     {
         var panel = new SongStatusPanel();
@@ -511,6 +615,22 @@ public class SongStatusPanelLogicTests
 
         Assert.Equal("DRUMS", InvokePrivate<string>(panel, "GetInstrumentFromDifficulty", 0));
         Assert.Equal("DRUMS", InvokePrivate<string>(panel, "GetInstrumentFromDifficulty", 4));
+    }
+
+    [Fact]
+    public void Draw_WhenPanelIsInvisible_ShouldReturnWithoutRendering()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object,
+            Visible = false
+        };
+
+        var ex = Record.Exception(() => panel.Draw(null!, 0));
+
+        Assert.Null(ex);
+        font.Verify(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
     }
 
     [Fact]
@@ -858,6 +978,68 @@ public class SongStatusPanelLogicTests
         Assert.False(InvokePrivate<bool>(panel, "IsChartSelected", guitarInfo));
     }
 
+    [Fact]
+    public void DrawBackground_WhenGraphicsGeneratorHasCachedTexture_ShouldReuseAndDrawGeneratedBackground()
+    {
+        var panel = new SongStatusPanel();
+        var background = CreateTexture();
+        SetField(panel, "_graphicsGenerator", CreateGraphicsGeneratorWithCachedTexture("Panel_320x240_True", background.Object));
+
+        InvokePrivate<object?>(panel, "DrawBackground", null!, new Rectangle(10, 20, 320, 240));
+
+        background.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), new Vector2(10, 20)), Times.Once);
+        Assert.Same(background.Object, GetField<ITexture?>(panel, "_cachedBackgroundTexture"));
+        Assert.Equal(new Rectangle(10, 20, 320, 240), GetField<Rectangle>(panel, "_cachedBackgroundSize"));
+    }
+
+    [Fact]
+    public void DrawBPMBackground_WhenGraphicsGeneratorThrows_ShouldFallbackWithoutThrowing()
+    {
+        var panel = new SongStatusPanel();
+        SetField(panel, "_graphicsGenerator", CreateBrokenGraphicsGenerator());
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "DrawBPMBackground", (SpriteBatch)null!));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawBPMBackground_WhenGraphicsGeneratorMissing_ShouldUseSimpleFallbackWithoutThrowing()
+    {
+        var panel = new SongStatusPanel();
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "DrawBPMBackground", (SpriteBatch)null!));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawGraphPanelBackground_WhenNoTextureIsAvailable_ShouldFallbackWithoutThrowing()
+    {
+        var panel = new SongStatusPanel();
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "DrawGraphPanelBackground", null!, new Vector2(1, 2), new Vector2(220, 180)));
+
+        Assert.Null(ex);
+        Assert.Null(GetField<ITexture?>(panel, "_graphPanelDrumsTexture"));
+        Assert.Null(GetField<ITexture?>(panel, "_graphPanelGuitarBassTexture"));
+    }
+
+    [Fact]
+    public void DrawTextWithShadow_WhenTextIsEmpty_ShouldReturnWithoutDrawing()
+    {
+        var font = CreateManagedFont();
+        var panel = new SongStatusPanel
+        {
+            ManagedFont = font.Object
+        };
+
+        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "DrawTextWithShadow", null!, null!, string.Empty, Vector2.Zero, Color.White));
+
+        Assert.Null(ex);
+        font.Verify(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
+    }
+
     private static Mock<IFont> CreateManagedFont()
     {
         var font = new Mock<IFont>();
@@ -877,6 +1059,20 @@ public class SongStatusPanelLogicTests
         texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()));
         texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()));
         return texture;
+    }
+
+    private static DefaultGraphicsGenerator CreateGraphicsGeneratorWithCachedTexture(string cacheKey, ITexture texture)
+    {
+        var generator = (DefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));
+        SetField(generator, "_generatedTextures", new Dictionary<string, ITexture> { [cacheKey] = texture });
+        return generator;
+    }
+
+    private static DefaultGraphicsGenerator CreateBrokenGraphicsGenerator()
+    {
+        var generator = (DefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));
+        SetField(generator, "_generatedTextures", null);
+        return generator;
     }
 
     private static SongListNode CreateScoreNodeForDraw()
