@@ -1199,6 +1199,32 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void CycleDifficulty_WhenSelectedSongHasNoScores_ShouldLeaveDifficultyUnchanged()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList =
+            [
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    Scores = null
+                }
+            ]
+        };
+        var fired = false;
+
+        display.DifficultyChanged += (_, _) => fired = true;
+        display.CurrentDifficulty = 3;
+
+        display.CycleDifficulty();
+
+        Assert.Equal(3, display.CurrentDifficulty);
+        Assert.False(fired);
+    }
+
+    [Fact]
     public void ActivateSelected_ShouldRaiseSongActivatedWithCurrentDifficulty()
     {
         var display = new SongListDisplay
@@ -1214,6 +1240,18 @@ public class SongListDisplayLogicTests
         Assert.NotNull(args);
         Assert.Same(display.SelectedSong, args!.Song);
         Assert.Equal(4, args.Difficulty);
+    }
+
+    [Fact]
+    public void ActivateSelected_WhenSelectedSongIsNull_ShouldNotRaiseSongActivated()
+    {
+        var display = new SongListDisplay();
+        var fired = false;
+
+        display.SongActivated += (_, _) => fired = true;
+        display.ActivateSelected();
+
+        Assert.False(fired);
     }
 
     [Fact]
@@ -1246,6 +1284,30 @@ public class SongListDisplayLogicTests
         commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
         scrollbarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
         managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeast(14));
+    }
+
+    [Fact]
+    public void Draw_WhenInvisible_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(2),
+            Visible = false
+        };
+
+        var exception = Record.Exception(() => display.Draw(null!, 0));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_WhenCurrentListIsNull_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay();
+
+        var exception = Record.Exception(() => display.Draw(null!, 0));
+
+        Assert.Null(exception);
     }
 
     [Fact]
@@ -1314,6 +1376,20 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void DrawCommentBar_WhenSelectedSongMissingOrNonScore_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay();
+
+        var noSongException = Record.Exception(() => InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!));
+        Assert.Null(noSongException);
+
+        display.CurrentList = [new SongListNode { Type = NodeType.Box, Title = "Folder" }];
+
+        var nonScoreException = Record.Exception(() => InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!));
+        Assert.Null(nonScoreException);
+    }
+
+    [Fact]
     public void DrawCommentBar_WhenTextureMissingAndResourceManagerAvailable_ShouldLazyLoadAndDraw()
     {
         var display = new SongListDisplay
@@ -1350,6 +1426,37 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void DrawCommentBar_WhenTextureAndResourceManagerAreMissing_ShouldSkipFallbackSafely()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList =
+            [
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song 0",
+                    DatabaseSong = new SongEntity
+                    {
+                        Title = "Song 0",
+                        Artist = "Artist 0",
+                        Comment = null
+                    },
+                    Scores = new SongScore[5]
+                }
+            ]
+        };
+        SetField(display, "_commentBarTexture", null);
+        SetField(display, "_resourceManager", null);
+        SetField(display, "_whitePixel", null);
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(display, "DrawCommentBar", (SpriteBatch)null!));
+
+        Assert.Null(exception);
+        Assert.Null(GetField<ITexture?>(display, "_commentBarTexture"));
+    }
+
+    [Fact]
     public void DrawScrollbar_WhenTextureAvailable_ShouldDrawTrack()
     {
         var display = new SongListDisplay
@@ -1365,6 +1472,235 @@ public class SongListDisplayLogicTests
         InvokePrivate<object?>(display, "DrawScrollbar", (SpriteBatch)null!);
 
         scrollbarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
+    public void DrawScrollbar_WhenListHasSingleItem_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(1)
+        };
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(display, "DrawScrollbar", (SpriteBatch)null!));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawItemCounter_WhenListEmptyOrFontMissing_ShouldReturnWithoutThrowing()
+    {
+        var emptyDisplay = new SongListDisplay
+        {
+            CurrentList = new List<SongListNode>()
+        };
+
+        var emptyException = Record.Exception(() => InvokePrivate<object?>(emptyDisplay, "DrawItemCounter", (SpriteBatch)null!));
+        Assert.Null(emptyException);
+
+        var noFontDisplay = new SongListDisplay
+        {
+            CurrentList = CreateSongs(2),
+            Font = null
+        };
+
+        var noFontException = Record.Exception(() => InvokePrivate<object?>(noFontDisplay, "DrawItemCounter", (SpriteBatch)null!));
+        Assert.Null(noFontException);
+    }
+
+    [Fact]
+    public void DrawSongItems_WhenListEmptyAndNoFonts_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = new List<SongListNode>(),
+            Font = null,
+            ManagedFont = null
+        };
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(display, "DrawSongItems", (SpriteBatch)null!, new Rectangle(0, 0, 640, 480)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawSongItemWithPerspective_WhenNoFontsTexturesOrFallbackPixel_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            Font = null,
+            ManagedFont = null,
+            WhitePixel = null
+        };
+        var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(
+            display,
+            "DrawSongItemWithPerspective",
+            (SpriteBatch)null!,
+            node,
+            new Rectangle(100, 200, 510, 48),
+            false,
+            false,
+            0,
+            1f,
+            1f));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawBarInfoWithPerspective_WhenOptionalAssetsAreMissing_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            Font = null
+        };
+        var barInfo = new SongBarInfo
+        {
+            SongNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song 0",
+                DatabaseSong = new SongEntity
+                {
+                    Title = "Song 0",
+                    Artist = null
+                }
+            },
+            BarType = BarType.Score,
+            TitleTexture = null,
+            PreviewImage = null,
+            ClearLamp = null,
+            TitleString = "Song 0"
+        };
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(
+            display,
+            "DrawBarInfoWithPerspective",
+            (SpriteBatch)null!,
+            barInfo,
+            new Rectangle(665, 269, 510, 48),
+            false,
+            false,
+            1f,
+            1f));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void LoadCommentBarTexture_WhenResourceManagerMissing_ShouldLeaveTextureUnset()
+    {
+        var display = new SongListDisplay();
+
+        SetField(display, "_resourceManager", null);
+        InvokePrivate<object?>(display, "LoadCommentBarTexture");
+
+        Assert.Null(GetField<ITexture?>(display, "_commentBarTexture"));
+    }
+
+    [Fact]
+    public void LoadCommentBarTexture_WhenLoadSucceeds_ShouldAssignTexture()
+    {
+        var display = new SongListDisplay();
+        var resourceManager = new Mock<IResourceManager>();
+        var commentBarTexture = new Mock<ITexture>().Object;
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.CommentBar)).Returns(commentBarTexture);
+
+        SetField(display, "_resourceManager", resourceManager.Object);
+        InvokePrivate<object?>(display, "LoadCommentBarTexture");
+
+        Assert.Same(commentBarTexture, GetField<ITexture?>(display, "_commentBarTexture"));
+    }
+
+    [Fact]
+    public void GetSkinBarTexture_WhenSkinTexturesDisabled_ShouldReturnNull()
+    {
+        var display = new SongListDisplay();
+
+        SetField(display, "_skinBarTexturesLoaded", false);
+
+        Assert.Null(InvokePrivate<ITexture?>(display, "GetSkinBarTexture", BarType.Score, true));
+    }
+
+    [Fact]
+    public void UpdateScrollAnimation_WhenTargetAlreadyReached_ShouldLeaveQueueAndPositionUntouched()
+    {
+        var display = new SongListDisplay();
+        var queue = GetTextureGenerationQueue(display);
+        queue.Clear();
+
+        SetField(display, "_currentScrollCounter", 200);
+        SetField(display, "_targetScrollCounter", 200);
+
+        InvokePrivate<object?>(display, "UpdateScrollAnimation", 1.0 / 60.0);
+
+        Assert.Equal(200, GetField<int>(display, "_currentScrollCounter"));
+        Assert.Empty(queue);
+    }
+
+    [Fact]
+    public void DrawScrollbar_WhenTrackAndIndicatorResourcesMissing_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3),
+            WhitePixel = null
+        };
+
+        SetField(display, "_scrollbarTexture", null);
+        SetField(display, "_selectedIndex", 1);
+
+        var exception = Record.Exception(() => InvokePrivate<object?>(display, "DrawScrollbar", (SpriteBatch)null!));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawCommentBarCommentText_WhenTextIsEmptyOrFontMissing_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            Font = null
+        };
+
+        var emptyException = Record.Exception(() => InvokePrivate<object?>(display, "DrawCommentBarCommentText", (SpriteBatch)null!, string.Empty));
+        var noFontException = Record.Exception(() => InvokePrivate<object?>(display, "DrawCommentBarCommentText", (SpriteBatch)null!, "comment"));
+
+        Assert.Null(emptyException);
+        Assert.Null(noFontException);
+    }
+
+    [Fact]
+    public void DrawArtistNameWithManagedFont_WhenArtistMissingOrManagedFontMissing_ShouldReturnWithoutThrowing()
+    {
+        var display = new SongListDisplay
+        {
+            ManagedFont = null
+        };
+        var itemBounds = new Rectangle(665, 269, 510, 48);
+
+        var missingArtistException = Record.Exception(() => InvokePrivate<object?>(
+            display,
+            "DrawArtistNameWithManagedFont",
+            (SpriteBatch)null!,
+            string.Empty,
+            itemBounds,
+            Vector2.One,
+            1f));
+
+        var missingFontException = Record.Exception(() => InvokePrivate<object?>(
+            display,
+            "DrawArtistNameWithManagedFont",
+            (SpriteBatch)null!,
+            "Artist",
+            itemBounds,
+            Vector2.One,
+            1f));
+
+        Assert.Null(missingArtistException);
+        Assert.Null(missingFontException);
     }
 
     [Fact]
