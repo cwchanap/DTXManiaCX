@@ -274,6 +274,93 @@ namespace DTXMania.Test.Resources
             Assert.True(GetPrivateField<bool>(resourceManager, "_disposed"));
         }
 
+        [Fact]
+        public void UnloadAll_ShouldDisposeCachesForAllResourceTypes()
+        {
+            var resourceManager = CreateResourceManager();
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+            var fontCache = GetPrivateField<ConcurrentDictionary<string, IFont>>(resourceManager, "_fontCache");
+            var soundCache = GetPrivateField<ConcurrentDictionary<string, ISound>>(resourceManager, "_soundCache");
+
+            var texture1 = CreateTextureMock();
+            var texture2 = CreateTextureMock();
+            var font1 = CreateFontMock();
+            var sound1 = CreateSoundMock();
+
+            textureCache["texture-a"] = texture1.Object;
+            textureCache["texture-b"] = texture2.Object;
+            fontCache["font-a"] = font1.Object;
+            soundCache["sound-a"] = sound1.Object;
+
+            resourceManager.UnloadAll();
+
+            texture1.Verify(x => x.Dispose(), Times.Once);
+            texture2.Verify(x => x.Dispose(), Times.Once);
+            font1.Verify(x => x.Dispose(), Times.Once);
+            sound1.Verify(x => x.Dispose(), Times.Once);
+            Assert.Empty(textureCache);
+            Assert.Empty(fontCache);
+            Assert.Empty(soundCache);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
+        public void UnloadByPattern_WithEmptyOrNullPattern_ShouldReturnEarly(string? pathPattern)
+        {
+            var resourceManager = CreateResourceManager();
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var texture = CreateTextureMock();
+            textureCache["any-path"] = texture.Object;
+
+            resourceManager.UnloadByPattern(pathPattern!);
+
+            texture.Verify(x => x.Dispose(), Times.Never);
+            Assert.Single(textureCache);
+        }
+
+        [Fact]
+        public void GetCurrentEffectiveSkinPath_WithBoxDefNotSet_ShouldReturnCurrentSkinPath()
+        {
+            var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
+
+            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+
+            Assert.Equal(NormalizeDirectory(_customSkinRoot), effectivePath);
+        }
+
+        [Fact]
+        public void GetCurrentEffectiveSkinPath_WithBoxDefSetButDisabled_ShouldReturnCurrentSkinPath()
+        {
+            var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+            resourceManager.SetUseBoxDefSkin(false);
+
+            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+
+            Assert.Equal(NormalizeDirectory(_customSkinRoot), effectivePath);
+        }
+
+        [Fact]
+        public void InitializeDefaultSkinPath_WhenValidationFails_ShouldStillUseDefaultPathAndCreateStructure()
+        {
+            var nonExistentRoot = Path.Combine(_testDataPath, "MissingSystem");
+            var resourceManager = CreateResourceManagerWithoutInitialization();
+            SetPrivateField(resourceManager, "_currentSkinPath", string.Empty);
+            SetPrivateField(resourceManager, "_fallbackSkinPath", string.Empty);
+            SetPrivateField(resourceManager, "_cachedAppDataRoot", nonExistentRoot);
+
+            InvokePrivateMethod(resourceManager, "InitializeDefaultSkinPath");
+
+            var currentSkinPath = GetPrivateField<string>(resourceManager, "_currentSkinPath");
+            var fallbackSkinPath = GetPrivateField<string>(resourceManager, "_fallbackSkinPath");
+            Assert.NotNull(currentSkinPath);
+            Assert.NotNull(fallbackSkinPath);
+            Assert.False(string.IsNullOrEmpty(currentSkinPath));
+            Assert.Equal(currentSkinPath, fallbackSkinPath);
+        }
+
         public void Dispose()
         {
             try
@@ -291,6 +378,14 @@ namespace DTXMania.Test.Resources
 
         private static ResourceManager CreateResourceManager(string? currentSkinPath = null, string? fallbackSkinPath = null)
         {
+            var resourceManager = CreateResourceManagerWithoutInitialization();
+            SetPrivateField(resourceManager, "_currentSkinPath", NormalizeDirectory(currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
+            SetPrivateField(resourceManager, "_fallbackSkinPath", NormalizeDirectory(fallbackSkinPath ?? currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
+            return resourceManager;
+        }
+
+        private static ResourceManager CreateResourceManagerWithoutInitialization()
+        {
 #pragma warning disable SYSLIB0050
             var resourceManager = (ResourceManager)FormatterServices.GetUninitializedObject(typeof(ResourceManager));
 #pragma warning restore SYSLIB0050
@@ -301,8 +396,6 @@ namespace DTXMania.Test.Resources
             SetPrivateField(resourceManager, "_lockObject", new object());
             SetPrivateField(resourceManager, "_cachedAppDataRoot", AppPaths.GetAppDataRoot());
             SetPrivateField(resourceManager, "_totalLoadTime", new Stopwatch());
-            SetPrivateField(resourceManager, "_currentSkinPath", NormalizeDirectory(currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
-            SetPrivateField(resourceManager, "_fallbackSkinPath", NormalizeDirectory(fallbackSkinPath ?? currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
             SetPrivateField(resourceManager, "_boxDefSkinPath", string.Empty);
             SetPrivateField(resourceManager, "_useBoxDefSkin", true);
             SetPrivateField(resourceManager, "_disposed", false);
