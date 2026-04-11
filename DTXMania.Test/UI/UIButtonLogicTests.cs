@@ -138,6 +138,112 @@ public class UIButtonLogicTests
         Assert.Null(button.DisabledAppearance.BackgroundTexture);
     }
 
+    [Fact]
+    public void SetBackgroundTexture_ShouldUpdateHoverAndDisabledAppearances()
+    {
+        var button = CreateActiveButton();
+        var hoverTexture = CreateTextureStub();
+        var disabledTexture = CreateTextureStub();
+        var hoverSource = new Rectangle(5, 6, 7, 8);
+
+        button.SetBackgroundTexture(ButtonState.Hover, hoverTexture, hoverSource);
+        button.SetBackgroundTexture(ButtonState.Disabled, disabledTexture);
+
+        Assert.Same(hoverTexture, button.HoverAppearance.BackgroundTexture);
+        Assert.Equal(hoverSource, button.HoverAppearance.BackgroundSourceRectangle);
+        Assert.Same(disabledTexture, button.DisabledAppearance.BackgroundTexture);
+        Assert.Null(button.DisabledAppearance.BackgroundSourceRectangle);
+    }
+
+    [Fact]
+    public void Click_WhenEnabled_ShouldRaiseEvent()
+    {
+        var button = CreateActiveButton();
+        var clickCount = 0;
+        button.ButtonClicked += (_, _) => clickCount++;
+
+        button.Click();
+
+        Assert.Equal(1, clickCount);
+    }
+
+    [Fact]
+    public void OnUpdate_WhenDisabled_ShouldSetDisabledState()
+    {
+        var button = CreateActiveButton();
+        button.Enabled = false;
+
+        button.Update(0);
+
+        Assert.Equal(ButtonState.Disabled, button.CurrentState);
+    }
+
+    [Fact]
+    public void OnDraw_WhenInvisible_ShouldReturnWithoutThrowing()
+    {
+        var button = CreateActiveButton();
+        button.Visible = false;
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(button, "OnDraw", null!, 0d));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void OnDraw_WhenVisibleWithoutFontOrBackgroundTexture_ShouldUseSafeNonDrawingPaths()
+    {
+        var button = CreateActiveButton();
+        button.Position = new Vector2(10, 20);
+        button.Size = new Vector2(100, 40);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(button, "OnDraw", null!, 0d));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void OnDraw_WhenImageComponentPresent_ShouldSyncBoundsAndInvokeImageDraw()
+    {
+        var button = CreateActiveButton();
+        var image = new TrackingUIImage();
+        button.Position = new Vector2(15, 25);
+        button.Size = new Vector2(120, 50);
+        button.ImageComponent = image;
+
+        ReflectionHelpers.InvokePrivateMethod(button, "OnDraw", null!, 0d);
+
+        Assert.True(image.DrawCalled);
+        Assert.Equal(new Vector2(15, 25), image.Position);
+        Assert.Equal(new Vector2(120, 50), image.Size);
+    }
+
+    [Theory]
+    [InlineData(ButtonState.Idle, "IdleAppearance")]
+    [InlineData(ButtonState.Hover, "HoverAppearance")]
+    [InlineData(ButtonState.Pressed, "PressedAppearance")]
+    [InlineData(ButtonState.Disabled, "DisabledAppearance")]
+    public void GetCurrentAppearance_ShouldReturnAppearanceForCurrentState(ButtonState state, string propertyName)
+    {
+        var button = CreateActiveButton();
+        ReflectionHelpers.SetPrivateField(button, "_currentState", state);
+
+        var appearance = ReflectionHelpers.InvokePrivateMethod<ButtonStateAppearance>(button, "GetCurrentAppearance");
+        var expectedAppearance = typeof(UIButton).GetProperty(propertyName)!.GetValue(button);
+
+        Assert.Same(expectedAppearance, appearance);
+    }
+
+    [Fact]
+    public void OnHandleInput_WhenDisabled_ShouldReturnFalse()
+    {
+        var button = CreateActiveButton();
+        button.Enabled = false;
+
+        var handled = ReflectionHelpers.InvokePrivateMethod<bool>(button, "OnHandleInput", CreateInputState(new Vector2(10, 10)).Object);
+
+        Assert.False(handled);
+    }
+
     private static UIButton CreateActiveButton()
     {
         var resourceManager = new Mock<IResourceManager>();
@@ -167,5 +273,15 @@ public class UIButtonLogicTests
 #pragma warning disable SYSLIB0050
         return (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
 #pragma warning restore SYSLIB0050
+    }
+
+    private sealed class TrackingUIImage : UIImage
+    {
+        public bool DrawCalled { get; private set; }
+
+        public override void Draw(SpriteBatch spriteBatch, double deltaTime)
+        {
+            DrawCalled = true;
+        }
     }
 }
