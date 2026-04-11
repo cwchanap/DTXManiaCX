@@ -1,10 +1,13 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
 using Moq;
 using Xunit;
 using System;
+using System.Reflection;
+using System.Runtime.Serialization;
 
 namespace DTXMania.Test.UI
 {
@@ -639,6 +642,280 @@ namespace DTXMania.Test.UI
             Assert.Equal("A", receivedArgs.Item.Text);
         }
 
+        [Fact]
+        public void FontAndBackgroundTexture_ShouldRoundTripAssignedValues()
+        {
+            var list = new UIList();
+            var font = CreateSpriteFontStub();
+            var backgroundTexture = CreateTextureStub();
+
+            list.Font = font;
+            list.BackgroundTexture = backgroundTexture;
+
+            Assert.Same(font, list.Font);
+            Assert.Same(backgroundTexture, list.BackgroundTexture);
+        }
+
+        [Fact]
+        public void OnDraw_WhenInvisible_ShouldReturnWithoutThrowing()
+        {
+            var list = new UIList
+            {
+                Visible = false
+            };
+
+            var exception = Record.Exception(() => InvokePrivateVoid(list, "OnDraw", null!, 0d));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void OnDraw_WhenVisibleWithoutFontOrTexture_ShouldProcessSelectedAndHoveredItems()
+        {
+            var list = new UIList
+            {
+                Position = new Vector2(10, 20),
+                Size = new Vector2(200, 60),
+                VisibleItemCount = 2
+            };
+
+            list.AddItem("Selected");
+            list.AddItem("Hovered");
+            list.SelectedIndex = 0;
+            SetPrivateField(list, "_hoveredIndex", 1);
+
+            var exception = Record.Exception(() => InvokePrivateVoid(list, "OnDraw", null!, 0d));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void OnHandleInput_WhenDisabled_ShouldReturnFalse()
+        {
+            var list = new UIList
+            {
+                Enabled = false
+            };
+
+            var handled = InvokePrivate<bool>(list, "OnHandleInput", CreateInputState().Object);
+
+            Assert.False(handled);
+        }
+
+        [Fact]
+        public void OnHandleInput_WhenMouseHandlerHandles_ShouldReturnTrue()
+        {
+            var list = new UIList
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(200, 150)
+            };
+            list.AddItem("A");
+
+            var handled = InvokePrivate<bool>(list, "OnHandleInput", CreateInputState(
+                mousePosition: new Vector2(10, 10),
+                isMousePressed: true).Object);
+
+            Assert.True(handled);
+            Assert.Equal(0, list.SelectedIndex);
+        }
+
+        [Fact]
+        public void OnHandleInput_WhenKeyboardHandlerHandles_ShouldReturnTrue()
+        {
+            var list = new UIList
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(200, 150)
+            };
+            list.AddItem("A");
+            list.AddItem("B");
+            list.SelectedIndex = 1;
+
+            var handled = InvokePrivate<bool>(list, "OnHandleInput", CreateInputState(
+                mousePosition: new Vector2(-100, -100),
+                upPressed: true).Object);
+
+            Assert.True(handled);
+            Assert.Equal(0, list.SelectedIndex);
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenInputStateIsNull_ShouldReturnFalse()
+        {
+            var list = new UIList();
+
+            var handled = InvokePrivate<bool>(list, "HandleMouseInput", new object?[] { null });
+
+            Assert.False(handled);
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenMousePositionInvalid_ShouldClearHoveredIndexAndReturnFalse()
+        {
+            var list = new UIList();
+            SetPrivateField(list, "_hoveredIndex", 2);
+
+            var handled = InvokePrivate<bool>(list, "HandleMouseInput", CreateInputState(
+                mousePosition: new Vector2(float.NaN, 0)).Object);
+
+            Assert.False(handled);
+            Assert.Equal(-1, GetPrivateField<int>(list, "_hoveredIndex"));
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenInsideBoundsWithoutItemOrScroll_ShouldReturnFalse()
+        {
+            var list = new UIList
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(200, 150)
+            };
+
+            var handled = InvokePrivate<bool>(list, "HandleMouseInput", CreateInputState(
+                mousePosition: new Vector2(10, 10)).Object);
+
+            Assert.False(handled);
+            Assert.Equal(-1, GetPrivateField<int>(list, "_hoveredIndex"));
+        }
+
+        [Fact]
+        public void HandleMouseInput_WhenScrollWheelMoves_ShouldAdjustOffsetAndReturnTrue()
+        {
+            var list = new UIList
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(200, 90),
+                VisibleItemCount = 3,
+                ScrollOffset = 1
+            };
+
+            for (int i = 0; i < 6; i++)
+            {
+                list.AddItem($"Item {i}");
+            }
+
+            var handled = InvokePrivate<bool>(list, "HandleMouseInput", CreateInputState(
+                mousePosition: new Vector2(10, 10),
+                scrollWheelDelta: 1).Object);
+
+            Assert.True(handled);
+            Assert.Equal(0, list.ScrollOffset);
+        }
+
+        [Fact]
+        public void HandleKeyboardInput_WhenUpPressedWithSelectedItem_ShouldMoveSelectionUp()
+        {
+            var list = new UIList();
+            list.AddItem("A");
+            list.AddItem("B");
+            list.SelectedIndex = 1;
+
+            var handled = InvokePrivate<bool>(list, "HandleKeyboardInput", CreateInputState(upPressed: true).Object);
+
+            Assert.True(handled);
+            Assert.Equal(0, list.SelectedIndex);
+        }
+
+        [Fact]
+        public void HandleKeyboardInput_WhenDownPressedWithSelectedItem_ShouldMoveSelectionDown()
+        {
+            var list = new UIList();
+            list.AddItem("A");
+            list.AddItem("B");
+            list.SelectedIndex = 0;
+
+            var handled = InvokePrivate<bool>(list, "HandleKeyboardInput", CreateInputState(downPressed: true).Object);
+
+            Assert.True(handled);
+            Assert.Equal(1, list.SelectedIndex);
+        }
+
+        [Fact]
+        public void HandleKeyboardInput_WhenNoKeysPressed_ShouldReturnFalse()
+        {
+            var list = new UIList();
+
+            var handled = InvokePrivate<bool>(list, "HandleKeyboardInput", CreateInputState().Object);
+
+            Assert.False(handled);
+        }
+
+        [Fact]
+        public void UIListItem_IsSelectedShouldRoundTripAndToStringShouldReturnText()
+        {
+            var item = new UIListItem("Item");
+
+            item.IsSelected = true;
+
+            Assert.True(item.IsSelected);
+            Assert.Equal("Item", item.ToString());
+        }
+
         #endregion
+
+        private static T InvokePrivate<T>(object target, string methodName, params object?[] args)
+        {
+            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return (T)method!.Invoke(target, args)!;
+        }
+
+        private static void InvokePrivateVoid(object target, string methodName, params object?[] args)
+        {
+            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            method!.Invoke(target, args);
+        }
+
+        private static void SetPrivateField(object target, string fieldName, object? value)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field!.SetValue(target, value);
+        }
+
+        private static T GetPrivateField<T>(object target, string fieldName)
+        {
+            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return (T)field!.GetValue(target)!;
+        }
+
+        private static Mock<IInputState> CreateInputState(
+            Vector2? mousePosition = null,
+            bool isMousePressed = false,
+            int scrollWheelDelta = 0,
+            bool upPressed = false,
+            bool downPressed = false,
+            bool homePressed = false,
+            bool endPressed = false,
+            bool enterPressed = false)
+        {
+            var input = new Mock<IInputState>();
+            input.SetupGet(x => x.MousePosition).Returns(mousePosition ?? new Vector2(-1000, -1000));
+            input.Setup(x => x.IsMouseButtonPressed(MouseButton.Left)).Returns(isMousePressed);
+            input.SetupGet(x => x.ScrollWheelDelta).Returns(scrollWheelDelta);
+            input.Setup(x => x.IsKeyPressed(Keys.Up)).Returns(upPressed);
+            input.Setup(x => x.IsKeyPressed(Keys.Down)).Returns(downPressed);
+            input.Setup(x => x.IsKeyPressed(Keys.Home)).Returns(homePressed);
+            input.Setup(x => x.IsKeyPressed(Keys.End)).Returns(endPressed);
+            input.Setup(x => x.IsKeyPressed(Keys.Enter)).Returns(enterPressed);
+            return input;
+        }
+
+        private static SpriteFont CreateSpriteFontStub()
+        {
+#pragma warning disable SYSLIB0050
+            return (SpriteFont)FormatterServices.GetUninitializedObject(typeof(SpriteFont));
+#pragma warning restore SYSLIB0050
+        }
+
+        private static Texture2D CreateTextureStub()
+        {
+#pragma warning disable SYSLIB0050
+            return (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+        }
     }
 }
