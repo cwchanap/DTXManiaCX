@@ -906,6 +906,125 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void TruncateTextToWidth_WhenTextIsNull_ShouldReturnNull()
+    {
+        var display = new SongListDisplay();
+        var font = new Mock<IFont>();
+
+        var result = InvokePrivate<string>(display, "TruncateTextToWidth", null, 100f, font.Object);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void TruncateTextToWidth_WhenTextIsEmpty_ShouldReturnEmpty()
+    {
+        var display = new SongListDisplay();
+        var font = new Mock<IFont>();
+
+        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "", 100f, font.Object);
+
+        Assert.Equal("", result);
+    }
+
+    [Fact]
+    public void TruncateTextToWidth_WhenFontIsNull_ShouldReturnOriginalText()
+    {
+        var display = new SongListDisplay();
+
+        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "test", 100f, (IFont)null);
+
+        Assert.Equal("test", result);
+    }
+
+    [Fact]
+    public void TruncateTextToWidth_WhenTextFitsExactly_ShouldReturnOriginal()
+    {
+        var display = new SongListDisplay();
+        var font = new Mock<IFont>();
+        font.Setup(x => x.MeasureString("exact")).Returns(new Vector2(100f, 10f));
+
+        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "exact", 100f, font.Object);
+
+        Assert.Equal("exact", result);
+    }
+
+    [Fact]
+    public void TruncateTextToWidth_WhenVeryLongText_ShouldTruncateWithEllipsis()
+    {
+        var display = new SongListDisplay();
+        var font = new Mock<IFont>();
+        font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string s) => new Vector2(s.Length * 10, 10));
+
+        var longText = new string('A', 100);
+        var result = InvokePrivate<string>(display, "TruncateTextToWidth", longText, 50f, font.Object);
+
+        Assert.EndsWith("...", result);
+        Assert.True(result.Length < longText.Length);
+        Assert.True(font.Object.MeasureString(result).X <= 50f);
+    }
+
+    [Fact]
+    public void WrapTextToWidth_WhenTextIsNull_ShouldReturnSingleEmptyLine()
+    {
+        var display = new SongListDisplay();
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextToWidth", null, 100f, (SpriteFont)null, 1f);
+
+        Assert.Single(lines);
+        Assert.Equal("", lines[0]);
+    }
+
+    [Fact]
+    public void WrapTextToWidth_WhenTextIsEmpty_ShouldReturnSingleEmptyLine()
+    {
+        var display = new SongListDisplay();
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextToWidth", "", 100f, (SpriteFont)null, 1f);
+
+        Assert.Single(lines);
+        Assert.Equal("", lines[0]);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenTextureSizeProvided_ShouldUseProvidedSize()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(100, 200, 500, 50);
+
+        var result = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, 640, 96);
+
+        Assert.Equal(640, result.Width);
+        Assert.Equal(96, result.Height);
+        Assert.Equal(itemBounds.X, result.X);
+        Assert.Equal(itemBounds.Y, result.Y);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenTextureSizeNegative_ShouldUseItemBoundsSize()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(100, 200, 500, 50);
+
+        var result = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, -1, -1);
+
+        Assert.Equal(itemBounds.Width, result.Width);
+        Assert.Equal(itemBounds.Height, result.Height);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenWidthOnlyProvided_ShouldUseItemBoundsHeight()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(100, 200, 500, 50);
+
+        var result = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, 640, -1);
+
+        Assert.Equal(640, result.Width);
+        Assert.Equal(itemBounds.Height, result.Height);
+    }
+
+    [Fact]
     public void MoveNext_ShouldAdvanceSelectionAndRaiseIncompleteSelectionEvent()
     {
         var display = new SongListDisplay
