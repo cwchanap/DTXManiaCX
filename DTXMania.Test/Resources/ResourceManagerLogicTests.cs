@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.Serialization;
+using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using Moq;
@@ -102,6 +103,100 @@ namespace DTXMania.Test.Resources
         [Theory]
         [InlineData("")]
         [InlineData(null)]
+        public void LoadTexture_WithNullOrEmptyPath_ShouldThrowArgumentException(string? path)
+        {
+            var resourceManager = CreateResourceManager();
+
+            Assert.Throws<ArgumentException>(() => resourceManager.LoadTexture(path!));
+        }
+
+        [Fact]
+        public void LoadTexture_WhenCachedTextureExists_ShouldAddReferenceIncrementHitsAndReturnCachedTexture()
+        {
+            var resourceManager = CreateResourceManager();
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+            var cachedTexture = CreateTextureMock();
+            textureCache["graphics/test.png|False"] = cachedTexture.Object;
+
+            var loadedTexture = resourceManager.LoadTexture("Graphics/Test.png");
+
+            Assert.Same(cachedTexture.Object, loadedTexture);
+            cachedTexture.Verify(x => x.AddReference(), Times.Once);
+            Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheHits"));
+            Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheMisses"));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
+        public void LoadFont_WithNullOrEmptyPath_ShouldThrowArgumentException(string? path)
+        {
+            var resourceManager = CreateResourceManager();
+
+            Assert.Throws<ArgumentException>(() => resourceManager.LoadFont(path!, 24));
+        }
+
+        [Fact]
+        public void LoadFont_WhenCachedFontExists_ShouldAddReferenceIncrementHitsAndReturnCachedFont()
+        {
+            var resourceManager = CreateResourceManager();
+            var fontCache = GetPrivateField<ConcurrentDictionary<string, IFont>>(resourceManager, "_fontCache");
+            var cachedFont = CreateFontMock();
+            fontCache["fonts/test.ttf|24|Regular"] = cachedFont.Object;
+
+            var loadedFont = resourceManager.LoadFont("Fonts/Test.ttf", 24);
+
+            Assert.Same(cachedFont.Object, loadedFont);
+            cachedFont.Verify(x => x.AddReference(), Times.Once);
+            Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheHits"));
+            Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheMisses"));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
+        public void LoadSound_WithNullOrEmptyPath_ShouldThrowArgumentException(string? path)
+        {
+            var resourceManager = CreateResourceManager();
+
+            Assert.Throws<ArgumentException>(() => resourceManager.LoadSound(path!));
+        }
+
+        [Fact]
+        public void LoadSound_WhenCachedSoundExists_ShouldAddReferenceIncrementHitsAndReturnCachedSound()
+        {
+            var resourceManager = CreateResourceManager();
+            var soundCache = GetPrivateField<ConcurrentDictionary<string, ISound>>(resourceManager, "_soundCache");
+            var cachedSound = CreateSoundMock();
+            soundCache["sounds/test.ogg".ToLowerInvariant()] = cachedSound.Object;
+
+            var loadedSound = resourceManager.LoadSound("Sounds/Test.ogg");
+
+            Assert.Same(cachedSound.Object, loadedSound);
+            cachedSound.Verify(x => x.AddReference(), Times.Once);
+            Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheHits"));
+            Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheMisses"));
+        }
+
+        [Fact]
+        public void CreateTextureFromColor_WhenCachedTextureExists_ShouldAddReferenceIncrementHitsAndReturnCachedTexture()
+        {
+            var resourceManager = CreateResourceManager();
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+            var cachedTexture = CreateTextureMock();
+            var cacheKey = $"__Color|{Color.CornflowerBlue.PackedValue}";
+            textureCache[cacheKey] = cachedTexture.Object;
+
+            var createdTexture = resourceManager.CreateTextureFromColor(Color.CornflowerBlue);
+
+            Assert.Same(cachedTexture.Object, createdTexture);
+            cachedTexture.Verify(x => x.AddReference(), Times.Once);
+            Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheHits"));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
         public void ResourceExists_WithNullOrEmptyPath_ShouldReturnFalse(string? relativePath)
         {
             var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
@@ -115,6 +210,16 @@ namespace DTXMania.Test.Resources
             var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
 
             var exists = resourceManager.ResourceExists("Graphics/fallback_only.png");
+
+            Assert.True(exists);
+        }
+
+        [Fact]
+        public void ResourceExists_WhenPresentInCurrentSkin_ShouldReturnTrue()
+        {
+            var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
+
+            var exists = resourceManager.ResourceExists("Graphics/current_only.png");
 
             Assert.True(exists);
         }
