@@ -437,6 +437,83 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadPreviewImage_WhenPrimaryLoadThrows_ShouldReleaseOldAndLeavePreviewNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreview = new Mock<ITexture>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var chartPath = Path.Combine(tempDir, "sample.dtx");
+                var previewFileName = "badpreview.png";
+                var primaryPreviewPath = Path.Combine(tempDir, previewFileName);
+                File.WriteAllText(chartPath, "chart");
+                File.WriteAllText(primaryPreviewPath, "primary");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_previewTexture", existingPreview.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+                {
+                    FilePath = chartPath,
+                    PreviewImage = previewFileName
+                }));
+
+                resourceManager
+                    .Setup(x => x.LoadTexture(Path.GetFullPath(primaryPreviewPath)))
+                    .Throws(new InvalidOperationException("primary failed"));
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                existingPreview.Verify(x => x.RemoveReference(), Times.Once);
+                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void LoadPreviewImage_WhenDirectoryPathContainsFallback_ShouldLoadFallbackTexture()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var fallbackTexture = new Mock<ITexture>();
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var fallbackPreviewPath = Path.Combine(tempDir, "jacket.png");
+                File.WriteAllText(fallbackPreviewPath, "fallback");
+
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedSong", new SongListNode
+                {
+                    DirectoryPath = tempDir,
+                    DatabaseChart = new SongChart { PreviewImage = null },
+                    DatabaseSong = new SongEntity { Charts = new List<SongChart>() },
+                });
+
+                resourceManager
+                    .Setup(x => x.LoadTexture(fallbackPreviewPath))
+                    .Returns(fallbackTexture.Object);
+
+                InvokePrivateMethod(stage, "LoadPreviewImage");
+
+                resourceManager.Verify(x => x.LoadTexture(fallbackPreviewPath), Times.Once);
+                Assert.Same(fallbackTexture.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_previewTexture"));
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void LoadPreviewImage_WhenAllFallbacksFail_ShouldAttemptDefaultPreview()
         {
             var stage = CreateStage();
@@ -556,6 +633,19 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void PlayNowLoadingSound_WhenPlayThrows_ShouldSwallowException()
+        {
+            var stage = CreateStage();
+            var sound = new Mock<ISound>();
+            sound.Setup(x => x.Play(0.9f)).Throws(new InvalidOperationException("play failed"));
+            ReflectionHelpers.SetPrivateField(stage, "_nowLoadingSound", sound.Object);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "PlayNowLoadingSound"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void HandleInput_WhenInputManagerIsNull_ShouldReturnEarly()
         {
             var stage = CreateStage();
@@ -567,10 +657,49 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandleInput_WhenQueuedActivateCommandPresent_ShouldDrainQueueAndTransition()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var inputManager = new ProbeInputManager();
+
+            stage.StageManager = stageManager.Object;
+            inputManager.QueueCommand(new InputCommand(InputCommandType.Activate, 0.0));
+            ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart { DrumLevel = 50, HasDrumChart = true }));
+
+            InvokePrivateMethod(stage, "HandleInput");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Performance,
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Once);
+            Assert.False(inputManager.HasPendingCommands);
+        }
+
+        [Fact]
         public void GetCurrentDifficultyLevel_WhenSelectedSongIsNull_ShouldReturnZero()
         {
             var stage = CreateStage();
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", null);
+
+            var result = InvokePrivateMethod<float>(stage, "GetCurrentDifficultyLevel");
+
+            Assert.Equal(0f, result);
+        }
+
+        [Fact]
+        public void GetCurrentDifficultyLevel_WhenSongHasNoDatabaseSong_ShouldReturnZero()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", new SongListNode
+            {
+                DatabaseSong = null,
+                DatabaseChart = new SongChart(),
+            });
 
             var result = InvokePrivateMethod<float>(stage, "GetCurrentDifficultyLevel");
 
@@ -635,6 +764,11 @@ namespace DTXMania.Test.Stage
         private sealed class ProbeInputManager : DTXMania.Game.Lib.Input.InputManager
         {
             public bool WasDisposed { get; private set; }
+
+            public void QueueCommand(InputCommand command)
+            {
+                EnqueueCommand(command);
+            }
 
             protected override void Dispose(bool disposing)
             {
