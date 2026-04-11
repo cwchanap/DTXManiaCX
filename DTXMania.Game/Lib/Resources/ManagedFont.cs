@@ -720,15 +720,8 @@ namespace DTXMania.Game.Lib.Resources
             Debug.WriteLine($"ManagedFont: Common Kanji - {supportedCount}/{commonKanji.Length} characters supported");
         }
 
-        // For testing: can be overridden to inject character support
-        protected HashSet<char> _overrideTestCharacters = null;
-
-        protected bool TestCharacterSupport(char character)
+        protected virtual bool TestCharacterSupport(char character)
         {
-            // Allow tests to override character support
-            if (_overrideTestCharacters != null)
-                return _overrideTestCharacters.Contains(character);
-
             if (_spriteFont == null) return false;
 
             try

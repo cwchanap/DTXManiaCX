@@ -16,6 +16,26 @@ namespace DTXMania.Test.Resources;
 [Trait("Category", "Unit")]
 public class ManagedFontLogicTests
 {
+    private class TestableManagedFont : ManagedFont
+    {
+        private HashSet<char>? _testCharacters;
+
+        public TestableManagedFont(SpriteFont spriteFont, string sourcePath, int fontSize)
+            : base(spriteFont, sourcePath, fontSize)
+        {
+        }
+
+        public void SetTestCharacters(HashSet<char> testCharacters)
+        {
+            _testCharacters = testCharacters;
+        }
+
+        protected override bool TestCharacterSupport(char character)
+        {
+            return _testCharacters?.Contains(character) ?? false;
+        }
+    }
+
     [Fact]
     public void InitializeFontFactory_WhenContentManagerIsNull_ShouldThrowArgumentNullException()
     {
@@ -325,11 +345,12 @@ public class ManagedFontLogicTests
     [Fact]
     public void BuildCharacterRangeCache_ShouldPopulateCharacterRangesAndLogResults()
     {
-        var font = CreateManagedFont();
+        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
+        var testChars = new HashSet<char> { 'A', 'B', '1', '2' };
+        var font = new TestableManagedFont(spriteFont, "test", 16);
+        font.SetTestCharacters(testChars);
         ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
         ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
-        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { 'A', 'B', '1', '2' });
 
         InvokePrivate<object?>(font, "BuildCharacterRangeCache");
 
@@ -340,10 +361,11 @@ public class ManagedFontLogicTests
     [Fact]
     public void TestCharacterRange_ShouldCallTestCharacterSupportForEachCharacterInRange()
     {
-        var font = CreateManagedFont();
+        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
+        var testChars = new HashSet<char> { 'A', 'B', 'C' };
+        var font = new TestableManagedFont(spriteFont, "test", 16);
+        font.SetTestCharacters(testChars);
         ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
-        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { 'A', 'B', 'C' });
 
         InvokePrivate<object?>(font, "TestCharacterRange", 0x41, 0x43, "Test Range");
 
@@ -355,10 +377,11 @@ public class ManagedFontLogicTests
     [Fact]
     public void TestCommonKanjiCharacters_ShouldCallTestCharacterSupportForEachKanjiCharacter()
     {
-        var font = CreateManagedFont();
+        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
+        var testChars = new HashSet<char> { '一', '二', '三' };
+        var font = new TestableManagedFont(spriteFont, "test", 16);
+        font.SetTestCharacters(testChars);
         ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont)));
-        ReflectionHelpers.SetPrivateField(font, "_overrideTestCharacters", new HashSet<char> { '一', '二', '三' });
 
         InvokePrivate<object?>(font, "TestCommonKanjiCharacters");
 
