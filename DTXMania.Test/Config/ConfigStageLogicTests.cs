@@ -601,4 +601,424 @@ public class ConfigStageLogicTests
             return command == _pressedCommand;
         }
     }
+
+    [Fact]
+    public void HandleInput_WithNullActivePanel_ShouldHandleInputNormally()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_activePanel", (IKeyAssignPanel?)null);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+        }
+    }
+
+    [Fact]
+    public void HandleInput_MoveLeftOnNavigationItem_ShouldNotChangeAnything()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 5);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void HandleInput_MoveRightOnNavigationItem_ShouldNotChangeAnything()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void HandleInput_ActivateOnSaveButton_ShouldInvokeSaveButtonClicked()
+    {
+        var redirectedSavePath = CreateConfigSavePath();
+        var configManager = new RecordingConfigManager(new ConfigData(), redirectedSavePath: redirectedSavePath);
+
+        try
+        {
+            var (stage, _, inputManager) = CreateStage(configManager);
+            using (inputManager)
+            {
+                InitializeStageMenu(stage, includePanels: false);
+                var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+                var stageManager = new Moq.Mock<IStageManager>();
+                stage.StageManager = stageManager.Object;
+                ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+                SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+                stageManager.Verify(
+                    manager => manager.ChangeStage(StageType.Title, Moq.It.IsAny<IStageTransition>()),
+                    Moq.Times.Once);
+            }
+        }
+        finally
+        {
+            DeleteConfigSavePath(redirectedSavePath);
+        }
+    }
+
+    [Fact]
+    public void HandleInput_ActivateOnBackButton_ShouldInvokeBackButtonClicked()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(StageType.Title, Moq.It.IsAny<IStageTransition>()),
+                Moq.Times.Once);
+        }
+    }
+
+    [Fact]
+    public void ApplyConfiguration_WithNullInputManager_ShouldSkipReloadAndReturnTrue()
+    {
+        var redirectedSavePath = CreateConfigSavePath();
+        var configManager = new RecordingConfigManager(new ConfigData(), redirectedSavePath: redirectedSavePath);
+
+        try
+        {
+            var (stage, _, inputManager) = CreateStage(configManager);
+            using (inputManager)
+            {
+                InitializeStageMenu(stage, includePanels: false);
+                var game = ReflectionHelpers.GetPrivateField<BaseGame>(stage, "_game");
+                ReflectionHelpers.SetProperty(game!, nameof(BaseGame.InputManager), (InputManagerCompat?)null);
+
+                var workingConfig = new ConfigData
+                {
+                    ScreenWidth = 1920,
+                    ScreenHeight = 1080,
+                    FullScreen = true,
+                    VSyncWait = false
+                };
+                ReflectionHelpers.SetPrivateField(stage, "_workingConfig", workingConfig);
+                ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+                var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
+
+                Assert.True(result);
+                Assert.Equal(1920, configManager.Config.ScreenWidth);
+                Assert.Equal(1080, configManager.Config.ScreenHeight);
+                Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            }
+        }
+        finally
+        {
+            DeleteConfigSavePath(redirectedSavePath);
+        }
+    }
+
+    [Fact]
+    public void IsConfigNavigationCommandPressed_FallbackBindingPressed_ShouldReturnTrue()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var navigationBindings = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.W] = InputCommandType.MoveUp,
+                [Keys.Escape] = InputCommandType.Back
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_navigationBindings", navigationBindings);
+            SetKeyboardStates(stage, new KeyboardState(Keys.W), new KeyboardState());
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                stage, "IsConfigNavigationCommandPressed", InputCommandType.MoveUp)!;
+
+            Assert.True(result);
+        }
+    }
+
+    [Fact]
+    public void IsConfigNavigationCommandPressed_NoPressedKeys_ShouldReturnFalse()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SetKeyboardStates(stage, new KeyboardState(), new KeyboardState());
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                stage, "IsConfigNavigationCommandPressed", InputCommandType.MoveUp)!;
+
+            Assert.False(result);
+        }
+    }
+
+    [Fact]
+    public void IsPanelCommandPressed_WorkingBindingPressedByKeyboard_ShouldReturnTrue()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var workingSystemBindings = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.W] = InputCommandType.MoveUp
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", workingSystemBindings);
+            SetKeyboardStates(stage, new KeyboardState(Keys.W), new KeyboardState());
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                stage, "IsPanelCommandPressed", InputCommandType.MoveUp)!;
+
+            Assert.True(result);
+        }
+    }
+
+    [Fact]
+    public void IsPanelCommandPressed_NoMatchingBinding_ShouldReturnFalse()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var workingSystemBindings = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.W] = InputCommandType.MoveDown
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", workingSystemBindings);
+            SetKeyboardStates(stage, new KeyboardState(), new KeyboardState());
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                stage, "IsPanelCommandPressed", InputCommandType.MoveUp)!;
+
+            Assert.False(result);
+        }
+    }
+
+    [Fact]
+    public void OnPanelSaved_WithNullSender_ShouldNotCrashButAlsoNotUpdate()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var originalBindings = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings");
+            var originalSystemBindings = ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(
+                stage, "_workingSystemBindings");
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelSaved", null, EventArgs.Empty);
+
+            Assert.Same(originalBindings, ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings"));
+            Assert.Same(originalSystemBindings, ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(
+                stage, "_workingSystemBindings"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void OnPanelSaved_WithUnmatchedSender_ShouldMarkUnsavedChangesButNotUpdate()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var originalBindings = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings");
+            var unmatchedSender = new object();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelSaved", unmatchedSender, EventArgs.Empty);
+
+            Assert.Same(originalBindings, ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void OnPanelClosed_WithNullSender_ShouldClearActivePanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
+            ReflectionHelpers.SetPrivateField(stage, "_activePanel", drumPanel);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", null, EventArgs.Empty);
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+        }
+    }
+
+    [Fact]
+    public void OnPanelSaved_WithSystemPanel_ShouldUpdateWorkingSystemBindings()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(systemPanel);
+
+            var newWorkingMapping = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.F1] = InputCommandType.MoveUp,
+                [Keys.F2] = InputCommandType.Activate
+            };
+            ReflectionHelpers.SetPrivateField(systemPanel!, "_workingMapping", newWorkingMapping);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelSaved", systemPanel!, EventArgs.Empty);
+
+            var workingSystemBindings = ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(
+                stage, "_workingSystemBindings");
+            Assert.NotNull(workingSystemBindings);
+            Assert.Equal(2, workingSystemBindings!.Count);
+            Assert.Equal(InputCommandType.MoveUp, workingSystemBindings[Keys.F1]);
+            Assert.Equal(InputCommandType.Activate, workingSystemBindings[Keys.F2]);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void OpenPanel_WithNullPanel_ShouldNotCrash()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", (IKeyAssignPanel?)null);
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+        }
+    }
+
+    [Fact]
+    public void OnSaveButtonClicked_WhenSaveFails_ShouldNotTransition()
+    {
+        var configManager = new RecordingConfigManager(
+            new ConfigData(),
+            saveException: new IOException("disk full"));
+        var (stage, _, inputManager) = CreateStage(configManager);
+
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnSaveButtonClicked", null, EventArgs.Empty);
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(Moq.It.IsAny<StageType>(), Moq.It.IsAny<IStageTransition>()),
+                Moq.Times.Never);
+        }
+    }
+
+    [Fact]
+    public void OnBackButtonClicked_WithoutUnsavedChanges_ShouldTransition()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)),
+                Moq.Times.Once);
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnVSyncToggle_ShouldToggleWorkingFlag()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.VSyncWait = false;
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 2);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            Assert.NotNull(workingConfig);
+            Assert.True(workingConfig!.VSyncWait);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnNoFailToggle_ShouldToggleWorkingFlag()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.NoFail = false;
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 3);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            Assert.NotNull(workingConfig);
+            Assert.True(workingConfig!.NoFail);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnAutoPlayToggle_ShouldToggleWorkingFlag()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.AutoPlay = false;
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 4);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            Assert.NotNull(workingConfig);
+            Assert.True(workingConfig!.AutoPlay);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
 }
