@@ -1297,6 +1297,11 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(text) || font == null)
                 return new[] { text ?? "" };
 
+            return WrapTextWithMeasurement(text, maxWidth, line => font.MeasureString(line).X * scale);
+        }
+
+        private string[] WrapTextWithMeasurement(string text, float maxWidth, System.Func<string, float> measureText)
+        {
             var words = text.Split(' ');
             var lines = new System.Collections.Generic.List<string>();
             var currentLine = "";
@@ -1304,7 +1309,7 @@ namespace DTXMania.Game.Lib.Song.Components
             foreach (var word in words)
             {
                 var testLine = string.IsNullOrEmpty(currentLine) ? word : currentLine + " " + word;
-                var testWidth = font.MeasureString(testLine).X * scale;
+                var testWidth = measureText(testLine);
 
                 if (testWidth <= maxWidth)
                 {
