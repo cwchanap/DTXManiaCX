@@ -628,7 +628,7 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void GetCharacterReplacement_ShouldReplacedFullwidthCharactersWithHalfwidth()
+    public void GetCharacterReplacement_ShouldReplaceFullwidthCharactersWithHalfwidth()
     {
         var font = CreateManagedFont(customCharacters: new HashSet<char> { 'A', '?', ' ' });
 
