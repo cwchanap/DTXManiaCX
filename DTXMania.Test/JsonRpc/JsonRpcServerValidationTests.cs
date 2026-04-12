@@ -50,316 +50,75 @@ namespace DTXMania.Test.JsonRpc
         private static readonly object _portLock = new();
         private static int NextPort() { lock (_portLock) return _portBase++; }
 
+        private async Task AssertSendInputValidationAsync(
+            string requestJson,
+            string expectedCode,
+            string expectedText)
+        {
+            using var client = await StartServerAsync(NextPort());
+            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains(expectedCode, body);
+            Assert.Contains(expectedText, body);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Never);
+        }
+
+        private async Task AssertSendInputSuccessAsync(string requestJson)
+        {
+            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
+
+            using var client = await StartServerAsync(NextPort());
+            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
+            _ = await response.Content.ReadAsStringAsync();
+
+            Assert.True(response.IsSuccessStatusCode);
+            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
+        }
+
         #region ValidateGameInput Tests (via sendInput)
 
-        [Fact]
-        public async Task SendInput_WithInvalidInputType_ShouldReturnInvalidInput()
+        [Theory]
+        [InlineData("SendInput_WithInvalidInputType", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":999,\"data\":\"test\"}}", "-32002", "Invalid input type")]
+        [InlineData("SendInput_MouseClick_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":null}}", "-32002", "Mouse input requires position data")]
+        [InlineData("SendInput_MouseClick_WithNonObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":\"not-an-object\"}}", "-32002", "Mouse input data must be an object")]
+        [InlineData("SendInput_MouseMove_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":null}}", "-32002", "Mouse input requires position data")]
+        [InlineData("SendInput_MouseMove_WithNonObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":42}}", "-32002", "Mouse input data must be an object")]
+        [InlineData("SendInput_KeyPress_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":null}}", "-32002", "Key input requires key data")]
+        [InlineData("SendInput_KeyPress_WithWhitespaceStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"   \"}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithOverlongStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithNegativeKeyCode", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":-1}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithKeyCodeAbove255", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":256}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithObjectMissingKeyProperty", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"holdDurationMs\":50}}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithObjectKeyNotString", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":123,\"holdDurationMs\":50}}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithObjectKeyWhitespace", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"   \",\"holdDurationMs\":50}}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithObjectKeyOverlong", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"holdDurationMs\":50}}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithBooleanData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":true}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyPress_WithArrayData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":[\"Enter\"]}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_KeyRelease_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":null}}", "-32002", "Key input requires key data")]
+        [InlineData("SendInput_KeyRelease_WithWhitespaceStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"\\t\\n\"}}", "-32002", "Invalid key data format")]
+        public Task SendInput_InvalidPayloads_ShouldReturnExpectedError(
+            string caseName,
+            string requestJson,
+            string expectedCode,
+            string expectedText)
         {
-            // Type = 999 is not in the InputType enum
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":999,\"data\":\"test\"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body); // InvalidInput
-            Assert.Contains("Invalid input type", body);
+            _ = caseName;
+            return AssertSendInputValidationAsync(requestJson, expectedCode, expectedText);
         }
 
-        [Fact]
-        public async Task SendInput_MouseClick_WithNullData_ShouldReturnInvalidInput()
+        [Theory]
+        [InlineData("SendInput_KeyPress_WithValidKeyCodeZero", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":0}}")]
+        [InlineData("SendInput_KeyPress_WithValidKeyCode255", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":255}}")]
+        [InlineData("SendInput_MouseClick_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":{\"x\":100,\"y\":200}}}")]
+        [InlineData("SendInput_MouseMove_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":{\"x\":150,\"y\":250}}}")]
+        [InlineData("SendInput_KeyPress_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"Enter\"}}")]
+        [InlineData("SendInput_KeyRelease_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"Escape\"}}")]
+        [InlineData("SendInput_KeyPress_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"Down\",\"holdDurationMs\":50,\"clientId\":\"default\"}}}")]
+        public Task SendInput_ValidPayloads_ShouldSucceed(string caseName, string requestJson)
         {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":null}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Mouse input requires position data", body);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseClick_WithNonObjectData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":\"not-an-object\"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Mouse input data must be an object", body);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseMove_WithNullData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":null}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Mouse input requires position data", body);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseMove_WithNonObjectData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":42}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Mouse input data must be an object", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithNullData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":null}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Key input requires key data", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithWhitespaceStringData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"   \"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithOverlongStringData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var longKey = new string('A', 51); // exceeds 50 char limit
-            var requestJson = $"{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{{\"type\":2,\"data\":\"{longKey}\"}}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithNegativeKeyCode_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":-1}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithKeyCodeAbove255_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":256}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithValidKeyCodeZero_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":0}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithValidKeyCode255_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":255}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithObjectMissingKeyProperty_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"holdDurationMs\":50}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithObjectKeyNotString_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":123,\"holdDurationMs\":50}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithObjectKeyWhitespace_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"   \",\"holdDurationMs\":50}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithObjectKeyOverlong_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var longKey = new string('B', 51);
-            var requestJson = $"{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{{\"type\":2,\"data\":{{\"key\":\"{longKey}\",\"holdDurationMs\":50}}}}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithBooleanData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":true}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithArrayData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":[\"Enter\"]}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyRelease_WithNullData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":null}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Key input requires key data", body);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyRelease_WithWhitespaceStringData_ShouldReturnInvalidInput()
-        {
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"\\t\\n\"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.Contains("-32002", body);
-            Assert.Contains("Invalid key data format", body);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseClick_WithValidObjectData_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":0,\"data\":{\"x\":100,\"y\":200}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_MouseMove_WithValidObjectData_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":{\"x\":150,\"y\":250}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithValidStringData_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"Enter\"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyRelease_WithValidStringData_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"Escape\"}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
-        }
-
-        [Fact]
-        public async Task SendInput_KeyPress_WithValidObjectData_ShouldSucceed()
-        {
-            _mockGameApi.Setup(api => api.SendInputAsync(It.IsAny<GameInput>())).ReturnsAsync(true);
-            using var client = await StartServerAsync(NextPort());
-            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"Down\",\"holdDurationMs\":50,\"clientId\":\"default\"}}}";
-            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
-            var body = await response.Content.ReadAsStringAsync();
-
-            Assert.True(response.IsSuccessStatusCode);
-            _mockGameApi.Verify(api => api.SendInputAsync(It.IsAny<GameInput>()), Times.Once);
+            _ = caseName;
+            return AssertSendInputSuccessAsync(requestJson);
         }
 
         #endregion

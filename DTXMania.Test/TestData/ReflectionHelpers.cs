@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
 
@@ -53,6 +54,17 @@ namespace DTXMania.Test.TestData
             }
 
             return (T)result;
+        }
+
+        internal static async Task<T?> InvokePrivateMethodAsync<T>(object target, string methodName, params object[] args)
+        {
+            var method = GetMethod(target.GetType(), methodName);
+            Assert.NotNull(method);
+
+            var task = method!.Invoke(target, args);
+            Assert.NotNull(task);
+
+            return await Assert.IsAssignableFrom<Task<T>>(task);
         }
 
         internal static void SetPrivateField(object target, string fieldName, object? value)
