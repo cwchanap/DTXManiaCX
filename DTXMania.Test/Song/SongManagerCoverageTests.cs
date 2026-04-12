@@ -558,70 +558,35 @@ public class SongManagerCoverageTests : IDisposable
         Assert.Equal(System.Drawing.ColorTranslator.FromHtml("#33FF57"), boxDef.TextColor);
     }
 
-    [Fact]
-    public void CreateSongNodeFromDatabaseEntities_WithGuitarOnlyChart_ShouldSelectGuitar()
+    [Theory]
+    [InlineData(EInstrumentPart.GUITAR, 75, "guitar.dtx")]
+    [InlineData(EInstrumentPart.BASS, 88, "bass.dtx")]
+    public void CreateSongNodeFromDatabaseEntities_WithSingleStringPartChart_ShouldSelectRequestedPart(
+        EInstrumentPart instrument,
+        int expectedLevel,
+        string chartFileName)
     {
         var song = new SongEntity
         {
-            Title = "Guitar Song",
+            Title = $"{instrument} Song",
             Artist = "Coverage Bot",
-            Genre = "Rock"
+            Genre = instrument == EInstrumentPart.GUITAR ? "Rock" : "Funk"
         };
-        
-        var guitarChart = new SongChart
-        {
-            FilePath = Path.Combine(_testRoot, "guitar.dtx"),
-            HasDrumChart = false,
-            HasGuitarChart = true,
-            HasBassChart = false,
-            DrumLevel = 0,
-            GuitarLevel = 75,
-            BassLevel = 0
-        };
-        
-        var charts = new[]
-        {
-            guitarChart,
-            new SongChart
-            {
-                FilePath = Path.Combine(_testRoot, "supporting.dtx"),
-                HasDrumChart = true,
-                DrumLevel = 35
-            }
-        };
-        
-        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
-        
-        Assert.NotNull(result);
-        Assert.NotNull(result!.Scores[0]);
-        Assert.Equal(EInstrumentPart.GUITAR, result.Scores[0]!.Instrument);
-        Assert.Equal(75, result.Scores[0].DifficultyLevel);
-    }
 
-    [Fact]
-    public void CreateSongNodeFromDatabaseEntities_WithBassOnlyChart_ShouldSelectBass()
-    {
-        var song = new SongEntity
+        var primaryChart = new SongChart
         {
-            Title = "Bass Song",
-            Artist = "Coverage Bot",
-            Genre = "Funk"
-        };
-        
-        var bassChart = new SongChart
-        {
-            FilePath = Path.Combine(_testRoot, "bass.dtx"),
+            FilePath = Path.Combine(_testRoot, chartFileName),
             HasDrumChart = false,
-            HasGuitarChart = false,
-            HasBassChart = true,
+            HasGuitarChart = instrument == EInstrumentPart.GUITAR,
+            HasBassChart = instrument == EInstrumentPart.BASS,
             DrumLevel = 0,
-            GuitarLevel = 0,
-            BassLevel = 88
+            GuitarLevel = instrument == EInstrumentPart.GUITAR ? expectedLevel : 0,
+            BassLevel = instrument == EInstrumentPart.BASS ? expectedLevel : 0
         };
-        
+
         var charts = new[]
         {
-            bassChart,
+            primaryChart,
             new SongChart
             {
                 FilePath = Path.Combine(_testRoot, "supporting.dtx"),
@@ -631,11 +596,11 @@ public class SongManagerCoverageTests : IDisposable
         };
         
         var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
-        
+
         Assert.NotNull(result);
         Assert.NotNull(result!.Scores[0]);
-        Assert.Equal(EInstrumentPart.BASS, result.Scores[0]!.Instrument);
-        Assert.Equal(88, result.Scores[0].DifficultyLevel);
+        Assert.Equal(instrument, result.Scores[0]!.Instrument);
+        Assert.Equal(expectedLevel, result.Scores[0].DifficultyLevel);
     }
 
     [Fact]

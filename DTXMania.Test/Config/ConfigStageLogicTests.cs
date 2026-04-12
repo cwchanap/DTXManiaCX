@@ -962,62 +962,27 @@ public class ConfigStageLogicTests
         }
     }
 
-    [Fact]
-    public void ActivatePressedOnVSyncToggle_ShouldToggleWorkingFlag()
+    [Theory]
+    [InlineData(2, nameof(ConfigData.VSyncWait))]
+    [InlineData(3, nameof(ConfigData.NoFail))]
+    [InlineData(4, nameof(ConfigData.AutoPlay))]
+    public void ActivatePressedOnToggle_ShouldToggleWorkingFlag(int selectedIndex, string propertyName)
     {
         var (stage, configManager, inputManager) = CreateStage();
         using (inputManager)
         {
-            configManager.Config.VSyncWait = false;
+            var property = typeof(ConfigData).GetProperty(propertyName);
+            Assert.NotNull(property);
+            property!.SetValue(configManager.Config, false);
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", selectedIndex);
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
             var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
             Assert.NotNull(workingConfig);
-            Assert.True(workingConfig!.VSyncWait);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
-
-    [Fact]
-    public void ActivatePressedOnNoFailToggle_ShouldToggleWorkingFlag()
-    {
-        var (stage, configManager, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            configManager.Config.NoFail = false;
-            InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 3);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
-            Assert.NotNull(workingConfig);
-            Assert.True(workingConfig!.NoFail);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
-
-    [Fact]
-    public void ActivatePressedOnAutoPlayToggle_ShouldToggleWorkingFlag()
-    {
-        var (stage, configManager, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            configManager.Config.AutoPlay = false;
-            InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 4);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
-            Assert.NotNull(workingConfig);
-            Assert.True(workingConfig!.AutoPlay);
+            Assert.True((bool)property.GetValue(workingConfig!)!);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
