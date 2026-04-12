@@ -579,6 +579,14 @@ public class ManagedFontLogicTests
 
         var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
         Assert.NotNull(supportedCharacters);
+        // Verify all test-supported characters were found
+        Assert.Contains('A', supportedCharacters);
+        Assert.Contains('B', supportedCharacters);
+        Assert.Contains('1', supportedCharacters);
+        Assert.Contains('2', supportedCharacters);
+        Assert.Equal(4, supportedCharacters.Count);
+        // Verify unsupported character is absent
+        Assert.DoesNotContain('Z', supportedCharacters);
     }
 
     [Fact]
@@ -594,7 +602,11 @@ public class ManagedFontLogicTests
 
         var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
         Assert.NotNull(supportedCharacters);
+        // All three characters in range 0x41-0x43 ('A'-'C') are supported
         Assert.Contains('A', supportedCharacters);
+        Assert.Contains('B', supportedCharacters);
+        Assert.Contains('C', supportedCharacters);
+        Assert.Equal(3, supportedCharacters.Count);
     }
 
     [Fact]
@@ -610,6 +622,13 @@ public class ManagedFontLogicTests
 
         var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
         Assert.NotNull(supportedCharacters);
+        // Verify all test-supported kanji were found
+        Assert.Contains('一', supportedCharacters);
+        Assert.Contains('二', supportedCharacters);
+        Assert.Contains('三', supportedCharacters);
+        Assert.Equal(3, supportedCharacters.Count);
+        // Verify unsupported kanji is absent
+        Assert.DoesNotContain('四', supportedCharacters);
     }
 
     [Fact]
@@ -637,64 +656,20 @@ public class ManagedFontLogicTests
         Assert.Equal('A', replacement);
     }
 
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceUnsupportedEllipsisWithPeriod()
+    [Theory]
+    [InlineData('…', '.', '.')]
+    [InlineData('—', '-', '-')]
+    [InlineData('\u2018', '\'', '\'')]
+    [InlineData('\u2019', '\'', '\'')]
+    [InlineData('\u201C', '"', '"')]
+    [InlineData('\u201D', '"', '"')]
+    public void GetCharacterReplacement_ShouldReplaceUnsupportedChars(char inputChar, char supportedReplacement, char expectedReplacement)
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '.', '?' });
+        var font = CreateManagedFont(customCharacters: new HashSet<char> { supportedReplacement, '?' });
 
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '…');
+        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", inputChar);
 
-        Assert.Equal('.', replacement);
-    }
-
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceEMDashWithHyphen()
-    {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '-', '?' });
-
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '—');
-
-        Assert.Equal('-', replacement);
-    }
-
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceLeftSingleQuotationMarkWithApostrophe()
-    {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '\'', '?' });
-
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u2018');
-
-        Assert.Equal('\'', replacement);
-    }
-
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceRightSingleQuotationMarkWithApostrophe()
-    {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '\'', '?' });
-
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u2019');
-
-        Assert.Equal('\'', replacement);
-    }
-
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceLeftDoubleQuotationMarkWithQuote()
-    {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '"', '?' });
-
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u201C');
-
-        Assert.Equal('"', replacement);
-    }
-
-    [Fact]
-    public void GetCharacterReplacement_ShouldReplaceRightDoubleQuotationMarkWithQuote()
-    {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { '"', '?' });
-
-        var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", '\u201D');
-
-        Assert.Equal('"', replacement);
+        Assert.Equal(expectedReplacement, replacement);
     }
 
     [Fact]
@@ -714,7 +689,9 @@ public class ManagedFontLogicTests
 
         var lines = InvokePrivate<List<string>>(font, "WrapText", "ABC DEF", 50f);
 
-        Assert.NotEmpty(lines);
+        // Algorithm splits on word boundaries only; each word (60px) exceeds maxWidth (50px)
+        // but the algorithm does not split words character-by-character
+        Assert.Equal(["ABC", "DEF"], lines);
     }
 
     [Fact]
@@ -731,8 +708,14 @@ public class ManagedFontLogicTests
 
         var lines = InvokePrivate<List<string>>(font, "WrapText", "x y z", 20f);
 
-        Assert.True(lines.Count >= 1);
-        Assert.All(lines, line => Assert.NotNull(line));
+        // "x y" = 5+8(space)+5 = 18px <= 20px fits; "x y z" = 31px > 20px wraps
+        Assert.Equal(["x y", "z"], lines);
+        // Verify all lines respect maxWidth (space uses default 8px width)
+        Assert.All(lines, line =>
+        {
+            var lineWidth = font.MeasureString(line).X;
+            Assert.True(lineWidth <= 20f, $"Line '{line}' width {lineWidth} exceeds maxWidth 20");
+        });
     }
 
     [Fact]
