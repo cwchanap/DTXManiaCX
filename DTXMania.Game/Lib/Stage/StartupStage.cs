@@ -117,7 +117,7 @@ namespace DTXMania.Game.Lib.Stage
 
         protected virtual Viewport GetViewportCore()
         {
-            return _game.GraphicsDevice.Viewport;
+            return GetGraphicsDeviceCore().Viewport;
         }
 
         protected virtual SpriteBatch CreateSpriteBatchCore(GraphicsDevice graphicsDevice)

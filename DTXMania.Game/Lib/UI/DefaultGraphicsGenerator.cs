@@ -175,6 +175,26 @@ namespace DTXMania.Game.Lib.UI
             _graphicsDevice.Clear(color);
         }
 
+        /// <summary>
+        /// Sets the shared render target as the active render target and returns
+        /// the previous render targets for restoration. Call before drawing.
+        /// </summary>
+        protected virtual RenderTargetBinding[] SetRenderTarget()
+        {
+            var previousTargets = _graphicsDevice.GetRenderTargets();
+            _graphicsDevice.SetRenderTarget(_renderTarget);
+            return previousTargets;
+        }
+
+        /// <summary>
+        /// Restores the previous render targets. Call after drawing and before
+        /// CreateGeneratedTexture (which reads from the render target).
+        /// </summary>
+        protected virtual void RestoreRenderTargets(RenderTargetBinding[] previousTargets)
+        {
+            _graphicsDevice.SetRenderTargets(previousTargets);
+        }
+
         protected virtual void BeginSpriteBatch()
         {
             _spriteBatch.Begin();
@@ -190,9 +210,21 @@ namespace DTXMania.Game.Lib.UI
             _spriteBatch.Draw(_whitePixel, destination, color);
         }
 
+        /// <summary>
+        /// Captures the current render target contents into a new immutable Texture2D,
+        /// then wraps it in a ManagedTexture for caching. This ensures each cached
+        /// texture has its own independent backing texture rather than sharing
+        /// the single reusable _renderTarget.
+        /// </summary>
         protected virtual ITexture CreateGeneratedTexture(string sourcePath)
         {
-            return new ManagedTexture(_graphicsDevice, _renderTarget, sourcePath);
+            // Copy render target data into a dedicated Texture2D so cached textures
+            // don't all reference the same shared render target
+            var texture = new Texture2D(_graphicsDevice, _renderTarget.Width, _renderTarget.Height);
+            var data = new Color[_renderTarget.Width * _renderTarget.Height];
+            _renderTarget.GetData(data);
+            texture.SetData(data);
+            return new ManagedTexture(_graphicsDevice, texture, sourcePath);
         }
 
         private static void ValidateDimensions(int width, int height)
@@ -206,33 +238,41 @@ namespace DTXMania.Game.Lib.UI
 
         private ITexture CreateSongBarTexture(int width, int height, bool isSelected, bool isCenter)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
-
-            // Base color
-            var baseColor = DTXManiaVisualTheme.SongSelection.SongBarBackground;
-            if (isCenter)
-                baseColor = DTXManiaVisualTheme.SongSelection.SongBarCenter;
-            else if (isSelected)
-                baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
-
-            // Draw background with gradient effect
-            DrawGradientRectangle(new Rectangle(0, 0, width, height),
-                                baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
-
-            // Draw border for selected items
-            if (isSelected || isCenter)
+            var previousTargets = SetRenderTarget();
+            try
             {
-                var borderColor = isCenter ? Color.Yellow : Color.White;
-                var borderThickness = isCenter ? 2 : 1;
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-                // Top border
-                DrawSolidRectangle(new Rectangle(0, 0, width, borderThickness), borderColor);
-                // Bottom border
-                DrawSolidRectangle(new Rectangle(0, height - borderThickness, width, borderThickness), borderColor);
+                // Base color
+                var baseColor = DTXManiaVisualTheme.SongSelection.SongBarBackground;
+                if (isCenter)
+                    baseColor = DTXManiaVisualTheme.SongSelection.SongBarCenter;
+                else if (isSelected)
+                    baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
+
+                // Draw background with gradient effect
+                DrawGradientRectangle(new Rectangle(0, 0, width, height),
+                                    baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
+
+                // Draw border for selected items
+                if (isSelected || isCenter)
+                {
+                    var borderColor = isCenter ? Color.Yellow : Color.White;
+                    var borderThickness = isCenter ? 2 : 1;
+
+                    // Top border
+                    DrawSolidRectangle(new Rectangle(0, 0, width, borderThickness), borderColor);
+                    // Bottom border
+                    DrawSolidRectangle(new Rectangle(0, height - borderThickness, width, borderThickness), borderColor);
+                }
+
+                EndSpriteBatch();
             }
-
-            EndSpriteBatch();
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_SongBar_{width}x{height}");
         }
@@ -242,64 +282,88 @@ namespace DTXMania.Game.Lib.UI
             var width = DTXManiaVisualTheme.Layout.ClearLampWidth;
             var height = DTXManiaVisualTheme.Layout.ClearLampHeight;
 
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
+            var previousTargets = SetRenderTarget();
+            try
+            {
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            var lampColor = DTXManiaVisualTheme.GetDifficultyColor(difficulty);
-            if (!hasCleared)
-                lampColor = Color.Lerp(lampColor, Color.Gray, 0.7f);
+                var lampColor = DTXManiaVisualTheme.GetDifficultyColor(difficulty);
+                if (!hasCleared)
+                    lampColor = Color.Lerp(lampColor, Color.Gray, 0.7f);
 
-            // Draw lamp with gradient effect
-            DrawGradientRectangle(new Rectangle(0, 0, width, height),
-                                lampColor, Color.Lerp(lampColor, Color.Black, 0.5f));
+                // Draw lamp with gradient effect
+                DrawGradientRectangle(new Rectangle(0, 0, width, height),
+                                    lampColor, Color.Lerp(lampColor, Color.Black, 0.5f));
 
-            // Draw border
-            var borderColor = hasCleared ? Color.White : Color.Gray;
-            DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 1);
+                // Draw border
+                var borderColor = hasCleared ? Color.White : Color.Gray;
+                DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 1);
 
-            EndSpriteBatch();
+                EndSpriteBatch();
+            }
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_ClearLamp_{difficulty}_{hasCleared}");
         }
 
         private ITexture CreatePanelTexture(int width, int height, bool withBorder)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
-
-            // Draw background
-            var bgColor = DTXManiaVisualTheme.SongSelection.PanelBackground;
-            DrawSolidRectangle(new Rectangle(0, 0, width, height), bgColor);
-
-            // Draw border if requested
-            if (withBorder)
+            var previousTargets = SetRenderTarget();
+            try
             {
-                var borderColor = DTXManiaVisualTheme.SongSelection.PanelBorder;
-                DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 2);
-            }
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            EndSpriteBatch();
+                // Draw background
+                var bgColor = DTXManiaVisualTheme.SongSelection.PanelBackground;
+                DrawSolidRectangle(new Rectangle(0, 0, width, height), bgColor);
+
+                // Draw border if requested
+                if (withBorder)
+                {
+                    var borderColor = DTXManiaVisualTheme.SongSelection.PanelBorder;
+                    DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 2);
+                }
+
+                EndSpriteBatch();
+            }
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_Panel_{width}x{height}");
         }
 
         private ITexture CreateButtonTexture(int width, int height, bool isPressed)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
+            var previousTargets = SetRenderTarget();
+            try
+            {
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            var baseColor = new Color(60, 80, 120);
-            if (isPressed)
-                baseColor = Color.Lerp(baseColor, Color.White, 0.3f);
+                var baseColor = new Color(60, 80, 120);
+                if (isPressed)
+                    baseColor = Color.Lerp(baseColor, Color.White, 0.3f);
 
-            // Draw button with gradient effect
-            DrawGradientRectangle(new Rectangle(0, 0, width, height),
-                                Color.Lerp(baseColor, Color.White, 0.2f), baseColor);
+                // Draw button with gradient effect
+                DrawGradientRectangle(new Rectangle(0, 0, width, height),
+                                    Color.Lerp(baseColor, Color.White, 0.2f), baseColor);
 
-            // Draw border
-            DrawRectangleBorder(new Rectangle(0, 0, width, height), Color.White, 1);
+                // Draw border
+                DrawRectangleBorder(new Rectangle(0, 0, width, height), Color.White, 1);
 
-            EndSpriteBatch();
+                EndSpriteBatch();
+            }
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_Button_{width}x{height}");
         }
@@ -330,121 +394,145 @@ namespace DTXMania.Game.Lib.UI
 
         private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
-
-            // Get base color for difficulty
-            var difficultyColors = DTXManiaVisualTheme.SongSelection.DifficultyColors;
-            var baseColor = difficulty < difficultyColors.Length ? difficultyColors[difficulty] : Color.Gray;
-
-            // Modify color based on clear status
-            Color lampColor = clearStatus switch
+            var previousTargets = SetRenderTarget();
+            try
             {
-                ClearStatus.FullCombo => Color.Gold,
-                ClearStatus.Clear => baseColor,
-                ClearStatus.Failed => baseColor * 0.5f,
-                ClearStatus.NotPlayed => Color.Gray * 0.3f,
-                _ => Color.Gray * 0.3f
-            };
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            // Draw lamp with gradient effect
-            DrawGradientRectangle(new Rectangle(0, 0, 8, 24),
-                                Color.Lerp(lampColor, Color.White, 0.3f), lampColor);
+                // Get base color for difficulty
+                var difficultyColors = DTXManiaVisualTheme.SongSelection.DifficultyColors;
+                var baseColor = difficulty < difficultyColors.Length ? difficultyColors[difficulty] : Color.Gray;
 
-            // Add border for better definition
-            if (clearStatus != ClearStatus.NotPlayed)
-            {
-                DrawRectangleBorder(new Rectangle(0, 0, 8, 24), Color.White * 0.8f, 1);
+                // Modify color based on clear status
+                Color lampColor = clearStatus switch
+                {
+                    ClearStatus.FullCombo => Color.Gold,
+                    ClearStatus.Clear => baseColor,
+                    ClearStatus.Failed => baseColor * 0.5f,
+                    ClearStatus.NotPlayed => Color.Gray * 0.3f,
+                    _ => Color.Gray * 0.3f
+                };
+
+                // Draw lamp with gradient effect
+                DrawGradientRectangle(new Rectangle(0, 0, 8, 24),
+                                    Color.Lerp(lampColor, Color.White, 0.3f), lampColor);
+
+                // Add border for better definition
+                if (clearStatus != ClearStatus.NotPlayed)
+                {
+                    DrawRectangleBorder(new Rectangle(0, 0, 8, 24), Color.White * 0.8f, 1);
+                }
+
+                EndSpriteBatch();
             }
-
-            EndSpriteBatch();
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}");
         }
 
         private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
-
-            // Get base color based on bar type
-            Color baseColor = barType switch
+            var previousTargets = SetRenderTarget();
+            try
             {
-                BarType.Score => DTXManiaVisualTheme.SongSelection.SongBarBackground,
-                BarType.Box => DTXManiaVisualTheme.SongSelection.FolderBackground,
-                BarType.Other => DTXManiaVisualTheme.SongSelection.SpecialBackground,
-                _ => DTXManiaVisualTheme.SongSelection.SongBarBackground
-            };
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            // Apply selection highlighting
-            if (isCenter)
-                baseColor = DTXManiaVisualTheme.SongSelection.SongBarCenter;
-            else if (isSelected)
-                baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
+                // Get base color based on bar type
+                Color baseColor = barType switch
+                {
+                    BarType.Score => DTXManiaVisualTheme.SongSelection.SongBarBackground,
+                    BarType.Box => DTXManiaVisualTheme.SongSelection.FolderBackground,
+                    BarType.Other => DTXManiaVisualTheme.SongSelection.SpecialBackground,
+                    _ => DTXManiaVisualTheme.SongSelection.SongBarBackground
+                };
 
-            // Draw background with gradient effect
-            DrawGradientRectangle(new Rectangle(0, 0, width, height),
-                                baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
+                // Apply selection highlighting
+                if (isCenter)
+                    baseColor = DTXManiaVisualTheme.SongSelection.SongBarCenter;
+                else if (isSelected)
+                    baseColor = DTXManiaVisualTheme.SongSelection.SongBarSelected;
 
-            // Draw border for selected items
-            if (isSelected || isCenter)
-            {
-                var borderColor = isCenter ? Color.Yellow : Color.White;
-                var borderThickness = isCenter ? 2 : 1;
-                DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, borderThickness);
+                // Draw background with gradient effect
+                DrawGradientRectangle(new Rectangle(0, 0, width, height),
+                                    baseColor, Color.Lerp(baseColor, Color.Black, 0.3f));
+
+                // Draw border for selected items
+                if (isSelected || isCenter)
+                {
+                    var borderColor = isCenter ? Color.Yellow : Color.White;
+                    var borderThickness = isCenter ? 2 : 1;
+                    DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, borderThickness);
+                }
+
+                // Add special effects for different bar types
+                if (barType == BarType.Box)
+                {
+                    // Add folder icon indicator (simple rectangle on left side)
+                    var iconRect = new Rectangle(2, height / 4, 4, height / 2);
+                    DrawSolidRectangle(iconRect, Color.Cyan * 0.7f);
+                }
+                else if (barType == BarType.Other)
+                {
+                    // Add special indicator (diamond pattern)
+                    var centerY = height / 2;
+                    var indicatorRect = new Rectangle(width - 8, centerY - 2, 4, 4);
+                    DrawSolidRectangle(indicatorRect, Color.Magenta * 0.8f);
+                }
+
+                EndSpriteBatch();
             }
-
-            // Add special effects for different bar types
-            if (barType == BarType.Box)
+            finally
             {
-                // Add folder icon indicator (simple rectangle on left side)
-                var iconRect = new Rectangle(2, height / 4, 4, height / 2);
-                DrawSolidRectangle(iconRect, Color.Cyan * 0.7f);
+                RestoreRenderTargets(previousTargets);
             }
-            else if (barType == BarType.Other)
-            {
-                // Add special indicator (diamond pattern)
-                var centerY = height / 2;
-                var indicatorRect = new Rectangle(width - 8, centerY - 2, 4, 4);
-                DrawSolidRectangle(indicatorRect, Color.Magenta * 0.8f);
-            }
-
-            EndSpriteBatch();
 
             return CreateGeneratedTexture($"Generated_BarType_{barType}_{width}x{height}");
         }
 
         private ITexture CreateBPMBackgroundTexture(int width, int height, bool withLabels)
         {
-            ClearGraphics(Color.Transparent);
-            BeginSpriteBatch();
-
-            // Draw background with DTXManiaNX-style panel appearance
-            var bgColor = DTXManiaVisualTheme.SongSelection.PanelBackground;
-            DrawGradientRectangle(new Rectangle(0, 0, width, height),
-                                Color.Lerp(bgColor, Color.White, 0.1f), bgColor);
-
-            // Draw border
-            var borderColor = DTXManiaVisualTheme.SongSelection.PanelBorder;
-            DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 2);
-
-            if (withLabels)
+            var previousTargets = SetRenderTarget();
+            try
             {
-                // Note: We would need a font system to draw text labels
-                // For now, we'll create placeholder areas where text would go
-                
-                // Length label area (top portion)
-                var labelWidth = Math.Max(0, width - 10);
-                var labelHeight = Math.Max(0, height / 2 - 5);
-                var lengthLabelRect = new Rectangle(5, 5, labelWidth, labelHeight);
-                DrawSolidRectangle(lengthLabelRect, Color.Black * 0.2f);
-                
-                // BPM label area (bottom portion)
-                var bpmLabelRect = new Rectangle(5, height / 2, labelWidth, labelHeight);
-                DrawSolidRectangle(bpmLabelRect, Color.Black * 0.2f);
-            }
+                ClearGraphics(Color.Transparent);
+                BeginSpriteBatch();
 
-            EndSpriteBatch();
+                // Draw background with DTXManiaNX-style panel appearance
+                var bgColor = DTXManiaVisualTheme.SongSelection.PanelBackground;
+                DrawGradientRectangle(new Rectangle(0, 0, width, height),
+                                    Color.Lerp(bgColor, Color.White, 0.1f), bgColor);
+
+                // Draw border
+                var borderColor = DTXManiaVisualTheme.SongSelection.PanelBorder;
+                DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 2);
+
+                if (withLabels)
+                {
+                    // Note: We would need a font system to draw text labels
+                    // For now, we'll create placeholder areas where text would go
+                    
+                    // Length label area (top portion)
+                    var labelWidth = Math.Max(0, width - 10);
+                    var labelHeight = Math.Max(0, height / 2 - 5);
+                    var lengthLabelRect = new Rectangle(5, 5, labelWidth, labelHeight);
+                    DrawSolidRectangle(lengthLabelRect, Color.Black * 0.2f);
+                    
+                    // BPM label area (bottom portion)
+                    var bpmLabelRect = new Rectangle(5, height / 2, labelWidth, labelHeight);
+                    DrawSolidRectangle(bpmLabelRect, Color.Black * 0.2f);
+                }
+
+                EndSpriteBatch();
+            }
+            finally
+            {
+                RestoreRenderTargets(previousTargets);
+            }
 
             return CreateGeneratedTexture($"Generated_BPMBackground_{width}x{height}");
         }
