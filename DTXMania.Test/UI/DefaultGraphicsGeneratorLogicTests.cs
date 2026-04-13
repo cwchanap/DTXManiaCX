@@ -22,6 +22,8 @@ public class DefaultGraphicsGeneratorLogicTests
         public List<DrawCall> DrawCalls { get; } = new();
         public int BeginCount { get; private set; }
         public int EndCount { get; private set; }
+        public int SetRenderTargetCount { get; private set; }
+        public int RestoreRenderTargetsCount { get; private set; }
         public Func<string, ITexture>? CreateGeneratedTextureHandler { get; set; }
 
         public TestableDefaultGraphicsGenerator()
@@ -39,6 +41,17 @@ public class DefaultGraphicsGeneratorLogicTests
 
         protected override void DrawSolidRectangle(Rectangle destination, Color color)
             => DrawCalls.Add(new DrawCall(destination, color));
+
+        protected override RenderTargetBinding[] SetRenderTarget()
+        {
+            SetRenderTargetCount++;
+            return Array.Empty<RenderTargetBinding>();
+        }
+
+        protected override void RestoreRenderTargets(RenderTargetBinding[] previousTargets)
+        {
+            RestoreRenderTargetsCount++;
+        }
 
         protected override ITexture CreateGeneratedTexture(string sourcePath)
             => CreateGeneratedTextureHandler?.Invoke(sourcePath)
@@ -101,6 +114,8 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal([Color.Transparent], generator.ClearColors);
         Assert.Equal(1, generator.BeginCount);
         Assert.Equal(1, generator.EndCount);
+        Assert.Equal(1, generator.SetRenderTargetCount);
+        Assert.Equal(1, generator.RestoreRenderTargetsCount);
         Assert.Equal("Generated_SongBar_4x3", result.SourcePath);
         Assert.Equal(5, generator.DrawCalls.Count);
         Assert.Equal(new Rectangle(0, 0, 4, 2), generator.DrawCalls[3].Destination);
@@ -138,6 +153,8 @@ public class DefaultGraphicsGeneratorLogicTests
 
         Assert.Same(texture.Object, result);
         Assert.Equal("Generated_ClearLamp_3_False", result.SourcePath);
+        Assert.Equal(1, generator.SetRenderTargetCount);
+        Assert.Equal(1, generator.RestoreRenderTargetsCount);
         Assert.Equal(DTXManiaVisualTheme.Layout.ClearLampHeight + 4, generator.DrawCalls.Count);
         Assert.All(generator.DrawCalls[^4..], drawCall => Assert.Equal(Color.Gray, drawCall.Color));
         Assert.Same(texture.Object, GetTextureCache(generator)["ClearLamp_3_False"]);
