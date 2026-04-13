@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.JsonRpc;
 using Moq;
 using System;
@@ -138,6 +139,34 @@ namespace DTXMania.Test.JsonRpc
             var body = await response.Content.ReadAsStringAsync();
 
             Assert.Contains("-32601", body);
+        }
+
+        [Fact]
+        public async Task JsonRpcEndpoint_WithNotification_ShouldReturnEmptyBody()
+        {
+            using var client = await StartServerAsync(NextPort());
+            var request = new { jsonrpc = "2.0", method = "ping" };
+            using var response = await client.PostAsync("/jsonrpc", RpcBody(request));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.True(response.IsSuccessStatusCode);
+            Assert.Equal(string.Empty, body);
+        }
+
+        [Fact]
+        public async Task JsonRpcEndpoint_WhenPayloadTooLarge_ShouldReturnRequestTooLarge()
+        {
+            using var client = await StartServerAsync(NextPort());
+            using var content = new StringContent(
+                new string('a', (int)GameConstants.JsonRpc.MaxRequestBodyBytes + 1),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await client.PostAsync("/jsonrpc", content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+            Assert.Contains("Request payload too large", body);
         }
 
         #endregion

@@ -174,6 +174,31 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Private Methods
 
+        protected virtual void DrawPadSpriteCore(ITexture texture, SpriteBatch spriteBatch, Rectangle destRect, Rectangle sourceRect, Color tint)
+        {
+            texture.Draw(
+                spriteBatch,
+                destRect,
+                sourceRect,
+                tint,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                BaseDepth);
+        }
+
+        protected virtual Texture2D CreateFallbackTextureCore()
+        {
+            var texture = new Texture2D(_graphicsDevice, 1, 1);
+            texture.SetData(new[] { Color.White });
+            return texture;
+        }
+
+        protected virtual void DrawFallbackTextureCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destRect, Color color)
+        {
+            spriteBatch.Draw(texture, destRect, null, color, 0f, Vector2.Zero, SpriteEffects.None, BaseDepth);
+        }
+
         /// <summary>
         /// Loads the pad sprite sheet texture and calculates cell dimensions
         /// </summary>
@@ -323,16 +348,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Color tint = pad.State == PadState.Pressed ? Color.White * 1.5f : Color.White;
             
             // Draw with point sampling and alpha blending at configured depth
-            _padSpriteSheet.Draw(
-                spriteBatch,
-                destRect,
-                sourceRect,
-                tint,
-                0f,
-                Vector2.Zero,
-                SpriteEffects.None,
-                BaseDepth  // Use configurable depth for proper layering
-            );
+            DrawPadSpriteCore(_padSpriteSheet, spriteBatch, destRect, sourceRect, tint);
             return true;
         }
 
@@ -344,13 +360,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Create fallback texture if needed
             if (_fallbackTexture == null)
             {
-                _fallbackTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _fallbackTexture.SetData(new[] { Color.White });
+                _fallbackTexture = CreateFallbackTextureCore();
             }
 
             // Draw colored rectangle fallback
             Color padColor = pad.State == PadState.Pressed ? Color.Red : Color.Yellow;
-            spriteBatch.Draw(_fallbackTexture, destRect, null, padColor, 0f, Vector2.Zero, SpriteEffects.None, BaseDepth);
+            DrawFallbackTextureCore(spriteBatch, _fallbackTexture, destRect, padColor);
         }
 
         /// <summary>

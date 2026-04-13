@@ -69,12 +69,88 @@ namespace DTXMania.Game.Lib.Resources
 
         #endregion
 
+        #region Virtual Hooks
+
+        protected virtual int GetTextureWidthCore()
+        {
+            return _texture?.Width ?? 0;
+        }
+
+        protected virtual int GetTextureHeightCore()
+        {
+            return _texture?.Height ?? 0;
+        }
+
+        protected virtual GraphicsDevice GetGraphicsDeviceCore(Texture2D texture)
+        {
+            return texture.GraphicsDevice;
+        }
+
+        protected virtual void DrawTextureCore(SpriteBatch spriteBatch, Vector2 position, Color color)
+        {
+            spriteBatch.Draw(_texture, position, color);
+        }
+
+        protected virtual void DrawTextureCore(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle, Color color)
+        {
+            spriteBatch.Draw(_texture, position, sourceRectangle, color);
+        }
+
+        protected virtual void DrawTextureCore(SpriteBatch spriteBatch, Rectangle destinationRectangle, Rectangle? sourceRectangle,
+            Color color, float rotation, Vector2 origin, SpriteEffects effects, float layerDepth)
+        {
+            spriteBatch.Draw(_texture, destinationRectangle, sourceRectangle, color, rotation, origin, effects, layerDepth);
+        }
+
+        protected virtual void DrawTextureCore(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle, Color color,
+            float rotation, Vector2 origin, Vector2 scale, SpriteEffects effects, float layerDepth)
+        {
+            spriteBatch.Draw(_texture, position, sourceRectangle, color, rotation, origin, scale, effects, layerDepth);
+        }
+
+        protected virtual Texture2D CreateTextureCore(GraphicsDevice graphicsDevice, int width, int height)
+        {
+            return new Texture2D(graphicsDevice, width, height);
+        }
+
+        protected virtual void GetTextureDataCore(Texture2D texture, Color[] data)
+        {
+            texture.GetData(data);
+        }
+
+        protected virtual void SetTextureDataCore(Texture2D texture, Color[] data)
+        {
+            texture.SetData(data);
+        }
+
+        protected virtual Stream OpenReadCore(string filePath)
+        {
+            return File.OpenRead(filePath);
+        }
+
+        protected virtual Stream CreateFileCore(string filePath)
+        {
+            return File.Create(filePath);
+        }
+
+        protected virtual Texture2D LoadTextureFromStreamCore(GraphicsDevice graphicsDevice, Stream stream)
+        {
+            return Texture2D.FromStream(graphicsDevice, stream);
+        }
+
+        protected virtual void SaveTextureAsPngCore(Texture2D texture, Stream stream, int width, int height)
+        {
+            texture.SaveAsPng(stream, width, height);
+        }
+
+        #endregion
+
         #region ITexture Properties
 
         public Texture2D Texture => _texture;
         public string SourcePath => _sourcePath;
-        public int Width => _texture?.Width ?? 0;
-        public int Height => _texture?.Height ?? 0;
+        public int Width => GetTextureWidthCore();
+        public int Height => GetTextureHeightCore();
         public Vector2 Size => new Vector2(Width, Height);
         public bool IsDisposed => _disposed;
         public int ReferenceCount => _referenceCount;
@@ -145,7 +221,7 @@ namespace DTXMania.Game.Lib.Resources
                 return;
 
             var color = Color.White * (_transparency / 255f);
-            spriteBatch.Draw(_texture, position, color);
+            DrawTextureCore(spriteBatch, position, color);
         }
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
@@ -154,7 +230,7 @@ namespace DTXMania.Game.Lib.Resources
                 return;
 
             var color = Color.White * (_transparency / 255f);
-            spriteBatch.Draw(_texture, position, sourceRectangle, color);
+            DrawTextureCore(spriteBatch, position, sourceRectangle, color);
         }
 
         public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle, Rectangle? sourceRectangle,
@@ -164,8 +240,7 @@ namespace DTXMania.Game.Lib.Resources
                 return;
 
             var finalColor = color * (_transparency / 255f);
-            spriteBatch.Draw(_texture, destinationRectangle, sourceRectangle, finalColor, 
-                           rotation, origin, effects, layerDepth);
+            DrawTextureCore(spriteBatch, destinationRectangle, sourceRectangle, finalColor, rotation, origin, effects, layerDepth);
         }
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Vector2 scale, float rotation, Vector2 origin)
@@ -177,8 +252,7 @@ namespace DTXMania.Game.Lib.Resources
             var finalScale = scale * new Vector2(_scaleRatio.X, _scaleRatio.Y);
             var finalRotation = rotation + _zAxisRotation;
 
-            spriteBatch.Draw(_texture, position, null, color, finalRotation, origin, finalScale, 
-                           SpriteEffects.None, 0f);
+            DrawTextureCore(spriteBatch, position, null, color, finalRotation, origin, finalScale, SpriteEffects.None, 0f);
         }
 
         #endregion
@@ -191,12 +265,12 @@ namespace DTXMania.Game.Lib.Resources
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             // Create a new texture with the same data
-            var newTexture = new Texture2D(_texture.GraphicsDevice, Width, Height);
+            var newTexture = CreateTextureCore(GetGraphicsDeviceCore(_texture), Width, Height);
             var colorData = new Color[Width * Height];
-            _texture.GetData(colorData);
-            newTexture.SetData(colorData);
+            GetTextureDataCore(_texture, colorData);
+            SetTextureDataCore(newTexture, colorData);
 
-            var clone = new ManagedTexture(_texture.GraphicsDevice, newTexture, _sourcePath + "_clone")
+            var clone = new ManagedTexture(GetGraphicsDeviceCore(_texture), newTexture, _sourcePath + "_clone")
             {
                 _transparency = _transparency,
                 _scaleRatio = _scaleRatio,
@@ -213,7 +287,7 @@ namespace DTXMania.Game.Lib.Resources
                 throw new ObjectDisposedException(nameof(ManagedTexture));
 
             var colorData = new Color[Width * Height];
-            _texture.GetData(colorData);
+            GetTextureDataCore(_texture, colorData);
             return colorData;
         }
 
@@ -225,7 +299,7 @@ namespace DTXMania.Game.Lib.Resources
             if (colorData.Length != Width * Height)
                 throw new ArgumentException("Color data array size doesn't match texture size");
 
-            _texture.SetData(colorData);
+            SetTextureDataCore(_texture, colorData);
         }
 
         public void SaveToFile(string filePath)
@@ -238,9 +312,9 @@ namespace DTXMania.Game.Lib.Resources
 
             try
             {
-                using (var stream = File.Create(filePath))
+                using (var stream = CreateFileCore(filePath))
                 {
-                    _texture.SaveAsPng(stream, Width, Height);
+                    SaveTextureAsPngCore(_texture, stream, Width, Height);
                 }
             }
             catch (Exception ex)
@@ -255,9 +329,9 @@ namespace DTXMania.Game.Lib.Resources
 
         private void LoadTextureFromFile(GraphicsDevice graphicsDevice, string filePath, TextureCreationParams creationParams)
         {
-            using (var stream = File.OpenRead(filePath))
+            using (var stream = OpenReadCore(filePath))
             {
-                _texture = Texture2D.FromStream(graphicsDevice, stream);
+                _texture = LoadTextureFromStreamCore(graphicsDevice, stream);
             }
 
             // Apply transparency if requested

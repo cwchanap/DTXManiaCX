@@ -1,4 +1,6 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 using DTXMania.Game.Lib.UI;
 using Xunit;
 using System;
@@ -356,6 +358,94 @@ namespace DTXMania.Test.UI
             Assert.True(child.IsActive);
         }
 
+        [Fact]
+        public void Update_WhenActiveChildExists_ShouldUpdateChild()
+        {
+            var container = new UIContainer();
+            var child = new TrackingUIElement();
+            container.AddChild(child);
+            container.Activate();
+
+            container.Update(0.016);
+
+            Assert.Equal(1, child.UpdateCallCount);
+        }
+
+        [Fact]
+        public void Draw_WhenActiveVisibleChildExists_ShouldDrawChild()
+        {
+            var container = new UIContainer();
+            var child = new DrawTrackingElement();
+            container.AddChild(child);
+            container.Activate();
+
+            container.Draw(null!, 0.016);
+
+            Assert.Equal(1, child.DrawCallCount);
+        }
+
+        [Fact]
+        public void HandleInput_WhenTopMostChildHandles_ShouldStopTraversal()
+        {
+            var container = new UIContainer();
+            var lowerChild = new InputTrackingElement { ShouldHandleInput = true };
+            var topMostChild = new InputTrackingElement { ShouldHandleInput = true };
+            container.AddChild(lowerChild);
+            container.AddChild(topMostChild);
+            container.Activate();
+
+            var inputState = new Mock<IInputState>();
+            inputState.Setup(state => state.IsMouseButtonPressed(MouseButton.Left)).Returns(false);
+
+            var handled = container.HandleInput(inputState.Object);
+
+            Assert.True(handled);
+            Assert.Equal(0, lowerChild.HandleInputCallCount);
+            Assert.Equal(1, topMostChild.HandleInputCallCount);
+        }
+
+        [Fact]
+        public void HandleInput_WhenNoChildHandles_ShouldReturnFalseAfterCheckingEachChild()
+        {
+            var container = new UIContainer();
+            var firstChild = new InputTrackingElement();
+            var secondChild = new InputTrackingElement();
+            container.AddChild(firstChild);
+            container.AddChild(secondChild);
+            container.Activate();
+
+            var inputState = new Mock<IInputState>();
+            inputState.Setup(state => state.IsMouseButtonPressed(MouseButton.Left)).Returns(false);
+
+            var handled = container.HandleInput(inputState.Object);
+
+            Assert.False(handled);
+            Assert.Equal(1, firstChild.HandleInputCallCount);
+            Assert.Equal(1, secondChild.HandleInputCallCount);
+        }
+
         #endregion
+
+        private sealed class DrawTrackingElement : UIElement
+        {
+            public int DrawCallCount { get; private set; }
+
+            protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
+            {
+                DrawCallCount++;
+            }
+        }
+
+        private sealed class InputTrackingElement : UIElement
+        {
+            public int HandleInputCallCount { get; private set; }
+            public bool ShouldHandleInput { get; set; }
+
+            protected override bool OnHandleInput(IInputState inputState)
+            {
+                HandleInputCallCount++;
+                return ShouldHandleInput;
+            }
+        }
     }
 }
