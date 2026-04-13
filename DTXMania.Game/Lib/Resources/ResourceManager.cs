@@ -123,7 +123,7 @@ namespace DTXMania.Game.Lib.Resources
                 };
 
                 // Load and create texture
-                var texture = new ManagedTexture(_graphicsDevice, resolvedPath, path, creationParams);
+                var texture = CreateTextureCore(resolvedPath, path, creationParams);
                 texture.AddReference();
 
                 // Cache the texture
@@ -180,7 +180,7 @@ namespace DTXMania.Game.Lib.Resources
             try
             {
                 // Create font using ManagedFont factory
-                var font = ManagedFont.CreateFont(_graphicsDevice, normalizedPath, size, style);
+                var font = CreateFontCore(normalizedPath, size, style);
                 font.AddReference();
 
                 // Cache the font
@@ -249,7 +249,7 @@ namespace DTXMania.Game.Lib.Resources
                 }
 
                 // Load and create sound
-                var sound = new ManagedSound(resolvedPath, path);
+                var sound = CreateSoundCore(resolvedPath, path);
                 sound.AddReference();
 
                 // Cache the sound
@@ -289,10 +289,7 @@ namespace DTXMania.Game.Lib.Resources
             }
 
             // Create new texture (either no cache entry or disposed texture was removed)
-            var texture = new Texture2D(_graphicsDevice, 1, 1);
-            texture.SetData(new[] { color });
-
-            var managedTexture = new ManagedTexture(_graphicsDevice, texture, cacheKey);
+            var managedTexture = CreateColorTextureCore(color, cacheKey);
             managedTexture.AddReference();
 
             _textureCache.TryAdd(cacheKey, managedTexture);
@@ -583,6 +580,28 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Private Helper Methods
 
+        protected virtual ITexture CreateTextureCore(string resolvedPath, string originalPath, TextureCreationParams creationParams)
+        {
+            return new ManagedTexture(_graphicsDevice, resolvedPath, originalPath, creationParams);
+        }
+
+        protected virtual IFont CreateFontCore(string normalizedPath, int size, FontStyle style)
+        {
+            return ManagedFont.CreateFont(_graphicsDevice, normalizedPath, size, style);
+        }
+
+        protected virtual ISound CreateSoundCore(string resolvedPath, string originalPath)
+        {
+            return new ManagedSound(resolvedPath, originalPath);
+        }
+
+        protected virtual ITexture CreateColorTextureCore(Color color, string cacheKey)
+        {
+            var texture = new Texture2D(_graphicsDevice, 1, 1);
+            texture.SetData(new[] { color });
+            return new ManagedTexture(_graphicsDevice, texture, cacheKey);
+        }
+
         private void InitializeDefaultSkinPath()
         {
             // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
@@ -705,7 +724,7 @@ namespace DTXMania.Game.Lib.Resources
             return isValid;
         }
 
-        private ITexture CreateFallbackTexture(string originalPath)
+        protected virtual ITexture CreateFallbackTexture(string originalPath)
         {
             // Create a simple 1x1 white texture as fallback
             var texture = new Texture2D(_graphicsDevice, 1, 1);
@@ -716,7 +735,7 @@ namespace DTXMania.Game.Lib.Resources
             return fallback;
         }
 
-        private IFont CreateFallbackFont(string originalPath, int size, FontStyle style)
+        protected virtual IFont CreateFallbackFont(string originalPath, int size, FontStyle style)
         {
             // Create fallback font using system default
             try
@@ -732,7 +751,7 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
-        private ISound CreateFallbackSound(string originalPath)
+        protected virtual ISound CreateFallbackSound(string originalPath)
         {
             // Create a silent fallback sound (stub implementation)
             try

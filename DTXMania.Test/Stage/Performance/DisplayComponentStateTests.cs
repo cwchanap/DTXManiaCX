@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -17,6 +20,70 @@ namespace DTXMania.Test.Stage.Performance
     [Trait("Category", "Performance")]
     public class DisplayComponentStateTests
     {
+        #region Constructor Guard Tests
+
+        [Fact]
+        public void ComboDisplay_Constructor_WithNullResourceManager_ShouldThrowArgumentNullException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new ComboDisplay(null!, graphicsDevice));
+
+            Assert.Equal("resourceManager", ex.ParamName);
+        }
+
+        [Fact]
+        public void ComboDisplay_Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new ComboDisplay(resourceManager.Object, null!));
+
+            Assert.Equal("graphicsDevice", ex.ParamName);
+        }
+
+        [Fact]
+        public void GaugeDisplay_Constructor_WithNullResourceManager_ShouldThrowArgumentNullException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new GaugeDisplay(null!, graphicsDevice));
+
+            Assert.Equal("resourceManager", ex.ParamName);
+        }
+
+        [Fact]
+        public void GaugeDisplay_Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new GaugeDisplay(resourceManager.Object, null!));
+
+            Assert.Equal("graphicsDevice", ex.ParamName);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Constructor_WithNullResourceManager_ShouldThrowArgumentNullException()
+        {
+            var graphicsDevice = CreateGraphicsDeviceStub();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new ScoreDisplay(null!, graphicsDevice));
+
+            Assert.Equal("resourceManager", ex.ParamName);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => new ScoreDisplay(resourceManager.Object, null!));
+
+            Assert.Equal("graphicsDevice", ex.ParamName);
+        }
+
+        #endregion
+
         #region ComboDisplay State Tests
 
         [Fact]
@@ -159,6 +226,66 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal("999", comboText);
         }
 
+        [Fact]
+        public void ComboDisplay_Update_WhenDisposed_ShouldLeaveAnimationStateUnchanged()
+        {
+            var display = CreateUninitialized<ComboDisplay>();
+            SetPrivateField(display, "_disposed", true);
+            SetPrivateField(display, "_scale", 1.25f);
+            SetPrivateField(display, "_targetScale", 1.5f);
+            SetPrivateField(display, "_scaleVelocity", 0.75f);
+
+            display.Update(0.1);
+
+            Assert.Equal(1.25f, GetPrivateField<float>(display, "_scale"));
+            Assert.Equal(1.5f, GetPrivateField<float>(display, "_targetScale"));
+            Assert.Equal(0.75f, GetPrivateField<float>(display, "_scaleVelocity"));
+        }
+
+        [Fact]
+        public void ComboDisplay_Update_WhenActive_ShouldAdvanceAnimationTowardRestingScale()
+        {
+            var display = CreateUninitialized<ComboDisplay>();
+            SetPrivateField(display, "_scale", 1.0f);
+            SetPrivateField(display, "_targetScale", 1.5f);
+            SetPrivateField(display, "_scaleVelocity", 0.0f);
+
+            display.Update(0.1);
+
+            Assert.True(GetPrivateField<float>(display, "_scale") > 1.0f);
+            Assert.True(GetPrivateField<float>(display, "_scaleVelocity") > 0.0f);
+            Assert.True(GetPrivateField<float>(display, "_targetScale") < 1.5f);
+        }
+
+        [Fact]
+        public void ComboDisplay_Draw_WhenSpriteBatchIsNull_ShouldReturnWithoutThrowing()
+        {
+            var display = CreateUninitialized<ComboDisplay>();
+            SetPrivateField(display, "_visible", true);
+
+            var exception = Record.Exception(() => display.Draw(null!));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ComboDisplay_Dispose_ShouldDisposeFontsAndClearReferences()
+        {
+            var display = CreateUninitialized<ComboDisplay>();
+            var comboFont = CreateTrackingManagedFont();
+            var labelFont = CreateTrackingManagedFont();
+            SetPrivateField(display, "_comboFont", comboFont);
+            SetPrivateField(display, "_labelFont", labelFont);
+
+            display.Dispose();
+
+            Assert.Equal(1, comboFont.DisposeCount);
+            Assert.Equal(1, labelFont.DisposeCount);
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_comboFont"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_labelFont"));
+            Assert.True(GetPrivateField<bool>(display, "_disposed"));
+        }
+
         #endregion
 
         #region GaugeDisplay State Tests
@@ -240,6 +367,40 @@ namespace DTXMania.Test.Stage.Performance
 
             display.BackgroundColor = Color.Black;
             Assert.Equal(Color.Black, display.BackgroundColor);
+        }
+
+        [Fact]
+        public void GaugeDisplay_Update_ShouldNotThrow()
+        {
+            var display = CreateUninitialized<GaugeDisplay>();
+
+            var exception = Record.Exception(() => display.Update(0.016));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void GaugeDisplay_Draw_WhenSpriteBatchIsNull_ShouldReturnWithoutThrowing()
+        {
+            var display = CreateUninitialized<GaugeDisplay>();
+
+            var exception = Record.Exception(() => display.Draw(null!));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void GaugeDisplay_Dispose_ShouldDisposeWhiteTextureAndClearReference()
+        {
+            var display = CreateUninitialized<GaugeDisplay>();
+            var whiteTexture = CreateTrackingTexture2D();
+            SetPrivateField(display, "_whiteTexture", whiteTexture);
+
+            display.Dispose();
+
+            Assert.True(whiteTexture.WasDisposed);
+            Assert.Null(GetPrivateField<Texture2D?>(display, "_whiteTexture"));
+            Assert.True(GetPrivateField<bool>(display, "_disposed"));
         }
 
         #endregion
@@ -340,9 +501,75 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(new Vector2(1, 1), display.ShadowOffset);
         }
 
+        [Fact]
+        public void ScoreDisplay_ShadowColor_ShouldBeSettable()
+        {
+            var display = CreateUninitialized<ScoreDisplay>();
+
+            display.ShadowColor = Color.DarkSlateBlue;
+
+            Assert.Equal(Color.DarkSlateBlue, display.ShadowColor);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Update_ShouldNotThrow()
+        {
+            var display = CreateUninitialized<ScoreDisplay>();
+
+            var exception = Record.Exception(() => display.Update(0.016));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Draw_WhenSpriteBatchIsNull_ShouldReturnWithoutThrowing()
+        {
+            var display = CreateUninitialized<ScoreDisplay>();
+
+            var exception = Record.Exception(() => display.Draw(null!));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Dispose_ShouldDisposeFontAndClearReference()
+        {
+            var display = CreateUninitialized<ScoreDisplay>();
+            var scoreFont = CreateTrackingManagedFont();
+            SetPrivateField(display, "_scoreFont", scoreFont);
+
+            display.Dispose();
+
+            Assert.Equal(1, scoreFont.DisposeCount);
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_scoreFont"));
+            Assert.True(GetPrivateField<bool>(display, "_disposed"));
+        }
+
         #endregion
 
         #region Helper Methods
+
+        private static T CreateUninitialized<T>() where T : class
+        {
+#pragma warning disable SYSLIB0050
+            return (T)FormatterServices.GetUninitializedObject(typeof(T));
+#pragma warning restore SYSLIB0050
+        }
+
+        private static GraphicsDevice CreateGraphicsDeviceStub()
+        {
+            return CreateUninitialized<GraphicsDevice>();
+        }
+
+        private static TrackingManagedFont CreateTrackingManagedFont()
+        {
+            return CreateUninitialized<TrackingManagedFont>();
+        }
+
+        private static TrackingTexture2D CreateTrackingTexture2D()
+        {
+            return CreateUninitialized<TrackingTexture2D>();
+        }
 
         private static T? GetPrivateField<T>(object target, string fieldName)
         {
@@ -371,6 +598,34 @@ namespace DTXMania.Test.Stage.Performance
                 type = type.BaseType;
             }
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
+        }
+
+        private sealed class TrackingManagedFont : ManagedFont
+        {
+            public TrackingManagedFont() : base((SpriteFont)null!, "tracking", 1)
+            {
+            }
+
+            public int DisposeCount { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                DisposeCount++;
+            }
+        }
+
+        private sealed class TrackingTexture2D : Texture2D
+        {
+            public TrackingTexture2D() : base(null!, 1, 1)
+            {
+            }
+
+            public bool WasDisposed { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                WasDisposed = true;
+            }
         }
 
         #endregion

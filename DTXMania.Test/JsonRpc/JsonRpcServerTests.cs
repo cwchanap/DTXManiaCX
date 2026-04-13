@@ -1,7 +1,10 @@
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.JsonRpc;
+using DTXMania.Test.TestData;
 using Moq;
 using System;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -151,6 +154,41 @@ namespace DTXMania.Test.JsonRpc
             Assert.False(_server.IsRunning);
         }
 
+        [Fact]
+        public async Task StartAsync_WhenPortAlreadyInUse_ShouldThrowAndCleanupState()
+        {
+            var port = GetAvailablePort();
+            await using var firstServer = new JsonRpcServer(_mockGameApi.Object, port);
+            await firstServer.StartAsync();
+            var secondServer = new JsonRpcServer(_mockGameApi.Object, port);
+
+            try
+            {
+                await Assert.ThrowsAnyAsync<Exception>(() => secondServer.StartAsync());
+                Assert.False(secondServer.IsRunning);
+                Assert.Null(ReflectionHelpers.GetPrivateField<object>(secondServer, "_host"));
+                Assert.Null(ReflectionHelpers.GetPrivateField<object>(secondServer, "_cancellationTokenSource"));
+            }
+            finally
+            {
+                await secondServer.DisposeAsync();
+            }
+        }
+
+        [Fact]
+        public async Task StopAsync_WhenRunning_ShouldStopAndClearHostedResources()
+        {
+            var port = GetAvailablePort();
+            _server = new JsonRpcServer(_mockGameApi.Object, port);
+            await _server.StartAsync();
+
+            await _server.StopAsync();
+
+            Assert.False(_server.IsRunning);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_server, "_host"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_server, "_cancellationTokenSource"));
+        }
+
         #endregion
 
         #region Dispose Tests
@@ -177,6 +215,20 @@ namespace DTXMania.Test.JsonRpc
         }
 
         [Fact]
+        public async Task Dispose_WhenRunningServer_ShouldStopAndDisposeResources()
+        {
+            var port = GetAvailablePort();
+            var server = new JsonRpcServer(_mockGameApi.Object, port);
+            await server.StartAsync();
+
+            server.Dispose();
+
+            Assert.False(server.IsRunning);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(server, "_host"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(server, "_cancellationTokenSource"));
+        }
+
+        [Fact]
         public async Task StopAsync_AfterDisposeAsync_ShouldThrowObjectDisposedException()
         {
             var server = new JsonRpcServer(_mockGameApi.Object);
@@ -200,6 +252,13 @@ namespace DTXMania.Test.JsonRpc
         }
 
         #endregion
+
+        private static int GetAvailablePort()
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
 
     }
 

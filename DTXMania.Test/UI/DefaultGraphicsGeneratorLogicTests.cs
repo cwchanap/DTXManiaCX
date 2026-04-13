@@ -1,9 +1,11 @@
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 
@@ -12,6 +14,37 @@ namespace DTXMania.Test.UI;
 [Trait("Category", "Unit")]
 public class DefaultGraphicsGeneratorLogicTests
 {
+    private sealed record DrawCall(Rectangle Destination, Color Color);
+
+    private sealed class TestableDefaultGraphicsGenerator : DefaultGraphicsGenerator
+    {
+        public List<Color> ClearColors { get; } = new();
+        public List<DrawCall> DrawCalls { get; } = new();
+        public int BeginCount { get; private set; }
+        public int EndCount { get; private set; }
+        public Func<string, ITexture>? CreateGeneratedTextureHandler { get; set; }
+
+        public TestableDefaultGraphicsGenerator()
+            : base(
+                (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)),
+                (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D)))
+        {
+        }
+
+        protected override void ClearGraphics(Color color) => ClearColors.Add(color);
+
+        protected override void BeginSpriteBatch() => BeginCount++;
+
+        protected override void EndSpriteBatch() => EndCount++;
+
+        protected override void DrawSolidRectangle(Rectangle destination, Color color)
+            => DrawCalls.Add(new DrawCall(destination, color));
+
+        protected override ITexture CreateGeneratedTexture(string sourcePath)
+            => CreateGeneratedTextureHandler?.Invoke(sourcePath)
+                ?? throw new InvalidOperationException("CreateGeneratedTextureHandler was not configured.");
+    }
+
     [Fact]
     public void Constructor_WhenGraphicsDeviceIsNull_ShouldThrowArgumentNullException()
     {
@@ -35,6 +68,170 @@ public class DefaultGraphicsGeneratorLogicTests
         var generator = CreateGenerator(graphicsDevice);
 
         Assert.Same(graphicsDevice, generator.GraphicsDevice);
+    }
+
+    [Fact]
+    public void GenerateSongBarBackground_WhenCenterNotCached_ShouldDrawGradientCenterBordersAndCacheTexture()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_SongBar_4x3");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateSongBarBackground(4, 3, isSelected: false, isCenter: true);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal([Color.Transparent], generator.ClearColors);
+        Assert.Equal(1, generator.BeginCount);
+        Assert.Equal(1, generator.EndCount);
+        Assert.Equal("Generated_SongBar_4x3", result.SourcePath);
+        Assert.Equal(5, generator.DrawCalls.Count);
+        Assert.Equal(new Rectangle(0, 0, 4, 2), generator.DrawCalls[3].Destination);
+        Assert.Equal(Color.Yellow, generator.DrawCalls[3].Color);
+        Assert.Equal(new Rectangle(0, 1, 4, 2), generator.DrawCalls[4].Destination);
+        Assert.Equal(Color.Yellow, generator.DrawCalls[4].Color);
+        Assert.Same(texture.Object, GetTextureCache(generator)["SongBar_4x3_False_True"]);
+    }
+
+    [Fact]
+    public void GenerateSongBarBackground_WhenSelectedNotCached_ShouldDrawWhiteBorders()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_SongBar_5x2");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateSongBarBackground(5, 2, isSelected: true, isCenter: false);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal(4, generator.DrawCalls.Count);
+        Assert.Equal(new Rectangle(0, 0, 5, 1), generator.DrawCalls[2].Destination);
+        Assert.Equal(Color.White, generator.DrawCalls[2].Color);
+        Assert.Equal(new Rectangle(0, 1, 5, 1), generator.DrawCalls[3].Destination);
+        Assert.Equal(Color.White, generator.DrawCalls[3].Color);
+    }
+
+    [Fact]
+    public void GenerateClearLamp_WhenNotCleared_ShouldUseGrayBorderAndCacheTexture()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_ClearLamp_3_False");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateClearLamp(3, hasCleared: false);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_ClearLamp_3_False", result.SourcePath);
+        Assert.Equal(DTXManiaVisualTheme.Layout.ClearLampHeight + 4, generator.DrawCalls.Count);
+        Assert.All(generator.DrawCalls[^4..], drawCall => Assert.Equal(Color.Gray, drawCall.Color));
+        Assert.Same(texture.Object, GetTextureCache(generator)["ClearLamp_3_False"]);
+    }
+
+    [Fact]
+    public void GenerateEnhancedClearLamp_WhenNotPlayed_ShouldSkipBorder()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_EnhancedClearLamp_1_NotPlayed");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateEnhancedClearLamp(1, ClearStatus.NotPlayed);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_EnhancedClearLamp_1_NotPlayed", result.SourcePath);
+        Assert.Equal(24, generator.DrawCalls.Count);
+        Assert.Same(texture.Object, GetTextureCache(generator)["EnhancedClearLamp_1_NotPlayed"]);
+    }
+
+    [Fact]
+    public void GenerateEnhancedClearLamp_WhenStatusUnknown_ShouldUseDefaultBranchAndDrawBorder()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_EnhancedClearLamp_9_999");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateEnhancedClearLamp(9, (ClearStatus)999);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_EnhancedClearLamp_9_999", result.SourcePath);
+        Assert.Equal(28, generator.DrawCalls.Count);
+        Assert.Equal(Color.White * 0.8f, generator.DrawCalls[^1].Color);
+    }
+
+    [Fact]
+    public void GenerateBarTypeBackground_WhenBoxSelected_ShouldDrawBorderAndFolderIndicator()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_BarType_Box_10x8");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateBarTypeBackground(10, 8, BarType.Box, isSelected: true, isCenter: false);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_BarType_Box_10x8", result.SourcePath);
+        Assert.Equal(13, generator.DrawCalls.Count);
+        Assert.Equal(Color.Cyan * 0.7f, generator.DrawCalls[^1].Color);
+        Assert.Equal(new Rectangle(2, 2, 4, 4), generator.DrawCalls[^1].Destination);
+    }
+
+    [Fact]
+    public void GenerateBarTypeBackground_WhenOtherCentered_ShouldDrawCenterBorderAndSpecialIndicator()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_BarType_Other_12x8");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateBarTypeBackground(12, 8, BarType.Other, isSelected: false, isCenter: true);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_BarType_Other_12x8", result.SourcePath);
+        Assert.Equal(13, generator.DrawCalls.Count);
+        Assert.Equal(Color.Magenta * 0.8f, generator.DrawCalls[^1].Color);
+        Assert.Equal(new Rectangle(4, 2, 4, 4), generator.DrawCalls[^1].Destination);
+        Assert.Equal(Color.Yellow, generator.DrawCalls[8].Color);
+    }
+
+    [Fact]
+    public void GeneratePanelBackground_WhenBorderDisabled_ShouldOnlyDrawBackgroundAndCacheTexture()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_Panel_20x8");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GeneratePanelBackground(20, 8, withBorder: false);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_Panel_20x8", result.SourcePath);
+        Assert.Single(generator.DrawCalls);
+        Assert.Equal(new Rectangle(0, 0, 20, 8), generator.DrawCalls[0].Destination);
+    }
+
+    [Fact]
+    public void GenerateBPMBackground_WhenLabelsEnabled_ShouldDrawPlaceholderAreas()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_BPMBackground_10x8");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateBPMBackground(10, 8, withLabels: true);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_BPMBackground_10x8", result.SourcePath);
+        Assert.Equal(14, generator.DrawCalls.Count);
+        Assert.Equal(new Rectangle(5, 5, 0, -1), generator.DrawCalls[^2].Destination);
+        Assert.Equal(new Rectangle(5, 4, 0, -1), generator.DrawCalls[^1].Destination);
+    }
+
+    [Fact]
+    public void GenerateButton_WhenPressed_ShouldDrawGradientAndBorder()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_Button_6x3");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        var result = generator.GenerateButton(6, 3, isPressed: true);
+
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_Button_6x3", result.SourcePath);
+        Assert.Equal(7, generator.DrawCalls.Count);
+        Assert.Equal(Color.White, generator.DrawCalls[^1].Color);
     }
 
     [Fact]
@@ -166,15 +363,36 @@ public class DefaultGraphicsGeneratorLogicTests
         return generator;
     }
 
+    private static TestableDefaultGraphicsGenerator CreateTestableGenerator()
+    {
+        var generator = (TestableDefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(TestableDefaultGraphicsGenerator));
+        ReflectionHelpers.SetPrivateField(generator, "_graphicsDevice", (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)));
+        ReflectionHelpers.SetPrivateField(generator, "_generatedTextures", new Dictionary<string, ITexture>());
+        ReflectionHelpers.SetPrivateField(generator, "_renderTarget", (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D)));
+        ReflectionHelpers.SetPrivateField(generator, "_spriteBatch", null);
+        ReflectionHelpers.SetPrivateField(generator, "_whitePixel", null);
+        ReflectionHelpers.SetPrivateField(generator, "_disposed", false);
+        SetAutoProperty(generator, "ClearColors", new List<Color>());
+        SetAutoProperty(generator, "DrawCalls", new List<DrawCall>());
+        return generator;
+    }
+
     private static Dictionary<string, ITexture> GetTextureCache(DefaultGraphicsGenerator generator)
     {
         return ReflectionHelpers.GetPrivateField<Dictionary<string, ITexture>>(generator, "_generatedTextures")!;
     }
 
-    private static Mock<ITexture> CreateTextureMock()
+    private static Mock<ITexture> CreateTextureMock(string sourcePath = "generated")
     {
         var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.SourcePath).Returns("generated");
+        texture.SetupGet(x => x.SourcePath).Returns(sourcePath);
         return texture;
+    }
+
+    private static void SetAutoProperty(object target, string propertyName, object value)
+    {
+        var field = target.GetType().GetField($"<{propertyName}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(target, value);
     }
 }

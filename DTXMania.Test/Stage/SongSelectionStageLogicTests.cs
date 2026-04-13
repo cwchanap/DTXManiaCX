@@ -110,6 +110,53 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CheckSongInitializationCompletion_WhenTaskStillRunning_ShouldLeaveStateUnchanged()
+        {
+            var pendingTask = new TaskCompletionSource<List<SongListNode>>();
+            var stage = CreateStage();
+            var currentSongs = new List<SongListNode> { CreateScoreNode("Existing") };
+            var display = new SongListDisplay
+            {
+                CurrentList = [currentSongs[0]]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", currentSongs);
+            SetPrivateField(stage, "_songInitializationTask", pendingTask.Task);
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.False(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
+            Assert.Same(pendingTask.Task, GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask"));
+            Assert.Same(currentSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Same(currentSongs[0], display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void CheckSongInitializationCompletion_WhenAlreadyProcessed_ShouldLeaveCompletedTaskUntouched()
+        {
+            var songs = new List<SongListNode> { CreateScoreNode("Existing") };
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [songs[0]]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", songs);
+            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode> { CreateScoreNode("Loaded") }));
+            SetPrivateField(stage, "_songInitializationProcessed", true);
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
+            Assert.NotNull(GetPrivateField<Task<List<SongListNode>>>(stage, "_songInitializationTask"));
+            Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Same(songs[0], display.CurrentList[0]);
+        }
+
+        [Fact]
         public void OnSongSelectionChanged_WhenScoreAndScrollIncomplete_ShouldUpdateLightweightUiOnly()
         {
             var stage = CreateStage();
@@ -247,6 +294,30 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void NavigateIntoBox_WhenChildrenMissing_ShouldLeaveStateUnchanged()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("Root Song")]
+            };
+            var rootSongs = new List<SongListNode> { CreateScoreNode("Root Song") };
+            var box = CreateBoxNode("Folder");
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", rootSongs);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root");
+
+            InvokePrivateMethod(stage, "NavigateIntoBox", box);
+
+            Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+            Assert.Single(display.CurrentList);
+            Assert.Equal("Root Song", display.CurrentList[0].Title);
+        }
+
+        [Fact]
         public void NavigateBack_ShouldRestorePreviousState()
         {
             var stage = CreateStage();
@@ -266,6 +337,28 @@ namespace DTXMania.Test.Stage
             Assert.Single(display.CurrentList);
             Assert.Same(rootSongs[0], display.CurrentList[0]);
             Assert.Empty(stack);
+        }
+
+        [Fact]
+        public void NavigateBack_WhenStackEmpty_ShouldLeaveCurrentStateUnchanged()
+        {
+            var stage = CreateStage();
+            var songs = new List<SongListNode> { CreateScoreNode("Root Song") };
+            var display = new SongListDisplay
+            {
+                CurrentList = [songs[0]]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", songs);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root");
+
+            InvokePrivateMethod(stage, "NavigateBack");
+
+            Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+            Assert.Same(songs[0], display.CurrentList[0]);
         }
 
         [Fact]
@@ -398,6 +491,51 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandleSongActivation_WhenScoreNodeProvided_ShouldSelectSong()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var song = CreateScoreNode("Song", songId: 21);
+
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "HandleSongActivation", song);
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], song))),
+                Times.Once);
+        }
+
+        [Fact]
+        public void HandleSongActivation_WhenRandomNodeProvided_ShouldSelectRandomSong()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var song = CreateScoreNode("Song", songId: 22);
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                song,
+                new SongListNode { Type = NodeType.Random, Title = "Random" }
+            });
+
+            InvokePrivateMethod(stage, "HandleSongActivation", new SongListNode { Type = NodeType.Random, Title = "Random" });
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], song))),
+                Times.Once);
+        }
+
+        [Fact]
         public void UpdateBreadcrumb_ShouldUseRootFallbackAndCurrentBreadcrumb()
         {
             var stage = CreateStage();
@@ -523,6 +661,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_MoveLeftOutsideStatusPanel_ShouldDoNothing()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentDifficulty", 3);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveLeft, 0.0));
+
+            Assert.Equal(3, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.Equal("A", display.SelectedSong!.Title);
+        }
+
+        [Fact]
         public void ExecuteInputCommand_MoveRightInStatusPanel_ShouldUseSongListDifficultyCycling()
         {
             var stage = CreateStage();
@@ -549,6 +705,24 @@ namespace DTXMania.Test.Stage
             Assert.Equal(2, display.CurrentDifficulty);
             Assert.Equal(2, GetPrivateField<int>(statusPanel, "_currentDifficulty"));
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_MoveRightOutsideStatusPanel_ShouldDoNothing()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentDifficulty", 1);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveRight, 0.0));
+
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.Equal("A", display.SelectedSong!.Title);
         }
 
         [Fact]

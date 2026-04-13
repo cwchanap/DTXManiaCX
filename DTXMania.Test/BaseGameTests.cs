@@ -6,6 +6,7 @@ using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -114,6 +115,46 @@ namespace DTXMania.Test
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
+        }
+
+        [Fact]
+        public async Task StartGameApiServerAsync_WhenCancellationAlreadyRequested_ShouldSwallowOperationCanceledException()
+        {
+            var game = CreateGameForLifecycle(new ConfigData { GameApiPort = 12345 });
+            var gameApi = new Mock<IGameApi>();
+            gameApi.SetupGet(api => api.IsRunning).Returns(true);
+            using var server = new JsonRpcServer(gameApi.Object, port: 12345);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(game, "StartGameApiServerAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.False(server.IsRunning);
+        }
+
+        [Fact]
+        public async Task StartGameApiServerAsync_WhenServerStartThrows_ShouldSwallowException()
+        {
+            var game = CreateGameForLifecycle(new ConfigData { GameApiPort = 12346 });
+            var gameApi = new Mock<IGameApi>();
+            gameApi.SetupGet(api => api.IsRunning).Returns(true);
+            var server = new JsonRpcServer(gameApi.Object, port: 12346);
+            server.Dispose();
+            using var cancellation = new CancellationTokenSource();
+
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(game, "StartGameApiServerAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.False(server.IsRunning);
         }
 
         [Fact]

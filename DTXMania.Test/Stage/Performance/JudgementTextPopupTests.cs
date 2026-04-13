@@ -4,8 +4,12 @@ using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Test.TestData;
 using Moq;
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace DTXMania.Test.Stage.Performance
 {
@@ -151,39 +155,41 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_SpawnPopup_CreatesPopupForValidJudgement()
         {
-            // Arrange
-            var mockResourceManager = CreateMockResourceManager();
-            
-            // This test would need a proper GraphicsDevice setup in a real test environment
-            // For now, we'll test the logic flow
-            
+            var manager = CreateManager();
             var judgementEvent = new JudgementEvent(1, 3, 10.0, JudgementType.Just);
 
-            // Act & Assert would involve creating the manager and testing popup spawning
-            // This requires proper GraphicsDevice mocking which is complex in unit tests
+            manager.SpawnPopup(judgementEvent);
+
+            var popup = Assert.Single(GetActivePopups(manager));
+            Assert.Equal("Perfect", popup.Text);
+            Assert.Equal(new Vector2(PerformanceUILayout.GetLaneX(3), PerformanceUILayout.JudgementLineY - 50), popup.CurrentPosition);
         }
 
         [Fact]
         public void JudgementTextPopupManager_SpawnPopup_IgnoresNullJudgement()
         {
-            // Arrange
-            var mockResourceManager = CreateMockResourceManager();
-            
-            // This test verifies null safety in the spawn method
-            // Implementation would check that no exception is thrown when null is passed
+            var manager = CreateManager();
+
+            manager.SpawnPopup(null!);
+
+            Assert.Empty(GetActivePopups(manager));
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, "JUST")]
-        [InlineData(JudgementType.Great, "GREAT")]
-        [InlineData(JudgementType.Good, "GOOD")]
-        [InlineData(JudgementType.Poor, "POOR")]
-        [InlineData(JudgementType.Miss, "MISS")]
+        [InlineData(JudgementType.Just, "Perfect")]
+        [InlineData(JudgementType.Great, "Great")]
+        [InlineData(JudgementType.Good, "Good")]
+        [InlineData(JudgementType.Poor, "OK")]
+        [InlineData(JudgementType.Miss, "Miss")]
         public void JudgementTextPopupManager_SpawnPopup_CreatesCorrectTextForJudgementType(
             JudgementType judgementType, string expectedText)
         {
-            // This test would verify that the correct text is generated for each judgement type
-            // Implementation would create judgement events of each type and verify the popup text
+            var manager = CreateManager();
+
+            manager.SpawnPopup(new JudgementEvent(1, 2, 0.0, judgementType));
+
+            var popup = Assert.Single(GetActivePopups(manager));
+            Assert.Equal(expectedText, popup.Text);
         }
 
         #endregion
@@ -239,20 +245,151 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_MultiplePopups_HandlesSimultaneousPopups()
         {
-            // This test would verify that multiple popups can be active simultaneously
-            // without performance issues or incorrect behavior
-            
-            // Would create multiple judgement events rapidly and verify:
-            // 1. All popups are created
-            // 2. They animate independently
-            // 3. They are properly cleaned up when complete
+            var manager = CreateManager();
+
+            manager.SpawnPopup(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.SpawnPopup(new JudgementEvent(1, 4, 0.0, JudgementType.Great));
+            manager.SpawnPopup(new JudgementEvent(1, 8, 0.0, JudgementType.Miss));
+
+            Assert.Equal(3, manager.ActivePopupCount);
         }
 
         [Fact]
         public void JudgementTextPopupManager_Update_RemovesCompletedPopups()
         {
-            // This test would verify that completed popups are properly removed
-            // from the active list to prevent memory leaks
+            var manager = CreateManager();
+            var expiredPopup = new JudgementTextPopup("Perfect", Vector2.Zero);
+            expiredPopup.Update(0.55);
+            GetActivePopups(manager).Add(expiredPopup);
+            GetActivePopups(manager).Add(new JudgementTextPopup("Great", Vector2.One));
+
+            manager.Update(0.1);
+
+            var remainingPopup = Assert.Single(GetActivePopups(manager));
+            Assert.Equal("Great", remainingPopup.Text);
+        }
+
+        #endregion
+
+        #region Hostless Manager Logic Tests
+
+        [Fact]
+        public void JudgementTextPopupManager_SpawnPopup_WhenDisposed_ShouldIgnoreJudgement()
+        {
+            var manager = CreateManager();
+            ReflectionHelpers.SetPrivateField(manager, "_disposed", true);
+
+            manager.SpawnPopup(new JudgementEvent(1, 1, 0.0, JudgementType.Just));
+
+            Assert.Empty(GetActivePopups(manager));
+        }
+
+        [Fact]
+        public void JudgementTextPopupManager_SpawnPopup_WithUnknownJudgementType_ShouldNotCreatePopup()
+        {
+            var manager = CreateManager();
+
+            manager.SpawnPopup(new JudgementEvent(1, 1, 0.0, (JudgementType)999));
+
+            Assert.Empty(GetActivePopups(manager));
+        }
+
+        [Fact]
+        public void JudgementTextPopupManager_Update_WhenDisposed_ShouldLeaveExistingPopupsUntouched()
+        {
+            var manager = CreateManager();
+            var popup = new JudgementTextPopup("Perfect", Vector2.Zero);
+            GetActivePopups(manager).Add(popup);
+            ReflectionHelpers.SetPrivateField(manager, "_disposed", true);
+
+            manager.Update(0.7);
+
+            Assert.Single(GetActivePopups(manager));
+            Assert.True(popup.IsActive);
+        }
+
+        [Fact]
+        public void JudgementTextPopupManager_ClearAll_ShouldRemoveEveryPopup()
+        {
+            var manager = CreateManager();
+            GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
+            GetActivePopups(manager).Add(new JudgementTextPopup("Great", Vector2.One));
+
+            manager.ClearAll();
+
+            Assert.Empty(GetActivePopups(manager));
+            Assert.Equal(0, manager.ActivePopupCount);
+        }
+
+        [Theory]
+        [InlineData("Perfect", 255, 255, 0)]
+        [InlineData("Great", 144, 238, 144)]
+        [InlineData("Good", 173, 216, 230)]
+        [InlineData("OK", 255, 165, 0)]
+        [InlineData("Miss", 255, 0, 0)]
+        [InlineData("Unknown", 255, 255, 255)]
+        public void JudgementTextPopupManager_GetJudgementColor_ShouldReturnExpectedColor(string text, byte r, byte g, byte b)
+        {
+            var manager = CreateManager();
+
+            var color = ReflectionHelpers.InvokePrivateMethod<Color>(manager, "GetJudgementColor", text);
+
+            Assert.Equal(new Color(r, g, b), color);
+        }
+
+        [Fact]
+        public void JudgementTextPopupManager_GetLaneCenterPosition_WithInvalidLane_ShouldReturnScreenCenter()
+        {
+            var manager = CreateManager();
+
+            var position = ReflectionHelpers.InvokePrivateMethod<Vector2>(manager, "GetLaneCenterPosition", -1);
+
+            Assert.Equal(new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgementLineY - 50), position);
+        }
+
+        [Fact]
+        public void JudgementTextPopupManager_Dispose_ShouldClearPopupsDisposeFontAndMarkDisposed()
+        {
+            var manager = CreateManager();
+            var trackingFont = (TrackingBitmapFont)RuntimeHelpers.GetUninitializedObject(typeof(TrackingBitmapFont));
+            GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
+            ReflectionHelpers.SetPrivateField(manager, "_font", trackingFont);
+
+            manager.Dispose();
+
+            Assert.Empty(GetActivePopups(manager));
+            Assert.Equal(1, trackingFont.DisposeCount);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
+        }
+
+        private static JudgementTextPopupManager CreateManager()
+        {
+            var manager = (JudgementTextPopupManager)RuntimeHelpers.GetUninitializedObject(typeof(JudgementTextPopupManager));
+            ReflectionHelpers.SetPrivateField(manager, "_activePopups", new List<JudgementTextPopup>());
+            ReflectionHelpers.SetPrivateField(manager, "_font", null);
+            ReflectionHelpers.SetPrivateField(manager, "_resourceManager", new Mock<IResourceManager>().Object);
+            ReflectionHelpers.SetPrivateField(manager, "_graphicsDevice", RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)));
+            ReflectionHelpers.SetPrivateField(manager, "_disposed", false);
+            return manager;
+        }
+
+        private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)
+        {
+            return ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(manager, "_activePopups")!;
+        }
+
+        private sealed class TrackingBitmapFont : BitmapFont
+        {
+            public TrackingBitmapFont() : base(new Mock<IResourceManager>().Object, new BitmapFontConfig(), true)
+            {
+            }
+
+            public int DisposeCount { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                DisposeCount++;
+            }
         }
 
         #endregion

@@ -108,6 +108,52 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
+        #region Graphics Hooks
+
+        protected virtual GraphicsDevice GetGraphicsDeviceCore()
+        {
+            return _game.GraphicsDevice;
+        }
+
+        protected virtual Viewport GetViewportCore()
+        {
+            return _game.GraphicsDevice.Viewport;
+        }
+
+        protected virtual SpriteBatch CreateSpriteBatchCore(GraphicsDevice graphicsDevice)
+        {
+            return new SpriteBatch(graphicsDevice);
+        }
+
+        protected virtual Texture2D CreateWhitePixelCore(GraphicsDevice graphicsDevice)
+        {
+            var whitePixel = new Texture2D(graphicsDevice, 1, 1);
+            whitePixel.SetData(new[] { Color.White });
+            return whitePixel;
+        }
+
+        protected virtual BitmapFont CreateBitmapFontCore(GraphicsDevice graphicsDevice, IResourceManager resourceManager, BitmapFont.BitmapFontConfig config)
+        {
+            return new BitmapFont(graphicsDevice, resourceManager, config);
+        }
+
+        protected virtual void BeginSpriteBatchCore(SpriteBatch spriteBatch)
+        {
+            spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
+        }
+
+        protected virtual void EndSpriteBatchCore(SpriteBatch spriteBatch)
+        {
+            spriteBatch.End();
+        }
+
+        protected virtual void DrawSolidRectCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, Color color)
+        {
+            spriteBatch.Draw(texture, destination, color);
+        }
+
+        #endregion
+
         #region BaseStage Implementation
 
         protected override void OnActivate()
@@ -115,18 +161,16 @@ namespace DTXMania.Game.Lib.Stage
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
             // Initialize graphics resources
-            var graphicsDevice = _game.GraphicsDevice;
-            _spriteBatch = new SpriteBatch(graphicsDevice);
-
-            _whitePixel = new Texture2D(graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            var graphicsDevice = GetGraphicsDeviceCore();
+            _spriteBatch = CreateSpriteBatchCore(graphicsDevice);
+            _whitePixel = CreateWhitePixelCore(graphicsDevice);
 
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
 
             // Initialize bitmap font for text rendering
             var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-            _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager, consoleFontConfig);
+            _bitmapFont = CreateBitmapFontCore(graphicsDevice, _resourceManager, consoleFontConfig);
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
 
@@ -167,7 +211,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null)
                 return;
 
-            _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
+            BeginSpriteBatchCore(_spriteBatch);
 
             // Draw background
             DrawStageBackground(_spriteBatch);
@@ -175,10 +219,8 @@ namespace DTXMania.Game.Lib.Stage
             // Draw fallback if no background loaded
             if (!IsBackgroundReady && _whitePixel != null)
             {
-                var viewport = _game.GraphicsDevice.Viewport;
-                _spriteBatch.Draw(_whitePixel,
-                    new Rectangle(0, 0, viewport.Width, viewport.Height),
-                    new Color(16, 16, 32));
+                var viewport = GetViewportCore();
+                DrawSolidRectCore(_spriteBatch, _whitePixel, new Rectangle(0, 0, viewport.Width, viewport.Height), new Color(16, 16, 32));
             }
 
             // Draw version info (DTXMania pattern)
@@ -190,7 +232,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw current progress
             DrawCurrentProgress();
 
-            _spriteBatch.End();
+            EndSpriteBatchCore(_spriteBatch);
         }
 
         protected override void OnDeactivate()
@@ -488,13 +530,63 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Initialize database service async operation
         /// </summary>
+        protected virtual string GetSongsDatabasePath()
+        {
+            return AppPaths.GetSongsDatabasePath();
+        }
+
+        protected virtual void EnsureDirectory(string path)
+        {
+            AppPaths.EnsureDirectory(path);
+        }
+
+        protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(string databasePath)
+        {
+            return _songManager.InitializeDatabaseServiceAsync(databasePath, false);
+        }
+
+        protected virtual Task<bool> LoadScoreCacheCoreAsync(string[] songPaths)
+        {
+            return _songManager.LoadScoreCacheAsync(songPaths);
+        }
+
+        protected virtual Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
+        {
+            return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
+        }
+
+        protected virtual Task<int> EnumerateSongsOnlyCoreAsync(string[] songPaths, IProgress<EnumerationProgress> progressReporter, CancellationToken cancellationToken)
+        {
+            return _songManager.EnumerateSongsOnlyAsync(songPaths, progressReporter, cancellationToken);
+        }
+
+        protected virtual Task BuildSongListFromDatabaseCoreAsync(string[] songPaths)
+        {
+            return _songManager.BuildSongListFromDatabasePublicAsync(songPaths);
+        }
+
+        protected virtual int GetRootSongCount()
+        {
+            return _songManager.RootSongs.Count;
+        }
+
+        protected virtual Task<bool> SaveSongsDatabaseCoreAsync()
+        {
+            return _songManager.SaveSongsDBAsync();
+        }
+
+        protected virtual void MarkSongManagerInitialized()
+        {
+            _songManager.SetInitialized();
+        }
+
         private async Task InitializeDatabaseServiceAsync()
         {
             try
             {
-                var databasePath = AppPaths.GetSongsDatabasePath();
-                AppPaths.EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
-                bool success = await _songManager.InitializeDatabaseServiceAsync(databasePath, false).ConfigureAwait(false);
+                var databasePath = GetSongsDatabasePath();
+                EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
+                bool success = await InitializeDatabaseServiceCoreAsync(databasePath).ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
             }
             catch (Exception ex)
@@ -510,7 +602,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                bool success = await _songManager.LoadScoreCacheAsync(_songPaths).ConfigureAwait(false);
+                bool success = await LoadScoreCacheCoreAsync(_songPaths).ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine($"Score cache loading: {(success ? "SUCCESS" : "FAILED - enumeration needed")}");
             }
             catch (Exception ex)
@@ -529,7 +621,7 @@ namespace DTXMania.Game.Lib.Stage
                 System.Diagnostics.Debug.WriteLine("Checking filesystem for changes...");
                 
                 // Perform detailed filesystem change detection and cache the result
-                _needsEnumeration = await _songManager.NeedsEnumerationAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
+                _needsEnumeration = await NeedsEnumerationCoreAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
                 
                 if (_needsEnumeration.Value)
                 {
@@ -589,7 +681,7 @@ namespace DTXMania.Game.Lib.Stage
                     }
                 });
 
-                int songCount = await _songManager.EnumerateSongsOnlyAsync(_songPaths, progressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
+                int songCount = await EnumerateSongsOnlyCoreAsync(_songPaths, progressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine($"Song enumeration complete: {songCount} songs found");
             }
             catch (OperationCanceledException)
@@ -617,7 +709,7 @@ namespace DTXMania.Game.Lib.Stage
                 await CallBuildSongListFromDatabaseAsync().ConfigureAwait(false);
                 
                 // Verify the results
-                int songCount = _songManager.RootSongs.Count;
+                int songCount = GetRootSongCount();
                 System.Diagnostics.Debug.WriteLine($"Song lists building complete: {songCount} root nodes loaded");
             }
             catch (Exception ex)
@@ -633,9 +725,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // We need to use reflection or create a public method to call BuildSongListFromDatabaseAsync
-                // For now, let's add a public wrapper method to SongManager
-                await _songManager.BuildSongListFromDatabasePublicAsync(_songPaths).ConfigureAwait(false);
+                await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -650,13 +740,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                bool success = await _songManager.SaveSongsDBAsync().ConfigureAwait(false);
+                bool success = await SaveSongsDatabaseCoreAsync().ConfigureAwait(false);
                 
                 // Mark SongManager as fully initialized after successful save
                 if (success)
                 {
-                    _songManager.SetInitialized();
-                    int songCount = _songManager.RootSongs.Count;
+                    MarkSongManagerInitialized();
+                    int songCount = GetRootSongCount();
                     System.Diagnostics.Debug.WriteLine($"SongManager fully initialized: {songCount} root nodes loaded");
                 }
                 
@@ -696,7 +786,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Draw version info in top-right corner (DTXMania pattern)
             const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
-            var viewport = _game.GraphicsDevice.Viewport;
+            var viewport = GetViewportCore();
 
             if (_bitmapFont?.IsLoaded == true)
             {
@@ -755,7 +845,7 @@ namespace DTXMania.Game.Lib.Stage
             string progressText = $"{_startupPhase} ({(overallProgress * 100):F1}%)";
 
             // Draw progress bar
-            var viewport = _game.GraphicsDevice.Viewport;
+            var viewport = GetViewportCore();
             int progressBarX = (viewport.Width - PROGRESS_BAR_WIDTH) / 2; // Center horizontally
             int progressBarY = viewport.Height - PROGRESS_BAR_BOTTOM_MARGIN;
 
@@ -774,7 +864,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_whitePixel != null)
             {
-                _spriteBatch.Draw(_whitePixel, new Rectangle(x, y, width, height), color);
+                DrawSolidRectCore(_spriteBatch, _whitePixel, new Rectangle(x, y, width, height), color);
             }
         }
         #endregion
