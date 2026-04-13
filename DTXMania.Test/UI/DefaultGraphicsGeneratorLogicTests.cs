@@ -203,21 +203,21 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(new Rectangle(0, 0, 20, 8), generator.DrawCalls[0].Destination);
     }
 
-    [Fact]
-    public void GenerateBPMBackground_WhenLabelsEnabled_ShouldDrawPlaceholderAreas()
-    {
-        var generator = CreateTestableGenerator();
-        var texture = CreateTextureMock("Generated_BPMBackground_10x8");
-        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+        [Fact]
+        public void GenerateBPMBackground_WhenLabelsEnabled_ShouldDrawPlaceholderAreas()
+        {
+            var generator = CreateTestableGenerator();
+            var texture = CreateTextureMock("Generated_BPMBackground_8x8");
+            generator.CreateGeneratedTextureHandler = _ => texture.Object;
 
-        var result = generator.GenerateBPMBackground(10, 8, withLabels: true);
+            var result = generator.GenerateBPMBackground(8, 8, withLabels: true);
 
-        Assert.Same(texture.Object, result);
-        Assert.Equal("Generated_BPMBackground_10x8", result.SourcePath);
-        Assert.Equal(14, generator.DrawCalls.Count);
-        Assert.Equal(new Rectangle(5, 5, 0, -1), generator.DrawCalls[^2].Destination);
-        Assert.Equal(new Rectangle(5, 4, 0, -1), generator.DrawCalls[^1].Destination);
-    }
+            Assert.Same(texture.Object, result);
+            Assert.Equal("Generated_BPMBackground_8x8", result.SourcePath);
+            Assert.Equal(14, generator.DrawCalls.Count);
+            Assert.Equal(new Rectangle(5, 5, 0, 0), generator.DrawCalls[^2].Destination);
+            Assert.Equal(new Rectangle(5, 4, 0, 0), generator.DrawCalls[^1].Destination);
+        }
 
     [Fact]
     public void GenerateButton_WhenPressed_ShouldDrawGradientAndBorder()

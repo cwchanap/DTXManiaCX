@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
@@ -100,7 +101,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Fields
 
         private readonly List<JudgementTextPopup> _activePopups;
-        private readonly BitmapFont _font;
+        private readonly BitmapFont? _font;
         private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private bool _disposed = false;
@@ -130,27 +131,32 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Constructor
 
         public JudgementTextPopupManager(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+            : this(graphicsDevice, resourceManager, LoadJudgementFont(graphicsDevice, resourceManager))
+        {
+        }
+
+        internal static JudgementTextPopupManager CreateForTesting(
+            GraphicsDevice graphicsDevice,
+            IResourceManager resourceManager,
+            BitmapFont? font = null,
+            List<JudgementTextPopup>? activePopups = null,
+            bool disposed = false)
+        {
+            return new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups, disposed);
+        }
+
+        private JudgementTextPopupManager(
+            GraphicsDevice graphicsDevice,
+            IResourceManager resourceManager,
+            BitmapFont? font,
+            List<JudgementTextPopup>? activePopups = null,
+            bool disposed = false)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
-            _activePopups = new List<JudgementTextPopup>();
-
-            // Load the NotoSerifJP Bold 28 font
-            try
-            {
-                var fontConfig = CreateJudgementTextFontConfig();
-                _font = new BitmapFont(_graphicsDevice, _resourceManager, fontConfig);
-
-                if (!_font.IsLoaded)
-                {
-                    System.Diagnostics.Debug.WriteLine("JudgementTextPopupManager: Failed to load judgement text font");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: Error loading font: {ex.Message}");
-                _font = null;
-            }
+            _activePopups = activePopups ?? new List<JudgementTextPopup>();
+            _font = font;
+            _disposed = disposed;
         }
 
         #endregion
@@ -283,7 +289,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Create font configuration for judgement text
         /// Based on NotoSerifJP Bold 28 specification
         /// </summary>
-        private BitmapFont.BitmapFontConfig CreateJudgementTextFontConfig()
+        private static BitmapFont? LoadJudgementFont(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+        {
+            ArgumentNullException.ThrowIfNull(graphicsDevice);
+            ArgumentNullException.ThrowIfNull(resourceManager);
+
+            try
+            {
+                var font = new BitmapFont(graphicsDevice, resourceManager, CreateJudgementTextFontConfig());
+                if (!font.IsLoaded)
+                {
+                    System.Diagnostics.Debug.WriteLine("JudgementTextPopupManager: Failed to load judgement text font");
+                }
+
+                return font;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: Error loading font: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static BitmapFont.BitmapFontConfig CreateJudgementTextFontConfig()
         {
             // Use the standardized judgement text font configuration
             return BitmapFont.CreateJudgementTextFontConfig();

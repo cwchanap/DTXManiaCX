@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -223,7 +224,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         _padSpriteSheet = _resourceManager.LoadTexture(path);
                         if (_padSpriteSheet != null)
                         {
-                            System.Console.WriteLine($"[DEBUG] PadRenderer loaded texture from: {path}");
+                            Debug.WriteLine($"PadRenderer loaded texture from: {path}");
                             break;
                         }
                     }
@@ -256,14 +257,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var texW = _padSpriteSheet.Width;
             var texH = _padSpriteSheet.Height;
             
-            System.Console.WriteLine($"[DEBUG] PadRenderer texture dimensions: {texW}x{texH}");
+            Debug.WriteLine($"PadRenderer texture dimensions: {texW}x{texH}");
 
             // Use defined sprite sheet dimensions
             _spriteColumns = SpriteSheetColumns;
             _cellWidth = texW / SpriteSheetColumns;
             _cellHeight = texH / SpriteSheetRows;
             
-            System.Console.WriteLine($"[DEBUG] PadRenderer cell dimensions: {_cellWidth}x{_cellHeight} (columns={_spriteColumns}, rows={SpriteSheetRows})");
+            Debug.WriteLine($"PadRenderer cell dimensions: {_cellWidth}x{_cellHeight} (columns={_spriteColumns}, rows={SpriteSheetRows})");
         }
 
         /// <summary>

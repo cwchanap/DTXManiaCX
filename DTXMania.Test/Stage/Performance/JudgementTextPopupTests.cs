@@ -9,7 +9,6 @@ using DTXMania.Test.TestData;
 using Moq;
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 
 namespace DTXMania.Test.Stage.Performance
 {
@@ -17,6 +16,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for JudgementText popup system
     /// Tests the popup animation, manager lifecycle, and integration with JudgementEvents
     /// </summary>
+    [Trait("Category", "Graphics")]
     public class JudgementTextPopupTests
     {
         #region Test Helpers
@@ -276,8 +276,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_SpawnPopup_WhenDisposed_ShouldIgnoreJudgement()
         {
-            var manager = CreateManager();
-            ReflectionHelpers.SetPrivateField(manager, "_disposed", true);
+            var manager = CreateManager(disposed: true);
 
             manager.SpawnPopup(new JudgementEvent(1, 1, 0.0, JudgementType.Just));
 
@@ -297,10 +296,8 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_Update_WhenDisposed_ShouldLeaveExistingPopupsUntouched()
         {
-            var manager = CreateManager();
             var popup = new JudgementTextPopup("Perfect", Vector2.Zero);
-            GetActivePopups(manager).Add(popup);
-            ReflectionHelpers.SetPrivateField(manager, "_disposed", true);
+            var manager = CreateManager(activePopups: [popup], disposed: true);
 
             manager.Update(0.7);
 
@@ -337,12 +334,14 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(new Color(r, g, b), color);
         }
 
-        [Fact]
-        public void JudgementTextPopupManager_GetLaneCenterPosition_WithInvalidLane_ShouldReturnScreenCenter()
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(PerformanceUILayout.LaneCount)]
+        public void JudgementTextPopupManager_GetLaneCenterPosition_WithInvalidLane_ShouldReturnScreenCenter(int laneIndex)
         {
             var manager = CreateManager();
 
-            var position = ReflectionHelpers.InvokePrivateMethod<Vector2>(manager, "GetLaneCenterPosition", -1);
+            var position = ReflectionHelpers.InvokePrivateMethod<Vector2>(manager, "GetLaneCenterPosition", laneIndex);
 
             Assert.Equal(new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgementLineY - 50), position);
         }
@@ -350,10 +349,8 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_Dispose_ShouldClearPopupsDisposeFontAndMarkDisposed()
         {
-            var manager = CreateManager();
-            var trackingFont = (TrackingBitmapFont)RuntimeHelpers.GetUninitializedObject(typeof(TrackingBitmapFont));
-            GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
-            ReflectionHelpers.SetPrivateField(manager, "_font", trackingFont);
+            var trackingFont = ReflectionHelpers.CreateUninitialized<TrackingBitmapFont>();
+            var manager = CreateManager(font: trackingFont, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)]);
 
             manager.Dispose();
 
@@ -362,15 +359,17 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
         }
 
-        private static JudgementTextPopupManager CreateManager()
+        private static JudgementTextPopupManager CreateManager(
+            BitmapFont? font = null,
+            List<JudgementTextPopup>? activePopups = null,
+            bool disposed = false)
         {
-            var manager = (JudgementTextPopupManager)RuntimeHelpers.GetUninitializedObject(typeof(JudgementTextPopupManager));
-            ReflectionHelpers.SetPrivateField(manager, "_activePopups", new List<JudgementTextPopup>());
-            ReflectionHelpers.SetPrivateField(manager, "_font", null);
-            ReflectionHelpers.SetPrivateField(manager, "_resourceManager", new Mock<IResourceManager>().Object);
-            ReflectionHelpers.SetPrivateField(manager, "_graphicsDevice", RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)));
-            ReflectionHelpers.SetPrivateField(manager, "_disposed", false);
-            return manager;
+            return JudgementTextPopupManager.CreateForTesting(
+                ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
+                new Mock<IResourceManager>().Object,
+                font,
+                activePopups,
+                disposed);
         }
 
         private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)

@@ -4,10 +4,10 @@ using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 
 namespace DTXMania.Test.Graphics;
 
+[Trait("Category", "Unit")]
 public class RenderTargetManagerTests
 {
     [Fact]
@@ -107,8 +107,8 @@ public class RenderTargetManagerTests
 
     private static RenderTargetManager CreateManagerWithTargets(params (string Name, RenderTarget2D Target, int Width, int Height, SurfaceFormat Format, DepthFormat DepthFormat, int MultiSampleCount)[] entries)
     {
-        var manager = (RenderTargetManager)RuntimeHelpers.GetUninitializedObject(typeof(RenderTargetManager));
-        ReflectionHelpers.SetPrivateField(manager, "_graphicsDevice", RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)));
+        var manager = ReflectionHelpers.CreateUninitialized<RenderTargetManager>();
+        ReflectionHelpers.SetPrivateField(manager, "_graphicsDevice", ReflectionHelpers.CreateUninitialized<GraphicsDevice>());
         ReflectionHelpers.SetPrivateField(manager, "_renderTargets", CreateRenderTargetDictionary(entries));
         ReflectionHelpers.SetPrivateField(manager, "_disposed", false);
         return manager;
@@ -138,7 +138,7 @@ public class RenderTargetManagerTests
 
     private static TrackingRenderTarget2D CreateTrackingRenderTarget()
     {
-        return (TrackingRenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(TrackingRenderTarget2D));
+        return ReflectionHelpers.CreateUninitialized<TrackingRenderTarget2D>();
     }
 
     private sealed class TrackingRenderTarget2D : RenderTarget2D
