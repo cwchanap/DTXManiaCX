@@ -9,6 +9,7 @@ using DTXMania.Test.TestData;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace DTXMania.Test.Stage.Performance
 {
@@ -192,6 +193,24 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(expectedText, popup.Text);
         }
 
+        [Fact]
+        public void JudgementTextPopupManager_LoadJudgementFont_WhenBitmapFontIsNotLoaded_ShouldReturnNull()
+        {
+            var loadMethod = typeof(JudgementTextPopupManager).GetMethod("LoadJudgementFont", BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(loadMethod);
+
+            var result = loadMethod!.Invoke(
+                null,
+                new object[]
+                {
+                    ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
+                    CreateMockResourceManager().Object
+                });
+
+            Assert.Null(result);
+        }
+
         #endregion
 
         #region Integration Tests
@@ -294,15 +313,14 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementTextPopupManager_Update_WhenDisposed_ShouldLeaveExistingPopupsUntouched()
+        public void JudgementTextPopupManager_CreateForTesting_WhenDisposed_ShouldRunRealDisposeLogic()
         {
-            var popup = new JudgementTextPopup("Perfect", Vector2.Zero);
-            var manager = CreateManager(activePopups: [popup], disposed: true);
+            var trackingFont = ReflectionHelpers.CreateUninitialized<TrackingBitmapFont>();
+            var manager = CreateManager(font: trackingFont, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)], disposed: true);
 
-            manager.Update(0.7);
-
-            Assert.Single(GetActivePopups(manager));
-            Assert.True(popup.IsActive);
+            Assert.Empty(GetActivePopups(manager));
+            Assert.Equal(1, trackingFont.DisposeCount);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
         }
 
         [Fact]

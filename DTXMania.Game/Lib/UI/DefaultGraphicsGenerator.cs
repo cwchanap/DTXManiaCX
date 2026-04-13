@@ -56,6 +56,8 @@ namespace DTXMania.Game.Lib.UI
         /// </summary>
         public ITexture GenerateSongBarBackground(int width, int height, bool isSelected = false, bool isCenter = false)
         {
+            ValidateDimensions(width, height);
+
             var cacheKey = $"SongBar_{width}x{height}_{isSelected}_{isCenter}";
 
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
@@ -101,6 +103,8 @@ namespace DTXMania.Game.Lib.UI
         /// </summary>
         public ITexture GenerateBarTypeBackground(int width, int height, BarType barType, bool isSelected = false, bool isCenter = false)
         {
+            ValidateDimensions(width, height);
+
             var cacheKey = $"BarType_{width}x{height}_{barType}_{isSelected}_{isCenter}";
 
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
@@ -116,6 +120,8 @@ namespace DTXMania.Game.Lib.UI
         /// </summary>
         public ITexture GeneratePanelBackground(int width, int height, bool withBorder = true)
         {
+            ValidateDimensions(width, height);
+
             var cacheKey = $"Panel_{width}x{height}_{withBorder}";
 
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
@@ -131,6 +137,8 @@ namespace DTXMania.Game.Lib.UI
         /// </summary>
         public ITexture GenerateBPMBackground(int width, int height, bool withLabels = true)
         {
+            ValidateDimensions(width, height);
+
             var cacheKey = $"BPMBackground_{width}x{height}_{withLabels}";
 
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
@@ -146,6 +154,8 @@ namespace DTXMania.Game.Lib.UI
         /// </summary>
         public ITexture GenerateButton(int width, int height, bool isPressed = false)
         {
+            ValidateDimensions(width, height);
+
             var cacheKey = $"Button_{width}x{height}_{isPressed}";
 
             if (_generatedTextures.TryGetValue(cacheKey, out var cached))
@@ -183,6 +193,15 @@ namespace DTXMania.Game.Lib.UI
         protected virtual ITexture CreateGeneratedTexture(string sourcePath)
         {
             return new ManagedTexture(_graphicsDevice, _renderTarget, sourcePath);
+        }
+
+        private static void ValidateDimensions(int width, int height)
+        {
+            if (width <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width));
+
+            if (height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(height));
         }
 
         private ITexture CreateSongBarTexture(int width, int height, bool isSelected, bool isCenter)
