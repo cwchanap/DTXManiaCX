@@ -142,21 +142,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
             List<JudgementTextPopup>? activePopups = null,
             bool disposed = false)
         {
-            return new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups, disposed);
+            var manager = new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups);
+            if (disposed)
+            {
+                manager.Dispose();
+            }
+
+            return manager;
         }
 
         private JudgementTextPopupManager(
             GraphicsDevice graphicsDevice,
             IResourceManager resourceManager,
             BitmapFont? font,
-            List<JudgementTextPopup>? activePopups = null,
-            bool disposed = false)
+            List<JudgementTextPopup>? activePopups = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _activePopups = activePopups ?? new List<JudgementTextPopup>();
             _font = font;
-            _disposed = disposed;
         }
 
         #endregion
@@ -300,6 +304,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (!font.IsLoaded)
                 {
                     System.Diagnostics.Debug.WriteLine("JudgementTextPopupManager: Failed to load judgement text font");
+                    font.Dispose();
+                    return null;
                 }
 
                 return font;

@@ -1,11 +1,12 @@
 using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.Serialization;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 
 namespace DTXMania.Test.Stage.Performance;
 
@@ -157,18 +158,14 @@ public class JudgementTextPopupLogicTests
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
     }
 
-    // Uses FormatterServices.GetUninitializedObject to bypass JudgementTextPopupManager's
-    // constructor, which requires GraphicsDevice and IResourceManager unavailable in unit tests.
-    // Private fields (_activePopups, _disposed) are injected via ReflectionHelpers.SetPrivateField.
     private static JudgementTextPopupManager CreateManager(bool disposed = false)
     {
-#pragma warning disable SYSLIB0050
-        var manager = (JudgementTextPopupManager)FormatterServices.GetUninitializedObject(typeof(JudgementTextPopupManager));
-#pragma warning restore SYSLIB0050
-
-        ReflectionHelpers.SetPrivateField(manager, "_activePopups", new List<JudgementTextPopup>());
-        ReflectionHelpers.SetPrivateField(manager, "_disposed", disposed);
-        return manager;
+        return JudgementTextPopupManager.CreateForTesting(
+            ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
+            new Mock<IResourceManager>().Object,
+            font: null,
+            activePopups: null,
+            disposed: disposed);
     }
 
     private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)

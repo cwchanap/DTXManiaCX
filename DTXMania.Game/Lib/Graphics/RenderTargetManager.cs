@@ -47,7 +47,7 @@ namespace DTXMania.Game.Lib.Graphics
                     existingInfo.DepthFormat == depthFormat &&
                     existingInfo.MultiSampleCount == multiSampleCount &&
                     existingInfo.RenderTarget != null &&
-                    !existingInfo.RenderTarget.IsDisposed)
+                    !IsRenderTargetDisposed(existingInfo.RenderTarget))
                 {
                     return existingInfo.RenderTarget;
                 }
@@ -58,8 +58,7 @@ namespace DTXMania.Game.Lib.Graphics
             }
 
             // Create new render target
-            var renderTarget = new RenderTarget2D(_graphicsDevice, width, height, false, 
-                format, depthFormat, multiSampleCount, RenderTargetUsage.DiscardContents);
+            var renderTarget = CreateRenderTarget(width, height, format, depthFormat, multiSampleCount);
 
             var info = new RenderTargetInfo
             {
@@ -84,7 +83,7 @@ namespace DTXMania.Game.Lib.Graphics
         {
             if (_renderTargets.TryGetValue(name, out var info))
             {
-                return info.RenderTarget?.IsDisposed == false ? info.RenderTarget : null;
+                return info.RenderTarget != null && !IsRenderTargetDisposed(info.RenderTarget) ? info.RenderTarget : null;
             }
             return null;
         }
@@ -119,11 +118,13 @@ namespace DTXMania.Game.Lib.Graphics
             foreach (var (name, info) in recreateList)
             {
                 info.RenderTarget?.Dispose();
-                
-                var newRenderTarget = new RenderTarget2D(_graphicsDevice, 
-                    info.Width, info.Height, false, 
-                    info.Format, info.DepthFormat, info.MultiSampleCount, 
-                    RenderTargetUsage.DiscardContents);
+
+                var newRenderTarget = CreateRenderTarget(
+                    info.Width,
+                    info.Height,
+                    info.Format,
+                    info.DepthFormat,
+                    info.MultiSampleCount);
 
                 info.RenderTarget = newRenderTarget;
                 _renderTargets[name] = info;
@@ -146,6 +147,29 @@ namespace DTXMania.Game.Lib.Graphics
                 _renderTargets.Clear();
                 _disposed = true;
             }
+        }
+
+        protected virtual RenderTarget2D CreateRenderTarget(
+            int width,
+            int height,
+            SurfaceFormat format,
+            DepthFormat depthFormat,
+            int multiSampleCount)
+        {
+            return new RenderTarget2D(
+                _graphicsDevice,
+                width,
+                height,
+                false,
+                format,
+                depthFormat,
+                multiSampleCount,
+                RenderTargetUsage.DiscardContents);
+        }
+
+        protected virtual bool IsRenderTargetDisposed(RenderTarget2D renderTarget)
+        {
+            return renderTarget.IsDisposed;
         }
 
         private class RenderTargetInfo

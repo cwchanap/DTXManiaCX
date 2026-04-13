@@ -70,6 +70,24 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Same(graphicsDevice, generator.GraphicsDevice);
     }
 
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    [InlineData(-1, 1)]
+    [InlineData(1, -1)]
+    [InlineData(0, 0)]
+    [InlineData(-1, -1)]
+    public void GenerateMethods_WhenDimensionsAreNonPositive_ShouldThrowArgumentOutOfRangeException(int width, int height)
+    {
+        var generator = CreateTestableGenerator();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => generator.GenerateSongBarBackground(width, height, isSelected: false, isCenter: false));
+        Assert.Throws<ArgumentOutOfRangeException>(() => generator.GenerateBarTypeBackground(width, height, BarType.Score, isSelected: false, isCenter: false));
+        Assert.Throws<ArgumentOutOfRangeException>(() => generator.GeneratePanelBackground(width, height, withBorder: true));
+        Assert.Throws<ArgumentOutOfRangeException>(() => generator.GenerateBPMBackground(width, height, withLabels: true));
+        Assert.Throws<ArgumentOutOfRangeException>(() => generator.GenerateButton(width, height, isPressed: false));
+    }
+
     [Fact]
     public void GenerateSongBarBackground_WhenCenterNotCached_ShouldDrawGradientCenterBordersAndCacheTexture()
     {
