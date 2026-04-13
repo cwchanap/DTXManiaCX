@@ -415,11 +415,13 @@ namespace DTXMania.Game.Lib.UI
                 // For now, we'll create placeholder areas where text would go
                 
                 // Length label area (top portion)
-                var lengthLabelRect = new Rectangle(5, 5, width - 10, height / 2 - 5);
+                var labelWidth = Math.Max(0, width - 10);
+                var labelHeight = Math.Max(0, height / 2 - 5);
+                var lengthLabelRect = new Rectangle(5, 5, labelWidth, labelHeight);
                 DrawSolidRectangle(lengthLabelRect, Color.Black * 0.2f);
                 
                 // BPM label area (bottom portion)
-                var bpmLabelRect = new Rectangle(5, height / 2, width - 10, height / 2 - 5);
+                var bpmLabelRect = new Rectangle(5, height / 2, labelWidth, labelHeight);
                 DrawSolidRectangle(bpmLabelRect, Color.Black * 0.2f);
             }
 

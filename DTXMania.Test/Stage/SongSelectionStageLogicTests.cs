@@ -660,8 +660,10 @@ namespace DTXMania.Test.Stage
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
         }
 
-        [Fact]
-        public void ExecuteInputCommand_MoveLeftOutsideStatusPanel_ShouldDoNothing()
+        [Theory]
+        [InlineData(InputCommandType.MoveLeft, 3)]
+        [InlineData(InputCommandType.MoveRight, 1)]
+        public void ExecuteInputCommand_MoveOutsideStatusPanel_ShouldDoNothing(InputCommandType command, int initialDifficulty)
         {
             var stage = CreateStage();
             var display = new SongListDisplay
@@ -670,11 +672,11 @@ namespace DTXMania.Test.Stage
             };
 
             AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_currentDifficulty", 3);
+            SetPrivateField(stage, "_currentDifficulty", initialDifficulty);
 
-            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveLeft, 0.0));
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(command, 0.0));
 
-            Assert.Equal(3, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.Equal(initialDifficulty, GetPrivateField<int>(stage, "_currentDifficulty"));
             Assert.Equal("A", display.SelectedSong!.Title);
         }
 
@@ -705,24 +707,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal(2, display.CurrentDifficulty);
             Assert.Equal(2, GetPrivateField<int>(statusPanel, "_currentDifficulty"));
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
-        }
-
-        [Fact]
-        public void ExecuteInputCommand_MoveRightOutsideStatusPanel_ShouldDoNothing()
-        {
-            var stage = CreateStage();
-            var display = new SongListDisplay
-            {
-                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
-            };
-
-            AttachCoreUi(stage, display: display);
-            SetPrivateField(stage, "_currentDifficulty", 1);
-
-            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.MoveRight, 0.0));
-
-            Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
-            Assert.Equal("A", display.SelectedSong!.Title);
         }
 
         [Fact]

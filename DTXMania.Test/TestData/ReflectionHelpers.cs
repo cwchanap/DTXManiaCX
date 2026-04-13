@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -29,6 +30,11 @@ namespace DTXMania.Test.TestData
 #pragma warning restore SYSLIB0050
             SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager);
             return game;
+        }
+
+        internal static T CreateUninitialized<T>() where T : class
+        {
+            return (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
         }
 
         internal static T? GetPrivateField<T>(object target, string fieldName)

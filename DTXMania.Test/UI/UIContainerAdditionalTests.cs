@@ -384,12 +384,19 @@ namespace DTXMania.Test.UI
             Assert.Equal(1, child.DrawCallCount);
         }
 
-        [Fact]
-        public void HandleInput_WhenTopMostChildHandles_ShouldStopTraversal()
+        [Theory]
+        [InlineData(true, true, true, 0, 1)]
+        [InlineData(false, false, false, 1, 1)]
+        public void HandleInput_ShouldRespectChildTraversalOrder(
+            bool lowerChildHandles,
+            bool topMostChildHandles,
+            bool expectedHandled,
+            int expectedLowerCalls,
+            int expectedTopMostCalls)
         {
             var container = new UIContainer();
-            var lowerChild = new InputTrackingElement { ShouldHandleInput = true };
-            var topMostChild = new InputTrackingElement { ShouldHandleInput = true };
+            var lowerChild = new InputTrackingElement { ShouldHandleInput = lowerChildHandles };
+            var topMostChild = new InputTrackingElement { ShouldHandleInput = topMostChildHandles };
             container.AddChild(lowerChild);
             container.AddChild(topMostChild);
             container.Activate();
@@ -399,29 +406,23 @@ namespace DTXMania.Test.UI
 
             var handled = container.HandleInput(inputState.Object);
 
-            Assert.True(handled);
-            Assert.Equal(0, lowerChild.HandleInputCallCount);
-            Assert.Equal(1, topMostChild.HandleInputCallCount);
+            Assert.Equal(expectedHandled, handled);
+            Assert.Equal(expectedLowerCalls, lowerChild.HandleInputCallCount);
+            Assert.Equal(expectedTopMostCalls, topMostChild.HandleInputCallCount);
         }
 
         [Fact]
-        public void HandleInput_WhenNoChildHandles_ShouldReturnFalseAfterCheckingEachChild()
+        public void HandleInput_WhenInputStateIsNull_ShouldReturnFalseWithoutVisitingChildren()
         {
             var container = new UIContainer();
-            var firstChild = new InputTrackingElement();
-            var secondChild = new InputTrackingElement();
-            container.AddChild(firstChild);
-            container.AddChild(secondChild);
+            var child = new InputTrackingElement { ShouldHandleInput = true };
+            container.AddChild(child);
             container.Activate();
 
-            var inputState = new Mock<IInputState>();
-            inputState.Setup(state => state.IsMouseButtonPressed(MouseButton.Left)).Returns(false);
-
-            var handled = container.HandleInput(inputState.Object);
+            var handled = container.HandleInput(null!);
 
             Assert.False(handled);
-            Assert.Equal(1, firstChild.HandleInputCallCount);
-            Assert.Equal(1, secondChild.HandleInputCallCount);
+            Assert.Equal(0, child.HandleInputCallCount);
         }
 
         #endregion

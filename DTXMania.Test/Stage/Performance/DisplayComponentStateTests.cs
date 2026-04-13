@@ -602,7 +602,7 @@ namespace DTXMania.Test.Stage.Performance
 
         private sealed class TrackingManagedFont : ManagedFont
         {
-            public TrackingManagedFont() : base((SpriteFont)null!, "tracking", 1)
+            private TrackingManagedFont() : base((SpriteFont)null!, "tracking", 1)
             {
             }
 
@@ -616,7 +616,7 @@ namespace DTXMania.Test.Stage.Performance
 
         private sealed class TrackingTexture2D : Texture2D
         {
-            public TrackingTexture2D() : base(null!, 1, 1)
+            private TrackingTexture2D() : base(null!, 1, 1)
             {
             }
 

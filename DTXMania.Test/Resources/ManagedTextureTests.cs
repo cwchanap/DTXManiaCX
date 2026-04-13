@@ -334,7 +334,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void ExistingTextureConstructor_WhenTextureIsNull_ShouldThrowArgumentNullException()
         {
-            Assert.Throws<ArgumentNullException>(() => new ManagedTexture(null!, null!, "source"));
+            Assert.Throws<ArgumentNullException>(() => new ManagedTexture(null!, (Texture2D)null!, "source"));
         }
 
         [Fact]
