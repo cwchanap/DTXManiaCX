@@ -25,6 +25,7 @@ public class DefaultGraphicsGeneratorLogicTests
         public int SetRenderTargetCount { get; private set; }
         public int RestoreRenderTargetsCount { get; private set; }
         public Func<string, ITexture>? CreateGeneratedTextureHandler { get; set; }
+        public List<(string SourcePath, int Width, int Height)> CreateGeneratedTextureCalls { get; } = new();
 
         public TestableDefaultGraphicsGenerator()
             : base(
@@ -53,9 +54,12 @@ public class DefaultGraphicsGeneratorLogicTests
             RestoreRenderTargetsCount++;
         }
 
-        protected override ITexture CreateGeneratedTexture(string sourcePath)
-            => CreateGeneratedTextureHandler?.Invoke(sourcePath)
+        protected override ITexture CreateGeneratedTexture(string sourcePath, int width, int height)
+        {
+            CreateGeneratedTextureCalls.Add((sourcePath, width, height));
+            return CreateGeneratedTextureHandler?.Invoke(sourcePath)
                 ?? throw new InvalidOperationException("CreateGeneratedTextureHandler was not configured.");
+        }
     }
 
     [Fact]
@@ -123,6 +127,8 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(new Rectangle(0, 1, 4, 2), generator.DrawCalls[4].Destination);
         Assert.Equal(Color.Yellow, generator.DrawCalls[4].Color);
         Assert.Same(texture.Object, GetTextureCache(generator)["SongBar_4x3_False_True"]);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_SongBar_4x3", 4, 3), generator.CreateGeneratedTextureCalls[0]);
     }
 
     [Fact]
@@ -158,6 +164,9 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(DTXManiaVisualTheme.Layout.ClearLampHeight + 4, generator.DrawCalls.Count);
         Assert.All(generator.DrawCalls[^4..], drawCall => Assert.Equal(Color.Gray, drawCall.Color));
         Assert.Same(texture.Object, GetTextureCache(generator)["ClearLamp_3_False"]);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(DTXManiaVisualTheme.Layout.ClearLampWidth, generator.CreateGeneratedTextureCalls[0].Width);
+        Assert.Equal(DTXManiaVisualTheme.Layout.ClearLampHeight, generator.CreateGeneratedTextureCalls[0].Height);
     }
 
     [Fact]
@@ -173,6 +182,8 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal("Generated_EnhancedClearLamp_1_NotPlayed", result.SourcePath);
         Assert.Equal(24, generator.DrawCalls.Count);
         Assert.Same(texture.Object, GetTextureCache(generator)["EnhancedClearLamp_1_NotPlayed"]);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_EnhancedClearLamp_1_NotPlayed", 8, 24), generator.CreateGeneratedTextureCalls[0]);
     }
 
     [Fact]
@@ -204,6 +215,8 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(13, generator.DrawCalls.Count);
         Assert.Equal(Color.Cyan * 0.7f, generator.DrawCalls[^1].Color);
         Assert.Equal(new Rectangle(2, 2, 4, 4), generator.DrawCalls[^1].Destination);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_BarType_Box_10x8", 10, 8), generator.CreateGeneratedTextureCalls[0]);
     }
 
     [Fact]
@@ -236,6 +249,8 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal("Generated_Panel_20x8", result.SourcePath);
         Assert.Single(generator.DrawCalls);
         Assert.Equal(new Rectangle(0, 0, 20, 8), generator.DrawCalls[0].Destination);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_Panel_20x8", 20, 8), generator.CreateGeneratedTextureCalls[0]);
     }
 
         [Fact]
@@ -252,6 +267,8 @@ public class DefaultGraphicsGeneratorLogicTests
             Assert.Equal(14, generator.DrawCalls.Count);
             Assert.Equal(new Rectangle(5, 5, 0, 0), generator.DrawCalls[^2].Destination);
             Assert.Equal(new Rectangle(5, 4, 0, 0), generator.DrawCalls[^1].Destination);
+            Assert.Single(generator.CreateGeneratedTextureCalls);
+            Assert.Equal(("Generated_BPMBackground_8x8", 8, 8), generator.CreateGeneratedTextureCalls[0]);
         }
 
     [Fact]
@@ -267,6 +284,45 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal("Generated_Button_6x3", result.SourcePath);
         Assert.Equal(7, generator.DrawCalls.Count);
         Assert.Equal(Color.White, generator.DrawCalls[^1].Color);
+    }
+
+    [Theory]
+    [InlineData(187, 67, "BPMBackground")]
+    [InlineData(800, 48, "SongBar")]
+    [InlineData(640, 96, "BarType")]
+    [InlineData(200, 80, "Panel")]
+    [InlineData(7, 41, "ClearLamp")]
+    public void CreateGeneratedTexture_ShouldPassRequestedDimensions_NotRenderTargetSize(int width, int height, string method)
+    {
+        // Verifies the fix for the bug where CreateGeneratedTexture copied the
+        // full 1024x1024 render target instead of cropping to requested size.
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock($"Generated_{method}_{width}x{height}");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        switch (method)
+        {
+            case "SongBar":
+                generator.GenerateSongBarBackground(width, height);
+                break;
+            case "BarType":
+                generator.GenerateBarTypeBackground(width, height, BarType.Score);
+                break;
+            case "Panel":
+                generator.GeneratePanelBackground(width, height);
+                break;
+            case "BPMBackground":
+                generator.GenerateBPMBackground(width, height);
+                break;
+            case "ClearLamp":
+                // ClearLamp uses fixed dimensions from layout, not caller-specified
+                generator.GenerateClearLamp(0);
+                return;
+        }
+
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(width, generator.CreateGeneratedTextureCalls[0].Width);
+        Assert.Equal(height, generator.CreateGeneratedTextureCalls[0].Height);
     }
 
     [Fact]
@@ -409,6 +465,7 @@ public class DefaultGraphicsGeneratorLogicTests
         ReflectionHelpers.SetPrivateField(generator, "_disposed", false);
         SetAutoProperty(generator, "ClearColors", new List<Color>());
         SetAutoProperty(generator, "DrawCalls", new List<DrawCall>());
+        SetAutoProperty(generator, "CreateGeneratedTextureCalls", new List<(string, int, int)>());
         return generator;
     }
 
