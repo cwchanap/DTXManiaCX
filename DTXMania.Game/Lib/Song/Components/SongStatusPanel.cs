@@ -164,11 +164,16 @@ namespace DTXMania.Game.Lib.Song.Components
                 _graphicsGenerator = null;
             }
             
-            // Pre-generate panel background so draw-time never switches render targets
+            // Pre-generate panel background and BPM fallback so draw-time never switches render targets
             if (_graphicsGenerator != null)
             {
                 _graphicsGenerator.PreGenerateCommonTextures(
                     (int)Size.X, (int)Size.Y, 0, 0);
+
+                // Pre-generate BPM fallback texture for skins that lack 5_BPM.png
+                _graphicsGenerator.GenerateBPMBackground(
+                    (int)SongSelectionUILayout.BPMSection.Size.X,
+                    (int)SongSelectionUILayout.BPMSection.Size.Y, true);
             }
 
             // Try to load level number font if ResourceManager is already available

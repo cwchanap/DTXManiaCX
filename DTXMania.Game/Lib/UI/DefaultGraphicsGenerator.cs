@@ -183,7 +183,8 @@ namespace DTXMania.Game.Lib.UI
                 GeneratePanelBackground(panelWidth, panelHeight, true);
             }
 
-            // Bar backgrounds for the most common states (unselected, selected, center)
+            // Bar backgrounds for all (isSelected, isCenter) combinations so draw-time
+            // always hits the cache, even for the selected center bar.
             if (barWidth > 0 && barHeight > 0)
             {
                 foreach (BarType barType in Enum.GetValues(typeof(BarType)))
@@ -191,6 +192,7 @@ namespace DTXMania.Game.Lib.UI
                     GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: false, isCenter: false);
                     GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: true, isCenter: false);
                     GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: false, isCenter: true);
+                    GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: true, isCenter: true);
                 }
             }
         }
