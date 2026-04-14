@@ -578,7 +578,7 @@ namespace DTXMania.Game.Lib.Resources
 
         #endregion
 
-        #region Private Helper Methods
+        #region Virtual Hooks
 
         protected virtual ITexture CreateTextureCore(string resolvedPath, string originalPath, TextureCreationParams creationParams)
         {
@@ -744,9 +744,10 @@ namespace DTXMania.Game.Lib.Resources
                 fallback.AddReference();
                 return fallback;
             }
-            catch
+            catch (Exception ex)
             {
                 // If even Arial fails, return null - calling code should handle this
+                Debug.WriteLine($"ResourceManager: {ex.GetType().Name} creating fallback font for '{originalPath}': {ex.Message}");
                 return null;
             }
         }
@@ -765,9 +766,10 @@ namespace DTXMania.Game.Lib.Resources
                 fallback.AddReference();
                 return fallback;
             }
-            catch
+            catch (Exception ex)
             {
                 // If even silent sound fails, return null - calling code should handle this
+                Debug.WriteLine($"ResourceManager: {ex.GetType().Name} creating fallback sound for '{originalPath}': {ex.Message}");
                 return null;
             }
         }

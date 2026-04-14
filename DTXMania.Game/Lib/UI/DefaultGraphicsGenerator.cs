@@ -216,8 +216,9 @@ namespace DTXMania.Game.Lib.UI
         }
 
         /// <summary>
-        /// Restores the previous render targets. Call after drawing and before
-        /// CreateGeneratedTexture (which reads from the render target).
+        /// Restores the previous render targets after drawing is complete.
+        /// RenderTarget2D.GetData reads from the texture's backing memory, so it
+        /// remains accessible after the target is unbound from the GPU.
         /// </summary>
         protected virtual void RestoreRenderTargets(RenderTargetBinding[] previousTargets)
         {
@@ -298,13 +299,12 @@ namespace DTXMania.Game.Lib.UI
                 }
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_SongBar_{width}x{height}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_SongBar_{width}x{height}", width, height);
         }
 
         private ITexture CreateClearLampTexture(int difficulty, bool hasCleared)
@@ -331,13 +331,12 @@ namespace DTXMania.Game.Lib.UI
                 DrawRectangleBorder(new Rectangle(0, 0, width, height), borderColor, 1);
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_ClearLamp_{difficulty}_{hasCleared}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_ClearLamp_{difficulty}_{hasCleared}", width, height);
         }
 
         private ITexture CreatePanelTexture(int width, int height, bool withBorder)
@@ -360,13 +359,12 @@ namespace DTXMania.Game.Lib.UI
                 }
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_Panel_{width}x{height}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_Panel_{width}x{height}", width, height);
         }
 
         private ITexture CreateButtonTexture(int width, int height, bool isPressed)
@@ -389,13 +387,12 @@ namespace DTXMania.Game.Lib.UI
                 DrawRectangleBorder(new Rectangle(0, 0, width, height), Color.White, 1);
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_Button_{width}x{height}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_Button_{width}x{height}", width, height);
         }
 
         private void DrawGradientRectangle(Rectangle bounds, Color topColor, Color bottomColor)
@@ -455,13 +452,12 @@ namespace DTXMania.Game.Lib.UI
                 }
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}", 8, 24);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}", 8, 24);
         }
 
         private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
@@ -515,13 +511,12 @@ namespace DTXMania.Game.Lib.UI
                 }
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_BarType_{barType}_{width}x{height}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_BarType_{barType}_{width}x{height}", width, height);
         }
 
         private ITexture CreateBPMBackgroundTexture(int width, int height, bool withLabels)
@@ -558,13 +553,12 @@ namespace DTXMania.Game.Lib.UI
                 }
 
                 EndSpriteBatch();
+                return CreateGeneratedTexture($"Generated_BPMBackground_{width}x{height}", width, height);
             }
             finally
             {
                 RestoreRenderTargets(previousTargets);
             }
-
-            return CreateGeneratedTexture($"Generated_BPMBackground_{width}x{height}", width, height);
         }
 
         #endregion

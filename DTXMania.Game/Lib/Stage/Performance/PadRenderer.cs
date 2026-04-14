@@ -173,7 +173,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #endregion
 
-        #region Private Methods
+        #region Virtual Hooks
 
         protected virtual void DrawPadSpriteCore(ITexture texture, SpriteBatch spriteBatch, Rectangle destRect, Rectangle sourceRect, Color tint)
         {
@@ -228,8 +228,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                             break;
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Debug.WriteLine($"PadRenderer: {ex.GetType().Name} loading texture from '{path}': {ex.Message}");
                         // Continue trying other paths
                     }
                 }
@@ -242,6 +243,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             catch (Exception ex)
             {
                 // Failed to load pad texture, pads won't be rendered
+                Debug.WriteLine($"PadRenderer: All pad texture paths failed, falling back to solid-color rendering. {ex.GetType().Name}: {ex.Message}");
                 _padSpriteSheet = null;
             }
         }

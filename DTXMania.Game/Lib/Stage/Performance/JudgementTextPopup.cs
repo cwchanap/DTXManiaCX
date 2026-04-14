@@ -185,6 +185,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var popup = new JudgementTextPopup(text, lanePosition);
                 _activePopups.Add(popup);
             }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: No display text registered for JudgementType.{judgementEvent.Type}");
+            }
         }
 
         /// <summary>
@@ -312,7 +316,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: Error loading font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: {ex.GetType().Name} loading judgement font: {ex.Message}");
                 return null;
             }
         }

@@ -591,7 +591,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -607,7 +607,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during score cache loading: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during score cache loading: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -634,7 +634,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during filesystem change detection: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during filesystem change detection: {ex.GetType().Name}: {ex.Message}");
                 // On error, assume enumeration is needed to be safe
                 _needsEnumeration = true;
             }
@@ -690,7 +690,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during song enumeration: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during song enumeration: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -701,35 +701,14 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // The current BuildSongListsAsync method is just a placeholder
-                // We need to call the actual method that builds the song list from database
                 System.Diagnostics.Debug.WriteLine("Building song lists from database...");
-                
-                // This is the critical method that actually populates _rootSongs from the database
-                await CallBuildSongListFromDatabaseAsync().ConfigureAwait(false);
-                
-                // Verify the results
+                await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
                 int songCount = GetRootSongCount();
                 System.Diagnostics.Debug.WriteLine($"Song lists building complete: {songCount} root nodes loaded");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during song lists building: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Helper method to call the private BuildSongListFromDatabaseAsync method
-        /// </summary>
-        private async Task CallBuildSongListFromDatabaseAsync()
-        {
-            try
-            {
-                await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error calling BuildSongListFromDatabaseAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during song lists building: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -754,7 +733,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during songs DB save: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error during songs DB save: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
