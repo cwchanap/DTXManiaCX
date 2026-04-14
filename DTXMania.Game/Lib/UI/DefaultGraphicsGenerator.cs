@@ -211,18 +211,19 @@ namespace DTXMania.Game.Lib.UI
         }
 
         /// <summary>
-        /// Captures the current render target contents into a new immutable Texture2D,
+        /// Captures a region of the render target into a new immutable Texture2D,
         /// then wraps it in a ManagedTexture for caching. This ensures each cached
         /// texture has its own independent backing texture rather than sharing
-        /// the single reusable _renderTarget.
+        /// the single reusable _renderTarget, and crops to only the generated region
+        /// instead of copying the full render target.
         /// </summary>
-        protected virtual ITexture CreateGeneratedTexture(string sourcePath)
+        protected virtual ITexture CreateGeneratedTexture(string sourcePath, int width, int height)
         {
-            // Copy render target data into a dedicated Texture2D so cached textures
-            // don't all reference the same shared render target
-            var texture = new Texture2D(_graphicsDevice, _renderTarget.Width, _renderTarget.Height);
-            var data = new Color[_renderTarget.Width * _renderTarget.Height];
-            _renderTarget.GetData(data);
+            // Copy only the generated region from the render target into a cropped Texture2D
+            var region = new Rectangle(0, 0, width, height);
+            var texture = new Texture2D(_graphicsDevice, width, height);
+            var data = new Color[width * height];
+            _renderTarget.GetData(0, region, data, 0, data.Length);
             texture.SetData(data);
             return new ManagedTexture(_graphicsDevice, texture, sourcePath);
         }
@@ -274,7 +275,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_SongBar_{width}x{height}");
+            return CreateGeneratedTexture($"Generated_SongBar_{width}x{height}", width, height);
         }
 
         private ITexture CreateClearLampTexture(int difficulty, bool hasCleared)
@@ -307,7 +308,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_ClearLamp_{difficulty}_{hasCleared}");
+            return CreateGeneratedTexture($"Generated_ClearLamp_{difficulty}_{hasCleared}", width, height);
         }
 
         private ITexture CreatePanelTexture(int width, int height, bool withBorder)
@@ -336,7 +337,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_Panel_{width}x{height}");
+            return CreateGeneratedTexture($"Generated_Panel_{width}x{height}", width, height);
         }
 
         private ITexture CreateButtonTexture(int width, int height, bool isPressed)
@@ -365,7 +366,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_Button_{width}x{height}");
+            return CreateGeneratedTexture($"Generated_Button_{width}x{height}", width, height);
         }
 
         private void DrawGradientRectangle(Rectangle bounds, Color topColor, Color bottomColor)
@@ -431,7 +432,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}");
+            return CreateGeneratedTexture($"Generated_EnhancedClearLamp_{difficulty}_{clearStatus}", 8, 24);
         }
 
         private ITexture CreateBarTypeTexture(int width, int height, BarType barType, bool isSelected, bool isCenter)
@@ -491,7 +492,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_BarType_{barType}_{width}x{height}");
+            return CreateGeneratedTexture($"Generated_BarType_{barType}_{width}x{height}", width, height);
         }
 
         private ITexture CreateBPMBackgroundTexture(int width, int height, bool withLabels)
@@ -534,7 +535,7 @@ namespace DTXMania.Game.Lib.UI
                 RestoreRenderTargets(previousTargets);
             }
 
-            return CreateGeneratedTexture($"Generated_BPMBackground_{width}x{height}");
+            return CreateGeneratedTexture($"Generated_BPMBackground_{width}x{height}", width, height);
         }
 
         #endregion
