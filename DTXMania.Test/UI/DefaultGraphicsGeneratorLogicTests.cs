@@ -442,6 +442,87 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Single(textures);
     }
 
+    [Fact]
+    public void PreGenerateCommonTextures_WhenPanelDimensionsProvided_ShouldCachePanelBackground()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_Panel_580x320");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
+
+        generator.PreGenerateCommonTextures(panelWidth: 580, panelHeight: 320, barWidth: 0, barHeight: 0);
+
+        // Only panel background should be generated (bar dimensions are 0)
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_Panel_580x320", 580, 320), generator.CreateGeneratedTextureCalls[0]);
+        Assert.Equal(1, generator.SetRenderTargetCount);
+        Assert.Equal(1, generator.RestoreRenderTargetsCount);
+
+        // Verify cached so subsequent draw-time calls don't trigger additional SetRenderTarget
+        var countBefore = generator.SetRenderTargetCount;
+        var cachedResult = generator.GeneratePanelBackground(580, 320, true);
+        Assert.Same(texture.Object, cachedResult);
+        Assert.Equal(countBefore, generator.SetRenderTargetCount);
+    }
+
+    [Fact]
+    public void PreGenerateCommonTextures_WhenBarDimensionsProvided_ShouldCacheAllBarTypesAndStates()
+    {
+        var generator = CreateTestableGenerator();
+        var textureIdx = 0;
+        generator.CreateGeneratedTextureHandler = _ =>
+        {
+            var t = CreateTextureMock($"Generated_{textureIdx++}");
+            return t.Object;
+        };
+
+        generator.PreGenerateCommonTextures(panelWidth: 0, panelHeight: 0, barWidth: 510, barHeight: 48);
+
+        // 3 BarType values x 3 states = 9 bar textures, no panel
+        Assert.Equal(9, generator.CreateGeneratedTextureCalls.Count);
+        Assert.All(generator.CreateGeneratedTextureCalls, call =>
+        {
+            Assert.Equal(510, call.Width);
+            Assert.Equal(48, call.Height);
+        });
+        Assert.Equal(9, generator.SetRenderTargetCount);
+
+        // Verify subsequent draw-time calls hit cache
+        var countBefore = generator.SetRenderTargetCount;
+        var cachedResult = generator.GenerateBarTypeBackground(510, 48, BarType.Score, false, false);
+        Assert.NotNull(cachedResult);
+        Assert.Equal(countBefore, generator.SetRenderTargetCount);
+    }
+
+    [Fact]
+    public void PreGenerateCommonTextures_WhenBothDimensionsProvided_ShouldGenerateAllTextures()
+    {
+        var generator = CreateTestableGenerator();
+        var textureIdx = 0;
+        generator.CreateGeneratedTextureHandler = _ =>
+        {
+            var t = CreateTextureMock($"Generated_{textureIdx++}");
+            return t.Object;
+        };
+
+        generator.PreGenerateCommonTextures(panelWidth: 580, panelHeight: 320, barWidth: 510, barHeight: 48);
+
+        // 1 panel + 3 BarType x 3 states = 10 total
+        Assert.Equal(10, generator.CreateGeneratedTextureCalls.Count);
+        Assert.Equal(10, generator.SetRenderTargetCount);
+    }
+
+    [Fact]
+    public void PreGenerateCommonTextures_WhenAllDimensionsZero_ShouldNotGenerateAnything()
+    {
+        var generator = CreateTestableGenerator();
+        generator.CreateGeneratedTextureHandler = _ => CreateTextureMock().Object;
+
+        generator.PreGenerateCommonTextures(panelWidth: 0, panelHeight: 0, barWidth: 0, barHeight: 0);
+
+        Assert.Empty(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(0, generator.SetRenderTargetCount);
+    }
+
     private static DefaultGraphicsGenerator CreateGenerator(GraphicsDevice? graphicsDevice = null)
     {
         var generator = (DefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));

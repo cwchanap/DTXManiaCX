@@ -166,6 +166,35 @@ namespace DTXMania.Game.Lib.UI
             return texture;
         }
 
+        /// <summary>
+        /// Pre-generate common texture sizes so that draw-time calls hit the cache
+        /// and never need to switch render targets during an active SpriteBatch.
+        /// Call this during initialization, BEFORE any draw pass.
+        /// </summary>
+        /// <param name="panelWidth">Width for panel background pre-generation (0 to skip).</param>
+        /// <param name="panelHeight">Height for panel background pre-generation (0 to skip).</param>
+        /// <param name="barWidth">Width for song bar pre-generation (0 to skip).</param>
+        /// <param name="barHeight">Height for song bar pre-generation (0 to skip).</param>
+        public void PreGenerateCommonTextures(int panelWidth, int panelHeight, int barWidth, int barHeight)
+        {
+            // Panel background for status panel
+            if (panelWidth > 0 && panelHeight > 0)
+            {
+                GeneratePanelBackground(panelWidth, panelHeight, true);
+            }
+
+            // Bar backgrounds for the most common states (unselected, selected, center)
+            if (barWidth > 0 && barHeight > 0)
+            {
+                foreach (BarType barType in Enum.GetValues(typeof(BarType)))
+                {
+                    GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: false, isCenter: false);
+                    GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: true, isCenter: false);
+                    GenerateBarTypeBackground(barWidth, barHeight, barType, isSelected: false, isCenter: true);
+                }
+            }
+        }
+
         #endregion
 
         #region Private Methods
