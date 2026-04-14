@@ -439,6 +439,12 @@ namespace DTXMania.Game.Lib.Song.Components
             _graphicsGenerator?.Dispose();
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget);
 
+            // Pre-generate common bar textures so draw-time never switches render targets
+            _graphicsGenerator.PreGenerateCommonTextures(
+                panelWidth: 0, panelHeight: 0,
+                barWidth: SongSelectionUILayout.SongBars.BarWidth,
+                barHeight: SongSelectionUILayout.SongBars.BarHeight);
+
             // Initialize graphics generators for cached song bars
             foreach (var songBar in _songBarCache.Values)
             {

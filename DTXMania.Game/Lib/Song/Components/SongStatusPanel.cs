@@ -164,6 +164,13 @@ namespace DTXMania.Game.Lib.Song.Components
                 _graphicsGenerator = null;
             }
             
+            // Pre-generate panel background so draw-time never switches render targets
+            if (_graphicsGenerator != null)
+            {
+                _graphicsGenerator.PreGenerateCommonTextures(
+                    (int)Size.X, (int)Size.Y, 0, 0);
+            }
+
             // Try to load level number font if ResourceManager is already available
             if (graphicsDevice != null && _resourceManager != null)
             {
