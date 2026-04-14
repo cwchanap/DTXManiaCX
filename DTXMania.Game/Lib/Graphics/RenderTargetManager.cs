@@ -118,15 +118,22 @@ namespace DTXMania.Game.Lib.Graphics
             foreach (var (name, info) in recreateList)
             {
                 info.RenderTarget?.Dispose();
+                info.RenderTarget = null;
 
-                var newRenderTarget = CreateRenderTarget(
-                    info.Width,
-                    info.Height,
-                    info.Format,
-                    info.DepthFormat,
-                    info.MultiSampleCount);
+                try
+                {
+                    info.RenderTarget = CreateRenderTarget(
+                        info.Width,
+                        info.Height,
+                        info.Format,
+                        info.DepthFormat,
+                        info.MultiSampleCount);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"RenderTargetManager: {ex.GetType().Name} recreating '{name}' ({info.Width}x{info.Height}): {ex.Message}");
+                }
 
-                info.RenderTarget = newRenderTarget;
                 _renderTargets[name] = info;
             }
         }

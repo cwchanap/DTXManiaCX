@@ -447,6 +447,20 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task SaveSongsDbAsync_WhenSaveFails_ShouldNotMarkSongManagerInitialized()
+        {
+            var stage = CreateControlledStage();
+            stage.NextSaveResult = false;
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.Equal(1, stage.SaveSongsDatabaseCalls);
+            Assert.False(stage.MarkSongManagerInitializedCalled);
+        }
+
+        [Fact]
         public void OnUpdate_WhenCompletePhaseDurationElapsed_ShouldRequestTitleStageTransition()
         {
             var stageManager = new Mock<IStageManager>();
