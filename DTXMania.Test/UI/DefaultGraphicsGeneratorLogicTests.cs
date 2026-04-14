@@ -477,14 +477,14 @@ public class DefaultGraphicsGeneratorLogicTests
 
         generator.PreGenerateCommonTextures(panelWidth: 0, panelHeight: 0, barWidth: 510, barHeight: 48);
 
-        // 3 BarType values x 3 states = 9 bar textures, no panel
-        Assert.Equal(9, generator.CreateGeneratedTextureCalls.Count);
+        // 3 BarType values x 4 (isSelected, isCenter) states = 12 bar textures, no panel
+        Assert.Equal(12, generator.CreateGeneratedTextureCalls.Count);
         Assert.All(generator.CreateGeneratedTextureCalls, call =>
         {
             Assert.Equal(510, call.Width);
             Assert.Equal(48, call.Height);
         });
-        Assert.Equal(9, generator.SetRenderTargetCount);
+        Assert.Equal(12, generator.SetRenderTargetCount);
 
         // Verify subsequent draw-time calls hit cache
         var countBefore = generator.SetRenderTargetCount;
@@ -506,9 +506,9 @@ public class DefaultGraphicsGeneratorLogicTests
 
         generator.PreGenerateCommonTextures(panelWidth: 580, panelHeight: 320, barWidth: 510, barHeight: 48);
 
-        // 1 panel + 3 BarType x 3 states = 10 total
-        Assert.Equal(10, generator.CreateGeneratedTextureCalls.Count);
-        Assert.Equal(10, generator.SetRenderTargetCount);
+        // 1 panel + 3 BarType x 4 (isSelected, isCenter) states = 13 total
+        Assert.Equal(13, generator.CreateGeneratedTextureCalls.Count);
+        Assert.Equal(13, generator.SetRenderTargetCount);
     }
 
     [Fact]
