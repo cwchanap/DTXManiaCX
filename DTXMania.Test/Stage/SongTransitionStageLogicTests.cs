@@ -720,6 +720,58 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadBackground_WhenLoadSucceeds_ShouldReleaseExistingTextureAndStoreNewBackground()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var oldBackground = new Mock<ITexture>();
+            var newBackground = new Mock<ITexture>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", oldBackground.Object);
+            resourceManager
+                .Setup(x => x.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath))
+                .Returns(newBackground.Object);
+
+            InvokePrivateMethod(stage, "LoadBackground");
+
+            oldBackground.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Same(newBackground.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_backgroundTexture"));
+        }
+
+        [Fact]
+        public void CreateConfiguredInputManager_WhenConfigManagerIsNotConcrete_ShouldReturnFallbackInputManager()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var configManager = new Mock<IConfigManager>();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+            var stage = CreateStage(game);
+
+            var inputManager = InvokePrivateMethod<InputManager>(stage, "CreateConfiguredInputManager");
+
+            Assert.NotNull(inputManager);
+            Assert.IsType<InputManager>(inputManager);
+        }
+
+        [Fact]
+        public void LoadDifficultySprite_WhenBaseTextureHasNoBackingTexture_ShouldLeaveDifficultySpriteNull()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var baseTexture = new Mock<ITexture>();
+            baseTexture.SetupGet(x => x.Texture).Returns((Texture2D?)null);
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.DifficultySprite))
+                .Returns(baseTexture.Object);
+
+            InvokePrivateMethod(stage, "LoadDifficultySprite");
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(stage, "_difficultySprite"));
+        }
+
+        [Fact]
         public void HandleInput_WhenInputManagerIsNull_ShouldReturnEarly()
         {
             var stage = CreateStage();

@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework;
 using Moq;
 using Xunit;
 
@@ -276,6 +277,29 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_WhenActivateAndTransitionAllowed_ShouldReturnToSongSelect()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.Activate, 0.0));
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.SongSelect,
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
+                    null),
+                Times.Once);
+            Assert.Equal(2.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
         public void OnUpdate_WhenQueuedBackCommandExists_ShouldProcessInputAndReturnToSongSelect()
         {
             var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
@@ -321,6 +345,19 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
                     null),
                 Times.Once);
+        }
+
+        [Fact]
+        public void DrawResultLine_WhenTextIsEmpty_ShouldNotAdvanceCurrentY()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var currentY = 120;
+
+            InvokePrivateMethod(stage, "DrawResultLine", string.Empty, 400, currentY, Color.White, 32);
+
+            Assert.Equal(120, currentY);
         }
 
         [Fact]
