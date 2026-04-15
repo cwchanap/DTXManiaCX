@@ -345,6 +345,21 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
+    public void DefaultCharacter_WhenSpriteFontExists_ShouldUpdateSpriteFontDefaultCharacter()
+    {
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('?', 8)],
+            lineSpacing: 16,
+            defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "SpriteFont", 16);
+
+        font.DefaultCharacter = 'A';
+
+        Assert.Equal('A', font.DefaultCharacter);
+        Assert.Equal('A', spriteFont.DefaultCharacter);
+    }
+
+    [Fact]
     public void MeasureString_WhenUsingCustomGlyphs_ShouldRespectGlyphWidthsAndNewlines()
     {
         var font = CreateManagedFont(
@@ -370,6 +385,36 @@ public class ManagedFontLogicTests
 
         ReflectionHelpers.SetPrivateField(font, "_disposed", true);
         Assert.Equal(Vector2.Zero, font.MeasureString("text"));
+    }
+
+    [Fact]
+    public void MeasureStringWrapped_WhenSpriteFontExists_ShouldReturnWrappedDimensions()
+    {
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('B', 10), ('C', 10), (' ', 8)],
+            lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "SpriteFont", 16);
+
+        var size = font.MeasureStringWrapped("AA BB CCC", 30f);
+
+        Assert.Equal(new Vector2(30, 48), size);
+    }
+
+    [Fact]
+    public void GetCharacterBounds_WhenSpriteFontExists_ShouldTrackCharacterPositionsAndLineBreaks()
+    {
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('B', 12), ('C', 8)],
+            lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "SpriteFont", 16);
+
+        var bounds = font.GetCharacterBounds("AB\nC");
+
+        Assert.Equal(4, bounds.Length);
+        Assert.Equal(new Rectangle(0, 0, 10, 16), bounds[0]);
+        Assert.Equal(new Rectangle(10, 0, 12, 16), bounds[1]);
+        Assert.Equal(Rectangle.Empty, bounds[2]);
+        Assert.Equal(new Rectangle(0, 16, 8, 16), bounds[3]);
     }
 
     [Fact]
@@ -472,6 +517,16 @@ public class ManagedFontLogicTests
         var font = CreateManagedFont();
 
         var exception = Assert.Throws<InvalidOperationException>(() => font.CreateTextTexture(null!, "text", new TextRenderOptions()));
+        Assert.Contains("shared RenderTarget", exception.Message);
+    }
+
+    [Fact]
+    public void CreateTextTexture_WithColorOverload_ShouldThrowInvalidOperationException()
+    {
+        var font = CreateManagedFont();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => font.CreateTextTexture(null!, "text", Color.White));
+
         Assert.Contains("shared RenderTarget", exception.Message);
     }
 
@@ -884,6 +939,32 @@ public class ManagedFontLogicTests
         cacheField!.SetValue(font, Activator.CreateInstance(cacheField.FieldType));
 
         return font;
+    }
+
+    private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)
+    {
+        var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+        var glyphBounds = new List<Rectangle>();
+        var cropping = new List<Rectangle>();
+        var characters = new List<char>();
+        var kerning = new List<Vector3>();
+        var x = 0;
+
+        foreach (var (character, width) in glyphs.OrderBy(glyph => glyph.character))
+        {
+            glyphBounds.Add(new Rectangle(x, 0, width, lineSpacing));
+            cropping.Add(new Rectangle(0, 0, width, lineSpacing));
+            characters.Add(character);
+            kerning.Add(new Vector3(0, width, 0));
+            x += width;
+        }
+
+        return (SpriteFont)Activator.CreateInstance(
+            typeof(SpriteFont),
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: [texture, glyphBounds, cropping, characters, lineSpacing, 0f, kerning, defaultCharacter],
+            culture: null)!;
     }
 
     private static SpriteFont CreateUninitializedSpriteFont(int lineSpacing = 0)

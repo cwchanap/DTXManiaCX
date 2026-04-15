@@ -474,6 +474,25 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandleMouseInput_WhenClickOccursOutsideMenu_ShouldNotChangeSelection()
+        {
+            var stage = CreateStage();
+            var cursorSound = CreateSoundReturningInstance();
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", -1);
+            ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleMouseInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
+            cursorSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
+        }
+
+        [Fact]
         public void IsMouseButtonPressed_WhenLeftEdgeTransitionOccurs_ShouldReturnTrue()
         {
             var stage = CreateStage();
@@ -524,6 +543,52 @@ namespace DTXMania.Test.Stage
                 Enum.ToObject(mouseButtonType!, 99));
 
             Assert.False(pressed);
+        }
+
+        [Theory]
+        [InlineData("Left")]
+        [InlineData("Right")]
+        [InlineData("Middle")]
+        public void IsMouseButtonPressed_WhenButtonIsHeld_ShouldReturnFalse(string mouseButtonName)
+        {
+            var stage = CreateStage();
+            var mouseButtonType = typeof(TitleStage).GetNestedType("MouseButton", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(mouseButtonType);
+
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(0, 0, 0, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(0, 0, 0, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released));
+
+            var pressed = ReflectionHelpers.InvokePrivateMethod<bool>(
+                stage,
+                "IsMouseButtonPressed",
+                Enum.Parse(mouseButtonType!, mouseButtonName));
+
+            Assert.False(pressed);
+        }
+
+        [Fact]
+        public void OnDeactivate_ShouldResetTransientMenuState()
+        {
+            var stage = CreateStage();
+            var titlePhaseType = ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.GetType();
+
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 4.2d);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 2);
+            ReflectionHelpers.SetPrivateField(stage, "_hoveredMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_titlePhase", Enum.Parse(titlePhaseType, "Normal"));
+            ReflectionHelpers.SetPrivateField(stage, "_previousKeyboardState", new KeyboardState(Keys.Down));
+            ReflectionHelpers.SetPrivateField(stage, "_currentKeyboardState", new KeyboardState(Keys.Enter));
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouseState", new MouseState(10, 10, 0, XnaButtonState.Pressed, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+            ReflectionHelpers.SetPrivateField(stage, "_currentMouseState", new MouseState(20, 20, 0, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released, XnaButtonState.Released));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+            Assert.Equal(0d, ReflectionHelpers.GetPrivateField<double>(stage, "_elapsedTime"));
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_hoveredMenuIndex"));
+            Assert.Equal("FadeIn", ReflectionHelpers.GetPrivateField<object>(stage, "_titlePhase")!.ToString());
+            Assert.False(ReflectionHelpers.GetPrivateField<KeyboardState>(stage, "_currentKeyboardState").IsKeyDown(Keys.Enter));
+            Assert.False(ReflectionHelpers.GetPrivateField<KeyboardState>(stage, "_previousKeyboardState").IsKeyDown(Keys.Down));
         }
 
         [Fact]

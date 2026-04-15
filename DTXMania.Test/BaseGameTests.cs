@@ -1,16 +1,22 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.JsonRpc;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using Moq;
 
 namespace DTXMania.Test
@@ -225,6 +231,246 @@ namespace DTXMania.Test
             Assert.Null(ex);
         }
 
+        [Fact]
+        public void ApplySavedSystemKeyBindings_WhenConfigManagerIsConcrete_ShouldLoadPersistedBindings()
+        {
+            var configManager = new ConfigManager();
+            configManager.Config.SystemKeyBindings["SystemKey.Activate"] = Keys.F1.ToString();
+            var inputManager = new InputManagerCompat(configManager);
+            var game = ReflectionHelpers.CreateGame();
+            using var loggerFactory = LoggerFactory.Create(builder => { });
+
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
+            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
+            ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
+
+            ReflectionHelpers.InvokePrivateMethod(game, "ApplySavedSystemKeyBindings");
+
+            var snapshot = inputManager.GetKeyMappingSnapshot();
+            Assert.Equal(InputCommandType.Activate, snapshot[Keys.F1]);
+            Assert.DoesNotContain(Keys.Enter, snapshot.Keys);
+        }
+
+        [Fact]
+        public void ApplySavedSystemKeyBindings_WhenConfigManagerIsInterfaceOnly_ShouldDoNothing()
+        {
+            var game = CreateGameForLifecycle();
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(game, "ApplySavedSystemKeyBindings"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void TryInitializeGameApi_WhenApiIsDisabled_ShouldLeaveServerStateUnset()
+        {
+            var config = new ConfigData { EnableGameApi = false, GameApiKey = "ignored", GameApiPort = 12345 };
+            var game = CreateGameForLifecycle(config);
+
+            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
+
+            Assert.False(initialized);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
+        [Fact]
+        public void TryInitializeGameApi_WhenApiKeyIsMissing_ShouldLeaveServerStateUnset()
+        {
+            var config = new ConfigData { EnableGameApi = true, GameApiKey = string.Empty, GameApiPort = 12345 };
+            var game = CreateGameForLifecycle(config);
+
+            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
+
+            Assert.False(initialized);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
+        [Fact]
+        public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldCreateServerComponents()
+        {
+            var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = 12345 };
+            var game = CreateGameForLifecycle(config);
+
+            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
+
+            Assert.True(initialized);
+            Assert.IsType<GameApiImplementation>(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
+            Assert.IsType<JsonRpcServer>(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+
+            var cancellation = ReflectionHelpers.GetPrivateField<CancellationTokenSource>(game, "_gameApiCancellation");
+            Assert.NotNull(cancellation);
+            Assert.False(cancellation!.IsCancellationRequested);
+
+            cancellation.Dispose();
+            (ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer") as IDisposable)?.Dispose();
+        }
+
+        [Fact]
+        public void DrainMainThreadActions_WhenActionsAreQueued_ShouldExecuteThemInOrder()
+        {
+            var game = CreateGameForLifecycle();
+            var context = (IGameContext)game;
+            var executionOrder = new List<int>();
+
+            context.QueueMainThreadAction(() => executionOrder.Add(1));
+            context.QueueMainThreadAction(() => executionOrder.Add(2));
+            context.QueueMainThreadAction(() => executionOrder.Add(3));
+
+            ReflectionHelpers.InvokePrivateMethod(game, "DrainMainThreadActions");
+
+            Assert.Equal(new[] { 1, 2, 3 }, executionOrder);
+            Assert.True(ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions")!.IsEmpty);
+        }
+
+        [Fact]
+        public void DrainMainThreadActions_WhenActionThrows_ShouldContinueProcessingRemainingActions()
+        {
+            var game = CreateGameForLifecycle();
+            var context = (IGameContext)game;
+            var executionOrder = new List<int>();
+
+            context.QueueMainThreadAction(() => executionOrder.Add(1));
+            context.QueueMainThreadAction(() => throw new InvalidOperationException("boom"));
+            context.QueueMainThreadAction(() => executionOrder.Add(3));
+
+            ReflectionHelpers.InvokePrivateMethod(game, "DrainMainThreadActions");
+
+            Assert.Equal(new[] { 1, 3 }, executionOrder);
+            Assert.True(ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions")!.IsEmpty);
+        }
+
+        [Fact]
+        public void DrainMainThreadActions_WhenMoreThanSixtyFourActionsAreQueued_ShouldLeaveTheRemainderForNextFrame()
+        {
+            var game = CreateGameForLifecycle();
+            var context = (IGameContext)game;
+            var executed = 0;
+
+            for (var i = 0; i < 70; i++)
+            {
+                context.QueueMainThreadAction(() => executed++);
+            }
+
+            ReflectionHelpers.InvokePrivateMethod(game, "DrainMainThreadActions");
+
+            Assert.Equal(64, executed);
+            Assert.Equal(6, ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions")!.Count);
+        }
+
+        [Fact]
+        public void OnGraphicsSettingsChanged_WhenRenderTargetRecreationSucceeds_ShouldReplaceRenderTarget()
+        {
+            var config = new ConfigData { ScreenWidth = 640, ScreenHeight = 480, FullScreen = false, VSyncWait = true };
+            var fakeRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(fakeRenderTarget);
+            var game = CreateGameForLifecycle(config);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, renderTargetManager));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", null);
+
+            var newSettings = new GraphicsSettings
+            {
+                Width = 1920,
+                Height = 1080,
+                IsFullscreen = true,
+                VSync = false
+            };
+
+            ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "OnGraphicsSettingsChanged",
+                null!,
+                new GraphicsSettingsChangedEventArgs(new GraphicsSettings { Width = 640, Height = 480 }, newSettings));
+
+            Assert.Equal(1920, config.ScreenWidth);
+            Assert.Equal(1080, config.ScreenHeight);
+            Assert.True(config.FullScreen);
+            Assert.False(config.VSyncWait);
+            Assert.Same(fakeRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
+            Assert.Equal(("MainRenderTarget", 1920, 1080), renderTargetManager.LastRequest);
+        }
+
+        [Fact]
+        public void OnGraphicsDeviceReset_WhenRenderTargetRecreationSucceeds_ShouldReplaceRenderTarget()
+        {
+            var config = new ConfigData { ScreenWidth = 1280, ScreenHeight = 720 };
+            var fakeRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(fakeRenderTarget);
+            var game = CreateGameForLifecycle(config);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, renderTargetManager));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", null);
+
+            ReflectionHelpers.InvokePrivateMethod(game, "OnGraphicsDeviceReset", null!, EventArgs.Empty);
+
+            Assert.Same(fakeRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
+            Assert.Equal(("MainRenderTarget", 1280, 720), renderTargetManager.LastRequest);
+        }
+
+        [Fact]
+        public void DisposeManagedResources_WhenServerStopsSuccessfully_ShouldDisposeCollaboratorsAndCancelPendingScreenshot()
+        {
+            var game = CreateGameForLifecycle();
+            var stageManager = new Mock<IStageManager>();
+            var resourceManager = new Mock<IResourceManager>();
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
+            var pendingScreenshot = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
+
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", pendingScreenshot);
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources");
+
+            stageManager.Verify(value => value.Dispose(), Times.Once);
+            resourceManager.Verify(value => value.Dispose(), Times.Once);
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            host.Verify(value => value.Dispose(), Times.Once);
+            Assert.True(graphicsManager.DisposeCalled);
+            Assert.Equal(1, graphicsManager.SettingsChangedRemoveCount);
+            Assert.Equal(1, graphicsManager.DeviceLostRemoveCount);
+            Assert.Equal(1, graphicsManager.DeviceResetRemoveCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "<StageManager>k__BackingField"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+            Assert.True(pendingScreenshot.Task.IsCanceled);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_pendingScreenshot"));
+        }
+
+        [Fact]
+        public void DisposeManagedResources_WhenServerStopThrows_ShouldStillDisposeServerAndClearState()
+        {
+            var game = CreateGameForLifecycle();
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("stop failed"));
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources"));
+
+            Assert.Null(exception);
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            host.Verify(value => value.Dispose(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
         private static BaseGame CreateGameForLifecycle(ConfigData? config = null)
         {
             var game = ReflectionHelpers.CreateGame();
@@ -235,6 +481,18 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config ?? new ConfigData()));
 
             return game;
+        }
+
+        private static JsonRpcServer CreateRunningJsonRpcServer(Mock<IHost> host, CancellationTokenSource cancellation)
+        {
+            var gameApi = new Mock<IGameApi>();
+            gameApi.SetupGet(api => api.IsRunning).Returns(true);
+
+            var server = new JsonRpcServer(gameApi.Object, port: 12345);
+            ReflectionHelpers.SetPrivateField(server, "_host", host.Object);
+            ReflectionHelpers.SetPrivateField(server, "_cancellationTokenSource", cancellation);
+            ReflectionHelpers.SetPrivateField(server, "_isRunning", true);
+            return server;
         }
 
         private static IConfigManager CreateConfigManager(ConfigData config)
@@ -252,6 +510,31 @@ namespace DTXMania.Test
             return new RenderTargetManager(graphicsDevice);
         }
 
+        private sealed class RecordingRenderTargetManager : RenderTargetManager
+        {
+            private readonly RenderTarget2D _renderTarget;
+
+            public RecordingRenderTargetManager(RenderTarget2D renderTarget)
+                : base(ReflectionHelpers.CreateUninitialized<GraphicsDevice>())
+            {
+                _renderTarget = renderTarget;
+            }
+
+            public (string Name, int Width, int Height)? LastRequest { get; private set; }
+
+            public new RenderTarget2D GetOrCreateRenderTarget(string name, int width, int height, SurfaceFormat format = SurfaceFormat.Color, DepthFormat depthFormat = DepthFormat.None, int multiSampleCount = 0)
+            {
+                LastRequest = (name, width, height);
+                return _renderTarget;
+            }
+
+            protected override RenderTarget2D CreateRenderTarget(int width, int height, SurfaceFormat format, DepthFormat depthFormat, int multiSampleCount)
+            {
+                LastRequest = ("MainRenderTarget", width, height);
+                return _renderTarget;
+            }
+        }
+
         private sealed class StubGraphicsManager : IGraphicsManager
         {
             public StubGraphicsManager(bool isDeviceAvailable, RenderTargetManager renderTargetManager)
@@ -265,10 +548,43 @@ namespace DTXMania.Test
             public bool IsDeviceAvailable { get; }
             public RenderTargetManager RenderTargetManager { get; }
             public bool DisposeCalled { get; private set; }
+            public int SettingsChangedRemoveCount { get; private set; }
+            public int DeviceLostRemoveCount { get; private set; }
+            public int DeviceResetRemoveCount { get; private set; }
 
-            public event EventHandler<GraphicsSettingsChangedEventArgs>? SettingsChanged;
-            public event EventHandler? DeviceLost;
-            public event EventHandler? DeviceReset;
+            private event EventHandler<GraphicsSettingsChangedEventArgs>? _settingsChanged;
+            private event EventHandler? _deviceLost;
+            private event EventHandler? _deviceReset;
+
+            public event EventHandler<GraphicsSettingsChangedEventArgs>? SettingsChanged
+            {
+                add => _settingsChanged += value;
+                remove
+                {
+                    SettingsChangedRemoveCount++;
+                    _settingsChanged -= value;
+                }
+            }
+
+            public event EventHandler? DeviceLost
+            {
+                add => _deviceLost += value;
+                remove
+                {
+                    DeviceLostRemoveCount++;
+                    _deviceLost -= value;
+                }
+            }
+
+            public event EventHandler? DeviceReset
+            {
+                add => _deviceReset += value;
+                remove
+                {
+                    DeviceResetRemoveCount++;
+                    _deviceReset -= value;
+                }
+            }
 
             public void Initialize()
             {

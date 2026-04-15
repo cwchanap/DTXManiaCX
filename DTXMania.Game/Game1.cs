@@ -148,8 +148,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         InputManager = new InputManagerCompat(ConfigManager);
 
         // Apply saved system key bindings on top of defaults
-        if (ConfigManager is ConfigManager concreteConfig)
-            concreteConfig.LoadSystemKeyBindings(InputManager);
+        ApplySavedSystemKeyBindings();
 
         // Initialize graphics manager after base initialization
         _graphicsManager.Initialize();
@@ -185,25 +184,37 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         StageManager?.ChangeStage(StageType.Startup);
 
         // Initialize Game API server for MCP communication if enabled
-        if (config.EnableGameApi)
+        if (TryInitializeGameApi(config))
         {
-            // Security: Validate API key is present when API is enabled
-            if (string.IsNullOrEmpty(config.GameApiKey))
-            {
-                _logger.LogWarning("Game API is enabled but no API key is configured. " +
-                                  "API server will not start. Please set GameApiKey in Config.ini or " +
-                                  "delete Config.ini to auto-generate a secure key.");
-            }
-            else
-            {
-                _gameApiImplementation = new GameApiImplementation(this, _loggerFactory.CreateLogger<GameApiImplementation>());
-                _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey, _loggerFactory.CreateLogger<JsonRpcServer>());
-                _gameApiCancellation = new CancellationTokenSource();
-                
-                // Start API server with proper error handling
-                _ = StartGameApiServerAsync();
-            }
+            // Start API server with proper error handling
+            _ = StartGameApiServerAsync();
         }
+    }
+
+    private void ApplySavedSystemKeyBindings()
+    {
+        if (ConfigManager is ConfigManager concreteConfig)
+            concreteConfig.LoadSystemKeyBindings(InputManager);
+    }
+
+    private bool TryInitializeGameApi(ConfigData config)
+    {
+        if (!config.EnableGameApi)
+            return false;
+
+        // Security: Validate API key is present when API is enabled
+        if (string.IsNullOrEmpty(config.GameApiKey))
+        {
+            _logger.LogWarning("Game API is enabled but no API key is configured. " +
+                              "API server will not start. Please set GameApiKey in Config.ini or " +
+                              "delete Config.ini to auto-generate a secure key.");
+            return false;
+        }
+
+        _gameApiImplementation = new GameApiImplementation(this, _loggerFactory.CreateLogger<GameApiImplementation>());
+        _jsonRpcServer = new JsonRpcServer(_gameApiImplementation, config.GameApiPort, config.GameApiKey, _loggerFactory.CreateLogger<JsonRpcServer>());
+        _gameApiCancellation = new CancellationTokenSource();
+        return true;
     }
 
     private async Task StartGameApiServerAsync()
@@ -255,7 +266,13 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Update stage manager after config is loaded
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
-        // Drain the main-thread action queue (used by the Game API for stage transitions etc.)
+        DrainMainThreadActions();
+
+        base.Update(gameTime);
+    }
+
+    private void DrainMainThreadActions()
+    {
         // Cap at 64 actions per frame to prevent frame starvation
         const int MaxMainThreadActionsPerFrame = 64;
         int actionsProcessed = 0;
@@ -265,8 +282,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
             catch (Exception ex) { _logger.LogError(ex, "Main-thread action from Game API threw an exception"); }
             actionsProcessed++;
         }
-
-        base.Update(gameTime);
     }
 
     protected override void Draw(GameTime gameTime)
@@ -405,67 +420,72 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     {
         if (disposing)
         {
-            // Dispose StageManager first to properly cleanup all stages
-            if (StageManager != null)
-            {
-                StageManager.Dispose();
-                StageManager = null;
-            }
-
-            // Dispose other managers
-            if (_graphicsManager != null)
-            {
-                _graphicsManager.SettingsChanged -= OnGraphicsSettingsChanged;
-                _graphicsManager.DeviceLost -= OnGraphicsDeviceLost;
-                _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
-                _graphicsManager.Dispose();
-            }
-
-            // Dispose resource manager
-            ResourceManager?.Dispose();
-
-            // Stop and dispose game API server
-            if (_gameApiCancellation is not null)
-            {
-                _gameApiCancellation.Cancel();
-                _gameApiCancellation.Dispose();
-                _gameApiCancellation = null;
-            }
-
-            if (_jsonRpcServer != null)
-            {
-                try
-                {
-                    // Use GetAwaiter().GetResult() instead of .Wait() to avoid potential deadlocks
-                    // This properly propagates exceptions and is safer in synchronous dispose contexts
-                    // Note: StopAsync has a built-in timeout, so we don't need an external CancellationToken
-                    _jsonRpcServer.StopAsync().GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error stopping JSON-RPC server");
-                }
-                finally
-                {
-                    _jsonRpcServer.Dispose();
-                    _jsonRpcServer = null;
-                }
-            }
-
-            // Complete any pending screenshot task to prevent callers from blocking indefinitely
-            var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
-            if (pendingScreenshot != null)
-            {
-                try { pendingScreenshot.TrySetCanceled(); }
-                catch { /* Best effort - task may already be completed */ }
-            }
-
-            // Dispose other resources
-            _spriteBatch?.Dispose();
-            _renderTarget?.Dispose();
-            _loggerFactory.Dispose();
+            DisposeManagedResources();
         }
         base.Dispose(disposing);
+    }
+
+    private void DisposeManagedResources()
+    {
+        // Dispose StageManager first to properly cleanup all stages
+        if (StageManager != null)
+        {
+            StageManager.Dispose();
+            StageManager = null;
+        }
+
+        // Dispose other managers
+        if (_graphicsManager != null)
+        {
+            _graphicsManager.SettingsChanged -= OnGraphicsSettingsChanged;
+            _graphicsManager.DeviceLost -= OnGraphicsDeviceLost;
+            _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
+            _graphicsManager.Dispose();
+        }
+
+        // Dispose resource manager
+        ResourceManager?.Dispose();
+
+        // Stop and dispose game API server
+        if (_gameApiCancellation is not null)
+        {
+            _gameApiCancellation.Cancel();
+            _gameApiCancellation.Dispose();
+            _gameApiCancellation = null;
+        }
+
+        if (_jsonRpcServer != null)
+        {
+            try
+            {
+                // Use GetAwaiter().GetResult() instead of .Wait() to avoid potential deadlocks
+                // This properly propagates exceptions and is safer in synchronous dispose contexts
+                // Note: StopAsync has a built-in timeout, so we don't need an external CancellationToken
+                _jsonRpcServer.StopAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error stopping JSON-RPC server");
+            }
+            finally
+            {
+                _jsonRpcServer.Dispose();
+                _jsonRpcServer = null;
+            }
+        }
+
+        // Complete any pending screenshot task to prevent callers from blocking indefinitely
+        var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
+        if (pendingScreenshot != null)
+        {
+            try { pendingScreenshot.TrySetCanceled(); }
+            catch { /* Best effort - task may already be completed */ }
+        }
+
+        // Dispose other resources
+        _spriteBatch?.Dispose();
+        _renderTarget?.Dispose();
+        _loggerFactory.Dispose();
     }
 }
 
