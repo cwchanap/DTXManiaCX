@@ -609,8 +609,8 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var parsedChart = new ParsedChart("missing-bgm.dtx");
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = "/tmp/definitely-missing-file.wav" });
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = "/tmp/another-missing-file.wav" });
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
 
