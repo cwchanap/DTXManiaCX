@@ -262,38 +262,15 @@ namespace DTXMania.Test
             Assert.Null(exception);
         }
 
-        [Fact]
-        public void TryInitializeGameApi_WhenApiIsDisabled_ShouldLeaveServerStateUnset()
+        [Theory]
+        [InlineData(false, "ignored", "API disabled")]
+        [InlineData(true, null, "API key null")]
+        [InlineData(true, "", "API key empty")]
+        [InlineData(true, "   ", "API key whitespace")]
+        public void TryInitializeGameApi_WhenConfigurationIsInvalid_ShouldLeaveServerStateUnset(
+            bool enableGameApi, string? gameApiKey, string testCase)
         {
-            var config = new ConfigData { EnableGameApi = false, GameApiKey = "ignored", GameApiPort = 12345 };
-            var game = CreateGameForLifecycle(config);
-
-            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
-
-            Assert.False(initialized);
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
-        }
-
-        [Fact]
-        public void TryInitializeGameApi_WhenApiKeyIsMissing_ShouldLeaveServerStateUnset()
-        {
-            var config = new ConfigData { EnableGameApi = true, GameApiKey = string.Empty, GameApiPort = 12345 };
-            var game = CreateGameForLifecycle(config);
-
-            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
-
-            Assert.False(initialized);
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
-        }
-
-        [Fact]
-        public void TryInitializeGameApi_WhenApiKeyIsWhitespace_ShouldLeaveServerStateUnset()
-        {
-            var config = new ConfigData { EnableGameApi = true, GameApiKey = "   ", GameApiPort = 12345 };
+            var config = new ConfigData { EnableGameApi = enableGameApi, GameApiKey = gameApiKey!, GameApiPort = 12345 };
             var game = CreateGameForLifecycle(config);
 
             var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
@@ -501,9 +478,11 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "_gameApiStartTask", startTaskSource.Task);
 
             var disposeTask = Task.Run(() => ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources"));
-            await Task.Delay(100);
 
-            Assert.False(disposeTask.IsCompleted);
+            // Give the dispose thread time to reach the blocking GetAwaiter().GetResult() call,
+            // then use WhenAny with a timeout to verify it hasn't completed (still waiting on startTaskSource)
+            var raceResult = await Task.WhenAny(disposeTask, Task.Delay(500));
+            Assert.NotSame(disposeTask, raceResult);
             host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Never);
 
             startTaskSource.SetResult();
@@ -563,12 +542,6 @@ namespace DTXMania.Test
             }
 
             public (string Name, int Width, int Height)? LastRequest { get; private set; }
-
-            public new RenderTarget2D GetOrCreateRenderTarget(string name, int width, int height, SurfaceFormat format = SurfaceFormat.Color, DepthFormat depthFormat = DepthFormat.None, int multiSampleCount = 0)
-            {
-                LastRequest = (name, width, height);
-                return _renderTarget;
-            }
 
             protected override RenderTarget2D CreateRenderTarget(int width, int height, SurfaceFormat format, DepthFormat depthFormat, int multiSampleCount)
             {
