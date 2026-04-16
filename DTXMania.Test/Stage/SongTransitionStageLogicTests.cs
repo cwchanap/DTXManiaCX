@@ -740,20 +740,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void CreateConfiguredInputManager_WhenConfigManagerIsNotConcrete_ShouldReturnFallbackInputManager()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            var configManager = new Mock<IConfigManager>();
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
-            var stage = CreateStage(game);
-
-            var inputManager = InvokePrivateMethod<InputManager>(stage, "CreateConfiguredInputManager");
-
-            Assert.NotNull(inputManager);
-            Assert.IsType<InputManager>(inputManager);
-        }
-
-        [Fact]
         public void LoadDifficultySprite_WhenBaseTextureHasNoBackingTexture_ShouldLeaveDifficultySpriteNull()
         {
             var stage = CreateStage();

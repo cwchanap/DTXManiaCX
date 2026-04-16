@@ -291,6 +291,20 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void TryInitializeGameApi_WhenApiKeyIsWhitespace_ShouldLeaveServerStateUnset()
+        {
+            var config = new ConfigData { EnableGameApi = true, GameApiKey = "   ", GameApiPort = 12345 };
+            var game = CreateGameForLifecycle(config);
+
+            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
+
+            Assert.False(initialized);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
+        [Fact]
         public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldCreateServerComponents()
         {
             var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = 12345 };
@@ -469,6 +483,34 @@ namespace DTXMania.Test
             host.Verify(value => value.Dispose(), Times.Once);
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
+        [Fact]
+        public async Task DisposeManagedResources_WhenServerStartupIsStillRunning_ShouldWaitBeforeStoppingServer()
+        {
+            var game = CreateGameForLifecycle();
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
+            var startTaskSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiStartTask", startTaskSource.Task);
+
+            var disposeTask = Task.Run(() => ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources"));
+            await Task.Delay(100);
+
+            Assert.False(disposeTask.IsCompleted);
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Never);
+
+            startTaskSource.SetResult();
+            await disposeTask;
+
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            host.Verify(value => value.Dispose(), Times.Once);
         }
 
         private static BaseGame CreateGameForLifecycle(ConfigData? config = null)

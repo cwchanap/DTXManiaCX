@@ -64,6 +64,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     private JsonRpcServer? _jsonRpcServer;
     private GameApiImplementation? _gameApiImplementation;
     private CancellationTokenSource? _gameApiCancellation;
+    private Task? _gameApiStartTask;
 
     // Main-thread action queue for thread-safe game API calls
     private readonly ConcurrentQueue<Action> _mainThreadActions = new();
@@ -187,7 +188,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         if (TryInitializeGameApi(config))
         {
             // Start API server with proper error handling
-            _ = StartGameApiServerAsync();
+            _gameApiStartTask = StartGameApiServerAsync();
         }
     }
 
@@ -203,7 +204,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
             return false;
 
         // Security: Validate API key is present when API is enabled
-        if (string.IsNullOrEmpty(config.GameApiKey))
+        if (string.IsNullOrWhiteSpace(config.GameApiKey))
         {
             _logger.LogWarning("Game API is enabled but no API key is configured. " +
                               "API server will not start. Please set GameApiKey in Config.ini or " +
@@ -431,7 +432,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         if (StageManager != null)
         {
             StageManager.Dispose();
-            StageManager = null;
+            StageManager = null!;
         }
 
         // Dispose other managers
@@ -450,6 +451,26 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         if (_gameApiCancellation is not null)
         {
             _gameApiCancellation.Cancel();
+        }
+
+        if (_gameApiStartTask is not null)
+        {
+            try
+            {
+                _gameApiStartTask.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error waiting for JSON-RPC server startup to complete");
+            }
+            finally
+            {
+                _gameApiStartTask = null;
+            }
+        }
+
+        if (_gameApiCancellation is not null)
+        {
             _gameApiCancellation.Dispose();
             _gameApiCancellation = null;
         }

@@ -354,10 +354,11 @@ namespace DTXMania.Test.Stage
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
             var currentY = 120;
+            object[] args = [string.Empty, 400, currentY, Color.White, 32];
 
-            InvokePrivateMethod(stage, "DrawResultLine", string.Empty, 400, currentY, Color.White, 32);
+            InvokePrivateMethod(stage, "DrawResultLine", args);
 
-            Assert.Equal(120, currentY);
+            Assert.Equal(120, Assert.IsType<int>(args[2]));
         }
 
         [Fact]
