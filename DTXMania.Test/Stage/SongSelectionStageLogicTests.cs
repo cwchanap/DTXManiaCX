@@ -996,46 +996,49 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void LoadPreviewSound_WhenPreviewFileMissingOnDisk_ShouldLeavePreviewStateUnchanged()
+        public void OnSongSelectionChanged_WhenNonScoreAndScrollIncomplete_ShouldHideStatusAndSkipHeavyRefresh()
         {
             var stage = CreateStage();
-            var resourceManager = new Mock<IResourceManager>();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("Song A"), CreateBoxNode("Folder")]
+            };
+            var statusPanel = new SongStatusPanel { Visible = true };
+            var previewPanel = new PreviewImagePanel();
+            var previewTexture = new Mock<ITexture>();
+            var breadcrumbLabel = new UILabel();
             var existingPreviewSound = new Mock<ISound>();
-            var dir = CreateWorkspacePath("preview-missing", Guid.NewGuid().ToString("N"));
+            var previousSong = CreateScoreNode("Previous");
+            var folder = CreateBoxNode("Folder");
 
-            Directory.CreateDirectory(dir);
+            AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            SetPrivateField(stage, "_currentBreadcrumb", "Genre");
+            SetPrivateField(stage, "_isInStatusPanel", true);
+            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+            SetPrivateField(previewPanel, "_currentPreviewTexture", previewTexture.Object);
+            SetPrivateField(statusPanel, "_currentSong", previousSong);
+            SetPrivateField(statusPanel, "_currentDifficulty", 3);
+            GetTextureQueue(display).Clear();
+            GetVisibleIndices(display).Clear();
 
-            try
-            {
-                AttachResourceManager(stage, resourceManager.Object);
-                SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
-                SetPrivateField(stage, "_previewPlayDelay", 1.5);
-                SetPrivateField(stage, "_isPreviewDelayActive", true);
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(folder, 1, isScrollComplete: false));
 
-                var song = CreateScoreNode(
-                    "Song",
-                    chart: new SongChart
-                    {
-                        FilePath = Path.Combine(dir, "chart.dtx"),
-                        PreviewFile = "missing.ogg",
-                        HasDrumChart = true,
-                        DrumLevel = 25
-                    });
-
-                InvokePrivateMethod(stage, "LoadPreviewSound", song);
-
-                resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
-                Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
-                Assert.Equal(1.5, GetPrivateField<double>(stage, "_previewPlayDelay"));
-                Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
-            }
-            finally
-            {
-                if (Directory.Exists(dir))
-                {
-                    Directory.Delete(dir, recursive: true);
-                }
-            }
+            existingPreviewSound.Verify(x => x.RemoveReference(), Times.Once);
+            previewTexture.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Same(folder, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentDifficulty"));
+            Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.False(statusPanel.Visible);
+            Assert.Same(previousSong, GetPrivateField<SongListNode>(statusPanel, "_currentSong"));
+            Assert.Equal(3, GetPrivateField<int>(statusPanel, "_currentDifficulty"));
+            Assert.Same(folder, GetPrivateField<SongListNode>(previewPanel, "_currentSong"));
+            Assert.Equal("Genre", breadcrumbLabel.Text);
+            Assert.Empty(GetTextureQueue(display));
+            Assert.Empty(GetVisibleIndices(display));
         }
 
         [Fact]
