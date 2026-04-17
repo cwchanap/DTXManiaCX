@@ -465,6 +465,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnSaveButtonClicked(object sender, EventArgs e)
         {
+            if (!_hasUnsavedChanges)
+            {
+                System.Diagnostics.Debug.WriteLine("Save button clicked with no changes - returning to Title stage");
+                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
+                return;
+            }
+
             System.Diagnostics.Debug.WriteLine("Save button clicked - applying configuration");
             if (ApplyConfiguration())
                 ChangeStage(StageType.Title, new CrossfadeTransition(0.3));

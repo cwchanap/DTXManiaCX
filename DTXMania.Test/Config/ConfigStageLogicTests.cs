@@ -187,6 +187,27 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void ActivatePressedOnSystemKeyMapping_ShouldOpenAndActivatePanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(activePanel);
+            Assert.NotNull(systemPanel);
+            Assert.Same(systemPanel, activePanel);
+            Assert.True(activePanel!.IsActive);
+        }
+    }
+
+    [Fact]
     public void DrumPanelSaves_ShouldCaptureWorkingBindingsAndMarkUnsavedChanges()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -353,6 +374,35 @@ public class ConfigStageLogicTests
         finally
         {
             DeleteConfigSavePath(redirectedSavePath);
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnSaveButton_WhenNoChangesExist_ShouldReturnToTitleWithoutSaving()
+    {
+        var configManager = new RecordingConfigManager(new ConfigData());
+        var (stage, _, inputManager) = CreateStage(configManager);
+        var stageManager = new Moq.Mock<IStageManager>();
+
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_selectedIndex",
+                ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems")!.Count + 1);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Null(configManager.LastSavePath);
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
+                Moq.Times.Once);
         }
     }
 
@@ -872,6 +922,25 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", null, EventArgs.Empty);
 
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+        }
+    }
+
+    [Fact]
+    public void OnPanelClosed_WithSystemPanelSender_ShouldClearActivePanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(systemPanel);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
+            systemPanel!.Deactivate();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", systemPanel, EventArgs.Empty);
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+            Assert.False(systemPanel.IsActive);
         }
     }
 
