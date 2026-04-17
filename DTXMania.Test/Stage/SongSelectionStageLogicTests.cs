@@ -253,6 +253,47 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnSongSelectionChanged_WhenSelectedSongIsNull_ShouldHideStatusPanelAndSkipPreviewReload()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("Song A"), CreateScoreNode("Song B")]
+            };
+            var statusPanel = new SongStatusPanel { Visible = true };
+            var previewPanel = new PreviewImagePanel();
+            var breadcrumbLabel = new UILabel();
+            var existingPreviewSound = new Mock<ISound>();
+
+            AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            SetPrivateField(stage, "_currentBreadcrumb", "Folder A");
+            SetPrivateField(stage, "_isInStatusPanel", true);
+            SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+            SetPrivateField(stage, "_previewPlayDelay", 2.0);
+            SetPrivateField(stage, "_isPreviewDelayActive", true);
+            GetTextureQueue(display).Clear();
+            GetVisibleIndices(display).Clear();
+
+            var exception = Record.Exception(() => InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(null!, 0, isScrollComplete: true)));
+
+            Assert.Null(exception);
+            existingPreviewSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Null(GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.False(statusPanel.Visible);
+            Assert.Null(GetPrivateField<SongListNode>(previewPanel, "_currentSong"));
+            Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
+            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.Equal("Folder A", breadcrumbLabel.Text);
+            Assert.NotEmpty(GetTextureQueue(display));
+            Assert.NotEmpty(GetVisibleIndices(display));
+        }
+
+        [Fact]
         public void OnDifficultyChanged_ShouldSyncStageAndStatusPanel()
         {
             var stage = CreateStage();
@@ -318,6 +359,27 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void NavigateIntoBox_WhenBreadcrumbIsEmpty_ShouldUseBoxTitleWithoutSeparator()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var childSong = CreateScoreNode("Child Song");
+            var rootSongs = new List<SongListNode> { CreateScoreNode("Root Song") };
+            var box = CreateBoxNode("Folder", childSong);
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", rootSongs);
+            SetPrivateField(stage, "_currentBreadcrumb", "");
+
+            InvokePrivateMethod(stage, "NavigateIntoBox", box);
+
+            Assert.Equal("Folder", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Equal(1, GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Count);
+            Assert.Equal(NodeType.BackBox, display.CurrentList[0].Type);
+            Assert.Same(childSong, display.CurrentList[1]);
+        }
+
+        [Fact]
         public void NavigateBack_ShouldRestorePreviousState()
         {
             var stage = CreateStage();
@@ -359,6 +421,27 @@ namespace DTXMania.Test.Stage
             Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
             Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
             Assert.Same(songs[0], display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void NavigateBack_WhenPreviousBreadcrumbIsNull_ShouldResetToEmptyBreadcrumb()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var rootSongs = new List<SongListNode> { CreateScoreNode("Root Song") };
+            var stack = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("Child Song") });
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Child");
+            stack.Push(new SongListNode { Children = rootSongs, Title = null });
+
+            InvokePrivateMethod(stage, "NavigateBack");
+
+            Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Single(display.CurrentList);
+            Assert.Same(rootSongs[0], display.CurrentList[0]);
         }
 
         [Fact]
@@ -901,6 +984,49 @@ namespace DTXMania.Test.Stage
                 resourceManager.Verify(x => x.LoadSound(previewPath), Times.Once);
                 Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
                 Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
+                Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            }
+            finally
+            {
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
+        public void LoadPreviewSound_WhenPreviewFileMissingOnDisk_ShouldLeavePreviewStateUnchanged()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingPreviewSound = new Mock<ISound>();
+            var dir = CreateWorkspacePath("preview-missing", Guid.NewGuid().ToString("N"));
+
+            Directory.CreateDirectory(dir);
+
+            try
+            {
+                AttachResourceManager(stage, resourceManager.Object);
+                SetPrivateField(stage, "_previewSound", existingPreviewSound.Object);
+                SetPrivateField(stage, "_previewPlayDelay", 1.5);
+                SetPrivateField(stage, "_isPreviewDelayActive", true);
+
+                var song = CreateScoreNode(
+                    "Song",
+                    chart: new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "chart.dtx"),
+                        PreviewFile = "missing.ogg",
+                        HasDrumChart = true,
+                        DrumLevel = 25
+                    });
+
+                InvokePrivateMethod(stage, "LoadPreviewSound", song);
+
+                resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
+                Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+                Assert.Equal(1.5, GetPrivateField<double>(stage, "_previewPlayDelay"));
                 Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
             }
             finally
