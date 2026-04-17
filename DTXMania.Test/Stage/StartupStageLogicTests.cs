@@ -194,6 +194,22 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void UpdateCurrentPhase_WhenNonAsyncPhaseDurationNotElapsed_ShouldStayInCurrentPhase()
+        {
+            var stage = CreateStage(
+                phase: StartupPhase.SystemSounds,
+                elapsedTime: 0.1,
+                phaseStartTime: 0.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.SystemSounds, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal("Loading system sounds...", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+        }
+
+        [Fact]
         public void PerformPhaseOperationSync_WhenElapsedPastThreshold_ShouldDoNothing()
         {
             var stage = CreateStage(configData: new ConfigData { DTXPath = "before" });
