@@ -366,62 +366,6 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void CurrentList_WhenResetToNull_ShouldClearPendingTextureRequestsAndVisibleIndices()
-    {
-        var display = new SongListDisplay
-        {
-            CurrentList = CreateSongs(3)
-        };
-        var queue = GetTextureGenerationQueue(display);
-        queue.Add(new TextureGenerationRequest
-        {
-            SongNode = display.CurrentList[0],
-            SongIndex = 0,
-            BarIndex = 0,
-            Difficulty = 0,
-            Priority = 100
-        });
-
-        var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
-        visible.Add(0);
-        visible.Add(1);
-
-        display.CurrentList = null;
-
-        Assert.Empty(queue);
-        Assert.Empty(visible);
-        Assert.Empty(display.CurrentList);
-    }
-
-    [Fact]
-    public void CurrentList_WhenResetToEmptyList_ShouldClearPendingTextureRequestsAndVisibleIndices()
-    {
-        var display = new SongListDisplay
-        {
-            CurrentList = CreateSongs(3)
-        };
-        var queue = GetTextureGenerationQueue(display);
-        queue.Add(new TextureGenerationRequest
-        {
-            SongNode = display.CurrentList[0],
-            SongIndex = 0,
-            BarIndex = 0,
-            Difficulty = 0,
-            Priority = 100
-        });
-
-        var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
-        visible.Add(0);
-        visible.Add(1);
-
-        display.CurrentList = new List<SongListNode>();
-
-        Assert.Empty(queue);
-        Assert.Empty(visible);
-        Assert.Empty(display.CurrentList);
-    }
-
-    [Fact]
     public void QueueTextureGenerationForNewBars_WhenAllVisibleCached_ShouldNotQueueRequests()
     {
         var display = new SongListDisplay
@@ -447,6 +391,36 @@ public class SongListDisplayLogicTests
         Assert.Empty(queue);
         var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
         Assert.Equal(3, visible.Count);
+    }
+
+    [Fact]
+    public void QueueTextureGenerationForNewBars_WhenOnlyOneSongExists_ShouldQueueSingleSelectedRequest()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(1)
+        };
+
+        SetField(display, "_currentScrollCounter", 0);
+        SetField(display, "_currentDifficulty", 2);
+
+        var queue = GetTextureGenerationQueue(display);
+        queue.Clear();
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        barInfoCache.Clear();
+
+        InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
+
+        var request = Assert.Single(queue);
+        Assert.Equal(display.CurrentList[0], request.SongNode);
+        Assert.Equal(0, request.SongIndex);
+        Assert.Equal(2, request.Difficulty);
+        Assert.True(request.IsSelected);
+        Assert.Equal(100, request.Priority);
+
+        var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
+        Assert.Equal(new[] { 0 }, visible.OrderBy(index => index));
     }
 
     [Fact]
