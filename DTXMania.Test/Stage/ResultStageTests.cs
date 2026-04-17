@@ -300,6 +300,16 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_WhenBackAndTransitionAllowed_ShouldReturnToSongSelect()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            VerifySongSelectTransition(stage);
+        }
+
+        [Fact]
         public void OnUpdate_WhenQueuedBackCommandExists_ShouldProcessInputAndReturnToSongSelect()
         {
             var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
@@ -326,6 +336,36 @@ namespace DTXMania.Test.Stage
                     null),
                 Times.Once);
             Assert.Equal(2.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void OnUpdate_WhenUiManagerIsNull_ShouldStillProcessQueuedInput()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+            var inputManager = new TrackingInputManager();
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_uiManager", null);
+            SetPrivateField(stage, "_elapsedTime", 0.0);
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.25);
+
+            Assert.True(inputManager.UpdateCalled);
+            Assert.Equal(0.25, GetPrivateField<double>(stage, "_elapsedTime"));
+            VerifySongSelectTransition(stage);
+        }
+
+        [Fact]
+        public void HandleInput_WhenQueueIsEmpty_ShouldNotChangeStage()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+            var inputManager = new TrackingInputManager();
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(GetStageManagerMock(stage).Invocations.Any());
         }
 
         [Fact]
@@ -465,6 +505,38 @@ namespace DTXMania.Test.Stage
                 modifiers: null);
             Assert.NotNull(method);
             method!.Invoke(stage, new object[] { disposing });
+        }
+
+        private static ResultStage CreateUninitializedResultStageWithStageManager(double totalGameTime = 2.0, double lastStageTransitionTime = 0.0)
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: totalGameTime, lastStageTransitionTime: lastStageTransitionTime);
+
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_inputManager", null);
+            SetPrivateField(stage, "_uiManager", new UIManager());
+
+            return stage;
+        }
+
+        private static Mock<IStageManager> GetStageManagerMock(ResultStage stage)
+        {
+            return Mock.Get(stage.StageManager!);
+        }
+
+        private static void VerifySongSelectTransition(ResultStage stage, double expectedTransitionTime = 2.0)
+        {
+            GetStageManagerMock(stage).Verify(
+                manager => manager.ChangeStage(
+                    StageType.SongSelect,
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
+                    null),
+                Times.Once);
+            Assert.Equal(expectedTransitionTime, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(GetPrivateField<BaseGame>(stage, "_game")!, "_lastStageTransitionTime"));
         }
 
         private sealed class TrackingInputManager : InputManager
