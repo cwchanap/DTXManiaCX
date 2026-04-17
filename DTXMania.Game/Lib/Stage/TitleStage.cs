@@ -433,6 +433,9 @@ namespace DTXMania.Game.Lib.Stage
 
         private void SelectCurrentMenuItem()
         {
+            if (_currentMenuIndex < 0 || _currentMenuIndex >= _menuItems.Length)
+                return;
+
             System.Diagnostics.Debug.WriteLine($"Selected menu item: {_menuItems[_currentMenuIndex]}");
 
             // Check global debounce for all menu selections
