@@ -47,4 +47,53 @@ public class UILabelLogicTests
 
         Assert.Equal(new Vector2(expectedX, expectedY), position);
     }
+
+    [Fact]
+    public void OnDraw_WhenLabelIsInvisible_ShouldReturnWithoutUsingSpriteBatch()
+    {
+        var label = new UILabel("hidden")
+        {
+            Visible = false
+        };
+
+        ReflectionHelpers.InvokePrivateMethod(label, "OnDraw", null!, 0d);
+    }
+
+    [Fact]
+    public void OnDraw_WhenFontIsMissing_ShouldReturnWithoutUsingSpriteBatch()
+    {
+        var label = new UILabel("text");
+
+        ReflectionHelpers.InvokePrivateMethod(label, "OnDraw", null!, 0d);
+    }
+
+    [Fact]
+    public void OnDraw_WhenTextIsEmpty_ShouldReturnWithoutUsingSpriteBatch()
+    {
+        var label = new UILabel
+        {
+            Font = ReflectionHelpers.CreateUninitialized<Microsoft.Xna.Framework.Graphics.SpriteFont>()
+        };
+
+        ReflectionHelpers.InvokePrivateMethod(label, "OnDraw", null!, 0d);
+    }
+
+    [Fact]
+    public void DrawOutline_WhenFontIsMissing_ShouldReturnWithoutUsingSpriteBatch()
+    {
+        var label = new UILabel("text");
+
+        ReflectionHelpers.InvokePrivateMethod(label, "DrawOutline", null!, Vector2.Zero);
+    }
+
+    [Fact]
+    public void DrawOutline_WhenTextIsEmpty_ShouldReturnWithoutUsingSpriteBatch()
+    {
+        var label = new UILabel
+        {
+            Font = ReflectionHelpers.CreateUninitialized<Microsoft.Xna.Framework.Graphics.SpriteFont>()
+        };
+
+        ReflectionHelpers.InvokePrivateMethod(label, "DrawOutline", null!, Vector2.Zero);
+    }
 }

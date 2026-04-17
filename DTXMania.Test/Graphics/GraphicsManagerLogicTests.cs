@@ -173,6 +173,47 @@ public class GraphicsManagerLogicTests
         Assert.False(manager.ResetDevice());
     }
 
+    [Fact]
+    public void PropertyGetters_WhenManagerUsesUninitializedDeviceManager_ShouldExposeConfiguredState()
+    {
+        var renderTargetManager = CreateEmptyRenderTargetManager();
+        var manager = CreateManager(
+            currentSettings: new GraphicsSettings { Width = 1280, Height = 720, IsFullscreen = false, VSync = true },
+            renderTargetManager: renderTargetManager);
+
+        Assert.Null(manager.GraphicsDevice);
+        Assert.False(manager.IsDeviceAvailable);
+        Assert.Same(renderTargetManager, manager.RenderTargetManager);
+    }
+
+    [Fact]
+    public void Initialize_WhenGraphicsDeviceIsUnavailable_ShouldLeaveRenderTargetManagerUnset()
+    {
+        var manager = CreateManager();
+
+        manager.Initialize();
+
+        Assert.Null(manager.RenderTargetManager);
+    }
+
+    [Fact]
+    public void GetAvailableDisplayModes_WhenDeviceIsUnavailable_ShouldReturnEmptyArray()
+    {
+        var manager = CreateManager();
+
+        var modes = manager.GetAvailableDisplayModes();
+
+        Assert.Empty(modes);
+    }
+
+    [Fact]
+    public void IsResolutionSupported_WhenDeviceIsUnavailableAndResolutionIsValid_ShouldReturnTrue()
+    {
+        var manager = CreateManager(new GraphicsSettings { Width = 1280, Height = 720, IsFullscreen = true, VSync = true });
+
+        Assert.True(manager.IsResolutionSupported(1280, 720));
+    }
+
     private static GraphicsManager CreateManager(GraphicsSettings? currentSettings = null, RenderTargetManager? renderTargetManager = null)
     {
         var manager = ReflectionHelpers.CreateUninitialized<GraphicsManager>();
