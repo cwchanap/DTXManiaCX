@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Utilities;
@@ -94,6 +95,24 @@ public class AppPathsTests
     }
 
     [Fact]
+    public void ResolvePath_WhenPathTargetsMacLibraryRelativeLocation_ShouldUsePlatformSpecificBase()
+    {
+        var basePath = Path.Combine(Path.GetTempPath(), "base");
+        var libraryRelativePath = Path.Combine("Library", "Application Support", "DTX");
+        var resolved = AppPaths.ResolvePath(libraryRelativePath, basePath);
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            var home = GetHomeDirectory();
+            Assert.Equal(Path.GetFullPath(Path.Combine(home, libraryRelativePath)), resolved);
+        }
+        else
+        {
+            Assert.Equal(Path.GetFullPath(Path.Combine(basePath, libraryRelativePath)), resolved);
+        }
+    }
+
+    [Fact]
     public void EnsureDirectory_ShouldCreateDirectoryAndIgnoreBlankPath()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-app-path-tests", Guid.NewGuid().ToString("N"));
@@ -145,6 +164,18 @@ public class AppPathsTests
         Assert.Equal(home, tildeOnly);
         Assert.Equal(Path.Combine(home, "Songs"), tildeSlash);
         Assert.Equal("relative/path", passthrough);
+    }
+
+    [Fact]
+    public void ExpandHomePath_WhenPathIsBlank_ShouldReturnOriginalPath()
+    {
+        var method = typeof(AppPaths).GetMethod("ExpandHomePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var blank = "   ";
+        var expanded = (string)method!.Invoke(null, new object[] { blank })!;
+
+        Assert.Equal(blank, expanded);
     }
 
     private static string GetHomeDirectory()
