@@ -990,6 +990,27 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrumPanelBackCommand_ShouldClosePanelAndClearActivePanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
+            Assert.NotNull(drumPanel);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 5);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", drumPanel!);
+
+            drumPanel!.Update(0.016, new KeyboardState(Keys.Escape), new KeyboardState());
+
+            Assert.False(drumPanel.IsActive);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
     public void OnPanelSaved_WithSystemPanel_ShouldUpdateWorkingSystemBindings()
     {
         var (stage, _, inputManager) = CreateStage();
