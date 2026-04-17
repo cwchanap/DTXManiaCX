@@ -73,6 +73,24 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void GameContextAccessors_ShouldExposeAssignedManagers()
+        {
+            var configManager = CreateConfigManager(new ConfigData());
+            var inputManager = new InputManagerCompat(new ConfigManager());
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
+            var game = ReflectionHelpers.CreateGame();
+            var context = (IGameContext)game;
+
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
+            ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+
+            Assert.Same(inputManager, context.InputManager);
+            Assert.Same(graphicsManager, game.GraphicsManager);
+            Assert.Same(graphicsManager, context.GraphicsManager);
+        }
+
+        [Fact]
         public void CaptureScreenshotAsync_WhenNoPendingRequest_ShouldStorePendingTask()
         {
             var game = ReflectionHelpers.CreateGame();
@@ -110,6 +128,19 @@ namespace DTXMania.Test
             var result = (byte[]?)method!.Invoke(null, new object?[] { null });
 
             Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryInitializeGameApi_WhenGameApiDisabled_ShouldReturnFalse()
+        {
+            var game = CreateGameForLifecycle(new ConfigData { EnableGameApi = false });
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "TryInitializeGameApi",
+                new ConfigData { EnableGameApi = false })!;
+
+            Assert.False(result);
         }
 
         [Fact]
@@ -490,6 +521,30 @@ namespace DTXMania.Test
 
             host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
             host.Verify(value => value.Dispose(), Times.Once);
+        }
+
+        [Fact]
+        public void DisposeManagedResources_WhenGameApiStartupFaults_ShouldStillStopServerAndClearState()
+        {
+            var game = CreateGameForLifecycle();
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiStartTask", Task.FromException(new InvalidOperationException("startup failed")));
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources"));
+
+            Assert.Null(exception);
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            host.Verify(value => value.Dispose(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiStartTask"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
         }
 
         private static BaseGame CreateGameForLifecycle(ConfigData? config = null)
