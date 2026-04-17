@@ -85,6 +85,7 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
             ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
 
+            Assert.Same(configManager, game.ConfigManager);
             Assert.Same(inputManager, context.InputManager);
             Assert.Same(graphicsManager, game.GraphicsManager);
             Assert.Same(graphicsManager, context.GraphicsManager);
@@ -131,16 +132,26 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void TryInitializeGameApi_WhenGameApiDisabled_ShouldReturnFalse()
+        public void DisposeManagedResources_WhenGameApiStartupAlreadyCompleted_ShouldClearStartupTaskAndStopServer()
         {
-            var game = CreateGameForLifecycle(new ConfigData { EnableGameApi = false });
+            var game = CreateGameForLifecycle();
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
 
-            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
-                game,
-                "TryInitializeGameApi",
-                new ConfigData { EnableGameApi = false })!;
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiStartTask", Task.CompletedTask);
 
-            Assert.False(result);
+            ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources");
+
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            host.Verify(value => value.Dispose(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiStartTask"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
         }
 
         [Fact]
