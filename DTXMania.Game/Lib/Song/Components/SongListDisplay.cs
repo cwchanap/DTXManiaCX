@@ -169,8 +169,6 @@ namespace DTXMania.Game.Lib.Song.Components
             set
             {
                 _currentList = value ?? new List<SongListNode>();
-                _textureGenerationQueue.Clear();
-                _visibleBarIndices.Clear();
                 _selectedIndex = 0;
                 _targetScrollCounter = 0;
                 _currentScrollCounter = 0;
