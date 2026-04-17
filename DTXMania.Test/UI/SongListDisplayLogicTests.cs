@@ -344,6 +344,84 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void QueueTextureGenerationForNewBars_WhenCurrentListIsNull_ShouldDoNothing()
+    {
+        var display = new SongListDisplay();
+        SetField(display, "_currentList", null);
+
+        InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
+
+        Assert.Empty(GetTextureGenerationQueue(display));
+    }
+
+    [Fact]
+    public void QueueTextureGenerationForNewBars_WhenCurrentListIsEmpty_ShouldDoNothing()
+    {
+        var display = new SongListDisplay();
+        SetField(display, "_currentList", new List<SongListNode>());
+
+        InvokePrivate<object?>(display, "QueueTextureGenerationForNewBars");
+
+        Assert.Empty(GetTextureGenerationQueue(display));
+    }
+
+    [Fact]
+    public void CurrentList_WhenResetToNull_ShouldClearPendingTextureRequestsAndVisibleIndices()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+        var queue = GetTextureGenerationQueue(display);
+        queue.Add(new TextureGenerationRequest
+        {
+            SongNode = display.CurrentList[0],
+            SongIndex = 0,
+            BarIndex = 0,
+            Difficulty = 0,
+            Priority = 100
+        });
+
+        var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
+        visible.Add(0);
+        visible.Add(1);
+
+        display.CurrentList = null;
+
+        Assert.Empty(queue);
+        Assert.Empty(visible);
+        Assert.Empty(display.CurrentList);
+    }
+
+    [Fact]
+    public void CurrentList_WhenResetToEmptyList_ShouldClearPendingTextureRequestsAndVisibleIndices()
+    {
+        var display = new SongListDisplay
+        {
+            CurrentList = CreateSongs(3)
+        };
+        var queue = GetTextureGenerationQueue(display);
+        queue.Add(new TextureGenerationRequest
+        {
+            SongNode = display.CurrentList[0],
+            SongIndex = 0,
+            BarIndex = 0,
+            Difficulty = 0,
+            Priority = 100
+        });
+
+        var visible = GetField<HashSet<int>>(display, "_visibleBarIndices");
+        visible.Add(0);
+        visible.Add(1);
+
+        display.CurrentList = new List<SongListNode>();
+
+        Assert.Empty(queue);
+        Assert.Empty(visible);
+        Assert.Empty(display.CurrentList);
+    }
+
+    [Fact]
     public void QueueTextureGenerationForNewBars_WhenAllVisibleCached_ShouldNotQueueRequests()
     {
         var display = new SongListDisplay
@@ -824,6 +902,31 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void SetBarInfoCacheEntry_WhenReplacingWithSameReference_ShouldKeepExistingBarInfo()
+    {
+        var display = new SongListDisplay();
+        var title = new Mock<ITexture>();
+        var preview = new Mock<ITexture>();
+        var lamp = new Mock<ITexture>();
+        var barInfo = new SongBarInfo
+        {
+            TitleTexture = title.Object,
+            PreviewImage = preview.Object,
+            ClearLamp = lamp.Object
+        };
+
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", barInfo);
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", barInfo);
+
+        title.Verify(x => x.RemoveReference(), Times.Never);
+        preview.Verify(x => x.RemoveReference(), Times.Never);
+        lamp.Verify(x => x.RemoveReference(), Times.Never);
+
+        var barInfoCache = (IDictionary)GetField<object>(display, "_barInfoCache");
+        Assert.Same(barInfo, barInfoCache["cache-key"]);
+    }
+
+    [Fact]
     public void LoadSkinBarTextures_WhenCoreTextureResourceMissing_ShouldDisableSkinFlagAndSkipLoad()
     {
         var display = new SongListDisplay();
@@ -1100,6 +1203,18 @@ public class SongListDisplayLogicTests
 
         Assert.Equal(640, result.Width);
         Assert.Equal(itemBounds.Height, result.Height);
+    }
+
+    [Fact]
+    public void CalculateBarTextureBounds_WhenHeightOnlyProvided_ShouldUseItemBoundsWidth()
+    {
+        var display = new SongListDisplay();
+        var itemBounds = new Rectangle(100, 200, 500, 50);
+
+        var result = InvokePrivate<Rectangle>(display, "CalculateBarTextureBounds", itemBounds, false, -1, 96);
+
+        Assert.Equal(itemBounds.Width, result.Width);
+        Assert.Equal(96, result.Height);
     }
 
     [Fact]
