@@ -55,6 +55,10 @@ public class UILabelLogicTests
         {
             Visible = false
         };
+        ReflectionHelpers.SetPrivateField(
+            label,
+            "_font",
+            ReflectionHelpers.CreateUninitialized<Microsoft.Xna.Framework.Graphics.SpriteFont>());
 
         ReflectionHelpers.InvokePrivateMethod(label, "OnDraw", null!, 0d);
     }
