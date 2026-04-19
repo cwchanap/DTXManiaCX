@@ -258,8 +258,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
         // Handle Alt+Enter for fullscreen toggle
         var keyboardState = Keyboard.GetState();
-        if ((keyboardState.IsKeyDown(Keys.LeftAlt) || keyboardState.IsKeyDown(Keys.RightAlt)) &&
-            InputManager?.IsKeyPressed((int)Keys.Enter) == true)
+        if (ShouldToggleFullscreen(keyboardState))
         {
             _graphicsManager?.ToggleFullscreen();
         }
@@ -269,6 +268,17 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
         DrainMainThreadActions();
 
+        CompleteBaseUpdate(gameTime);
+    }
+
+    internal virtual bool ShouldToggleFullscreen(KeyboardState keyboardState)
+    {
+        return (keyboardState.IsKeyDown(Keys.LeftAlt) || keyboardState.IsKeyDown(Keys.RightAlt)) &&
+               InputManager?.IsKeyPressed((int)Keys.Enter) == true;
+    }
+
+    internal virtual void CompleteBaseUpdate(GameTime gameTime)
+    {
         base.Update(gameTime);
     }
 
