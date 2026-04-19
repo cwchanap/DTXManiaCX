@@ -310,6 +310,23 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_WhenGameIsMissing_ShouldIgnoreNavigationCommand()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
         public void OnUpdate_WhenQueuedBackCommandExists_ShouldProcessInputAndReturnToSongSelect()
         {
             var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
@@ -354,6 +371,21 @@ namespace DTXMania.Test.Stage
             Assert.True(inputManager.UpdateCalled);
             Assert.Equal(0.25, GetPrivateField<double>(stage, "_elapsedTime"));
             VerifySongSelectTransition(stage);
+        }
+
+        [Fact]
+        public void OnUpdate_WhenInputManagerIsNull_ShouldStillAdvanceElapsedTime()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+            SetPrivateField(stage, "_inputManager", null);
+            SetPrivateField(stage, "_uiManager", new UIManager());
+            SetPrivateField(stage, "_elapsedTime", 0.0);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnUpdate", 0.25));
+
+            Assert.Null(exception);
+            Assert.Equal(0.25, GetPrivateField<double>(stage, "_elapsedTime"));
+            Assert.False(GetStageManagerMock(stage).Invocations.Any());
         }
 
         [Fact]
