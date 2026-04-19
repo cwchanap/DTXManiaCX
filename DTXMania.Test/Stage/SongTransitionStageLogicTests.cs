@@ -210,6 +210,52 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void PerformTransition_WhenParsedChartIsNull_ShouldOmitParsedChartFromSharedData()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var stage = CreateStage();
+            var selectedSong = CreateSongNode(new SongChart { DrumLevel = 40, HasDrumChart = true });
+
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
+            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
+            ReflectionHelpers.SetPrivateField(stage, "_chartLoaded", true);
+
+            InvokePrivateMethod(stage, "PerformTransition");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Performance,
+                    It.Is<IStageTransition>(transition => transition is InstantTransition),
+                    It.Is<Dictionary<string, object>>(sharedData =>
+                        sharedData.Count == 3 &&
+                        ReferenceEquals(sharedData["selectedSong"], selectedSong) &&
+                        (int)sharedData["selectedDifficulty"] == 1 &&
+                        (int)sharedData["songId"] == 77 &&
+                        !sharedData.ContainsKey("parsedChart"))),
+                Times.Once);
+        }
+
+        [Fact]
+        public void PerformTransition_WhenSelectedSongMissing_ShouldPassEmptySharedData()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var stage = CreateStage();
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "PerformTransition");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Performance,
+                    It.Is<IStageTransition>(transition => transition is InstantTransition),
+                    It.Is<Dictionary<string, object>>(sharedData => sharedData.Count == 0)),
+                Times.Once);
+        }
+
+        [Fact]
         public void TransitionToPerformance_WhenAlreadyInFadeOut_ShouldNotTransitionAgain()
         {
             var stageManager = new Mock<IStageManager>();
