@@ -38,6 +38,11 @@ namespace DTXMania.Game;
 /// </remarks>
 public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 {
+    internal readonly record struct LoadContentServices(
+        SpriteBatch SpriteBatch,
+        IResourceManager ResourceManager,
+        IStageManager StageManager);
+
     private GraphicsDeviceManager _graphicsDeviceManager;
     private IGraphicsManager _graphicsManager = null!;
     private SpriteBatch _spriteBatch = null!;
@@ -167,49 +172,38 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     protected override void LoadContent()
     {
-        _spriteBatch = CreateSpriteBatch();
-
-        // Initialize shared resource manager
-        ResourceManager = CreateResourceManager();
+        var services = CreateLoadContentServices();
+        _spriteBatch = services.SpriteBatch;
+        ResourceManager = services.ResourceManager;
+        StageManager = services.StageManager;
 
         var config = ConfigManager.Config;
         ResourceManager.SetUseBoxDefSkin(config.UseBoxDefSkin);
         ResourceManager.SetSkinPath(config.SkinPath);
-
-        // Initialize font factory after content is loaded
-        InitializeManagedFontFactory();
-
-        // Initialize StageManager after ResourceManager is available
-        StageManager = CreateStageManager();
 
         StageManager?.ChangeStage(StageType.Startup);
 
         // Initialize Game API server for MCP communication if enabled
         if (TryInitializeGameApi(config))
         {
-            // Start API server with proper error handling
-            _gameApiStartTask = StartGameApiServerAsync();
+            _gameApiStartTask = QueueGameApiStartup();
         }
     }
 
-    internal virtual SpriteBatch CreateSpriteBatch()
+    internal virtual LoadContentServices CreateLoadContentServices()
     {
-        return new SpriteBatch(GraphicsDevice);
-    }
-
-    internal virtual IResourceManager CreateResourceManager()
-    {
-        return ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
-    }
-
-    internal virtual void InitializeManagedFontFactory()
-    {
+        var resourceManager = ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
         ManagedFont.InitializeFontFactory(Content);
+
+        return new LoadContentServices(
+            new SpriteBatch(GraphicsDevice),
+            resourceManager,
+            new StageManager(this));
     }
 
-    internal virtual IStageManager CreateStageManager()
+    internal virtual Task QueueGameApiStartup()
     {
-        return new StageManager(this);
+        return StartGameApiServerAsync();
     }
 
     private void ApplySavedSystemKeyBindings()
@@ -238,7 +232,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return true;
     }
 
-    internal virtual async Task StartGameApiServerAsync()
+    private async Task StartGameApiServerAsync()
     {
         if (_jsonRpcServer == null || _gameApiCancellation == null)
             return;
@@ -287,7 +281,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
         DrainMainThreadActions();
-
         CompleteBaseUpdate(gameTime);
     }
 
