@@ -324,6 +324,19 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void TryInitializeGameApi_WhenGameApiDisabled_ShouldReturnFalse()
+        {
+            var game = CreateGameForLifecycle(new ConfigData { EnableGameApi = false });
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "TryInitializeGameApi",
+                new ConfigData { EnableGameApi = false })!;
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldCreateServerComponents()
         {
             var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = 12345 };
@@ -341,6 +354,38 @@ namespace DTXMania.Test
 
             cancellation.Dispose();
             (ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer") as IDisposable)?.Dispose();
+        }
+
+        [Fact]
+        public void Update_WhenFullscreenToggleRequested_ShouldToggleFullscreenUpdateStageAndDrainQueuedActions()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var inputManager = new TrackingInputManager();
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
+            var game = CreateGameForUpdate(inputManager, stageManager.Object, graphicsManager);
+            var context = (IGameContext)game;
+            var callOrder = new List<string>();
+
+            game.ShouldToggleFullscreenResult = true;
+            inputManager.OnUpdate = _ => callOrder.Add("input");
+            graphicsManager.OnToggleFullscreen = () => callOrder.Add("toggle");
+            stageManager.Setup(value => value.Update(It.IsAny<double>()))
+                .Callback<double>(_ => callOrder.Add("stage"));
+            context.QueueMainThreadAction(() => callOrder.Add("action"));
+
+            ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "Update",
+                new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(16)));
+
+            Assert.True(game.ShouldToggleFullscreenCalled);
+            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
+            Assert.Equal(1, inputManager.UpdateCallCount);
+            Assert.Equal(1, graphicsManager.ToggleFullscreenCallCount);
+            stageManager.Verify(value => value.Update(0.016), Times.Once);
+            Assert.Equal(new[] { "input", "toggle", "stage", "action" }, callOrder);
+            Assert.Equal(0.016, ReflectionHelpers.GetPrivateField<double>(game, "_totalGameTime"));
+            Assert.True(ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions")!.IsEmpty);
         }
 
         [Fact]
@@ -426,6 +471,30 @@ namespace DTXMania.Test
             Assert.False(config.VSyncWait);
             Assert.Same(fakeRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
             Assert.Equal(("MainRenderTarget", 1920, 1080), renderTargetManager.LastRequest);
+        }
+
+        [Fact]
+        public void OnGraphicsSettingsChanged_WhenPreviousRenderTargetExists_ShouldDisposeItBeforeReplacingTarget()
+        {
+            var config = new ConfigData { ScreenWidth = 640, ScreenHeight = 480, FullScreen = false, VSyncWait = true };
+            var previousRenderTarget = ReflectionHelpers.CreateUninitialized<TrackableRenderTarget>();
+            var replacementRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(replacementRenderTarget);
+            var game = CreateGameForLifecycle(config);
+
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", new StubGraphicsManager(isDeviceAvailable: true, renderTargetManager));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", previousRenderTarget);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "OnGraphicsSettingsChanged",
+                null!,
+                new GraphicsSettingsChangedEventArgs(
+                    new GraphicsSettings { Width = 640, Height = 480 },
+                    new GraphicsSettings { Width = 1024, Height = 768 }));
+
+            Assert.True(previousRenderTarget.DisposeCalled);
+            Assert.Same(replacementRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
         }
 
         [Fact]
@@ -570,6 +639,25 @@ namespace DTXMania.Test
             return game;
         }
 
+        private static TestableBaseGame CreateGameForUpdate(
+            TrackingInputManager inputManager,
+            IStageManager stageManager,
+            StubGraphicsManager graphicsManager)
+        {
+            var game = ReflectionHelpers.CreateUninitialized<TestableBaseGame>();
+
+            ReflectionHelpers.SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", null);
+            ReflectionHelpers.SetPrivateField(game, "_totalGameTime", 0.0);
+            ReflectionHelpers.SetPrivateField(game, "_lastStageTransitionTime", 0.0);
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(new ConfigData()));
+            ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+
+            return game;
+        }
+
         private static JsonRpcServer CreateRunningJsonRpcServer(Mock<IHost> host, CancellationTokenSource cancellation)
         {
             var gameApi = new Mock<IGameApi>();
@@ -629,9 +717,11 @@ namespace DTXMania.Test
             public bool IsDeviceAvailable { get; }
             public RenderTargetManager RenderTargetManager { get; }
             public bool DisposeCalled { get; private set; }
+            public int ToggleFullscreenCallCount { get; private set; }
             public int SettingsChangedRemoveCount { get; private set; }
             public int DeviceLostRemoveCount { get; private set; }
             public int DeviceResetRemoveCount { get; private set; }
+            public Action? OnToggleFullscreen { get; set; }
 
             private event EventHandler<GraphicsSettingsChangedEventArgs>? _settingsChanged;
             private event EventHandler? _deviceLost;
@@ -673,7 +763,12 @@ namespace DTXMania.Test
 
             public bool ApplySettings(GraphicsSettings settings) => false;
             public bool ChangeResolution(int width, int height) => false;
-            public bool ToggleFullscreen() => false;
+            public bool ToggleFullscreen()
+            {
+                ToggleFullscreenCallCount++;
+                OnToggleFullscreen?.Invoke();
+                return true;
+            }
             public bool SetFullscreen(bool fullscreen) => false;
             public bool SetVSync(bool vsync) => false;
             public DisplayMode[] GetAvailableDisplayModes() => Array.Empty<DisplayMode>();
@@ -683,6 +778,59 @@ namespace DTXMania.Test
             public void Dispose()
             {
                 DisposeCalled = true;
+            }
+        }
+
+        private sealed class TrackingInputManager : InputManagerCompat
+        {
+            public TrackingInputManager()
+                : base(new ConfigManager())
+            {
+            }
+
+            public int UpdateCallCount { get; private set; }
+
+            public Action<double>? OnUpdate { get; set; }
+
+            public override void Update(double deltaTime)
+            {
+                UpdateCallCount++;
+                OnUpdate?.Invoke(deltaTime);
+            }
+        }
+
+        private sealed class TrackableRenderTarget : RenderTarget2D
+        {
+            private TrackableRenderTarget()
+                : base(null!, 1, 1)
+            {
+            }
+
+            public bool DisposeCalled { get; private set; }
+
+            protected override void Dispose(bool disposing)
+            {
+                DisposeCalled = true;
+            }
+        }
+
+        private sealed class TestableBaseGame : BaseGame
+        {
+            public int CompleteBaseUpdateCallCount { get; private set; }
+
+            public bool ShouldToggleFullscreenResult { get; set; }
+
+            public bool ShouldToggleFullscreenCalled { get; private set; }
+
+            internal override bool ShouldToggleFullscreen(KeyboardState keyboardState)
+            {
+                ShouldToggleFullscreenCalled = true;
+                return ShouldToggleFullscreenResult;
+            }
+
+            internal override void CompleteBaseUpdate(GameTime gameTime)
+            {
+                CompleteBaseUpdateCallCount++;
             }
         }
     }
