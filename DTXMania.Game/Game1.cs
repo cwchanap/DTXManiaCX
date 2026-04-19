@@ -167,20 +167,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     protected override void LoadContent()
     {
-        _spriteBatch = new SpriteBatch(GraphicsDevice);
+        _spriteBatch = CreateSpriteBatch();
 
         // Initialize shared resource manager
-        ResourceManager = ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
+        ResourceManager = CreateResourceManager();
 
         var config = ConfigManager.Config;
         ResourceManager.SetUseBoxDefSkin(config.UseBoxDefSkin);
         ResourceManager.SetSkinPath(config.SkinPath);
 
         // Initialize font factory after content is loaded
-        ManagedFont.InitializeFontFactory(Content);
+        InitializeManagedFontFactory();
 
         // Initialize StageManager after ResourceManager is available
-        StageManager = new StageManager(this);
+        StageManager = CreateStageManager();
 
         StageManager?.ChangeStage(StageType.Startup);
 
@@ -190,6 +190,26 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
             // Start API server with proper error handling
             _gameApiStartTask = StartGameApiServerAsync();
         }
+    }
+
+    internal virtual SpriteBatch CreateSpriteBatch()
+    {
+        return new SpriteBatch(GraphicsDevice);
+    }
+
+    internal virtual IResourceManager CreateResourceManager()
+    {
+        return ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
+    }
+
+    internal virtual void InitializeManagedFontFactory()
+    {
+        ManagedFont.InitializeFontFactory(Content);
+    }
+
+    internal virtual IStageManager CreateStageManager()
+    {
+        return new StageManager(this);
     }
 
     private void ApplySavedSystemKeyBindings()
@@ -218,7 +238,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return true;
     }
 
-    private async Task StartGameApiServerAsync()
+    internal virtual async Task StartGameApiServerAsync()
     {
         if (_jsonRpcServer == null || _gameApiCancellation == null)
             return;
