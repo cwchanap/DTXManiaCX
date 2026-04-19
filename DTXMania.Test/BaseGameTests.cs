@@ -349,10 +349,8 @@ namespace DTXMania.Test
             resourceManager.Verify(value => value.SetSkinPath("Skins/Test"), Times.Once);
             Assert.Same(stageManager.Object, game.StageManager);
             stageManager.Verify(value => value.ChangeStage(StageType.Startup), Times.Once);
-            Assert.Equal(1, game.CreateSpriteBatchCallCount);
-            Assert.Equal(1, game.CreateResourceManagerCallCount);
-            Assert.Equal(1, game.InitializeManagedFontFactoryCallCount);
-            Assert.Equal(1, game.StartGameApiServerCallCount);
+            Assert.Equal(1, game.CreateLoadContentServicesCallCount);
+            Assert.Equal(1, game.QueueGameApiStartupCallCount);
             Assert.Same(startupTask, ReflectionHelpers.GetPrivateField<Task>(game, "_gameApiStartTask"));
             Assert.IsType<GameApiImplementation>(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
             Assert.IsType<JsonRpcServer>(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
@@ -679,9 +677,7 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
             ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
-            game.ResourceManagerToReturn = resourceManager;
-            game.StageManagerToReturn = stageManager;
-            game.SpriteBatchToReturn = spriteBatch;
+            game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(spriteBatch, resourceManager, stageManager);
 
             return game;
         }
@@ -864,52 +860,28 @@ namespace DTXMania.Test
 
         private sealed class LoadContentTestableBaseGame : BaseGame
         {
-            public SpriteBatch SpriteBatchToReturn { get; set; } = null!;
-
-            public IResourceManager ResourceManagerToReturn { get; set; } = null!;
-
-            public IStageManager StageManagerToReturn { get; set; } = null!;
+            public BaseGame.LoadContentServices LoadContentServicesToReturn { get; set; }
 
             public Task StartGameApiServerTask { get; set; } = Task.CompletedTask;
 
-            public int CreateSpriteBatchCallCount { get; private set; }
+            public int CreateLoadContentServicesCallCount { get; private set; }
 
-            public int CreateResourceManagerCallCount { get; private set; }
-
-            public int InitializeManagedFontFactoryCallCount { get; private set; }
-
-            public int StartGameApiServerCallCount { get; private set; }
+            public int QueueGameApiStartupCallCount { get; private set; }
 
             public void InvokeLoadContent()
             {
                 base.LoadContent();
             }
 
-            internal override SpriteBatch CreateSpriteBatch()
+            internal override BaseGame.LoadContentServices CreateLoadContentServices()
             {
-                CreateSpriteBatchCallCount++;
-                return SpriteBatchToReturn;
+                CreateLoadContentServicesCallCount++;
+                return LoadContentServicesToReturn;
             }
 
-            internal override IResourceManager CreateResourceManager()
+            internal override Task QueueGameApiStartup()
             {
-                CreateResourceManagerCallCount++;
-                return ResourceManagerToReturn;
-            }
-
-            internal override void InitializeManagedFontFactory()
-            {
-                InitializeManagedFontFactoryCallCount++;
-            }
-
-            internal override IStageManager CreateStageManager()
-            {
-                return StageManagerToReturn;
-            }
-
-            internal override Task StartGameApiServerAsync()
-            {
-                StartGameApiServerCallCount++;
+                QueueGameApiStartupCallCount++;
                 return StartGameApiServerTask;
             }
         }
