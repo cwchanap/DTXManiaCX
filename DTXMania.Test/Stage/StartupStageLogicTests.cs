@@ -165,6 +165,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void UpdateCurrentPhase_WhenAsyncTaskCanceledAfterMinimumDuration_ShouldAdvanceToNextPhase()
+        {
+            var canceledTask = Task.FromCanceled(new CancellationToken(canceled: true));
+            var stage = CreateStage(
+                phase: StartupPhase.LoadScoreCache,
+                elapsedTime: 0.7,
+                phaseStartTime: 0.0,
+                currentAsyncTask: canceledTask);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(StartupPhase.LoadScoreFiles, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Equal(0.7, ReflectionHelpers.GetPrivateField<double>(stage, "_phaseStartTime"));
+        }
+
+        [Fact]
         public void UpdateCurrentPhase_WhenAsyncPhaseHasNoTask_ShouldRemainInCurrentPhase()
         {
             var stage = CreateStage(
@@ -433,6 +451,29 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task EnumerateSongsAsync_WhenProgressReportsCurrentDirectory_ShouldShowDirectoryName()
+        {
+            var stage = CreateControlledStage(songPaths: new[] { "SongsRoot" });
+            stage.ReportedEnumerationProgress = new EnumerationProgress
+            {
+                CurrentDirectory = Path.Combine("SongsRoot", "SubFolder"),
+                ProcessedCount = 1,
+                DiscoveredSongs = 0
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
+
+            using var synchronizationContextScope = new SynchronizationContextScope(new ImmediateSynchronizationContext());
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.Contains(
+                "Scanning directory: SubFolder",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
+        }
+
+        [Fact]
         public async Task BuildSongListsAsync_WhenSongOperationsSucceed_ShouldBuildFromDatabaseUsingCurrentSongPaths()
         {
             var songPaths = new[] { "SongsRoot" };
@@ -467,6 +508,20 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateControlledStage();
             stage.NextSaveResult = false;
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.Equal(1, stage.SaveSongsDatabaseCalls);
+            Assert.False(stage.MarkSongManagerInitializedCalled);
+        }
+
+        [Fact]
+        public async Task SaveSongsDbAsync_WhenSaveThrows_ShouldSwallowExceptionAndSkipInitialization()
+        {
+            var stage = CreateControlledStage();
+            stage.SaveSongsDatabaseException = new InvalidOperationException("boom");
 
             var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
             await task;
@@ -718,6 +773,8 @@ namespace DTXMania.Test.Stage
 
             public bool NextSaveResult { get; set; }
 
+            public Exception? SaveSongsDatabaseException { get; set; }
+
             public bool MarkSongManagerInitializedCalled { get; private set; }
 
             public EnumerationProgress? ReportedEnumerationProgress { get; set; }
@@ -781,6 +838,10 @@ namespace DTXMania.Test.Stage
             protected override Task<bool> SaveSongsDatabaseCoreAsync()
             {
                 SaveSongsDatabaseCalls++;
+                if (SaveSongsDatabaseException != null)
+                {
+                    return Task.FromException<bool>(SaveSongsDatabaseException);
+                }
                 return Task.FromResult(NextSaveResult);
             }
 
@@ -791,6 +852,30 @@ namespace DTXMania.Test.Stage
         }
 
         private sealed record DrawCall(Rectangle Destination, Color Color);
+
+        private sealed class SynchronizationContextScope : IDisposable
+        {
+            private readonly SynchronizationContext? _previousContext;
+
+            public SynchronizationContextScope(SynchronizationContext? synchronizationContext)
+            {
+                _previousContext = SynchronizationContext.Current;
+                SynchronizationContext.SetSynchronizationContext(synchronizationContext);
+            }
+
+            public void Dispose()
+            {
+                SynchronizationContext.SetSynchronizationContext(_previousContext);
+            }
+        }
+
+        private sealed class ImmediateSynchronizationContext : SynchronizationContext
+        {
+            public override void Post(SendOrPostCallback d, object? state)
+            {
+                d(state);
+            }
+        }
 
         private sealed class GraphicsControlledStartupStage : StartupStage
         {
