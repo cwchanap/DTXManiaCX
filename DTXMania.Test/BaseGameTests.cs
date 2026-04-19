@@ -324,27 +324,36 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void TryInitializeGameApi_WhenGameApiDisabled_ShouldReturnFalse()
+        public void LoadContent_WhenGameApiIsEnabledWithApiKey_ShouldInitializeLifecycleServicesAndQueueApiStartup()
         {
-            var game = CreateGameForLifecycle(new ConfigData { EnableGameApi = false });
+            var config = new ConfigData
+            {
+                EnableGameApi = true,
+                GameApiKey = "secret-key",
+                GameApiPort = 12345,
+                UseBoxDefSkin = true,
+                SkinPath = "Skins/Test"
+            };
+            var resourceManager = new Mock<IResourceManager>();
+            var stageManager = new Mock<IStageManager>();
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+            var startupTask = Task.CompletedTask;
+            var game = CreateGameForLoadContent(config, resourceManager.Object, stageManager.Object, spriteBatch);
+            game.StartGameApiServerTask = startupTask;
 
-            var result = (bool)ReflectionHelpers.InvokePrivateMethod(
-                game,
-                "TryInitializeGameApi",
-                new ConfigData { EnableGameApi = false })!;
+            game.InvokeLoadContent();
 
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldCreateServerComponents()
-        {
-            var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = 12345 };
-            var game = CreateGameForLifecycle(config);
-
-            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
-
-            Assert.True(initialized);
+            Assert.Same(spriteBatch, ReflectionHelpers.GetPrivateField<object>(game, "_spriteBatch"));
+            Assert.Same(resourceManager.Object, game.ResourceManager);
+            resourceManager.Verify(value => value.SetUseBoxDefSkin(true), Times.Once);
+            resourceManager.Verify(value => value.SetSkinPath("Skins/Test"), Times.Once);
+            Assert.Same(stageManager.Object, game.StageManager);
+            stageManager.Verify(value => value.ChangeStage(StageType.Startup), Times.Once);
+            Assert.Equal(1, game.CreateSpriteBatchCallCount);
+            Assert.Equal(1, game.CreateResourceManagerCallCount);
+            Assert.Equal(1, game.InitializeManagedFontFactoryCallCount);
+            Assert.Equal(1, game.StartGameApiServerCallCount);
+            Assert.Same(startupTask, ReflectionHelpers.GetPrivateField<Task>(game, "_gameApiStartTask"));
             Assert.IsType<GameApiImplementation>(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
             Assert.IsType<JsonRpcServer>(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
 
@@ -658,6 +667,25 @@ namespace DTXMania.Test
             return game;
         }
 
+        private static LoadContentTestableBaseGame CreateGameForLoadContent(
+            ConfigData config,
+            IResourceManager resourceManager,
+            IStageManager stageManager,
+            SpriteBatch spriteBatch)
+        {
+            var game = ReflectionHelpers.CreateUninitialized<LoadContentTestableBaseGame>();
+            var loggerFactory = LoggerFactory.Create(builder => { });
+
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
+            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
+            game.ResourceManagerToReturn = resourceManager;
+            game.StageManagerToReturn = stageManager;
+            game.SpriteBatchToReturn = spriteBatch;
+
+            return game;
+        }
+
         private static JsonRpcServer CreateRunningJsonRpcServer(Mock<IHost> host, CancellationTokenSource cancellation)
         {
             var gameApi = new Mock<IGameApi>();
@@ -831,6 +859,58 @@ namespace DTXMania.Test
             internal override void CompleteBaseUpdate(GameTime gameTime)
             {
                 CompleteBaseUpdateCallCount++;
+            }
+        }
+
+        private sealed class LoadContentTestableBaseGame : BaseGame
+        {
+            public SpriteBatch SpriteBatchToReturn { get; set; } = null!;
+
+            public IResourceManager ResourceManagerToReturn { get; set; } = null!;
+
+            public IStageManager StageManagerToReturn { get; set; } = null!;
+
+            public Task StartGameApiServerTask { get; set; } = Task.CompletedTask;
+
+            public int CreateSpriteBatchCallCount { get; private set; }
+
+            public int CreateResourceManagerCallCount { get; private set; }
+
+            public int InitializeManagedFontFactoryCallCount { get; private set; }
+
+            public int StartGameApiServerCallCount { get; private set; }
+
+            public void InvokeLoadContent()
+            {
+                base.LoadContent();
+            }
+
+            internal override SpriteBatch CreateSpriteBatch()
+            {
+                CreateSpriteBatchCallCount++;
+                return SpriteBatchToReturn;
+            }
+
+            internal override IResourceManager CreateResourceManager()
+            {
+                CreateResourceManagerCallCount++;
+                return ResourceManagerToReturn;
+            }
+
+            internal override void InitializeManagedFontFactory()
+            {
+                InitializeManagedFontFactoryCallCount++;
+            }
+
+            internal override IStageManager CreateStageManager()
+            {
+                return StageManagerToReturn;
+            }
+
+            internal override Task StartGameApiServerAsync()
+            {
+                StartGameApiServerCallCount++;
+                return StartGameApiServerTask;
             }
         }
     }
