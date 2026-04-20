@@ -380,30 +380,55 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void ActivatePressedOnSaveButton_WhenNoChangesExist_ShouldReturnToTitleWithoutSaving()
+    public void ActivatePressedOnSaveButton_WhenNoChangesExist_ShouldStillApplyConfigurationAndTransitionToTitle()
     {
-        var configManager = new RecordingConfigManager(new ConfigData());
-        var (stage, _, inputManager) = CreateStage(configManager);
-
-        using (inputManager)
+        var redirectedSavePath = CreateConfigSavePath();
+        var originalConfig = new ConfigData
         {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Moq.Mock<IStageManager>();
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            ScreenWidth = 1280,
+            ScreenHeight = 720,
+            FullScreen = false,
+            VSyncWait = true,
+            NoFail = false,
+            AutoPlay = false
+        };
+        var configManager = new RecordingConfigManager(originalConfig, redirectedSavePath: redirectedSavePath);
 
-            stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+        try
+        {
+            var (stage, _, inputManager) = CreateStage(configManager);
+            using (inputManager)
+            {
+                InitializeStageMenu(stage, includePanels: false);
+                var stageManager = new Moq.Mock<IStageManager>();
+                var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+                stage.StageManager = stageManager.Object;
+                ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+                SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
-            Assert.Null(configManager.LastSavePath);
-            stageManager.Verify(
-                manager => manager.ChangeStage(
-                    StageType.Title,
-                    Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
-                Moq.Times.Once);
+                ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+                Assert.Equal(AppPaths.GetConfigFilePath(), configManager.LastSavePath);
+                Assert.Equal(1280, configManager.Config.ScreenWidth);
+                Assert.Equal(720, configManager.Config.ScreenHeight);
+                Assert.False(configManager.Config.FullScreen);
+                Assert.True(configManager.Config.VSyncWait);
+                Assert.False(configManager.Config.NoFail);
+                Assert.False(configManager.Config.AutoPlay);
+                Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+
+                stageManager.Verify(
+                    manager => manager.ChangeStage(
+                        StageType.Title,
+                        Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
+                    Moq.Times.Once);
+            }
+        }
+        finally
+        {
+            DeleteConfigSavePath(redirectedSavePath);
         }
     }
 
@@ -1018,6 +1043,25 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnPanelClosed_WithDrumPanelSender_ShouldClearActivePanelAndPreserveUnsavedChanges()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
+            Assert.NotNull(drumPanel);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", drumPanel!);
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", drumPanel, EventArgs.Empty);
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
     public void DrumPanelBackCommand_ShouldClosePanelAndClearActivePanel()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -1185,6 +1229,28 @@ public class ConfigStageLogicTests
                     StageType.Title,
                     Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)),
                 Moq.Times.Once);
+        }
+    }
+
+    [Fact]
+    public void OnBackButtonClicked_WithUnsavedChanges_ShouldTransitionWithoutClearingUnsavedFlag()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)),
+                Moq.Times.Once);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
 
