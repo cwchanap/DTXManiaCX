@@ -850,6 +850,23 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_BackAtRoot_WhenTransitionIsDebounced_ShouldStayOnCurrentStage()
+        {
+            var game = CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            stageManager.Verify(
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
+                Times.Never);
+            Assert.Equal(0.0, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
     public void HandleActivateInput_WhenSongSelected_ShouldEnterStatusPanel()
     {
         var stage = CreateStage();
@@ -904,6 +921,29 @@ namespace DTXMania.Test.Stage
                     It.IsAny<IStageTransition>(),
                     It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], selectedSong))),
                 Times.Once);
+        }
+
+        [Fact]
+        public void HandleActivateInput_WhenInStatusPanelAndSelectedNodeIsNotScore_ShouldIgnoreActivation()
+        {
+            var stage = CreateStage();
+            var stageManager = new Mock<IStageManager>();
+            var folder = CreateBoxNode("Folder", CreateScoreNode("Child"));
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_selectedSong", folder);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+
+            InvokePrivateMethod(stage, "HandleActivateInput");
+
+            Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.Same(folder, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
         }
 
         [Fact]
@@ -1406,6 +1446,30 @@ namespace DTXMania.Test.Stage
             Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
         }
 
+        [Fact]
+        public void UpdatePreviewSoundTimers_WhenPreviewDelayElapsesWithPlayingInstance_ShouldKeepExistingPreview()
+        {
+            var stage = CreateStage();
+            var previewSound = new Mock<ISound>();
+            var previewInstance = new Mock<ISoundInstance>();
+
+            previewInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+
+            SetPrivateField(stage, "_previewSound", previewSound.Object);
+            SetPrivateField(stage, "_previewSoundInstance", previewInstance.Object);
+            SetPrivateField(stage, "_isPreviewDelayActive", true);
+            SetPrivateField(stage, "_previewPlayDelay", SongSelectionUILayout.Audio.PreviewPlayDelaySeconds - 0.01);
+            SetPrivateField(stage, "_isBgmFadingOut", false);
+
+            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.02);
+
+            previewSound.Verify(x => x.CreateInstance(), Times.Never);
+            previewInstance.Verify(x => x.Play(), Times.Never);
+            Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.Same(previewInstance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+        }
+
         [Theory]
         [InlineData(true, "_isBgmFadingOut", "_isBgmFadingIn", "_bgmFadeOutTimer")]
         [InlineData(false, "_isBgmFadingIn", "_isBgmFadingOut", "_bgmFadeInTimer")]
@@ -1567,6 +1631,23 @@ namespace DTXMania.Test.Stage
             Assert.Null(ex);
             Assert.Null(GetPrivateField<ISound>(stage, "_previewSound"));
             Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+        }
+
+        [Fact]
+        public void UpdatePhase_WhenFadeOutDurationElapsed_ShouldRemainInFadeOutPhase()
+        {
+            var stage = CreateStage();
+
+            SetPrivateField(stage, "_selectionPhase", SongSelectionPhase.FadeOut);
+            SetPrivateField(stage, "_currentPhase", StagePhase.FadeOut);
+            SetPrivateField(stage, "_phaseStartTime", 0.0);
+            SetPrivateField(stage, "_elapsedTime", SongSelectionUILayout.Timing.FadeOutDuration);
+
+            InvokePrivateMethod(stage, "UpdatePhase", 0.0);
+
+            Assert.Equal(SongSelectionPhase.FadeOut, GetPrivateField<SongSelectionPhase>(stage, "_selectionPhase"));
+            Assert.Equal(StagePhase.FadeOut, stage.CurrentPhase);
+            Assert.Equal(0.0, GetPrivateField<double>(stage, "_phaseStartTime"));
         }
 
         [Fact]
