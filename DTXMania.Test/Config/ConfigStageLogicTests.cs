@@ -380,6 +380,34 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void ActivatePressedOnSaveButton_WhenNoChangesExist_ShouldReturnToTitleWithoutSaving()
+    {
+        var configManager = new RecordingConfigManager(new ConfigData());
+        var (stage, _, inputManager) = CreateStage(configManager);
+
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Null(configManager.LastSavePath);
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
+                Moq.Times.Once);
+        }
+    }
+
+    [Fact]
     public void SaveFailure_ShouldRollBackConfigStateAndReturnFalse()
     {
         var configManager = new RecordingConfigManager(originalConfig: new ConfigData
@@ -1007,6 +1035,69 @@ public class ConfigStageLogicTests
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
             Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void SystemPanelBackCommand_ShouldClosePanelWithoutMarkingUnsavedChanges()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(systemPanel);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
+
+            systemPanel!.Update(0.016, new KeyboardState(Keys.Escape), new KeyboardState());
+
+            Assert.False(systemPanel.IsActive);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+            Assert.Equal(6, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void SystemPanelSaveCommand_ShouldCaptureBindingsClosePanelAndMarkUnsavedChanges()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(systemPanel);
+
+            var newWorkingMapping = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.F1] = InputCommandType.MoveUp,
+                [Keys.F2] = InputCommandType.MoveDown,
+                [Keys.F3] = InputCommandType.MoveLeft,
+                [Keys.F4] = InputCommandType.MoveRight,
+                [Keys.F5] = InputCommandType.Activate,
+                [Keys.F6] = InputCommandType.Back
+            };
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
+            ReflectionHelpers.SetPrivateField(systemPanel!, "_workingMapping", newWorkingMapping);
+            ReflectionHelpers.SetPrivateField(systemPanel!, "_selectedIndex", 6);
+
+            systemPanel.Update(0.016, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            var workingSystemBindings = ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(
+                stage, "_workingSystemBindings");
+            Assert.NotNull(workingSystemBindings);
+            Assert.Equal(newWorkingMapping.Count, workingSystemBindings!.Count);
+            foreach (var (key, command) in newWorkingMapping)
+            {
+                Assert.True(workingSystemBindings.ContainsKey(key));
+                Assert.Equal(command, workingSystemBindings[key]);
+            }
+
+            Assert.False(systemPanel.IsActive);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
 
