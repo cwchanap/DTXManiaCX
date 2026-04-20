@@ -928,16 +928,34 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var stageManager = new Mock<IStageManager>();
+            var display = new SongListDisplay();
+            var breadcrumbLabel = new UILabel();
+            var rootSong = CreateScoreNode("Root Song");
             var folder = CreateBoxNode("Folder", CreateScoreNode("Child"));
+            var currentSongList = new List<SongListNode> { rootSong, folder };
+            var displayList = new List<SongListNode> { rootSong, folder };
+            var previousNavigationState = new SongListNode { Children = currentSongList, Title = "Genre" };
 
+            AttachCoreUi(stage, display: display, breadcrumb: breadcrumbLabel);
+            display.CurrentList = displayList;
             stage.StageManager = stageManager.Object;
             SetPrivateField(stage, "_selectedSong", folder);
+            SetPrivateField(stage, "_currentSongList", currentSongList);
+            SetPrivateField(stage, "_currentBreadcrumb", "Genre");
             SetPrivateField(stage, "_isInStatusPanel", true);
+            GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(previousNavigationState);
+            breadcrumbLabel.Text = "Genre";
 
             InvokePrivateMethod(stage, "HandleActivateInput");
 
             Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
             Assert.Same(folder, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.Same(currentSongList, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal("Genre", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Single(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+            Assert.Same(previousNavigationState, GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Peek());
+            Assert.Same(displayList, display.CurrentList);
+            Assert.Equal("Genre", breadcrumbLabel.Text);
             stageManager.Verify(
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
