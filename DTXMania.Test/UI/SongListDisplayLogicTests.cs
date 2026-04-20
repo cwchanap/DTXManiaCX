@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -60,6 +61,19 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void TruncateTextToWidth_WhenSpriteFontTextIsTooLong_ShouldReturnFittingEllipsis()
+    {
+        var display = new SongListDisplay();
+        var font = CreateSpriteFont(
+            [(' ', 4), ('.', 4), ('A', 10), ('B', 10), ('C', 10), ('D', 10), ('E', 10), ('F', 10), ('G', 10), ('H', 10)]);
+
+        var truncated = InvokePrivate<string>(display, "TruncateTextToWidth", "ABCDEFGH", 44f, font);
+
+        Assert.EndsWith("...", truncated);
+        Assert.True(font.MeasureString(truncated).X <= 44f);
+    }
+
+    [Fact]
     public void WrapTextToWidth_WhenFontIsNull_ShouldReturnSingleOriginalLine()
     {
         var display = new SongListDisplay();
@@ -68,6 +82,18 @@ public class SongListDisplayLogicTests
 
         Assert.Single(lines);
         Assert.Equal("hello world", lines[0]);
+    }
+
+    [Fact]
+    public void WrapTextToWidth_WhenSpriteFontTextExceedsWidth_ShouldWrapIntoMultipleLines()
+    {
+        var display = new SongListDisplay();
+        var font = CreateSpriteFont([(' ', 4), ('A', 10), ('B', 10), ('C', 10)]);
+
+        var lines = InvokePrivate<string[]>(display, "WrapTextToWidth", "AA BB CC", 30f, font, 1f);
+
+        Assert.Equal(["AA", "BB", "CC"], lines);
+        Assert.All(lines, line => Assert.True(font.MeasureString(line).X <= 30f));
     }
 
     [Fact]
@@ -522,6 +548,33 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void GetOrCreateBarInfo_WhenCachedEntryExists_ShouldReuseAndUpdateCachedInfo()
+    {
+        var display = new SongListDisplay();
+        var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
+#pragma warning disable SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
+#pragma warning restore SYSLIB0050
+        var cachedInfo = new SongBarInfo
+        {
+            SongNode = node,
+            DifficultyLevel = 0,
+            IsSelected = false,
+            TextColor = Color.White
+        };
+
+        SetField(display, "_barRenderer", fakeRenderer);
+        GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_2"] = cachedInfo;
+
+        var result = InvokePrivate<SongBarInfo?>(display, "GetOrCreateBarInfo", node, 2, true);
+
+        Assert.Same(cachedInfo, result);
+        Assert.Equal(2, cachedInfo.DifficultyLevel);
+        Assert.True(cachedInfo.IsSelected);
+        Assert.Equal(Color.Yellow, cachedInfo.TextColor);
+    }
+
+    [Fact]
     public void GetSkinBarTexture_ShouldUseFallbackTexturesPerBarType()
     {
         var display = new SongListDisplay();
@@ -553,6 +606,40 @@ public class SongListDisplayLogicTests
         var ex = Record.Exception(() => InvokePrivate<object?>(display, "UpdatePendingTextures"));
 
         Assert.Null(ex);
+    }
+
+    [Theory]
+    [InlineData(false, 8, 2)]
+    [InlineData(true, 12, 2)]
+    public void UpdatePendingTextures_ShouldRespectPerFrameProcessingLimit(bool isScrolling, int queuedCount, int expectedRemaining)
+    {
+        var display = new SongListDisplay();
+#pragma warning disable SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
+#pragma warning restore SYSLIB0050
+        var queue = GetTextureGenerationQueue(display);
+
+        SetField(display, "_barRenderer", fakeRenderer);
+        SetField(display, "_currentScrollCounter", isScrolling ? 0 : 0);
+        SetField(display, "_targetScrollCounter", isScrolling ? 100 : 0);
+        queue.Clear();
+
+        for (int i = 0; i < queuedCount; i++)
+        {
+            queue.Add(new TextureGenerationRequest
+            {
+                SongNode = null!,
+                SongIndex = i,
+                Difficulty = 0,
+                IsSelected = false,
+                Priority = queuedCount - i
+            });
+        }
+
+        InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+        Assert.Equal(expectedRemaining, queue.Count);
+        Assert.Empty(GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache"));
     }
 
     [Fact]
@@ -1639,6 +1726,45 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void DrawSongItemWithPerspective_WhenCachedEnhancedBarExists_ShouldUseEnhancedPath()
+    {
+        var display = new SongListDisplay
+        {
+            Font = CreateSpriteFontStub()
+        };
+        var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
+        var titleTexture = CreateTexture(width: 240, height: 32);
+#pragma warning disable SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
+#pragma warning restore SYSLIB0050
+
+        SetField(display, "_useEnhancedRendering", true);
+        SetField(display, "_barRenderer", fakeRenderer);
+        GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_0"] = new SongBarInfo
+        {
+            SongNode = node,
+            BarType = BarType.Box,
+            TitleTexture = titleTexture.Object,
+            TitleString = "Folder",
+            DifficultyLevel = 0
+        };
+
+        InvokePrivate<object?>(
+            display,
+            "DrawSongItemWithPerspective",
+            (SpriteBatch)null!,
+            node,
+            new Rectangle(100, 200, 510, 48),
+            false,
+            false,
+            0,
+            1f,
+            1f);
+
+        titleTexture.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()), Times.Once);
+    }
+
+    [Fact]
     public void DrawBarInfoWithPerspective_WhenOptionalAssetsAreMissing_ShouldReturnWithoutThrowing()
     {
         var display = new SongListDisplay
@@ -1793,6 +1919,35 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void DrawArtistNameWithManagedFont_WhenArtistExists_ShouldMeasureTruncateAndDraw()
+    {
+        var display = new SongListDisplay();
+        var managedFont = CreateManagedFont();
+        var itemBounds = new Rectangle(665, 269, 510, 48);
+        string? drawnText = null;
+
+        managedFont.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string text) => new Vector2(text.Length * 24, 16));
+        managedFont
+            .Setup(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()))
+            .Callback<SpriteBatch, string, Vector2, Color>((_, text, _, _) => drawnText = text);
+        display.ManagedFont = managedFont.Object;
+
+        InvokePrivate<object?>(
+            display,
+            "DrawArtistNameWithManagedFont",
+            (SpriteBatch)null!,
+            "Artist Name That Needs Truncation Artist Name That Needs Truncation Again",
+            itemBounds,
+            Vector2.One,
+            1f);
+
+        managedFont.Verify(x => x.MeasureString(It.IsAny<string>()), Times.AtLeastOnce);
+        managedFont.Verify(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Once);
+        Assert.NotNull(drawnText);
+        Assert.EndsWith("...", drawnText);
+    }
+
+    [Fact]
     public void Dispose_ShouldReleaseManagedTexturesAndClearCaches()
     {
         var display = new SongListDisplay();
@@ -1927,6 +2082,39 @@ public class SongListDisplayLogicTests
         texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()));
         texture.Setup(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<float>(), It.IsAny<Vector2>()));
         return texture;
+    }
+
+    private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)
+    {
+        var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+        var glyphBounds = new List<Rectangle>();
+        var cropping = new List<Rectangle>();
+        var characters = new List<char>();
+        var kerning = new List<Vector3>();
+        var x = 0;
+
+        foreach (var (character, width) in glyphs.OrderBy(glyph => glyph.character))
+        {
+            glyphBounds.Add(new Rectangle(x, 0, width, lineSpacing));
+            cropping.Add(new Rectangle(0, 0, width, lineSpacing));
+            characters.Add(character);
+            kerning.Add(new Vector3(0, width, 0));
+            x += width;
+        }
+
+        return (SpriteFont)Activator.CreateInstance(
+            typeof(SpriteFont),
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: [texture, glyphBounds, cropping, characters, lineSpacing, 0f, kerning, defaultCharacter],
+            culture: null)!;
+    }
+
+    private static SpriteFont CreateSpriteFontStub()
+    {
+#pragma warning disable SYSLIB0050
+        return (SpriteFont)FormatterServices.GetUninitializedObject(typeof(SpriteFont));
+#pragma warning restore SYSLIB0050
     }
 
     private static List<TextureGenerationRequest> GetTextureGenerationQueue(SongListDisplay display)
