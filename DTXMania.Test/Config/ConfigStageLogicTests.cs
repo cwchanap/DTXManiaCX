@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game;
@@ -1233,7 +1234,7 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void OnBackButtonClicked_WithUnsavedChanges_ShouldTransitionWithoutClearingUnsavedFlag()
+    public void OnBackButtonClicked_WithUnsavedChanges_ShouldLogDiscardMessageAndTransition()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -1242,15 +1243,26 @@ public class ConfigStageLogicTests
             var stageManager = new Moq.Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+            using var debugOutput = new StringWriter();
+            using var listener = new TextWriterTraceListener(debugOutput);
+            Trace.Listeners.Add(listener);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+            try
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+                Trace.Flush();
+            }
+            finally
+            {
+                Trace.Listeners.Remove(listener);
+            }
 
             stageManager.Verify(
                 manager => manager.ChangeStage(
                     StageType.Title,
                     Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)),
                 Moq.Times.Once);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            Assert.Contains("unsaved changes", debugOutput.ToString(), StringComparison.OrdinalIgnoreCase);
         }
     }
 
