@@ -164,7 +164,7 @@ namespace DTXMania.Game.Lib.UI.Components
             if (!Visible || _font == null || string.IsNullOrEmpty(_text))
                 return;
 
-            var textSize = _font.MeasureString(_text);
+            var textSize = MeasureText(_font, _text);
             var bounds = Bounds;
 
             // Calculate text position based on alignment
@@ -180,11 +180,11 @@ namespace DTXMania.Game.Lib.UI.Components
             if (_hasShadow)
             {
                 var shadowPosition = textPosition + _shadowOffset;
-                spriteBatch.DrawString(_font, _text, shadowPosition, _shadowColor);
+                DrawText(spriteBatch, _font, _text, shadowPosition, _shadowColor);
             }
 
             // Draw main text
-            spriteBatch.DrawString(_font, _text, textPosition, _textColor);
+            DrawText(spriteBatch, _font, _text, textPosition, _textColor);
 
             base.OnDraw(spriteBatch, deltaTime);
         }
@@ -256,7 +256,7 @@ namespace DTXMania.Game.Lib.UI.Components
                         continue; // Skip center position (main text)
 
                     var outlinePosition = textPosition + new Vector2(dx, dy);
-                    spriteBatch.DrawString(_font, _text, outlinePosition, _outlineColor);
+                    DrawText(spriteBatch, _font, _text, outlinePosition, _outlineColor);
                 }
             }
         }
@@ -268,9 +268,19 @@ namespace DTXMania.Game.Lib.UI.Components
         {
             if (_font != null && !string.IsNullOrEmpty(_text))
             {
-                var textSize = _font.MeasureString(_text);
+                var textSize = MeasureText(_font, _text);
                 Size = textSize;
             }
+        }
+
+        protected virtual Vector2 MeasureText(SpriteFont font, string text)
+        {
+            return font.MeasureString(text);
+        }
+
+        protected virtual void DrawText(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)
+        {
+            spriteBatch.DrawString(font, text, position, color);
         }
 
         #endregion
