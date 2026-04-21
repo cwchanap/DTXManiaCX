@@ -146,6 +146,15 @@ public class AppPathsTests
     }
 
     [Fact]
+    public void IsMacLibraryRelativePath_WhenPathIsBlank_ShouldReturnFalse()
+    {
+        var method = typeof(AppPaths).GetMethod("IsMacLibraryRelativePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        Assert.False((bool)method!.Invoke(null, new object[] { "   " })!);
+    }
+
+    [Fact]
     public void ExpandHomePath_ShouldHandleTildeVariantsAndPassThrough()
     {
         var method = typeof(AppPaths).GetMethod("ExpandHomePath", BindingFlags.NonPublic | BindingFlags.Static);

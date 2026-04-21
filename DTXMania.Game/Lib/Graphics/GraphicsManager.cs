@@ -26,7 +26,7 @@ namespace DTXMania.Game.Lib.Graphics
         private RenderTargetManager _renderTargetManager = null!;
         private bool _disposed = false;
 
-        public GraphicsDevice GraphicsDevice => _deviceManager.GraphicsDevice;
+        public GraphicsDevice GraphicsDevice => GetGraphicsDevice();
         public GraphicsSettings Settings => _currentSettings?.Clone();
         public bool IsDeviceAvailable => GraphicsDevice != null && !GraphicsDevice.IsDisposed;
 
@@ -82,12 +82,8 @@ namespace DTXMania.Game.Lib.Graphics
 
             try
             {
-                _deviceManager.PreferredBackBufferWidth = settings.Width;
-                _deviceManager.PreferredBackBufferHeight = settings.Height;
-                _deviceManager.IsFullScreen = settings.IsFullscreen;
-                _deviceManager.SynchronizeWithVerticalRetrace = settings.VSync;
-
-                _deviceManager.ApplyChanges();
+                SetDeviceManagerSettings(settings);
+                ApplyDeviceChanges();
 
                 _currentSettings = settings.Clone();
                 SettingsChanged?.Invoke(this, new GraphicsSettingsChangedEventArgs(oldSettings, _currentSettings));
@@ -116,11 +112,8 @@ namespace DTXMania.Game.Lib.Graphics
         {
             try
             {
-                _deviceManager.PreferredBackBufferWidth = settings.Width;
-                _deviceManager.PreferredBackBufferHeight = settings.Height;
-                _deviceManager.IsFullScreen = settings.IsFullscreen;
-                _deviceManager.SynchronizeWithVerticalRetrace = settings.VSync;
-                _deviceManager.ApplyChanges();
+                SetDeviceManagerSettings(settings);
+                ApplyDeviceChanges();
                 
                 // Ensure current settings reflect the revert
                 _currentSettings = settings.Clone();
@@ -201,7 +194,7 @@ namespace DTXMania.Game.Lib.Graphics
         {
             try
             {
-                _deviceManager.ApplyChanges();
+                ApplyDeviceChanges();
                 return true;
             }
             catch
@@ -220,6 +213,24 @@ namespace DTXMania.Game.Lib.Graphics
             // Recreate render targets after device reset
             _renderTargetManager?.RecreateAllRenderTargets();
             DeviceReset?.Invoke(this, EventArgs.Empty);
+        }
+
+        protected virtual GraphicsDevice GetGraphicsDevice()
+        {
+            return _deviceManager.GraphicsDevice;
+        }
+
+        protected virtual void SetDeviceManagerSettings(GraphicsSettings settings)
+        {
+            _deviceManager.PreferredBackBufferWidth = settings.Width;
+            _deviceManager.PreferredBackBufferHeight = settings.Height;
+            _deviceManager.IsFullScreen = settings.IsFullscreen;
+            _deviceManager.SynchronizeWithVerticalRetrace = settings.VSync;
+        }
+
+        protected virtual void ApplyDeviceChanges()
+        {
+            _deviceManager.ApplyChanges();
         }
 
         public void Dispose()
