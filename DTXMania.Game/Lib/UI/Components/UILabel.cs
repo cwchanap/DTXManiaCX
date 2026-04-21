@@ -164,7 +164,7 @@ namespace DTXMania.Game.Lib.UI.Components
             if (!Visible || _font == null || string.IsNullOrEmpty(_text))
                 return;
 
-            var textSize = MeasureText(_font, _text);
+            var textSize = _font.MeasureString(_text);
             var bounds = Bounds;
 
             // Calculate text position based on alignment
@@ -268,14 +268,9 @@ namespace DTXMania.Game.Lib.UI.Components
         {
             if (_font != null && !string.IsNullOrEmpty(_text))
             {
-                var textSize = MeasureText(_font, _text);
+                var textSize = _font.MeasureString(_text);
                 Size = textSize;
             }
-        }
-
-        protected virtual Vector2 MeasureText(SpriteFont font, string text)
-        {
-            return font.MeasureString(text);
         }
 
         protected virtual void DrawText(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)

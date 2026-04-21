@@ -26,7 +26,7 @@ namespace DTXMania.Game.Lib.Graphics
         private RenderTargetManager _renderTargetManager = null!;
         private bool _disposed = false;
 
-        public GraphicsDevice GraphicsDevice => GetGraphicsDevice();
+        public GraphicsDevice GraphicsDevice => _deviceManager.GraphicsDevice;
         public GraphicsSettings Settings => _currentSettings?.Clone();
         public bool IsDeviceAvailable => GraphicsDevice != null && !GraphicsDevice.IsDisposed;
 
@@ -213,11 +213,6 @@ namespace DTXMania.Game.Lib.Graphics
             // Recreate render targets after device reset
             _renderTargetManager?.RecreateAllRenderTargets();
             DeviceReset?.Invoke(this, EventArgs.Empty);
-        }
-
-        protected virtual GraphicsDevice GetGraphicsDevice()
-        {
-            return _deviceManager.GraphicsDevice;
         }
 
         protected virtual void SetDeviceManagerSettings(GraphicsSettings settings)
