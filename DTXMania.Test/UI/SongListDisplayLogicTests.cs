@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
@@ -552,9 +551,7 @@ public class SongListDisplayLogicTests
     {
         var display = new SongListDisplay();
         var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
-#pragma warning disable SYSLIB0050
-        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
-#pragma warning restore SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
         var cachedInfo = new SongBarInfo
         {
             SongNode = node,
@@ -614,9 +611,7 @@ public class SongListDisplayLogicTests
     public void UpdatePendingTextures_ShouldRespectPerFrameProcessingLimit(bool isScrolling, int queuedCount, int expectedRemaining)
     {
         var display = new SongListDisplay();
-#pragma warning disable SYSLIB0050
-        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
-#pragma warning restore SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
         var queue = GetTextureGenerationQueue(display);
 
         SetField(display, "_barRenderer", fakeRenderer);
@@ -683,9 +678,7 @@ public class SongListDisplayLogicTests
     public void FontSetter_WhenBarRendererIsPresentButUninitialized_ShouldThrow()
     {
         var display = new SongListDisplay();
-#pragma warning disable SYSLIB0050
-        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
-#pragma warning restore SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
         SetField(display, "_barRenderer", fakeRenderer);
 
         var ex = Record.Exception(() => display.Font = null);
@@ -698,9 +691,7 @@ public class SongListDisplayLogicTests
     public void ManagedFontSetter_WhenBarRendererIsPresentButUninitialized_ShouldThrow()
     {
         var display = new SongListDisplay();
-#pragma warning disable SYSLIB0050
-        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
-#pragma warning restore SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
         SetField(display, "_barRenderer", fakeRenderer);
         var managedFont = new Mock<IFont>();
         managedFont.SetupGet(x => x.SpriteFont).Returns((Microsoft.Xna.Framework.Graphics.SpriteFont?)null);
@@ -1734,9 +1725,7 @@ public class SongListDisplayLogicTests
         };
         var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
         var titleTexture = CreateTexture(width: 240, height: 32);
-#pragma warning disable SYSLIB0050
-        var fakeRenderer = (SongBarRenderer)FormatterServices.GetUninitializedObject(typeof(SongBarRenderer));
-#pragma warning restore SYSLIB0050
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
 
         SetField(display, "_useEnhancedRendering", true);
         SetField(display, "_barRenderer", fakeRenderer);
@@ -1962,10 +1951,8 @@ public class SongListDisplayLogicTests
         var title = new Mock<ITexture>();
         var preview = new Mock<ITexture>();
         var lamp = new Mock<ITexture>();
-#pragma warning disable SYSLIB0050
-        var cachedTitleTexture = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
-        var cachedPreviewTexture = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
-#pragma warning restore SYSLIB0050
+        var cachedTitleTexture = (TrackingTexture2D)RuntimeHelpers.GetUninitializedObject(typeof(TrackingTexture2D));
+        var cachedPreviewTexture = (TrackingTexture2D)RuntimeHelpers.GetUninitializedObject(typeof(TrackingTexture2D));
 
         SetField(display, "_scrollbarTexture", scrollbar.Object);
         SetField(display, "_barScoreTexture", score.Object);
@@ -2112,9 +2099,7 @@ public class SongListDisplayLogicTests
 
     private static SpriteFont CreateSpriteFontStub()
     {
-#pragma warning disable SYSLIB0050
-        return (SpriteFont)FormatterServices.GetUninitializedObject(typeof(SpriteFont));
-#pragma warning restore SYSLIB0050
+        return (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
     }
 
     private static List<TextureGenerationRequest> GetTextureGenerationQueue(SongListDisplay display)

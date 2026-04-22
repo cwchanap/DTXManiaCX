@@ -177,8 +177,10 @@ namespace DTXMania.Test.Stage
             gameStartSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
         }
 
-        [Fact]
-        public void SelectCurrentMenuItem_WhenUnsupportedIndex_ShouldDoNothing()
+        [Theory]
+        [InlineData(99)]
+        [InlineData(-1)]
+        public void SelectCurrentMenuItem_WhenIndexIsOutOfBounds_ShouldDoNothing(int menuIndex)
         {
             var game = ReflectionHelpers.CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.25);
             var stageManager = new Mock<IStageManager>();
@@ -186,31 +188,7 @@ namespace DTXMania.Test.Stage
             var selectSound = CreateSoundReturningInstance();
             var stage = CreateStage(game);
             stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 99);
-            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
-
-            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "SelectCurrentMenuItem"));
-
-            Assert.Null(exception);
-            stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
-                Times.Never);
-            gameStartSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
-            selectSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
-            Assert.Equal(0.25, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
-        }
-
-        [Fact]
-        public void SelectCurrentMenuItem_WhenMenuIndexIsNegative_ShouldDoNothing()
-        {
-            var game = ReflectionHelpers.CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.25);
-            var stageManager = new Mock<IStageManager>();
-            var gameStartSound = CreateSoundReturningInstance();
-            var selectSound = CreateSoundReturningInstance();
-            var stage = CreateStage(game);
-            stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", -1);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", menuIndex);
             ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
             ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
 
