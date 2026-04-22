@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -1249,7 +1250,7 @@ public class ConfigStageLogicTests
                 manager => manager.ChangeStage(
                     StageType.Title,
                     Moq.It.Is<IStageTransition>(transition =>
-                        transition is CrossfadeTransition && transition.Duration == 0.3)),
+                        transition is CrossfadeTransition && Math.Abs(transition.Duration - 0.3) < 1e-6)),
                 Moq.Times.Once);
         }
     }

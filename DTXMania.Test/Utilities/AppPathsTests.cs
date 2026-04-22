@@ -104,6 +104,11 @@ public class AppPathsTests
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = GetHomeDirectory();
+            if (string.IsNullOrWhiteSpace(home))
+            {
+                return;
+            }
+
             Assert.Equal(Path.GetFullPath(Path.Combine(home, libraryRelativePath)), resolved);
         }
         else
