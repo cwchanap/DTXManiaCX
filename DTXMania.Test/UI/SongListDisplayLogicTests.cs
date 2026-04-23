@@ -615,7 +615,7 @@ public class SongListDisplayLogicTests
         var queue = GetTextureGenerationQueue(display);
 
         SetField(display, "_barRenderer", fakeRenderer);
-        SetField(display, "_currentScrollCounter", isScrolling ? 0 : 0);
+        SetField(display, "_currentScrollCounter", 0);
         SetField(display, "_targetScrollCounter", isScrolling ? 100 : 0);
         queue.Clear();
 
