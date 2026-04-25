@@ -457,15 +457,17 @@ namespace DTXMania.Test.Stage
 #pragma warning disable SYSLIB0050
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
             SetPrivateField(stage, "_spriteBatch", (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch)));
-            SetPrivateField(stage, "_whitePixel", (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D)));
+            var whitePixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+            SetPrivateField(stage, "_whitePixel", whitePixel);
 #pragma warning restore SYSLIB0050
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
             stage.ViewportToReturn = new Viewport(0, 0, 640, 480);
 
             InvokePrivateMethod(stage, "DrawBackground");
 
-            Assert.Equal(new Rectangle(0, 0, 640, 480), stage.FallbackBackgroundRectangle);
-            Assert.Equal(ResultUILayout.Background.BackgroundColor, stage.FallbackBackgroundColor);
+            Assert.Same(whitePixel, stage.DrawTextureArgument);
+            Assert.Equal(new Rectangle(0, 0, 640, 480), stage.DrawTextureRectangle);
+            Assert.Equal(ResultUILayout.Background.BackgroundColor, stage.DrawTextureColor);
         }
 
         [Fact]
@@ -691,9 +693,11 @@ namespace DTXMania.Test.Stage
 
             public Exception? FontExceptionToThrow { get; set; }
 
-            public Rectangle? FallbackBackgroundRectangle { get; private set; }
+            public Texture2D? DrawTextureArgument { get; private set; }
 
-            public Color? FallbackBackgroundColor { get; private set; }
+            public Rectangle? DrawTextureRectangle { get; private set; }
+
+            public Color? DrawTextureColor { get; private set; }
 
             internal override Texture2D CreateWhitePixel()
             {
@@ -710,10 +714,11 @@ namespace DTXMania.Test.Stage
                 return ViewportToReturn;
             }
 
-            internal override void DrawFallbackBackground(Rectangle backgroundRect, Color backgroundColor)
+            internal override void DrawTexture(Texture2D texture, Rectangle destinationRectangle, Color color)
             {
-                FallbackBackgroundRectangle = backgroundRect;
-                FallbackBackgroundColor = backgroundColor;
+                DrawTextureArgument = texture;
+                DrawTextureRectangle = destinationRectangle;
+                DrawTextureColor = color;
             }
         }
 

@@ -232,6 +232,23 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadMenuTexture_WhenResourceLoadFails_ShouldPreserveExistingMenuTextureFallback()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingMenuTexture = new Mock<ITexture>();
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.TitleMenu))
+                .Throws(new InvalidOperationException("missing texture"));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_menuTexture", existingMenuTexture.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadMenuTexture");
+
+            Assert.Same(existingMenuTexture.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_menuTexture"));
+        }
+
+        [Fact]
         public void LoadBackgroundTexture_ShouldNotThrow()
         {
             var stage = CreateStage();
@@ -441,6 +458,32 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandleInput_WhenBackTriggered_ShouldPreventActivateSelectionFlow()
+        {
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var inputManager = new StubInputManagerCompat();
+            var stageManager = new Mock<IStageManager>();
+            var selectSound = CreateSoundReturningInstance();
+            var stage = CreateStage(game);
+
+            inputManager.SetBackTriggered(true);
+            inputManager.SetPressedCommand(InputCommandType.Activate);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 1);
+            ReflectionHelpers.SetPrivateField(stage, "_selectSound", selectSound.Object);
+            stage.StageManager = stageManager.Object;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentMenuIndex"));
+            Assert.Equal(2.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+            stageManager.Verify(
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
+                Times.Never);
+            selectSound.Verify(x => x.Play(It.IsAny<float>()), Times.Never);
+        }
+
+        [Fact]
         public void HandleInput_WhenActivatePressed_ShouldSelectCurrentMenuItem()
         {
             var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
@@ -463,6 +506,31 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
                 Times.Once);
             selectSound.Verify(x => x.Play(0.8f), Times.Once);
+        }
+
+        [Fact]
+        public void HandleInput_WhenActivatePressedOnGameStart_ShouldSelectSongSelectFlow()
+        {
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var inputManager = new StubInputManagerCompat();
+            var stageManager = new Mock<IStageManager>();
+            var gameStartSound = CreateSoundReturningInstance();
+            var stage = CreateStage(game);
+
+            inputManager.SetPressedCommand(InputCommandType.Activate);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+            ReflectionHelpers.SetPrivateField(stage, "_currentMenuIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_gameStartSound", gameStartSound.Object);
+            stage.StageManager = stageManager.Object;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongSelect,
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
+                Times.Once);
+            gameStartSound.Verify(x => x.Play(0.9f), Times.Once);
         }
 
         [Fact]
