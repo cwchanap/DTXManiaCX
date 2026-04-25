@@ -246,8 +246,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_whitePixel != null)
             {
-                _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
+                DrawTexture(_whitePixel, backgroundRect, backgroundColor);
             }
+        }
+
+        internal virtual void DrawTexture(Texture2D texture, Rectangle destinationRectangle, Color color)
+        {
+            _spriteBatch.Draw(texture, destinationRectangle, color);
         }
 
         private void DrawResults()
