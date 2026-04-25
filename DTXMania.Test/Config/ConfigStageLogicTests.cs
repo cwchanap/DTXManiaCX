@@ -5,10 +5,12 @@ using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Config;
@@ -16,6 +18,16 @@ namespace DTXMania.Test.Config;
 [Trait("Category", "Unit")]
 public class ConfigStageLogicTests
 {
+    [Fact]
+    public void Constructor_WithoutConfigManager_ShouldThrowInvalidOperationException()
+    {
+        var game = ReflectionHelpers.CreateGame();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => new ConfigStage(game));
+
+        Assert.Equal("ConfigManager not found", exception.Message);
+    }
+
     [Fact]
     public void LoadConfiguration_ShouldCloneConfigAndResetUnsavedChanges()
     {
@@ -525,6 +537,25 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnUpdate_WithActivePanel_ShouldForwardKeyboardStatesToPanelAndSkipMenuHandling()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var activePanel = new TrackingKeyAssignPanel { IsActive = true };
+            ReflectionHelpers.SetPrivateField(stage, "_activePanel", activePanel);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 4);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.25);
+
+            Assert.Equal(1, activePanel.UpdateCallCount);
+            Assert.Equal(0.25, activePanel.LastDeltaTime, 3);
+            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+        }
+    }
+
+    [Fact]
     public void ApplySystemBindings_ShouldReplaceExistingMappings()
     {
         var inputManager = new InputManager();
@@ -548,6 +579,39 @@ public class ConfigStageLogicTests
         Assert.Equal(InputCommandType.Activate, snapshot[Keys.F]);
     }
 
+    [Fact]
+    public void DrawBackground_WithUnbegunSpriteBatch_ShouldThrowInvalidOperationException()
+    {
+        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", ReflectionHelpers.CreateUninitialized<SpriteBatch>());
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", ReflectionHelpers.CreateUninitialized<Texture2D>());
+
+            var exception = Assert.Throws<TargetInvocationException>(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
+
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+        }
+    }
+
+    [Fact]
+    public void DrawTitle_WhenBitmapFontMissing_ShouldFallbackToRectangleDrawing()
+    {
+        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", ReflectionHelpers.CreateUninitialized<SpriteBatch>());
+            ReflectionHelpers.SetPrivateField(stage, "_bitmapFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", ReflectionHelpers.CreateUninitialized<Texture2D>());
+
+            var exception = Assert.Throws<TargetInvocationException>(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
+
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+        }
+    }
+
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
@@ -556,6 +620,17 @@ public class ConfigStageLogicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         return (new ConfigStage(game), configManager, inputManager);
+    }
+
+    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStageWithGraphicsDevice(ConfigManager? configManager = null)
+    {
+        configManager ??= new ConfigManager();
+        var inputManager = new InputManagerCompat(configManager);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+        return (new ConfigStage(game), inputManager);
     }
 
     private static KeyBindings CreateWorkingDrumBindings()
@@ -677,6 +752,41 @@ public class ConfigStageLogicTests
         {
             return command == _pressedCommand;
         }
+    }
+
+    private sealed class TrackingKeyAssignPanel : IKeyAssignPanel
+    {
+        public bool IsActive { get; set; }
+
+        public event EventHandler? Closed;
+        public event EventHandler? Saved;
+
+        public int UpdateCallCount { get; private set; }
+        public double LastDeltaTime { get; private set; }
+
+        public void Activate() => IsActive = true;
+
+        public void Deactivate() => IsActive = false;
+
+        public void Update(double deltaTime, KeyboardState current, KeyboardState previous)
+        {
+            UpdateCallCount++;
+            LastDeltaTime = deltaTime;
+        }
+
+        public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel, int viewportWidth, int viewportHeight)
+        {
+        }
+    }
+
+    private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
+    {
+        public GraphicsDevice GraphicsDevice { get; } = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
+
+        public event EventHandler<EventArgs>? DeviceCreated;
+        public event EventHandler<EventArgs>? DeviceDisposing;
+        public event EventHandler<EventArgs>? DeviceReset;
+        public event EventHandler<EventArgs>? DeviceResetting;
     }
 
     [Fact]

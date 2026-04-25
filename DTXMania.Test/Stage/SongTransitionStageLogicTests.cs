@@ -9,8 +9,10 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -447,6 +449,53 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void InitializeUI_WhenSongSelectionExists_ShouldPopulatePanelAndActivateRootContainer()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+
+            var stage = CreateStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            var titleFont = new Mock<IFont>();
+            var artistFont = new Mock<IFont>();
+            var selectedSong = CreateSongNode(new SongChart { DrumLevel = 62, HasDrumChart = true });
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize))
+                .Returns(titleFont.Object);
+            resourceManager
+                .Setup(x => x.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize))
+                .Returns(artistFont.Object);
+            resourceManager
+                .Setup(x => x.LoadTexture("Graphics/5_preimage default.png"))
+                .Returns((ITexture?)null);
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.DifficultySprite))
+                .Returns((ITexture?)null);
+
+            InvokePrivateMethod(stage, "InitializeUI");
+
+            var panel = ReflectionHelpers.GetPrivateField<DTXMania.Game.Lib.UI.Components.UIPanel>(stage, "_mainPanel");
+            var uiManager = ReflectionHelpers.GetPrivateField<DTXMania.Game.Lib.UI.UIManager>(stage, "_uiManager");
+
+            Assert.NotNull(panel);
+            Assert.NotNull(uiManager);
+            Assert.Equal("Test Song", ReflectionHelpers.GetPrivateField<string>(stage, "_songTitle"));
+            Assert.Equal("Test Artist", ReflectionHelpers.GetPrivateField<string>(stage, "_artistName"));
+            Assert.Equal("Extreme", ReflectionHelpers.GetPrivateField<string>(stage, "_difficultyName"));
+            Assert.Equal(Vector2.Zero, panel!.Position);
+            Assert.Equal(PanelLayoutMode.Manual, panel.LayoutMode);
+            Assert.Equal(Color.DarkBlue * 0.8f, panel.BackgroundColor);
+            Assert.True(panel.IsActive);
+            Assert.Single(uiManager!.RootContainers);
+            Assert.Same(panel, uiManager.RootContainers[0]);
+            Assert.Same(panel, uiManager.FocusedContainer);
+        }
+
+        [Fact]
         public void LoadPreviewImage_WhenPrimaryPreviewExists_ShouldLoadAbsolutePreviewPath()
         {
             var stage = CreateStage();
@@ -829,6 +878,37 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadDifficultySprite_WhenExistingSpriteAndBaseTextureExist_ShouldReplaceSprite()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+
+            var stage = CreateStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            var oldSprite = ReflectionHelpers.CreateUninitialized<ManagedSpriteTexture>();
+            var baseTexture = new Mock<ITexture>();
+            var backingTexture = ReflectionHelpers.CreateUninitialized<Texture2D>();
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_difficultySprite", oldSprite);
+            ReflectionHelpers.SetPrivateField(oldSprite, "_referenceCount", 3);
+
+            baseTexture.SetupGet(x => x.Texture).Returns(backingTexture);
+            resourceManager
+                .Setup(x => x.LoadTexture(TexturePath.DifficultySprite))
+                .Returns(baseTexture.Object);
+
+            InvokePrivateMethod(stage, "LoadDifficultySprite");
+
+            var loadedSprite = ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(stage, "_difficultySprite");
+            Assert.NotNull(loadedSprite);
+            Assert.NotSame(oldSprite, loadedSprite);
+            Assert.Equal(2, oldSprite.ReferenceCount);
+            Assert.Same(backingTexture, loadedSprite!.Texture);
+            Assert.Equal(TexturePath.DifficultySprite, loadedSprite.SourcePath);
+        }
+
+        [Fact]
         public void HandleInput_WhenInputManagerIsNull_ShouldReturnEarly()
         {
             var stage = CreateStage();
@@ -1041,6 +1121,16 @@ namespace DTXMania.Test.Stage
                 WasDisposed = true;
                 base.Dispose(disposing);
             }
+        }
+
+        private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
+        {
+            public GraphicsDevice GraphicsDevice { get; } = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
+
+            public event EventHandler<EventArgs>? DeviceCreated;
+            public event EventHandler<EventArgs>? DeviceDisposing;
+            public event EventHandler<EventArgs>? DeviceReset;
+            public event EventHandler<EventArgs>? DeviceResetting;
         }
     }
 }
