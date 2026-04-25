@@ -283,6 +283,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadSoundEffects_WhenAllPrimarySoundsLoad_ShouldAssignAllSoundEffects()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var cursorSound = CreateSoundReturningInstance();
+            var selectSound = CreateSoundReturningInstance();
+            var gameStartSound = CreateSoundReturningInstance();
+
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Move.ogg"))
+                .Returns(cursorSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Decide.ogg"))
+                .Returns(selectSound.Object);
+            resourceManager
+                .Setup(x => x.LoadSound("Sounds/Game start.ogg"))
+                .Returns(gameStartSound.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
+
+            Assert.Same(cursorSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_cursorMoveSound"));
+            Assert.Same(selectSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_selectSound"));
+            Assert.Same(gameStartSound.Object, ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
+            resourceManager.Verify(x => x.LoadSound("Sounds/Decide.ogg"), Times.Once);
+        }
+
+        [Fact]
         public void LoadSoundEffects_WhenCursorMoveSoundMissing_ShouldContinueLoadingOtherSounds()
         {
             var stage = CreateStage();

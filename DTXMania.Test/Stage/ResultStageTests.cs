@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework;
 using Moq;
@@ -300,6 +301,21 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_WhenActivateIsDebounced_ShouldNotChangeStage()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
+
+            Assert.False(GetStageManagerMock(stage).Invocations.Any());
+            Assert.Equal(
+                0.0,
+                DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(
+                    GetPrivateField<BaseGame>(stage, "_game")!,
+                    "_lastStageTransitionTime"));
+        }
+
+        [Fact]
         public void ExecuteInputCommand_WhenBackAndTransitionAllowed_ShouldReturnToSongSelect()
         {
             var stage = CreateUninitializedResultStageWithStageManager();
@@ -417,6 +433,39 @@ namespace DTXMania.Test.Stage
                     It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
                     null),
                 Times.Once);
+        }
+
+        [Fact]
+        public void InitializeComponents_WhenFontCreationThrows_ShouldLeaveResultFontNull()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
+#pragma warning restore SYSLIB0050
+            SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
+            stage.WhitePixelToReturn = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+            stage.FontExceptionToThrow = new InvalidOperationException("font load failed");
+
+            InvokePrivateMethod(stage, "InitializeComponents");
+
+            Assert.Same(stage.WhitePixelToReturn, GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            Assert.Null(GetPrivateField<BitmapFont>(stage, "_resultFont"));
+        }
+
+        [Fact]
+        public void DrawBackground_WhenBackgroundIsNotReady_ShouldFillViewportUsingWhitePixel()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
+            SetPrivateField(stage, "_spriteBatch", (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch)));
+            SetPrivateField(stage, "_whitePixel", (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D)));
+#pragma warning restore SYSLIB0050
+            SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
+            stage.ViewportToReturn = new Viewport(0, 0, 640, 480);
+
+            InvokePrivateMethod(stage, "DrawBackground");
+
+            Assert.Equal(new Rectangle(0, 0, 640, 480), stage.FallbackBackgroundRectangle);
+            Assert.Equal(ResultUILayout.Background.BackgroundColor, stage.FallbackBackgroundColor);
         }
 
         [Fact]
@@ -626,6 +675,45 @@ namespace DTXMania.Test.Stage
             protected override void Dispose(bool disposing)
             {
                 WasDisposed = true;
+            }
+        }
+
+        private sealed class InspectableResultStage : ResultStage
+        {
+            public InspectableResultStage(BaseGame game)
+                : base(game)
+            {
+            }
+
+            public Viewport ViewportToReturn { get; set; }
+
+            public Texture2D? WhitePixelToReturn { get; set; }
+
+            public Exception? FontExceptionToThrow { get; set; }
+
+            public Rectangle? FallbackBackgroundRectangle { get; private set; }
+
+            public Color? FallbackBackgroundColor { get; private set; }
+
+            internal override Texture2D CreateWhitePixel()
+            {
+                return WhitePixelToReturn!;
+            }
+
+            internal override BitmapFont CreateResultFont()
+            {
+                throw FontExceptionToThrow!;
+            }
+
+            internal override Viewport GetBackgroundViewport()
+            {
+                return ViewportToReturn;
+            }
+
+            internal override void DrawFallbackBackground(Rectangle backgroundRect, Color backgroundColor)
+            {
+                FallbackBackgroundRectangle = backgroundRect;
+                FallbackBackgroundColor = backgroundColor;
             }
         }
 
