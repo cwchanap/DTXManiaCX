@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -206,6 +208,28 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public async Task StartGameApiServerAsync_WhenServerStartsSuccessfully_ShouldRunServer()
+        {
+            var port = GetAvailablePort();
+            var game = CreateGameForLifecycle(new ConfigData { GameApiPort = port });
+            var gameApi = new Mock<IGameApi>();
+            gameApi.SetupGet(api => api.IsRunning).Returns(true);
+            using var server = new JsonRpcServer(gameApi.Object, port: port);
+            using var cancellation = new CancellationTokenSource();
+
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(game, "StartGameApiServerAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.True(server.IsRunning);
+
+            await server.StopAsync();
+        }
+
+        [Fact]
         public void Draw_WhenGraphicsDeviceIsUnavailable_ShouldCompletePendingScreenshotWithNull()
         {
             var game = CreateGameForLifecycle();
@@ -321,6 +345,24 @@ namespace DTXMania.Test
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
+        }
+
+        [Fact]
+        public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldInitializeServerState()
+        {
+            var port = GetAvailablePort();
+            var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = port };
+            var game = CreateGameForLifecycle(config);
+
+            var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
+
+            Assert.True(initialized);
+            Assert.IsType<GameApiImplementation>(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiImplementation"));
+            Assert.IsType<JsonRpcServer>(ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer"));
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(game, "_gameApiCancellation"));
+
+            ReflectionHelpers.GetPrivateField<CancellationTokenSource>(game, "_gameApiCancellation")?.Dispose();
+            (ReflectionHelpers.GetPrivateField<object>(game, "_jsonRpcServer") as IDisposable)?.Dispose();
         }
 
         [Fact]
@@ -522,6 +564,65 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void Draw_WhenRenderTargetMustBeRecreated_ShouldCreateTargetAndCompletePendingScreenshot()
+        {
+            var config = new ConfigData { ScreenWidth = 16, ScreenHeight = 16 };
+            var game = ReflectionHelpers.CreateUninitialized<DrawHarnessBaseGame>();
+            var renderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(renderTarget);
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, renderTargetManager);
+            var stageManager = new Mock<IStageManager>();
+            var pendingScreenshot = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            game.CapturedScreenshotToReturn = [1, 2, 3];
+
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", null);
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", pendingScreenshot);
+
+            game.InvokeBaseDraw(new GameTime());
+
+            stageManager.Verify(value => value.Draw(0.0), Times.Once);
+            Assert.Equal(("MainRenderTarget", config.ScreenWidth, config.ScreenHeight), renderTargetManager.LastRequest);
+            Assert.Same(renderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
+            Assert.True(pendingScreenshot.Task.IsCompletedSuccessfully);
+            Assert.Equal(game.CapturedScreenshotToReturn, pendingScreenshot.Task.Result);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_pendingScreenshot"));
+            Assert.Equal(2, game.SetRenderTargetCalls.Count);
+            Assert.Same(renderTarget, game.SetRenderTargetCalls[0]);
+            Assert.Null(game.SetRenderTargetCalls[1]);
+            Assert.Equal([Color.Black, Color.Black], game.ClearCalls);
+            Assert.Same(renderTarget, game.DrawnRenderTarget);
+        }
+
+        [Fact]
+        public void Draw_WhenCapturePendingScreenshotThrows_ShouldCompleteTaskWithExceptionAndDrawToBackBuffer()
+        {
+            var config = new ConfigData { ScreenWidth = 16, ScreenHeight = 16 };
+            var game = ReflectionHelpers.CreateUninitialized<DrawHarnessBaseGame>();
+            var renderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(renderTarget);
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, renderTargetManager);
+            var stageManager = new Mock<IStageManager>();
+            var pendingScreenshot = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            game.CapturePendingScreenshotException = new InvalidOperationException("capture failed");
+
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", renderTarget);
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", pendingScreenshot);
+
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.True(pendingScreenshot.Task.IsFaulted);
+            Assert.IsType<InvalidOperationException>(pendingScreenshot.Task.Exception?.InnerException);
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_pendingScreenshot"));
+            Assert.Same(renderTarget, game.DrawnRenderTarget);
+        }
+
+        [Fact]
         public void DisposeManagedResources_WhenServerStopsSuccessfully_ShouldDisposeCollaboratorsAndCancelPendingScreenshot()
         {
             var game = CreateGameForLifecycle();
@@ -699,6 +800,15 @@ namespace DTXMania.Test
             var configManager = new Mock<IConfigManager>();
             configManager.SetupGet(manager => manager.Config).Returns(config);
             return configManager.Object;
+        }
+
+        private static int GetAvailablePort()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
         }
 
         private static RenderTargetManager CreateFailingRenderTargetManager()
@@ -883,6 +993,57 @@ namespace DTXMania.Test
             {
                 QueueGameApiStartupCallCount++;
                 return StartGameApiServerTask;
+            }
+        }
+
+        private sealed class DrawHarnessBaseGame : BaseGame
+        {
+            private List<RenderTarget2D?>? _setRenderTargetCalls;
+
+            private List<Color>? _clearCalls;
+
+            public List<RenderTarget2D?> SetRenderTargetCalls => _setRenderTargetCalls ??= new List<RenderTarget2D?>();
+
+            public List<Color> ClearCalls => _clearCalls ??= new List<Color>();
+
+            public byte[]? CapturedScreenshotToReturn { get; set; }
+
+            public Exception? CapturePendingScreenshotException { get; set; }
+
+            public RenderTarget2D? DrawnRenderTarget { get; private set; }
+
+            internal override void SetDrawRenderTarget(RenderTarget2D? renderTarget)
+            {
+                SetRenderTargetCalls.Add(renderTarget);
+            }
+
+            internal override void ClearDrawSurface(Color color)
+            {
+                ClearCalls.Add(color);
+            }
+
+            internal override byte[]? CapturePendingScreenshot(RenderTarget2D? renderTarget)
+            {
+                if (CapturePendingScreenshotException != null)
+                {
+                    throw CapturePendingScreenshotException;
+                }
+
+                return CapturedScreenshotToReturn;
+            }
+
+            internal override void DrawRenderTargetToBackBuffer(RenderTarget2D renderTarget)
+            {
+                DrawnRenderTarget = renderTarget;
+            }
+
+            internal override void CompleteBaseDraw(GameTime gameTime)
+            {
+            }
+
+            public void InvokeBaseDraw(GameTime gameTime)
+            {
+                base.Draw(gameTime);
             }
         }
     }

@@ -141,20 +141,31 @@ namespace DTXMania.Game.Lib.Stage
         private void InitializeComponents()
         {
             // Create white pixel texture for backgrounds
-            _whitePixel = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            _whitePixel = CreateWhitePixel();
 
             // Initialize font for text display
             try
             {
-                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-                _resultFont = new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
+                _resultFont = CreateResultFont();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to load font: {ex.Message}");
                 _resultFont = null;
             }
+        }
+
+        internal virtual Texture2D CreateWhitePixel()
+        {
+            var whitePixel = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
+            whitePixel.SetData(new[] { Color.White });
+            return whitePixel;
+        }
+
+        internal virtual BitmapFont CreateResultFont()
+        {
+            var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
+            return new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
         }
 
         private void CleanupComponents()
@@ -211,7 +222,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawBackground()
         {
-            var viewport = _spriteBatch.GraphicsDevice.Viewport;
+            var viewport = GetBackgroundViewport();
 
             // Draw DTXManiaNX authentic background graphics (8_background.jpg)
             DrawStageBackground(_spriteBatch);
@@ -222,10 +233,20 @@ namespace DTXMania.Game.Lib.Stage
                 var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
                 var backgroundColor = ResultUILayout.Background.BackgroundColor;
 
-                if (_whitePixel != null)
-                {
-                    _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
-                }
+                DrawFallbackBackground(backgroundRect, backgroundColor);
+            }
+        }
+
+        internal virtual Viewport GetBackgroundViewport()
+        {
+            return _spriteBatch.GraphicsDevice.Viewport;
+        }
+
+        internal virtual void DrawFallbackBackground(Rectangle backgroundRect, Color backgroundColor)
+        {
+            if (_whitePixel != null)
+            {
+                _spriteBatch.Draw(_whitePixel, backgroundRect, backgroundColor);
             }
         }
 

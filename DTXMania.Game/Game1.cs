@@ -329,8 +329,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         }
 
         // Draw to render target first
-        GraphicsDevice.SetRenderTarget(_renderTarget);
-        GraphicsDevice.Clear(Color.Black);
+        SetDrawRenderTarget(_renderTarget);
+        ClearDrawSurface(Color.Black);
 
         StageManager?.Draw(gameTime.ElapsedGameTime.TotalSeconds);
 
@@ -342,7 +342,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         {
             try
             {
-                pendingScreenshot.SetResult(CaptureRenderTargetAsPng(_renderTarget));
+                pendingScreenshot.SetResult(CapturePendingScreenshot(_renderTarget));
             }
             catch (Exception ex)
             {
@@ -351,18 +351,41 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         }
 
         // Draw render target to screen
-        GraphicsDevice.SetRenderTarget(null);
-        GraphicsDevice.Clear(Color.Black);
+        SetDrawRenderTarget(null);
+        ClearDrawSurface(Color.Black);
 
         if (_renderTarget != null && !_renderTarget.IsDisposed)
         {
-            _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
-            _spriteBatch.Draw(_renderTarget,
-                GraphicsDevice.Viewport.Bounds,
-                Color.White);
-            _spriteBatch.End();
+            DrawRenderTargetToBackBuffer(_renderTarget);
         }
 
+        CompleteBaseDraw(gameTime);
+    }
+
+    internal virtual void SetDrawRenderTarget(RenderTarget2D? renderTarget)
+    {
+        GraphicsDevice.SetRenderTarget(renderTarget);
+    }
+
+    internal virtual void ClearDrawSurface(Color color)
+    {
+        GraphicsDevice.Clear(color);
+    }
+
+    internal virtual byte[]? CapturePendingScreenshot(RenderTarget2D? renderTarget)
+    {
+        return CaptureRenderTargetAsPng(renderTarget);
+    }
+
+    internal virtual void DrawRenderTargetToBackBuffer(RenderTarget2D renderTarget)
+    {
+        _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
+        _spriteBatch.Draw(renderTarget, GraphicsDevice.Viewport.Bounds, Color.White);
+        _spriteBatch.End();
+    }
+
+    internal virtual void CompleteBaseDraw(GameTime gameTime)
+    {
         base.Draw(gameTime);
     }
 
