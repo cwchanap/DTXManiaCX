@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework;
 using Moq;
@@ -532,52 +533,6 @@ namespace DTXMania.Test.Stage
 
         #region Helper Methods
 
-        private static void InvokePrivateMethod(object target, string methodName, params object[] args)
-        {
-            var type = target.GetType();
-            while (type != null)
-            {
-                var method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
-                if (method != null)
-                {
-                    method.Invoke(target, args);
-                    return;
-                }
-                type = type.BaseType;
-            }
-            Assert.Fail($"Method '{methodName}' not found");
-        }
-
-        private static T? GetPrivateField<T>(object target, string fieldName)
-        {
-            var type = target.GetType();
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-                if (field != null)
-                    return (T?)field.GetValue(target);
-                type = type.BaseType;
-            }
-            Assert.Fail($"Field '{fieldName}' not found");
-            return default;
-        }
-
-        private static void SetPrivateField(object target, string fieldName, object? value)
-        {
-            var type = target.GetType();
-            while (type != null)
-            {
-                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-                if (field != null)
-                {
-                    field.SetValue(target, value);
-                    return;
-                }
-                type = type.BaseType;
-            }
-            Assert.Fail($"Field '{fieldName}' not found");
-        }
-
         private static void InvokeDispose(ResultStage stage, bool disposing)
         {
             var method = typeof(ResultStage).GetMethod(
@@ -706,7 +661,7 @@ namespace DTXMania.Test.Stage
 
             internal override BitmapFont CreateResultFont()
             {
-                throw FontExceptionToThrow!;
+                throw FontExceptionToThrow ?? new InvalidOperationException("No font exception configured.");
             }
 
             internal override Viewport GetBackgroundViewport()
