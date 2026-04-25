@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -210,11 +208,10 @@ namespace DTXMania.Test
         [Fact]
         public async Task StartGameApiServerAsync_WhenServerStartsSuccessfully_ShouldRunServer()
         {
-            var port = GetAvailablePort();
-            var game = CreateGameForLifecycle(new ConfigData { GameApiPort = port });
+            var game = CreateGameForStartup(new ConfigData { GameApiPort = 12345 });
             var gameApi = new Mock<IGameApi>();
             gameApi.SetupGet(api => api.IsRunning).Returns(true);
-            using var server = new JsonRpcServer(gameApi.Object, port: port);
+            using var server = new JsonRpcServer(gameApi.Object, port: 12345);
             using var cancellation = new CancellationTokenSource();
 
             ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
@@ -225,8 +222,8 @@ namespace DTXMania.Test
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.True(server.IsRunning);
-
-            await server.StopAsync();
+            Assert.Equal(1, game.StartJsonRpcServerCallCount);
+            Assert.Equal(cancellation.Token, game.LastStartJsonRpcServerToken);
         }
 
         [Fact]
@@ -350,8 +347,7 @@ namespace DTXMania.Test
         [Fact]
         public void TryInitializeGameApi_WhenConfigurationIsValid_ShouldInitializeServerState()
         {
-            var port = GetAvailablePort();
-            var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = port };
+            var config = new ConfigData { EnableGameApi = true, GameApiKey = "secret-key", GameApiPort = 12345 };
             var game = CreateGameForLifecycle(config);
 
             var initialized = Assert.IsType<bool>(ReflectionHelpers.InvokePrivateMethod(game, "TryInitializeGameApi", config));
@@ -783,6 +779,18 @@ namespace DTXMania.Test
             return game;
         }
 
+        private static StartupTestableBaseGame CreateGameForStartup(ConfigData config)
+        {
+            var game = ReflectionHelpers.CreateUninitialized<StartupTestableBaseGame>();
+            var loggerFactory = LoggerFactory.Create(builder => { });
+
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
+            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
+
+            return game;
+        }
+
         private static JsonRpcServer CreateRunningJsonRpcServer(Mock<IHost> host, CancellationTokenSource cancellation)
         {
             var gameApi = new Mock<IGameApi>();
@@ -800,15 +808,6 @@ namespace DTXMania.Test
             var configManager = new Mock<IConfigManager>();
             configManager.SetupGet(manager => manager.Config).Returns(config);
             return configManager.Object;
-        }
-
-        private static int GetAvailablePort()
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
         }
 
         private static RenderTargetManager CreateFailingRenderTargetManager()
@@ -993,6 +992,21 @@ namespace DTXMania.Test
             {
                 QueueGameApiStartupCallCount++;
                 return StartGameApiServerTask;
+            }
+        }
+
+        private sealed class StartupTestableBaseGame : BaseGame
+        {
+            public int StartJsonRpcServerCallCount { get; private set; }
+
+            public CancellationToken LastStartJsonRpcServerToken { get; private set; }
+
+            internal override Task StartJsonRpcServerAsync(JsonRpcServer server, CancellationToken cancellationToken)
+            {
+                StartJsonRpcServerCallCount++;
+                LastStartJsonRpcServerToken = cancellationToken;
+                ReflectionHelpers.SetPrivateField(server, "_isRunning", true);
+                return Task.CompletedTask;
             }
         }
 

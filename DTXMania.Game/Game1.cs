@@ -206,6 +206,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return StartGameApiServerAsync();
     }
 
+    internal virtual Task StartJsonRpcServerAsync(JsonRpcServer server, CancellationToken cancellationToken)
+    {
+        return server.StartAsync(cancellationToken);
+    }
+
     private void ApplySavedSystemKeyBindings()
     {
         if (ConfigManager is ConfigManager concreteConfig)
@@ -243,7 +248,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         try
         {
             // Pass cancellation token to allow graceful shutdown
-            await _jsonRpcServer.StartAsync(cancellationToken);
+            await StartJsonRpcServerAsync(_jsonRpcServer, cancellationToken);
             _logger.LogInformation("JSON-RPC server started successfully on port {Port}", config.GameApiPort);
         }
         catch (OperationCanceledException)
