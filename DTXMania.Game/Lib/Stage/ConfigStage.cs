@@ -164,7 +164,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Initialization
 
-        private void InitializeGraphics()
+        protected virtual void InitializeGraphics()
         {
             var graphicsDevice = _game.GraphicsDevice;
             _spriteBatch = new SpriteBatch(graphicsDevice);

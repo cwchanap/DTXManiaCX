@@ -556,6 +556,51 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnActivate_ShouldInitializeConfigLifecycleState()
+    {
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            configManager.Config.ScreenWidth = 1920;
+            configManager.Config.ScreenHeight = 1080;
+            configManager.Config.FullScreen = true;
+            configManager.Config.VSyncWait = false;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+
+            Assert.NotNull(workingConfig);
+            Assert.Equal(1920, workingConfig!.ScreenWidth);
+            Assert.Equal(1080, workingConfig.ScreenHeight);
+            Assert.True(workingConfig.FullScreen);
+            Assert.False(workingConfig.VSyncWait);
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            Assert.NotNull(configItems);
+            Assert.Equal(7, configItems!.Count);
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
+        }
+    }
+
+    [Fact]
+    public void OnDraw_WhenSpriteBatchMissing_ShouldReturnWithoutThrowing()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnDraw", 0.0));
+
+            Assert.Null(exception);
+        }
+    }
+
+    [Fact]
     public void ApplySystemBindings_ShouldReplaceExistingMappings()
     {
         var inputManager = new InputManager();
@@ -631,6 +676,16 @@ public class ConfigStageLogicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
         return (new ConfigStage(game), inputManager);
+    }
+
+    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateLifecycleStage(ConfigManager? configManager = null)
+    {
+        configManager ??= new ConfigManager();
+        var inputManager = new InputManagerCompat(configManager);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        return (new LifecycleConfigStage(game), inputManager);
     }
 
     private static KeyBindings CreateWorkingDrumBindings()
@@ -787,6 +842,26 @@ public class ConfigStageLogicTests
         public event EventHandler<EventArgs>? DeviceDisposing;
         public event EventHandler<EventArgs>? DeviceReset;
         public event EventHandler<EventArgs>? DeviceResetting;
+    }
+
+    private sealed class LifecycleConfigStage : ConfigStage
+    {
+        public LifecycleConfigStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        protected override void InitializeGraphics()
+        {
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+            var whitePixel = ReflectionHelpers.CreateUninitialized<Texture2D>();
+            GC.SuppressFinalize(spriteBatch);
+            GC.SuppressFinalize(whitePixel);
+            ReflectionHelpers.SetPrivateField(this, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(this, "_whitePixel", whitePixel);
+            ReflectionHelpers.SetPrivateField(this, "_resourceManager", _game.ResourceManager);
+            ReflectionHelpers.SetPrivateField(this, "_bitmapFont", null);
+        }
     }
 
     [Fact]
