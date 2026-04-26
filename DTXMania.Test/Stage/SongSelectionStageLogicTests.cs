@@ -1042,6 +1042,46 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ProcessInputCommands_WhenMultipleCommandsQueued_ShouldExecuteUntilQueueIsEmpty()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B"), CreateScoreNode("C")]
+            };
+            var inputManager = new QueuedInputManager();
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveUp, 0.0));
+
+            InvokePrivateMethod(stage, "ProcessInputCommands");
+
+            Assert.Equal("B", display.SelectedSong!.Title);
+            Assert.False(inputManager.HasPendingCommands);
+        }
+
+        [Fact]
+        public void ProcessInputCommands_WhenInputManagerIsNull_ShouldLeaveSelectionUnchanged()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
+
+            AttachCoreUi(stage, display: display);
+            display.MoveNext();
+            SetPrivateField(stage, "_inputManager", null);
+
+            InvokePrivateMethod(stage, "ProcessInputCommands");
+
+            Assert.Equal("B", display.SelectedSong!.Title);
+        }
+
+        [Fact]
         public void LoadPreviewSound_WhenPreviewFileExists_ShouldLoadSoundAndActivateDelay()
         {
             var stage = CreateStage();
@@ -1201,6 +1241,44 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void LoadUIGraphics_WhenHeaderLoadFails_ShouldPreserveExistingHeaderAndLoadFooter()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var existingHeader = new Mock<ITexture>().Object;
+            var footer = new Mock<ITexture>().Object;
+
+            SetPrivateField(stage, "_headerPanelTexture", existingHeader);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionHeaderPanel)).Throws(new InvalidOperationException("header"));
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionFooterPanel)).Returns(footer);
+            AttachResourceManager(stage, resourceManager.Object);
+
+            InvokePrivateMethod(stage, "LoadUIGraphics");
+
+            Assert.Same(existingHeader, GetPrivateField<ITexture>(stage, "_headerPanelTexture"));
+            Assert.Same(footer, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
+        }
+
+        [Fact]
+        public void LoadUIGraphics_WhenFooterLoadFails_ShouldPreserveExistingFooterAndKeepNewHeader()
+        {
+            var stage = CreateStage();
+            var resourceManager = new Mock<IResourceManager>();
+            var header = new Mock<ITexture>().Object;
+            var existingFooter = new Mock<ITexture>().Object;
+
+            SetPrivateField(stage, "_footerPanelTexture", existingFooter);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionHeaderPanel)).Returns(header);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.SongSelectionFooterPanel)).Throws(new InvalidOperationException("footer"));
+            AttachResourceManager(stage, resourceManager.Object);
+
+            InvokePrivateMethod(stage, "LoadUIGraphics");
+
+            Assert.Same(header, GetPrivateField<ITexture>(stage, "_headerPanelTexture"));
+            Assert.Same(existingFooter, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
+        }
+
+        [Fact]
         public void LoadUIGraphics_WhenBothLoadsSucceed_ShouldSetHeaderAndFooterTextures()
         {
             var stage = CreateStage();
@@ -1283,6 +1361,32 @@ namespace DTXMania.Test.Stage
             Assert.Single(uiManager.RootContainers);
             Assert.Same(mainPanel, uiManager.RootContainers[0]);
             Assert.Same(mainPanel, uiManager.FocusedContainer);
+        }
+
+        [Fact]
+        public void InitializeUI_WhenEnhancedRenderingInitializationSucceeds_ShouldEnableEnhancedRendering()
+        {
+            var game = CreateGame();
+            SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+
+            var stage = CreateStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            var configManager = new Mock<IConfigManager>();
+            var uiFont = new Mock<IFont>();
+
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_stageRenderTarget", null);
+
+            InvokePrivateMethod(stage, "InitializeUI", uiFont.Object);
+
+            var songListDisplay = GetPrivateField<SongListDisplay>(stage, "_songListDisplay");
+            Assert.NotNull(songListDisplay);
+            Assert.True(GetPrivateField<bool>(songListDisplay!, "_useEnhancedRendering"));
+            Assert.Same(resourceManager.Object, GetPrivateField<IResourceManager>(songListDisplay!, "_resourceManager"));
         }
 
         [Fact]
