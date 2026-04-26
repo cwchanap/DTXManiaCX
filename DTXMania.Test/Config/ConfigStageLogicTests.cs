@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
@@ -601,6 +602,25 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnDraw_WithActivePanel_ShouldDrawOverlayBeforeCompletingFrame()
+    {
+        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var spriteBatch = CreateDeferredSpriteBatch(out var graphicsDevice);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", CreateTexture2D(graphicsDevice));
+            var activePanel = new TrackingKeyAssignPanel { IsActive = true };
+            ReflectionHelpers.SetPrivateField(stage, "_activePanel", activePanel);
+
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnDraw", 0.0));
+
+            Assert.Equal(1, activePanel.DrawCallCount);
+        }
+    }
+
+    [Fact]
     public void ApplySystemBindings_ShouldReplaceExistingMappings()
     {
         var inputManager = new InputManager();
@@ -686,6 +706,53 @@ public class ConfigStageLogicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         return (new LifecycleConfigStage(game), inputManager);
+    }
+
+    private static SpriteBatch CreateDeferredSpriteBatch(out GraphicsDevice graphicsDevice)
+    {
+        var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+        var batcherType = typeof(SpriteBatch).Assembly.GetType("Microsoft.Xna.Framework.Graphics.SpriteBatcher");
+        var batchItemType = typeof(SpriteBatch).Assembly.GetType("Microsoft.Xna.Framework.Graphics.SpriteBatchItem");
+
+        Assert.NotNull(batcherType);
+        Assert.NotNull(batchItemType);
+
+        var batcher = RuntimeHelpers.GetUninitializedObject(batcherType!);
+        var bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var batchItems = Array.CreateInstance(batchItemType!, 256);
+        for (int i = 0; i < batchItems.Length; i++)
+        {
+            batchItems.SetValue(Activator.CreateInstance(batchItemType!, nonPublic: true), i);
+        }
+
+        batcherType!.GetField("_batchItemList", bindingFlags)!.SetValue(batcher, batchItems);
+        batcherType.GetField("_batchItemCount", bindingFlags)!.SetValue(batcher, 0);
+        batcherType.GetField("_index", bindingFlags)!.SetValue(batcher, new short[1536]);
+        batcherType.GetField("_vertexArray", bindingFlags)!.SetValue(batcher, new VertexPositionColorTexture[1024]);
+        graphicsDevice = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
+        batcherType.GetField("_device", bindingFlags)!.SetValue(batcher, graphicsDevice);
+
+        typeof(SpriteBatch).GetField("_batcher", bindingFlags)!.SetValue(spriteBatch, batcher);
+        typeof(SpriteBatch).GetField("_spriteEffect", bindingFlags)!.SetValue(
+            spriteBatch,
+            ReflectionHelpers.CreateUninitialized<SpriteEffect>());
+        GC.SuppressFinalize(graphicsDevice);
+        GC.SuppressFinalize(spriteBatch);
+        return spriteBatch;
+    }
+
+    private static Texture2D CreateTexture2D(GraphicsDevice graphicsDevice)
+    {
+        var texture = ReflectionHelpers.CreateUninitialized<Texture2D>();
+        var bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        ReflectionHelpers.GetField(typeof(GraphicsResource), "graphicsDevice")!.SetValue(texture, graphicsDevice);
+        typeof(Texture2D).GetField("width", bindingFlags)!.SetValue(texture, 1);
+        typeof(Texture2D).GetField("height", bindingFlags)!.SetValue(texture, 1);
+        typeof(Texture2D).GetField("<TexelWidth>k__BackingField", bindingFlags)!.SetValue(texture, 1f);
+        typeof(Texture2D).GetField("<TexelHeight>k__BackingField", bindingFlags)!.SetValue(texture, 1f);
+        GC.SuppressFinalize(texture);
+        return texture;
     }
 
     private static KeyBindings CreateWorkingDrumBindings()
@@ -817,6 +884,7 @@ public class ConfigStageLogicTests
         public event EventHandler? Saved;
 
         public int UpdateCallCount { get; private set; }
+        public int DrawCallCount { get; private set; }
         public double LastDeltaTime { get; private set; }
 
         public void Activate() => IsActive = true;
@@ -831,6 +899,7 @@ public class ConfigStageLogicTests
 
         public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel, int viewportWidth, int viewportHeight)
         {
+            DrawCallCount++;
         }
     }
 
