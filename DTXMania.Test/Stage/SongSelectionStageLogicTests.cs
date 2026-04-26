@@ -3,9 +3,11 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -14,7 +16,9 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 
@@ -867,6 +871,18 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_BackAtRoot_WhenStageManagerIsNull_ShouldMarkTransitionWithoutThrowing()
+        {
+            var game = CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0)));
+
+            Assert.Null(exception);
+            Assert.Equal(1.0, GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
     public void HandleActivateInput_WhenSongSelected_ShouldEnterStatusPanel()
     {
         var stage = CreateStage();
@@ -956,6 +972,28 @@ namespace DTXMania.Test.Stage
             Assert.Same(previousNavigationState, GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Peek());
             Assert.Same(displayList, display.CurrentList);
             Assert.Equal("Genre", breadcrumbLabel.Text);
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void HandleActivateInput_WhenInStatusPanelAndSelectionIsNull_ShouldKeepStatusPanelActive()
+        {
+            var stage = CreateStage();
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_selectedSong", null);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+
+            InvokePrivateMethod(stage, "HandleActivateInput");
+
+            Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.Null(GetPrivateField<SongListNode>(stage, "_selectedSong"));
             stageManager.Verify(
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
@@ -1178,6 +1216,100 @@ namespace DTXMania.Test.Stage
 
             Assert.Same(header, GetPrivateField<ITexture>(stage, "_headerPanelTexture"));
             Assert.Same(footer, GetPrivateField<ITexture>(stage, "_footerPanelTexture"));
+        }
+
+        [Fact]
+        public void InitializeUI_WhenDependenciesAreAvailable_ShouldCreateConfiguredUiHierarchy()
+        {
+            var game = CreateGame();
+            SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+
+            var stage = CreateStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            var configManager = new Mock<IConfigManager>();
+            var uiFont = new Mock<IFont>();
+
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_stageRenderTarget", null);
+
+            InvokePrivateMethod(stage, "InitializeUI", uiFont.Object);
+
+            var uiManager = GetPrivateField<DTXMania.Game.Lib.UI.UIManager>(stage, "_uiManager");
+            var mainPanel = GetPrivateField<UIPanel>(stage, "_mainPanel");
+            var titleLabel = GetPrivateField<UILabel>(stage, "_titleLabel");
+            var breadcrumbLabel = GetPrivateField<UILabel>(stage, "_breadcrumbLabel");
+            var songListDisplay = GetPrivateField<SongListDisplay>(stage, "_songListDisplay");
+            var statusPanel = GetPrivateField<SongStatusPanel>(stage, "_statusPanel");
+            var previewImagePanel = GetPrivateField<PreviewImagePanel>(stage, "_previewImagePanel");
+
+            Assert.NotNull(uiManager);
+            Assert.NotNull(mainPanel);
+            Assert.NotNull(titleLabel);
+            Assert.NotNull(breadcrumbLabel);
+            Assert.NotNull(songListDisplay);
+            Assert.NotNull(statusPanel);
+            Assert.NotNull(previewImagePanel);
+            Assert.Equal(Vector2.Zero, mainPanel!.Position);
+            Assert.Equal(new Vector2(game.GraphicsDevice.Viewport.Width, game.GraphicsDevice.Viewport.Height), mainPanel.Size);
+            Assert.Equal(Color.Black * SongSelectionUILayout.Background.MainPanelAlpha, mainPanel.BackgroundColor);
+            Assert.Equal(PanelLayoutMode.Manual, mainPanel.LayoutMode);
+            Assert.Equal("Song Selection", titleLabel!.Text);
+            Assert.Equal(SongSelectionUILayout.UILabels.Title.Position, titleLabel.Position);
+            Assert.Equal(SongSelectionUILayout.UILabels.Title.Size, titleLabel.Size);
+            Assert.Equal(Color.White, titleLabel.TextColor);
+            Assert.True(titleLabel.HasShadow);
+            Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Left, titleLabel.HorizontalAlignment);
+            Assert.Equal(string.Empty, breadcrumbLabel!.Text);
+            Assert.Equal(SongSelectionUILayout.UILabels.Breadcrumb.Position, breadcrumbLabel.Position);
+            Assert.Equal(SongSelectionUILayout.UILabels.Breadcrumb.Size, breadcrumbLabel.Size);
+            Assert.Equal(Color.Yellow, breadcrumbLabel.TextColor);
+            Assert.True(breadcrumbLabel.HasShadow);
+            Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Left, breadcrumbLabel.HorizontalAlignment);
+            Assert.Same(uiFont.Object, songListDisplay!.ManagedFont);
+            Assert.Equal(SongSelectionUILayout.SongListDisplay.Position, songListDisplay.Position);
+            Assert.Equal(SongSelectionUILayout.SongListDisplay.Size, songListDisplay.Size);
+            Assert.False(statusPanel!.Visible);
+            Assert.True(previewImagePanel!.Visible);
+            Assert.Equal("SongsRoot", GetPrivateField<string>(previewImagePanel, "_songsRootPath"));
+            Assert.Equal(5, mainPanel.Children.Count);
+            Assert.Same(titleLabel, mainPanel.Children[0]);
+            Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
+            Assert.Same(songListDisplay, mainPanel.Children[2]);
+            Assert.True(mainPanel.IsActive);
+            Assert.Single(uiManager.RootContainers);
+            Assert.Same(mainPanel, uiManager.RootContainers[0]);
+            Assert.Same(mainPanel, uiManager.FocusedContainer);
+        }
+
+        [Fact]
+        public void InitializeUI_WhenFontIsNull_ShouldStillCreateUiComponents()
+        {
+            var game = CreateGame();
+            SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
+
+            var stage = CreateStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            var configManager = new Mock<IConfigManager>();
+
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData());
+            resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_stageRenderTarget", null);
+
+            InvokePrivateMethod(stage, "InitializeUI", new object?[] { null! });
+
+            Assert.Null(GetPrivateField<IFont>(GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!, "_managedFont"));
+            Assert.Null(GetPrivateField<object>(GetPrivateField<SongListDisplay>(stage, "_songListDisplay")!, "_font"));
+            Assert.Null(GetPrivateField<object>(GetPrivateField<SongStatusPanel>(stage, "_statusPanel")!, "_managedFont"));
+            Assert.Null(GetPrivateField<object>(GetPrivateField<SongStatusPanel>(stage, "_statusPanel")!, "_managedSmallFont"));
+            Assert.NotNull(GetPrivateField<UIPanel>(stage, "_mainPanel"));
+            Assert.True(GetPrivateField<UIPanel>(stage, "_mainPanel")!.IsActive);
         }
 
         [Fact]
@@ -2172,6 +2304,16 @@ namespace DTXMania.Test.Stage
                 DisposeCalled = true;
                 base.Dispose(disposing);
             }
+        }
+
+        private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
+        {
+            public GraphicsDevice GraphicsDevice { get; } = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+
+            public event EventHandler<EventArgs>? DeviceCreated;
+            public event EventHandler<EventArgs>? DeviceDisposing;
+            public event EventHandler<EventArgs>? DeviceReset;
+            public event EventHandler<EventArgs>? DeviceResetting;
         }
     }
 }
