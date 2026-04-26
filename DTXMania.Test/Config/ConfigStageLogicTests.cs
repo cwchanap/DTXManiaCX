@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
@@ -11,6 +10,7 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 
@@ -623,13 +623,11 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnDraw_WithActivePanel_ShouldDrawOverlayBeforeCompletingFrame()
     {
-        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            var spriteBatch = CreateDeferredSpriteBatch(out var graphicsDevice);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", CreateTexture2D(graphicsDevice));
+            stage.InitializeDrawingState();
             var activePanel = new TrackingKeyAssignPanel { IsActive = true };
             ReflectionHelpers.SetPrivateField(stage, "_activePanel", activePanel);
 
@@ -664,35 +662,36 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawBackground_WithUnbegunSpriteBatch_ShouldThrowInvalidOperationException()
+    public void DrawBackground_ShouldFillViewportWithBackgroundColor()
     {
-        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        var viewport = new Viewport(0, 0, 1280, 720);
+        var (stage, inputManager) = CreateRenderSpyStage(viewport);
         using (inputManager)
         {
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", ReflectionHelpers.CreateUninitialized<SpriteBatch>());
-            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", ReflectionHelpers.CreateUninitialized<Texture2D>());
+            stage.InitializeDrawingState();
 
-            var exception = Assert.Throws<TargetInvocationException>(() =>
-                ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
 
-            Assert.IsType<InvalidOperationException>(exception.InnerException);
+            var drawCall = Assert.Single(stage.RectangleDrawCalls);
+            Assert.Equal(new Rectangle(0, 0, viewport.Width, viewport.Height), drawCall.Rectangle);
+            Assert.Equal(new Color(16, 16, 32), drawCall.Color);
         }
     }
 
     [Fact]
     public void DrawTitle_WhenBitmapFontMissing_ShouldFallbackToRectangleDrawing()
     {
-        var (stage, inputManager) = CreateStageWithGraphicsDevice();
+        var (stage, inputManager) = CreateRenderSpyStage(new Viewport(0, 0, 1280, 720));
         using (inputManager)
         {
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", ReflectionHelpers.CreateUninitialized<SpriteBatch>());
+            stage.InitializeDrawingState();
             ReflectionHelpers.SetPrivateField(stage, "_bitmapFont", null);
-            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", ReflectionHelpers.CreateUninitialized<Texture2D>());
 
-            var exception = Assert.Throws<TargetInvocationException>(() =>
-                ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
 
-            Assert.IsType<InvalidOperationException>(exception.InnerException);
+            var drawCall = Assert.Single(stage.RectangleDrawCalls);
+            Assert.Equal(new Rectangle(100, 50, "CONFIGURATION".Length * 12, 20), drawCall.Rectangle);
+            Assert.Equal(Color.White, drawCall.Color);
         }
     }
 
@@ -706,15 +705,17 @@ public class ConfigStageLogicTests
         return (new ConfigStage(game), configManager, inputManager);
     }
 
-    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStageWithGraphicsDevice(ConfigManager? configManager = null)
+    private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStageWithGraphicsDevice(ConfigManager? configManager = null)
+        => CreateRenderSpyStage(new Viewport(0, 0, 1280, 720), configManager);
+
+    private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStage(Viewport viewport, ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
         var inputManager = new InputManagerCompat(configManager);
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService());
-        return (new ConfigStage(game), inputManager);
+        return (new RenderSpyConfigStage(game, viewport), inputManager);
     }
 
     private static (ConfigStage Stage, InputManagerCompat InputManager) CreateLifecycleStage(ConfigManager? configManager = null)
@@ -725,53 +726,6 @@ public class ConfigStageLogicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         return (new LifecycleConfigStage(game), inputManager);
-    }
-
-    private static SpriteBatch CreateDeferredSpriteBatch(out GraphicsDevice graphicsDevice)
-    {
-        var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
-        var batcherType = typeof(SpriteBatch).Assembly.GetType("Microsoft.Xna.Framework.Graphics.SpriteBatcher");
-        var batchItemType = typeof(SpriteBatch).Assembly.GetType("Microsoft.Xna.Framework.Graphics.SpriteBatchItem");
-
-        Assert.NotNull(batcherType);
-        Assert.NotNull(batchItemType);
-
-        var batcher = RuntimeHelpers.GetUninitializedObject(batcherType!);
-        var bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic;
-        var batchItems = Array.CreateInstance(batchItemType!, 256);
-        for (int i = 0; i < batchItems.Length; i++)
-        {
-            batchItems.SetValue(Activator.CreateInstance(batchItemType!, nonPublic: true), i);
-        }
-
-        batcherType!.GetField("_batchItemList", bindingFlags)!.SetValue(batcher, batchItems);
-        batcherType.GetField("_batchItemCount", bindingFlags)!.SetValue(batcher, 0);
-        batcherType.GetField("_index", bindingFlags)!.SetValue(batcher, new short[1536]);
-        batcherType.GetField("_vertexArray", bindingFlags)!.SetValue(batcher, new VertexPositionColorTexture[1024]);
-        graphicsDevice = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
-        batcherType.GetField("_device", bindingFlags)!.SetValue(batcher, graphicsDevice);
-
-        typeof(SpriteBatch).GetField("_batcher", bindingFlags)!.SetValue(spriteBatch, batcher);
-        typeof(SpriteBatch).GetField("_spriteEffect", bindingFlags)!.SetValue(
-            spriteBatch,
-            ReflectionHelpers.CreateUninitialized<SpriteEffect>());
-        GC.SuppressFinalize(graphicsDevice);
-        GC.SuppressFinalize(spriteBatch);
-        return spriteBatch;
-    }
-
-    private static Texture2D CreateTexture2D(GraphicsDevice graphicsDevice)
-    {
-        var texture = ReflectionHelpers.CreateUninitialized<Texture2D>();
-        var bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic;
-
-        ReflectionHelpers.GetField(typeof(GraphicsResource), "graphicsDevice")!.SetValue(texture, graphicsDevice);
-        typeof(Texture2D).GetField("width", bindingFlags)!.SetValue(texture, 1);
-        typeof(Texture2D).GetField("height", bindingFlags)!.SetValue(texture, 1);
-        typeof(Texture2D).GetField("<TexelWidth>k__BackingField", bindingFlags)!.SetValue(texture, 1f);
-        typeof(Texture2D).GetField("<TexelHeight>k__BackingField", bindingFlags)!.SetValue(texture, 1f);
-        GC.SuppressFinalize(texture);
-        return texture;
     }
 
     private static KeyBindings CreateWorkingDrumBindings()
@@ -922,16 +876,6 @@ public class ConfigStageLogicTests
         }
     }
 
-    private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
-    {
-        public GraphicsDevice GraphicsDevice { get; } = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
-
-        public event EventHandler<EventArgs>? DeviceCreated;
-        public event EventHandler<EventArgs>? DeviceDisposing;
-        public event EventHandler<EventArgs>? DeviceReset;
-        public event EventHandler<EventArgs>? DeviceResetting;
-    }
-
     private sealed class LifecycleConfigStage : ConfigStage
     {
         public LifecycleConfigStage(BaseGame game)
@@ -949,6 +893,48 @@ public class ConfigStageLogicTests
             ReflectionHelpers.SetPrivateField(this, "_whitePixel", whitePixel);
             ReflectionHelpers.SetPrivateField(this, "_resourceManager", _game.ResourceManager);
             ReflectionHelpers.SetPrivateField(this, "_bitmapFont", null);
+        }
+    }
+
+    private sealed class RenderSpyConfigStage : ConfigStage
+    {
+        private readonly Viewport _viewport;
+
+        public RenderSpyConfigStage(BaseGame game, Viewport viewport)
+            : base(game)
+        {
+            _viewport = viewport;
+        }
+
+        public List<(Rectangle Rectangle, Color Color)> RectangleDrawCalls { get; } = [];
+
+        public void InitializeDrawingState()
+        {
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+            var whitePixel = ReflectionHelpers.CreateUninitialized<Texture2D>();
+            GC.SuppressFinalize(spriteBatch);
+            GC.SuppressFinalize(whitePixel);
+            ReflectionHelpers.SetPrivateField(this, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(this, "_whitePixel", whitePixel);
+            ReflectionHelpers.SetPrivateField(this, "_bitmapFont", null);
+        }
+
+        protected override void BeginDrawFrame()
+        {
+        }
+
+        protected override void EndDrawFrame()
+        {
+        }
+
+        protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
+        {
+            RectangleDrawCalls.Add((destinationRectangle, color));
+        }
+
+        protected override Viewport GetViewport()
+        {
+            return _viewport;
         }
     }
 

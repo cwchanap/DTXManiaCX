@@ -107,7 +107,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null)
                 return;
 
-            _spriteBatch.Begin();
+            BeginDrawFrame();
 
             DrawBackground();
             DrawTitle();
@@ -118,11 +118,11 @@ namespace DTXMania.Game.Lib.Stage
             // Draw active panel as overlay within the same sprite batch
             if (_activePanel?.IsActive == true)
             {
-                var vp = _game.GraphicsDevice.Viewport;
+                var vp = GetViewport();
                 _activePanel.Draw(_spriteBatch, _bitmapFont, _whitePixel, vp.Width, vp.Height);
             }
 
-            _spriteBatch.End();
+            EndDrawFrame();
         }
 
         protected override void OnDeactivate()
@@ -555,8 +555,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawBackground()
         {
-            var viewport = _game.GraphicsDevice.Viewport;
-            _spriteBatch.Draw(_whitePixel,
+            var viewport = GetViewport();
+            DrawFilledRectangle(
                 new Rectangle(0, 0, viewport.Width, viewport.Height),
                 new Color(16, 16, 32));
         }
@@ -682,8 +682,28 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_whitePixel != null)
             {
-                _spriteBatch.Draw(_whitePixel, new Rectangle(x, y, width, height), color);
+                DrawFilledRectangle(new Rectangle(x, y, width, height), color);
             }
+        }
+
+        protected virtual void BeginDrawFrame()
+        {
+            _spriteBatch.Begin();
+        }
+
+        protected virtual void EndDrawFrame()
+        {
+            _spriteBatch.End();
+        }
+
+        protected virtual void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
+        {
+            _spriteBatch.Draw(_whitePixel, destinationRectangle, color);
+        }
+
+        protected virtual Viewport GetViewport()
+        {
+            return _game.GraphicsDevice.Viewport;
         }
 
         private static void ApplySystemBindings(InputManager inputManager, IReadOnlyDictionary<Keys, InputCommandType> bindings)
