@@ -557,6 +557,25 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnUpdate_WithoutActivePanel_ShouldHandleMenuInput()
+    {
+        var configManager = new ConfigManager();
+        using var inputManager = new ForcedCommandInputManager(configManager, InputCommandType.MoveDown);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        var stage = new ConfigStage(game);
+
+        InitializeStageMenu(stage, includePanels: false);
+        ReflectionHelpers.SetPrivateField(stage, "_activePanel", (IKeyAssignPanel?)null);
+        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.25);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+    }
+
+    [Fact]
     public void OnActivate_ShouldInitializeConfigLifecycleState()
     {
         var configManager = new ConfigManager();
