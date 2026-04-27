@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -824,6 +825,215 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawJudgementLine"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawGaugeElements_WhenGaugeTexturesExist_ShouldDrawFrameAndScaledFill()
+    {
+        var stage = CreateStage();
+        var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
+        var gaugeFillTexture = CreateTextureMock(width: 200, height: 8);
+        Rectangle? actualDestinationRect = null;
+        Rectangle? actualSourceRect = null;
+        float? actualDepth = null;
+
+        gaugeFillTexture
+            .Setup(texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (_, destinationRect, sourceRect, _, _, _, _, depth) =>
+                {
+                    actualDestinationRect = destinationRect;
+                    actualSourceRect = sourceRect;
+                    actualDepth = depth;
+                });
+
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeBaseTexture", gaugeBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeFillTexture", gaugeFillTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGaugeValue", 0.6f);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGaugeElements");
+
+        var framePosition = PerformanceUILayout.Gauge.FramePosition;
+        gaugeBaseTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle((int)framePosition.X, (int)framePosition.Y, 120, 24),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.19f),
+            Times.Once);
+
+        var expectedFillWidth = 120;
+        var fillOrigin = PerformanceUILayout.Gauge.FillOrigin;
+        Assert.Equal(new Rectangle((int)fillOrigin.X, (int)fillOrigin.Y, expectedFillWidth, PerformanceUILayout.Gauge.FillHeight), actualDestinationRect);
+        Assert.Equal(new Rectangle(0, 0, expectedFillWidth, PerformanceUILayout.Gauge.FillHeight), actualSourceRect);
+        Assert.Equal(0.18f, actualDepth);
+    }
+
+    [Fact]
+    public void DrawGaugeElements_WhenGaugeValueIsZero_ShouldOnlyDrawFrame()
+    {
+        var stage = CreateStage();
+        var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
+        var gaugeFillTexture = CreateTextureMock(width: 200, height: 8);
+
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeBaseTexture", gaugeBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeFillTexture", gaugeFillTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGaugeValue", 0.0f);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGaugeElements");
+
+        gaugeBaseTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                It.IsAny<Rectangle>(),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.19f),
+            Times.Once);
+        gaugeFillTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void DrawProgressBar_WhenProgressValuePositive_ShouldDrawFrameAndFallbackFill()
+    {
+        var stage = CreateStage();
+        var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
+        Rectangle? actualFillRect = null;
+        Color? actualFillColor = null;
+        float? actualFillDepth = null;
+
+        ReflectionHelpers.SetPrivateField(stage, "_progressBaseTexture", progressBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.25f);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
+            {
+                actualFillRect = rectangle;
+                actualFillColor = color;
+                actualFillDepth = depth;
+            }));
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawProgressBar");
+
+        progressBaseTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle(
+                    PerformanceUILayout.Progress.FrameBounds.X,
+                    PerformanceUILayout.Progress.FrameBounds.Y,
+                    60,
+                    540),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.2f),
+            Times.Once);
+
+        var barRect = PerformanceUILayout.Progress.BarBounds;
+        var expectedFillHeight = (int)(barRect.Height * 0.25f);
+        Assert.Equal(new Rectangle(barRect.X, barRect.Bottom - expectedFillHeight, barRect.Width, expectedFillHeight), actualFillRect);
+        Assert.Equal(Color.LightBlue, actualFillColor);
+        Assert.Equal(0.2f, actualFillDepth);
+    }
+
+    [Fact]
+    public void DrawProgressBar_WhenProgressValueIsZero_ShouldNotDrawFallbackFill()
+    {
+        var stage = CreateStage();
+        var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
+        var fallbackInvoked = false;
+
+        ReflectionHelpers.SetPrivateField(stage, "_progressBaseTexture", progressBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.0f);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((_, _, _) => fallbackInvoked = true));
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawProgressBar");
+
+        progressBaseTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                It.IsAny<Rectangle>(),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.2f),
+            Times.Once);
+        Assert.False(fallbackInvoked);
+    }
+
+    [Fact]
+    public void DrawSkillPanel_WhenSkillPanelTextureExists_ShouldDrawAtUILayoutPanelPosition()
+    {
+        var stage = CreateStage();
+        var skillPanelTexture = CreateTextureMock(width: 180, height: 96);
+        var panelPosition = PerformanceUILayout.SkillPanel.PanelPosition;
+
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelTexture", skillPanelTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawSkillPanel");
+
+        skillPanelTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle((int)panelPosition.X, (int)panelPosition.Y, 180, 96),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.2f),
+            Times.Once);
+    }
+
+    [Fact]
+    public void DrawSkillPanel_WhenTextureMissing_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawSkillPanel"));
 
         Assert.Null(exception);
     }

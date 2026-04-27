@@ -112,6 +112,7 @@ namespace DTXMania.Game.Lib.Stage
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
         private Texture2D _fallbackWhiteTexture = null!;
+        private Action<Rectangle, Color, float>? _fallbackRectangleDrawer;
         
         // UI state tracking
         private bool _isPaused = false;
@@ -1466,11 +1467,25 @@ namespace DTXMania.Game.Lib.Stage
                 var fillHeight = (int)(barRect.Height * _currentProgressValue);
                 
                 // Use fallback white texture to draw colored progress fill at UI depth
-                if (_fallbackWhiteTexture != null)
+                if (_fallbackRectangleDrawer != null || _fallbackWhiteTexture != null)
                 {
                     var fillRect = new Rectangle(barRect.X, barRect.Bottom - fillHeight, barRect.Width, fillHeight);
-                    _spriteBatch.Draw(_fallbackWhiteTexture, fillRect, null, Color.LightBlue, 0f, Vector2.Zero, SpriteEffects.None, 0.2f);
+                    DrawFallbackRectangle(fillRect, Color.LightBlue, 0.2f);
                 }
+            }
+        }
+
+        private void DrawFallbackRectangle(Rectangle destinationRectangle, Color color, float layerDepth)
+        {
+            if (_fallbackRectangleDrawer != null)
+            {
+                _fallbackRectangleDrawer(destinationRectangle, color, layerDepth);
+                return;
+            }
+
+            if (_fallbackWhiteTexture != null)
+            {
+                _spriteBatch.Draw(_fallbackWhiteTexture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
             }
         }
         
