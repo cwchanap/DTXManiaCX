@@ -654,6 +654,40 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void UpdateComponents_WhenAllOptionalComponentsMissing_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "UpdateComponents", 0.016));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void UpdateComponents_WhenVisualComponentsExist_ShouldAdvanceComboAnimationWithoutAffectingStableState()
+    {
+        var stage = CreateStage();
+        var scoreDisplay = CreateScoreDisplay();
+        var comboDisplay = CreateComboDisplay();
+        ReflectionHelpers.SetPrivateField(stage, "_backgroundRenderer", CreateUninitialized<BackgroundRenderer>());
+        ReflectionHelpers.SetPrivateField(stage, "_laneBackgroundRenderer", CreateUninitialized<LaneBackgroundRenderer>());
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineRenderer", CreateUninitialized<JudgementLineRenderer>());
+        ReflectionHelpers.SetPrivateField(stage, "_scoreDisplay", scoreDisplay);
+        ReflectionHelpers.SetPrivateField(stage, "_comboDisplay", comboDisplay);
+        scoreDisplay.Score = 123456;
+        ReflectionHelpers.SetPrivateField(comboDisplay, "_scale", 1.0f);
+        ReflectionHelpers.SetPrivateField(comboDisplay, "_targetScale", 1.5f);
+        ReflectionHelpers.SetPrivateField(comboDisplay, "_scaleVelocity", 0.0f);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateComponents", 0.1);
+
+        Assert.Equal(123456, scoreDisplay.Score);
+        Assert.True(ReflectionHelpers.GetPrivateField<float>(comboDisplay, "_scale") > 1.0f);
+        Assert.True(ReflectionHelpers.GetPrivateField<float>(comboDisplay, "_targetScale") < 1.5f);
+        Assert.True(ReflectionHelpers.GetPrivateField<float>(comboDisplay, "_scaleVelocity") > 0.0f);
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
     {
         var stage = CreateStage();
@@ -1117,6 +1151,13 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(timer, "_isPlaying", true);
         ReflectionHelpers.SetPrivateField(timer, "_startTime", TimeSpan.Zero);
         return timer;
+    }
+
+    private static T CreateUninitialized<T>() where T : class
+    {
+#pragma warning disable SYSLIB0050
+        return (T)FormatterServices.GetUninitializedObject(typeof(T));
+#pragma warning restore SYSLIB0050
     }
 
     private sealed class BackActionInputManagerCompat : MockInputManagerCompat
