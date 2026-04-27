@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -316,6 +317,26 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessAutoPlay_WhenNoteWasAlreadyResolved_ShouldAdvanceIndexWithoutTriggeringPadPress()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        judgementManager.TestTriggerLaneHit(0, "PreResolved");
+        judgementManager.Update(1000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
@@ -592,6 +613,47 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void UpdateGameplay_WhenReadyCountdownExpires_ShouldStartSongAndActivateJudgementManager()
+    {
+        var stage = CreateStage();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.1);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.25);
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        Assert.True(judgementManager.IsActive);
+    }
+
+    [Fact]
+    public void UpdateGameplay_WhenSongIsPlaying_ShouldAdvanceManagersAndProgress()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromMilliseconds(1301.0), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("progress-test.dtx") { DurationMs = 2000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.016);
+
+        Assert.Equal(1, judgementManager.GetJudgementCount(JudgementType.Miss));
+        Assert.Equal(1301.0 / 2000.0, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"), 3);
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
     {
         var stage = CreateStage();
@@ -605,12 +667,25 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public async Task LoadBGMSoundsAsync_WhenParsedChartIsNull_ShouldLeaveSoundMapEmpty()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+
+        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
+        await task;
+
+        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenAudioFileIsMissingOrDuplicate_ShouldSkipEntries()
     {
         var stage = CreateStage();
         var parsedChart = new ParsedChart("missing-bgm.dtx");
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
-        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-missing-{Guid.NewGuid()}.wav") });
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
 
@@ -618,6 +693,66 @@ public class PerformanceStageDeterministicTests
         await task;
 
         Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
+    }
+
+    [Fact]
+    public async Task LoadBGMSoundsAsync_WhenAudioFilePathIsEmpty_ShouldSkipEntry()
+    {
+        var stage = CreateStage();
+        var parsedChart = new ParsedChart("empty-path-bgm.dtx");
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = string.Empty });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+
+        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
+        await task;
+
+        Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
+    }
+
+    [Fact]
+    public async Task LoadBGMSoundsAsync_WhenWavIdAlreadyLoaded_ShouldKeepExistingSoundOnly()
+    {
+        var stage = CreateStage();
+        var parsedChart = new ParsedChart("duplicate-bgm.dtx");
+        var existingSound = CreateSoundMock();
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = GetGeneratedTestArtifactPath($"dtxmania-test-duplicate-{Guid.NewGuid()}.wav") });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = existingSound.Object });
+
+        var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
+        await task;
+
+        var bgmSounds = ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds");
+        Assert.Single(bgmSounds);
+        Assert.Same(existingSound.Object, bgmSounds["01"]);
+    }
+
+    [Fact]
+    public async Task LoadBGMSoundsAsync_WhenSoundCreationThrows_ShouldSwallowFailureAndContinue()
+    {
+        var stage = CreateStage();
+        var parsedChart = new ParsedChart("invalid-bgm.dtx");
+        var invalidAudioPath = GetGeneratedTestArtifactPath($"dtxmania-test-invalid-{Guid.NewGuid()}.txt");
+        File.WriteAllText(invalidAudioPath, "not audio data");
+        parsedChart.BGMEvents.Add(new BGMEvent { WavId = "01", AudioFilePath = invalidAudioPath });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+
+        try
+        {
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadBGMSoundsAsync")!;
+            await task;
+
+            Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
+        }
+        finally
+        {
+            if (File.Exists(invalidAudioPath))
+            {
+                File.Delete(invalidAudioPath);
+            }
+        }
     }
 
     [Fact]
@@ -659,6 +794,66 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" }));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenJudgementIsHit_ShouldForwardToManagersAndTriggerVisualFeedback()
+    {
+        var stage = CreateStage();
+        var scoreManager = new ScoreManager(10);
+        var comboManager = new ComboManager();
+        var gaugeManager = new GaugeManager();
+        var effectsManager = CreateEffectsManager();
+        var noteRenderer = CreateNoteRenderer();
+        var popupManager = CreateJudgementTextPopupManager();
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_effectsManager", effectsManager);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementTextPopupManager", popupManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var judgement = new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null, judgement);
+
+        Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
+        Assert.Equal(1, comboManager.CurrentCombo);
+        Assert.Equal(51.5f, gaugeManager.CurrentLife);
+        Assert.Equal(1.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
+        Assert.Single(ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(popupManager, "_activePopups"));
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenJudgementIsMiss_ShouldForwardToManagersWithoutTriggeringHitVisualFeedback()
+    {
+        var stage = CreateStage();
+        var scoreManager = new ScoreManager(10);
+        var comboManager = new ComboManager();
+        var gaugeManager = new GaugeManager();
+        var noteRenderer = CreateNoteRenderer();
+        var popupManager = CreateJudgementTextPopupManager();
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementTextPopupManager", popupManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var judgement = new JudgementEvent(noteRef: 1, lane: 4, deltaMs: 75.0, type: JudgementType.Miss);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null, judgement);
+
+        Assert.Equal(0, scoreManager.CurrentScore);
+        Assert.Equal(0, comboManager.CurrentCombo);
+        Assert.Equal(47.0f, gaugeManager.CurrentLife);
+        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[4]);
+        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[4].State);
+        Assert.Single(ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(popupManager, "_activePopups"));
     }
 
     [Fact]
@@ -840,6 +1035,38 @@ public class PerformanceStageDeterministicTests
         return renderer;
     }
 
+    private static EffectsManager CreateEffectsManager()
+    {
+#pragma warning disable SYSLIB0050
+        return (EffectsManager)FormatterServices.GetUninitializedObject(typeof(EffectsManager));
+#pragma warning restore SYSLIB0050
+    }
+
+    private static NoteRenderer CreateNoteRenderer()
+    {
+#pragma warning disable SYSLIB0050
+        var renderer = (NoteRenderer)FormatterServices.GetUninitializedObject(typeof(NoteRenderer));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(renderer, "_laneFlashAlpha", new float[10]);
+        return renderer;
+    }
+
+    private static JudgementTextPopupManager CreateJudgementTextPopupManager()
+    {
+#pragma warning disable SYSLIB0050
+        var manager = (JudgementTextPopupManager)FormatterServices.GetUninitializedObject(typeof(JudgementTextPopupManager));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(manager, "_activePopups", new List<JudgementTextPopup>());
+        return manager;
+    }
+
+    private static string GetGeneratedTestArtifactPath(string fileName)
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "GeneratedTestData");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, fileName);
+    }
+
     private static IConfigManager CreateConfigManager(ConfigData configData)
     {
         var configManager = new Mock<IConfigManager>();
@@ -878,6 +1105,17 @@ public class PerformanceStageDeterministicTests
         var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(timer, "_disposed", true);
+        return timer;
+    }
+
+    private static SongTimer CreatePlayingSongTimer()
+    {
+#pragma warning disable SYSLIB0050
+        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(timer, "_disposed", false);
+        ReflectionHelpers.SetPrivateField(timer, "_isPlaying", true);
+        ReflectionHelpers.SetPrivateField(timer, "_startTime", TimeSpan.Zero);
         return timer;
     }
 
