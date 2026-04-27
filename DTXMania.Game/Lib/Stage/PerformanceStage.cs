@@ -1526,7 +1526,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Simple fullscreen draw for now - tiling could be added later
                 // Draw danger tint overlay with pulsing effect at topmost depth
                 var dangerRect = new Rectangle(0, 0, _dangerOverlayTexture.Width, _dangerOverlayTexture.Height);
-                _dangerOverlayTexture.Draw(_spriteBatch, dangerRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
+                _dangerOverlayTexture.Draw(_spriteBatch, dangerRect, null, Color.White * alpha, 0f, Vector2.Zero, SpriteEffects.None, 0.05f);
             }
         }
 

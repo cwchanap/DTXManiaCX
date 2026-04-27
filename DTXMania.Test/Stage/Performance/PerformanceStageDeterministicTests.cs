@@ -1039,6 +1039,263 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawShutters_WhenStageIsTransitioning_ShouldDrawAtUILayoutStartPosition()
+    {
+        var stage = CreateStage();
+        var shutterTexture = CreateTextureMock(width: 96, height: 512);
+        var shutterPosition = PerformanceUILayout.Shutter.StartPosition;
+
+        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.FadeOut);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters");
+
+        shutterTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle((int)shutterPosition.X, (int)shutterPosition.Y, 96, 512),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.2f),
+            Times.Once);
+    }
+
+    [Fact]
+    public void DrawShutters_WhenStageIsInNormalPhase_ShouldSkipTextureDraw()
+    {
+        var stage = CreateStage();
+        var shutterTexture = CreateTextureMock(width: 96, height: 512);
+
+        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters");
+
+        shutterTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void DrawOverlays_WhenPausedAndDangerActive_ShouldDrawPauseAndPulseDangerTint()
+    {
+        var stage = CreateStage();
+        var pauseOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+        var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+        Color? actualDangerColor = null;
+        var totalTime = 0.5;
+        var expectedDangerAlpha = 0.3f + 0.2f * (float)Math.Sin(totalTime * 4.0);
+
+        dangerOverlayTexture
+            .Setup(texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (_, _, _, color, _, _, _, _) => actualDangerColor = color);
+
+        ReflectionHelpers.SetPrivateField(stage, "_pauseOverlayTexture", pauseOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_isPaused", true);
+        ReflectionHelpers.SetPrivateField(stage, "_isDanger", true);
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", totalTime);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawOverlays");
+
+        pauseOverlayTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle(0, 0, 1280, 720),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.05f),
+            Times.Once);
+        dangerOverlayTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                new Rectangle(0, 0, 1280, 720),
+                null,
+                It.IsAny<Color>(),
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.05f),
+            Times.Once);
+        Assert.Equal(Color.White * expectedDangerAlpha, actualDangerColor);
+    }
+
+    [Fact]
+    public void DrawOverlays_WhenFlagsDisabled_ShouldNotDrawOverlayTextures()
+    {
+        var stage = CreateStage();
+        var pauseOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+        var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+
+        ReflectionHelpers.SetPrivateField(stage, "_pauseOverlayTexture", pauseOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_isPaused", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isDanger", false);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawOverlays");
+
+        pauseOverlayTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
+        dangerOverlayTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void DrawUIElements_WhenAssetsConfigured_ShouldDrawDeterministicUILayoutPaths()
+    {
+        var stage = CreateStage();
+        var shutterTexture = CreateTextureMock(width: 96, height: 512);
+        var skillPanelTexture = CreateTextureMock(width: 180, height: 96);
+        var gaugeBaseTexture = CreateTextureMock(width: 120, height: 24);
+        var gaugeFillTexture = CreateTextureMock(width: 200, height: 8);
+        var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
+        var pauseOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+        var dangerOverlayTexture = CreateTextureMock(width: 1280, height: 720);
+        var fallbackInvocationCount = 0;
+
+        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", shutterTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelTexture", skillPanelTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeBaseTexture", gaugeBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeFillTexture", gaugeFillTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_progressBaseTexture", progressBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_pauseOverlayTexture", pauseOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.FadeIn);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGaugeValue", 0.5f);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.4f);
+        ReflectionHelpers.SetPrivateField(stage, "_isPaused", true);
+        ReflectionHelpers.SetPrivateField(stage, "_isDanger", true);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer", (Action<Rectangle, Color, float>)((_, _, _) => fallbackInvocationCount++));
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawUIElements");
+
+        shutterTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.2f),
+            Times.Once);
+        skillPanelTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.2f),
+            Times.Once);
+        gaugeBaseTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.19f),
+            Times.Once);
+        gaugeFillTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.18f),
+            Times.Once);
+        progressBaseTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.2f),
+            Times.Once);
+        pauseOverlayTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.05f),
+            Times.Once);
+        dangerOverlayTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                0.05f),
+            Times.Once);
+        Assert.Equal(1, fallbackInvocationCount);
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
     {
         var stage = CreateStage();
