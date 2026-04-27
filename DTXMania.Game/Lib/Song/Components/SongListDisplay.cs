@@ -407,6 +407,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var barInfo = _barRenderer.GenerateBarInfo(node, difficulty, isSelected);
             if (barInfo != null)
             {
+                _barRenderer.UpdateBarInfo(barInfo, difficulty, isSelected);
                 SetBarInfoCacheEntry(cacheKey, barInfo);
             }
 

@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -569,6 +570,32 @@ public class SongListDisplayLogicTests
         Assert.Equal(2, cachedInfo.DifficultyLevel);
         Assert.True(cachedInfo.IsSelected);
         Assert.Equal(Color.Yellow, cachedInfo.TextColor);
+    }
+
+    [Fact]
+    public void GetOrCreateBarInfo_WhenCacheMissForSelectedNode_ShouldGenerateCacheAndHighlightBarInfo()
+    {
+        var display = new SongListDisplay();
+        var node = new SongListNode { Type = NodeType.Box, Title = "Folder" };
+        var fakeRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
+        var titleTexture = new Mock<ITexture>();
+        var titleCache = new CacheManager<string, ITexture>();
+        titleCache.Add($"{node.Type}_{node.DisplayTitle}_{node.GetHashCode()}", titleTexture.Object);
+
+        SetField(fakeRenderer, "_titleTextureCache", titleCache);
+        SetField(display, "_barRenderer", fakeRenderer);
+
+        var result = InvokePrivate<SongBarInfo?>(display, "GetOrCreateBarInfo", node, 2, true);
+
+        Assert.NotNull(result);
+        Assert.Same(node, result!.SongNode);
+        Assert.Equal(BarType.Box, result.BarType);
+        Assert.Equal("[Folder]", result.TitleString);
+        Assert.Equal(2, result.DifficultyLevel);
+        Assert.True(result.IsSelected);
+        Assert.Equal(Color.Yellow, result.TextColor);
+        Assert.Same(result, GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_2"]);
+        titleTexture.Verify(x => x.AddReference(), Times.Once);
     }
 
     [Fact]
