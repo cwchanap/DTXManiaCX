@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -11,9 +12,11 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 
 namespace DTXMania.Test.Stage.Performance;
@@ -688,6 +691,144 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawBackground_WhenBackgroundTextureExists_ShouldDrawUILayoutBackgroundBounds()
+    {
+        var stage = CreateStage();
+        var backgroundTexture = CreateTextureMock(width: 512, height: 256);
+
+        ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", backgroundTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground");
+
+        backgroundTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                PerformanceUILayout.Background.Bounds,
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                1.0f),
+            Times.Once);
+    }
+
+    [Fact]
+    public void DrawBackground_WhenBackgroundTextureMissing_ShouldUseViewportSizedFallbackPath()
+    {
+        var stage = CreateStage();
+        var spriteBatch = CreateSpriteBatchStub(new Viewport(0, 0, 1920, 1080));
+
+        ReflectionHelpers.SetPrivateField(stage, "_backgroundTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_backgroundRenderer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawLaneBackgrounds_WhenLaneTextureExists_ShouldDrawEachVisibleLaneStrip()
+    {
+        var stage = CreateStage();
+        var laneTexture = CreateTextureMock(width: 512, height: 512);
+        var expectedCalls = PerformanceUILayout.LaneStrips.SourceRects
+            .Take(Math.Min(PerformanceUILayout.LaneCount, PerformanceUILayout.LaneStrips.SourceRects.Length))
+            .Select((sourceRect, index) => new
+            {
+                SourceRect = sourceRect,
+                DestinationRect = PerformanceUILayout.LaneStrips.GetDestinationRect(index)
+            })
+            .ToList();
+        var actualCalls = new List<(Rectangle DestinationRect, Rectangle? SourceRect, float Depth)>();
+
+        laneTexture
+            .Setup(texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (_, destinationRect, sourceRect, _, _, _, _, depth) =>
+                {
+                    actualCalls.Add((destinationRect, sourceRect, depth));
+                });
+
+        ReflectionHelpers.SetPrivateField(stage, "_laneBgTexture", laneTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawLaneBackgrounds");
+
+        Assert.Equal(expectedCalls.Count, actualCalls.Count);
+        for (var i = 0; i < expectedCalls.Count; i++)
+        {
+            Assert.Equal(expectedCalls[i].DestinationRect, actualCalls[i].DestinationRect);
+            Assert.Equal(expectedCalls[i].SourceRect, actualCalls[i].SourceRect);
+            Assert.Equal(0.8f, actualCalls[i].Depth);
+        }
+    }
+
+    [Fact]
+    public void DrawLaneBackgrounds_WhenLaneTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.SetPrivateField(stage, "_laneBgTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_laneBackgroundRenderer", CreateUninitialized<LaneBackgroundRenderer>());
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawLaneBackgrounds"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawJudgementLine_WhenTextureExists_ShouldDrawAtHitBarPositionUsingTextureSize()
+    {
+        var stage = CreateStage();
+        var judgementLineTexture = CreateTextureMock(width: 320, height: 24);
+        var expectedPosition = PerformanceUILayout.HitBar.Position;
+        var expectedRectangle = new Rectangle((int)expectedPosition.X, (int)expectedPosition.Y, 320, 24);
+
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineTexture", judgementLineTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawJudgementLine");
+
+        judgementLineTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                expectedRectangle,
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.6f),
+            Times.Once);
+    }
+
+    [Fact]
+    public void DrawJudgementLine_WhenTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineRenderer", CreateUninitialized<JudgementLineRenderer>());
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawJudgementLine"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
     {
         var stage = CreateStage();
@@ -1119,9 +1260,24 @@ public class PerformanceStageDeterministicTests
         return new ChartManager(parsedChart);
     }
 
-    private static Mock<ITexture> CreateTextureMock()
+    private static SpriteBatch CreateSpriteBatchStub(Viewport viewport)
+    {
+#pragma warning disable SYSLIB0050
+        var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
+        var graphicsDevice = (GraphicsDevice)FormatterServices.GetUninitializedObject(typeof(GraphicsDevice));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(graphicsDevice, "_viewport", viewport);
+        ReflectionHelpers.SetPrivateField(graphicsDevice, "_resourcesLock", new object());
+        ReflectionHelpers.SetPrivateField(graphicsDevice, "_resources", new List<WeakReference>());
+        ReflectionHelpers.SetProperty(spriteBatch, nameof(SpriteBatch.GraphicsDevice), graphicsDevice);
+        return spriteBatch;
+    }
+
+    private static Mock<ITexture> CreateTextureMock(int width = 1, int height = 1)
     {
         var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(width);
+        texture.SetupGet(x => x.Height).Returns(height);
         texture.Setup(x => x.RemoveReference());
         return texture;
     }
