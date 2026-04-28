@@ -1551,6 +1551,7 @@ namespace DTXMania.Game.Lib.Stage
             if (currentTimeMs >= (_parsedChart.DurationMs + GameConstants.Performance.SongEndBufferSeconds * 1000))
             {
                 FinalizePerformance(CompletionReason.SongComplete);
+                return;
             }
 
             // Check for player failure (only if NoFail is disabled)

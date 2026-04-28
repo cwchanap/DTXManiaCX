@@ -66,6 +66,55 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ExtractSharedData_WhenEntriesHaveUnexpectedTypes_ShouldPreserveExistingValues()
+    {
+        var stage = CreateStage();
+        var existingSong = new SongListNode { Title = "Existing" };
+        var existingChart = new ParsedChart("existing.dtx");
+        var sharedData = new Dictionary<string, object>
+        {
+            ["selectedSong"] = "not-a-song",
+            ["selectedDifficulty"] = "hard",
+            ["songId"] = "42",
+            ["parsedChart"] = new object()
+        };
+
+        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", existingSong);
+        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
+        ReflectionHelpers.SetPrivateField(stage, "_songId", 17);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", existingChart);
+        ReflectionHelpers.SetPrivateField(stage, "_sharedData", sharedData);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
+
+        Assert.Same(existingSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
+        Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
+        Assert.Equal(17, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
+        Assert.Same(existingChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
+    }
+
+    [Fact]
+    public void ExtractSharedData_WhenKeysAreAbsent_ShouldPreserveExistingValues()
+    {
+        var stage = CreateStage();
+        var existingSong = new SongListNode { Title = "Existing" };
+        var existingChart = new ParsedChart("existing.dtx");
+
+        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", existingSong);
+        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
+        ReflectionHelpers.SetPrivateField(stage, "_songId", 8);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", existingChart);
+        ReflectionHelpers.SetPrivateField(stage, "_sharedData", new Dictionary<string, object>());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
+
+        Assert.Same(existingSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
+        Assert.Equal(8, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
+        Assert.Same(existingChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
+    }
+
+    [Fact]
     public void InitializeAutoPlay_WhenConfigEnablesAutoPlay_ShouldEnableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
@@ -88,6 +137,52 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage(game);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 7);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+    }
+
+    [Fact]
+    public void InitializeAutoPlay_WhenConfigDisablesAutoPlay_ShouldDisableAndResetIndex()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { AutoPlay = false }));
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 3);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+    }
+
+    [Fact]
+    public void InitializeAutoPlay_WhenGameMissing_ShouldDisableAutoPlayAndResetIndex()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_game", null);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 11);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+    }
+
+    [Fact]
+    public void InitializeAutoPlay_WhenConfigIsNull_ShouldDisableAutoPlayAndResetIndex()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        var configManager = new Mock<IConfigManager>();
+        configManager.SetupGet(x => x.Config).Returns((ConfigData)null!);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 4);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
@@ -396,6 +491,37 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void CheckStageCompletion_WhenSongEndsAndGaugeHasFailed_ShouldPreferSongComplete()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        Dictionary<string, object>? capturedSharedData = null;
+        stageManager
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
+            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-failed-test.dtx") { DurationMs = 1000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_currentLife", 0.0f);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
+
+        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
+        Assert.True(summary.ClearFlag);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+    }
+
+    [Fact]
     public void CleanupComponents_WhenAssetsAndSoundsExist_ShouldResetStateAndReleaseResources()
     {
         var stage = CreateStage();
@@ -505,6 +631,20 @@ public class PerformanceStageDeterministicTests
                 It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
                 null),
             Times.Once);
+    }
+
+    [Fact]
+    public void ReturnToSongSelect_WhenStageManagerAndJudgementManagerMissing_ShouldStillPauseInput()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
+        stage.StageManager = null;
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));
+
+        Assert.Null(exception);
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
     }
 
     [Fact]
@@ -1572,6 +1712,114 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
 
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenPlayerFailedAndNoFailDisabled_ShouldFinalizeAsPlayerFailed()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        Dictionary<string, object>? capturedSharedData = null;
+        stageManager
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
+            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("failed-test.dtx") { DurationMs = 5000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_currentLife", 0.0f);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
+
+        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
+        Assert.False(summary.ClearFlag);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenStageAlreadyCompleted_ShouldReturnWithoutTransition()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("already-complete.dtx") { DurationMs = 1000.0 });
+
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
+
+        stageManager.Verify(
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenParsedChartMissing_ShouldReturnWithoutTransition()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
+
+        stageManager.Verify(
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenGaugeHasNotFailedAndSongNotFinished_ShouldNotFinalize()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("in-progress.dtx") { DurationMs = 5000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        stageManager.Verify(
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenGaugeManagerMissingAndSongNotFinished_ShouldNotFinalize()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("no-gauge.dtx") { DurationMs = 5000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        stageManager.Verify(
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
     }
 
     [Fact]
