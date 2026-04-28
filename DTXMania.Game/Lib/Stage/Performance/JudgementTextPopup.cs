@@ -104,6 +104,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly BitmapFont? _font;
         private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
+        private readonly Action<BitmapFont, SpriteBatch, string, int, int, Color> _drawText;
         private bool _disposed = false;
 
         // Text colors for different judgement types
@@ -140,9 +141,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             IResourceManager resourceManager,
             BitmapFont? font = null,
             List<JudgementTextPopup>? activePopups = null,
-            bool disposed = false)
+            bool disposed = false,
+            Action<BitmapFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
-            var manager = new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups);
+            var manager = new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups, drawText);
             if (disposed)
             {
                 manager.Dispose();
@@ -155,12 +157,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             GraphicsDevice graphicsDevice,
             IResourceManager resourceManager,
             BitmapFont? font,
-            List<JudgementTextPopup>? activePopups = null)
+            List<JudgementTextPopup>? activePopups = null,
+            Action<BitmapFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _activePopups = activePopups ?? new List<JudgementTextPopup>();
             _font = font;
+            _drawText = drawText ?? DrawTextWithBitmapFont;
         }
 
         #endregion
@@ -231,7 +235,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                     // Draw the text at the current position
                     var position = popup.CurrentPosition;
-                    _font.DrawText(spriteBatch, popup.Text, (int)position.X, (int)position.Y, color);
+                    _drawText(_font, spriteBatch, popup.Text, (int)position.X, (int)position.Y, color);
                 }
             }
         }
@@ -325,6 +329,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             // Use the standardized judgement text font configuration
             return BitmapFont.CreateJudgementTextFontConfig();
+        }
+
+        private static void DrawTextWithBitmapFont(BitmapFont bitmapFont, SpriteBatch spriteBatch, string text, int x, int y, Color color)
+        {
+            bitmapFont.DrawText(spriteBatch, text, x, y, color);
         }
 
         #endregion
