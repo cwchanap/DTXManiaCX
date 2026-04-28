@@ -1485,8 +1485,13 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_fallbackWhiteTexture != null)
             {
-                _spriteBatch.Draw(_fallbackWhiteTexture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
+                DrawFallbackTexture(_fallbackWhiteTexture, destinationRectangle, color, layerDepth);
             }
+        }
+
+        internal virtual void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
+        {
+            _spriteBatch.Draw(texture, destinationRectangle, null, color, 0f, Vector2.Zero, SpriteEffects.None, layerDepth);
         }
         
         /// <summary>
