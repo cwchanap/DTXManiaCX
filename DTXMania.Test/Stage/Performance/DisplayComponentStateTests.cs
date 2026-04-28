@@ -43,6 +43,19 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void ComboDisplay_Constructor_WhenFontFactoryUnavailable_ShouldInitializeHiddenDefaultState()
+        {
+            using var display = WithManagedFontFactoryUnavailable(() =>
+                new ComboDisplay(new Mock<IResourceManager>().Object, CreateGraphicsDeviceStub()));
+
+            Assert.Equal(0, display.Combo);
+            Assert.Equal("0", GetPrivateField<string>(display, "_comboText"));
+            Assert.False(GetPrivateField<bool>(display, "_visible"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_comboFont"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_labelFont"));
+        }
+
+        [Fact]
         public void GaugeDisplay_Constructor_WithNullResourceManager_ShouldThrowArgumentNullException()
         {
             var graphicsDevice = CreateGraphicsDeviceStub();
@@ -80,6 +93,18 @@ namespace DTXMania.Test.Stage.Performance
             var ex = Assert.Throws<ArgumentNullException>(() => new ScoreDisplay(resourceManager.Object, null!));
 
             Assert.Equal("graphicsDevice", ex.ParamName);
+        }
+
+        [Fact]
+        public void ScoreDisplay_Constructor_WhenFontFactoryUnavailable_ShouldWrapLoadFailure()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+
+            var ex = WithManagedFontFactoryUnavailable(() =>
+                Assert.Throws<InvalidOperationException>(() => new ScoreDisplay(resourceManager.Object, CreateGraphicsDeviceStub())));
+
+            Assert.Contains("font could not be loaded", ex.Message);
+            Assert.NotNull(ex.InnerException);
         }
 
         #endregion
@@ -347,6 +372,17 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(expectedColor, display.FillColor);
         }
 
+        [Theory]
+        [MemberData(nameof(GaugeDisplayColorData))]
+        public void GaugeDisplay_Value_WhenAssignedDirectly_ShouldAlsoRefreshFillColor(float value, Color expectedColor)
+        {
+            var display = CreateUninitialized<GaugeDisplay>();
+
+            display.Value = value;
+
+            Assert.Equal(expectedColor, display.FillColor);
+        }
+
         [Fact]
         public void GaugeDisplay_FrameColor_ShouldBeSettable()
         {
@@ -401,6 +437,19 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(whiteTexture.WasDisposed);
             Assert.Null(GetPrivateField<Texture2D?>(display, "_whiteTexture"));
             Assert.True(GetPrivateField<bool>(display, "_disposed"));
+        }
+
+        [Fact]
+        public void GaugeDisplay_Dispose_WhenAlreadyDisposed_ShouldNotDisposeTextureTwice()
+        {
+            var display = CreateUninitialized<GaugeDisplay>();
+            var whiteTexture = CreateTrackingTexture2D();
+            SetPrivateField(display, "_whiteTexture", whiteTexture);
+
+            display.Dispose();
+            display.Dispose();
+
+            Assert.Equal(1, whiteTexture.DisposeCount);
         }
 
         #endregion
@@ -545,6 +594,19 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(GetPrivateField<bool>(display, "_disposed"));
         }
 
+        [Fact]
+        public void ScoreDisplay_Dispose_WhenAlreadyDisposed_ShouldNotDisposeFontTwice()
+        {
+            var display = CreateUninitialized<ScoreDisplay>();
+            var scoreFont = CreateTrackingManagedFont();
+            SetPrivateField(display, "_scoreFont", scoreFont);
+
+            display.Dispose();
+            display.Dispose();
+
+            Assert.Equal(1, scoreFont.DisposeCount);
+        }
+
         #endregion
 
         #region Helper Methods
@@ -584,6 +646,29 @@ namespace DTXMania.Test.Stage.Performance
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
         }
 
+        private static T WithManagedFontFactoryUnavailable<T>(Func<T> action)
+        {
+            var managedFontType = typeof(ManagedFont);
+            var factoryLock = managedFontType
+                .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var originalContentManager = contentManagerField.GetValue(null);
+
+            lock (factoryLock)
+            {
+                try
+                {
+                    contentManagerField.SetValue(null, null);
+                    return action();
+                }
+                finally
+                {
+                    contentManagerField.SetValue(null, originalContentManager);
+                }
+            }
+        }
+
         private static void SetPrivateField(object target, string fieldName, object value)
         {
             var type = target.GetType();
@@ -621,10 +706,12 @@ namespace DTXMania.Test.Stage.Performance
             }
 
             public bool WasDisposed { get; private set; }
+            public int DisposeCount { get; private set; }
 
             protected override void Dispose(bool disposing)
             {
                 WasDisposed = true;
+                DisposeCount++;
             }
         }
 
