@@ -41,7 +41,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public float Value
         {
             get => _currentValue;
-            set => _currentValue = MathHelper.Clamp(value, MinValue, MaxValue);
+            set
+            {
+                _currentValue = MathHelper.Clamp(value, MinValue, MaxValue);
+                UpdateFillColor();
+            }
         }
 
         /// <summary>
