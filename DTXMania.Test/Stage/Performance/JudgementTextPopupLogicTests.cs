@@ -255,6 +255,28 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
+    public void CreateForTesting_WhenGraphicsDeviceIsNull_ShouldThrowArgumentNullException()
+    {
+        var resourceManager = new Mock<IResourceManager>().Object;
+
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => JudgementTextPopupManager.CreateForTesting(null!, resourceManager));
+
+        Assert.Equal("graphicsDevice", exception.ParamName);
+    }
+
+    [Fact]
+    public void CreateForTesting_WhenResourceManagerIsNull_ShouldThrowArgumentNullException()
+    {
+        var graphicsDevice = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
+
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => JudgementTextPopupManager.CreateForTesting(graphicsDevice, null!));
+
+        Assert.Equal("resourceManager", exception.ParamName);
+    }
+
+    [Fact]
     public void LoadJudgementFont_WhenBitmapFontLoads_ShouldReturnFont()
     {
         var loadMethod = GetLoadJudgementFontMethod();
