@@ -900,11 +900,7 @@ namespace DTXMania.Game.Lib.Stage
                     rectHeight
                 );
 
-                // Use the cached white texture for fallback rendering at proper gameplay state depth (0.1f)
-                if (_fallbackWhiteTexture != null)
-                {
-                    _spriteBatch.Draw(_fallbackWhiteTexture, rectPosition, null, color, 0f, Vector2.Zero, SpriteEffects.None, 0.1f);
-                }
+                DrawFallbackRectangle(rectPosition, color, 0.1f);
             }
         }
 

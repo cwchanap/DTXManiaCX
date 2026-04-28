@@ -1498,6 +1498,98 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawNotes_WhenSongIsPlayingAndDependenciesExist_ShouldCompleteWithoutThrowing()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 0.0);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawNoteOverlays_WhenSongIsPlayingAndDependenciesExist_ShouldCompleteWithoutThrowing()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 900.0);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawGameplayState_WhenLoading_ShouldUseFallbackRectangleDrawerForCenteredText()
+    {
+        var stage = CreateStage();
+        Rectangle? actualRectangle = null;
+        Color? actualColor = null;
+        float? actualDepth = null;
+
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", true);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
+            {
+                actualRectangle = rectangle;
+                actualColor = color;
+                actualDepth = depth;
+            }));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
+
+        Assert.Equal(new Rectangle(580, 350, 120, 20), actualRectangle);
+        Assert.Equal(Color.White, actualColor);
+        Assert.Equal(0.1f, actualDepth);
+    }
+
+    [Fact]
+    public void DrawGameplayState_WhenReadyCountdownActive_ShouldUseFallbackRectangleDrawerForPulsingReadyText()
+    {
+        var stage = CreateStage();
+        Rectangle? actualRectangle = null;
+        Color? actualColor = null;
+        float? actualDepth = null;
+
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 0.125);
+        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((rectangle, color, depth) =>
+            {
+                actualRectangle = rectangle;
+                actualColor = color;
+                actualDepth = depth;
+            }));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
+
+        Assert.Equal(new Rectangle(592, 350, 96, 20), actualRectangle);
+        Assert.Equal(Color.Yellow, actualColor);
+        Assert.Equal(0.1f, actualDepth);
+    }
+
+    [Fact]
     public async Task LoadBGMSoundsAsync_WhenChartHasNoEvents_ShouldLeaveSoundMapEmpty()
     {
         var stage = CreateStage();
