@@ -1498,16 +1498,22 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawNotes_WhenSongIsPlayingAndDependenciesExist_ShouldCompleteWithoutThrowing()
+    public void DrawNotes_WhenRendererIsReadyAndActiveNoteIsOffscreen_ShouldCompleteWithoutThrowing()
     {
         var stage = CreateStage();
         var noteRenderer = CreateNoteRenderer();
-        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 0.0);
+        var parsedChart = new ParsedChart("draw-notes-active-note.dtx") { Bpm = 120.0 };
+        parsedChart.AddNote(new Note { LaneIndex = 0, Channel = 0x13, TimeMs = 4000.0, Value = "01" });
+        parsedChart.FinalizeChart();
+
+        Assert.True(noteRenderer.IsReady);
+
+        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 3000.0);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", new ChartManager(parsedChart));
         ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
 
@@ -1515,16 +1521,22 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawNoteOverlays_WhenSongIsPlayingAndDependenciesExist_ShouldCompleteWithoutThrowing()
+    public void DrawNoteOverlays_WhenRendererIsReadyAndActiveNoteIsOffscreen_ShouldCompleteWithoutThrowing()
     {
         var stage = CreateStage();
         var noteRenderer = CreateNoteRenderer();
-        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 900.0);
+        var parsedChart = new ParsedChart("draw-note-overlays-active-note.dtx") { Bpm = 120.0 };
+        parsedChart.AddNote(new Note { LaneIndex = 0, Channel = 0x13, TimeMs = 4000.0, Value = "01" });
+        parsedChart.FinalizeChart();
+
+        Assert.True(noteRenderer.IsReady);
+
+        ReflectionHelpers.SetPrivateField(noteRenderer, "<EffectiveLookAheadMs>k__BackingField", 3000.0);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", new ChartManager(parsedChart));
         ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
 
@@ -2099,8 +2111,21 @@ public class PerformanceStageDeterministicTests
     {
 #pragma warning disable SYSLIB0050
         var renderer = (NoteRenderer)FormatterServices.GetUninitializedObject(typeof(NoteRenderer));
+        var whiteTexture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
 #pragma warning restore SYSLIB0050
+        var lanePositions = new Vector2[PerformanceUILayout.LaneCount];
+        for (var i = 0; i < lanePositions.Length; i++)
+        {
+            lanePositions[i] = new Vector2(PerformanceUILayout.GetLaneX(i) - 16f, 0f);
+        }
+
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", whiteTexture);
+        ReflectionHelpers.SetPrivateField(renderer, "_lanePositions", lanePositions);
+        ReflectionHelpers.SetPrivateField(renderer, "_laneColors", Enumerable.Repeat(Color.White, PerformanceUILayout.LaneCount).ToArray());
         ReflectionHelpers.SetPrivateField(renderer, "_laneFlashAlpha", new float[10]);
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", 0.5);
+        ReflectionHelpers.SetPrivateField(renderer, "<EffectiveLookAheadMs>k__BackingField", 1200.0);
+        ReflectionHelpers.SetPrivateField(renderer, "_disposed", false);
         return renderer;
     }
 
