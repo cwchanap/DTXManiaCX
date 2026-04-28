@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
@@ -1090,6 +1091,20 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawShutters_WhenTextureMissingDuringTransition_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.SetPrivateField(stage, "_shutterTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.FadeIn);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawShutters"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public void DrawOverlays_WhenPausedAndDangerActive_ShouldDrawPauseAndPulseDangerTint()
     {
         var stage = CreateStage();
@@ -1293,6 +1308,53 @@ public class PerformanceStageDeterministicTests
                 0.05f),
             Times.Once);
         Assert.Equal(1, fallbackInvocationCount);
+    }
+
+    [Fact]
+    public void DrawUIElements_WhenDisplaysAndUiManagerExist_ShouldDrawOptionalUiBranchesWithoutThrowing()
+    {
+        var stage = CreateStage();
+        var scoreDisplay = CreateScoreDisplay();
+        var comboDisplay = CreateComboDisplay();
+        var uiManager = new UIManager();
+        var rootContainer = new TrackingUIContainer();
+        uiManager.AddRootContainer(rootContainer);
+
+        ReflectionHelpers.SetPrivateField(stage, "_scoreDisplay", scoreDisplay);
+        ReflectionHelpers.SetPrivateField(stage, "_comboDisplay", comboDisplay);
+        ReflectionHelpers.SetPrivateField(stage, "_uiManager", uiManager);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawUIElements"));
+
+        Assert.Null(exception);
+        Assert.Equal(1, rootContainer.DrawCount);
+    }
+
+    [Fact]
+    public void DrawFallbackRectangle_WhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
+    {
+        var stage = CreateInspectableStage();
+        Texture2D fallbackWhiteTexture;
+#pragma warning disable SYSLIB0050
+        fallbackWhiteTexture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTexture", fallbackWhiteTexture);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "DrawFallbackRectangle",
+            new Rectangle(12, 34, 56, 78),
+            Color.LightBlue,
+            0.2f);
+
+        Assert.Same(fallbackWhiteTexture, stage.DrawFallbackTextureArgument);
+        Assert.Equal(new Rectangle(12, 34, 56, 78), stage.DrawFallbackTextureRectangle);
+        Assert.Equal(Color.LightBlue, stage.DrawFallbackTextureColor);
+        Assert.Equal(0.2f, stage.DrawFallbackTextureDepth);
     }
 
     [Fact]
@@ -1640,6 +1702,15 @@ public class PerformanceStageDeterministicTests
         return stage;
     }
 
+    private static InspectablePerformanceStage CreateInspectableStage(BaseGame? game = null)
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (InspectablePerformanceStage)FormatterServices.GetUninitializedObject(typeof(InspectablePerformanceStage));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
+        return stage;
+    }
+
     private static ScoreDisplay CreateScoreDisplay()
     {
 #pragma warning disable SYSLIB0050
@@ -1781,6 +1852,41 @@ public class PerformanceStageDeterministicTests
 #pragma warning disable SYSLIB0050
         return (T)FormatterServices.GetUninitializedObject(typeof(T));
 #pragma warning restore SYSLIB0050
+    }
+
+    private sealed class TrackingUIContainer : UIContainer
+    {
+        public int DrawCount { get; private set; }
+
+        protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
+        {
+            DrawCount++;
+            base.OnDraw(spriteBatch, deltaTime);
+        }
+    }
+
+    private sealed class InspectablePerformanceStage : PerformanceStage
+    {
+        public InspectablePerformanceStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        public Texture2D? DrawFallbackTextureArgument { get; private set; }
+
+        public Rectangle? DrawFallbackTextureRectangle { get; private set; }
+
+        public Color? DrawFallbackTextureColor { get; private set; }
+
+        public float? DrawFallbackTextureDepth { get; private set; }
+
+        internal override void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
+        {
+            DrawFallbackTextureArgument = texture;
+            DrawFallbackTextureRectangle = destinationRectangle;
+            DrawFallbackTextureColor = color;
+            DrawFallbackTextureDepth = layerDepth;
+        }
     }
 
     private sealed class BackActionInputManagerCompat : MockInputManagerCompat
