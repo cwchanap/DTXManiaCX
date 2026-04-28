@@ -178,10 +178,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public void Dispose()
         {
+            _effectsEnabled = false;
             _hitEffectTexture?.Dispose();
             _hitEffectTexture = null;
             _activeEffects?.Clear();
         }
     }
 }
-
