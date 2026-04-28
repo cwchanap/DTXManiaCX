@@ -131,6 +131,21 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
+    public void Update_WhenManagerIsDisposed_ShouldReturnWithoutUpdatingPopups()
+    {
+        var manager = CreateManager(disposed: true);
+        var popup = new JudgementTextPopup("Perfect", Vector2.Zero);
+        GetActivePopups(manager).Add(popup);
+
+        manager.Update(0.7);
+
+        Assert.True(popup.IsActive);
+        Assert.Equal(1.0f, popup.Alpha);
+        Assert.Equal(0f, popup.YOffset);
+        Assert.Equal(1, manager.ActivePopupCount);
+    }
+
+    [Fact]
     public void Draw_WhenSpriteBatchIsNull_ShouldReturnWithoutTouchingPopups()
     {
         using var font = CreateLoadedBitmapFont();
@@ -211,6 +226,21 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
+    public void Draw_WhenUsingDefaultDrawHelper_ShouldInvokeBitmapFontPath()
+    {
+        using var font = CreateLoadedBitmapFont();
+        var manager = CreateManager(font: font);
+        GetActivePopups(manager).Add(new JudgementTextPopup("★", new Vector2(100, 200)));
+        var drawText = ReflectionHelpers.GetPrivateField<Action<BitmapFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
+
+        var exception = Record.Exception(() => manager.Draw(ReflectionHelpers.CreateUninitialized<SpriteBatch>()));
+
+        Assert.Null(exception);
+        Assert.Equal("DrawTextWithBitmapFont", drawText!.Method.Name);
+        Assert.Equal(1, manager.ActivePopupCount);
+    }
+
+    [Fact]
     public void LoadJudgementFont_WhenArgumentsAreNull_ShouldThrowArgumentNullException()
     {
         var loadMethod = GetLoadJudgementFontMethod();
@@ -241,6 +271,22 @@ public class JudgementTextPopupLogicTests
 
         Assert.NotNull(font);
         Assert.True(font!.IsLoaded);
+    }
+
+    [Fact]
+    public void Constructor_WithGraphicsDeviceAndResourceManager_ShouldLoadJudgementFont()
+    {
+        using var manager = new JudgementTextPopupManager(
+            ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
+            CreateBitmapFontResourceManager().Object);
+
+        var font = ReflectionHelpers.GetPrivateField<BitmapFont>(manager, "_font");
+        var drawText = ReflectionHelpers.GetPrivateField<Action<BitmapFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
+
+        Assert.NotNull(font);
+        Assert.True(font!.IsLoaded);
+        Assert.NotNull(drawText);
+        Assert.Equal("DrawTextWithBitmapFont", drawText!.Method.Name);
     }
 
     [Fact]
@@ -317,13 +363,7 @@ public class JudgementTextPopupLogicTests
 
     private static BitmapFont CreateLoadedBitmapFont()
     {
-        var resourceManager = new Mock<IResourceManager>();
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Texture).Returns((Texture2D?)null);
-        texture.SetupGet(x => x.Width).Returns(8);
-        texture.SetupGet(x => x.Height).Returns(16);
-        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
-        return new BitmapFont(resourceManager.Object, BitmapFont.CreateJudgementTextFontConfig(), true);
+        return new BitmapFont(CreateBitmapFontResourceManager().Object, BitmapFont.CreateJudgementTextFontConfig(), true);
     }
 
     private static BitmapFont CreateUnloadedBitmapFont()
@@ -336,5 +376,16 @@ public class JudgementTextPopupLogicTests
     private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)
     {
         return ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(manager, "_activePopups")!;
+    }
+
+    private static Mock<IResourceManager> CreateBitmapFontResourceManager()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Texture).Returns((Texture2D?)null);
+        texture.SetupGet(x => x.Width).Returns(8);
+        texture.SetupGet(x => x.Height).Returns(16);
+        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
+        return resourceManager;
     }
 }
