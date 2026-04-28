@@ -113,19 +113,48 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void BackgroundRenderer_Draw_WhenBackgroundIsReady_ShouldDrawLoadedTextureAtRequestedDepth()
+        {
+            var renderer = new BackgroundRenderer(new Mock<IResourceManager>().Object);
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+            var texture = new Mock<ITexture>();
+            var destinationRectangle = new Rectangle(12, 34, 320, 180);
+
+            ReflectionHelpers.SetPrivateField(renderer, "_backgroundTexture", texture.Object);
+
+            renderer.Draw(spriteBatch, destinationRectangle, 0.42f);
+
+            texture.Verify(
+                background => background.Draw(
+                    spriteBatch,
+                    destinationRectangle,
+                    null,
+                    Color.White,
+                    0f,
+                    Vector2.Zero,
+                    SpriteEffects.None,
+                    0.42f),
+                Times.Once);
+        }
+
+        [Fact]
         public void BackgroundRenderer_Dispose_ShouldReleaseLoadedTextureAndResetFlags()
         {
             var resourceManager = new Mock<IResourceManager>();
             var renderer = new BackgroundRenderer(resourceManager.Object);
             var texture = new TrackingTextureResource();
+            var fallbackTexture = CreateTrackingTexture(1, 1);
             ReflectionHelpers.SetPrivateField(renderer, "_backgroundTexture", texture);
+            ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", fallbackTexture);
             ReflectionHelpers.SetPrivateField(renderer, "_isLoading", true);
             ReflectionHelpers.SetPrivateField(renderer, "_loadingFailed", true);
 
             renderer.Dispose();
 
             Assert.Equal(1, texture.RemoveReferenceCount);
+            Assert.True(fallbackTexture.WasDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_backgroundTexture"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
             Assert.False(renderer.IsLoading);
             Assert.False(renderer.LoadingFailed);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(renderer, "_disposed"));
@@ -158,6 +187,20 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void LaneBackgroundRenderer_Constructor_WhenWhiteTextureCreationSucceeds_ShouldStoreCreatedTexture()
+        {
+            var expectedTexture = new TrackingTextureResource();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(expectedTexture);
+
+            var renderer = new LaneBackgroundRenderer(resourceManager.Object);
+
+            Assert.Same(expectedTexture, ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTexture"));
+        }
+
+        [Fact]
         public void LaneBackgroundRenderer_Update_ShouldNotThrow()
         {
             var renderer = CreateUninitialized<LaneBackgroundRenderer>();
@@ -183,8 +226,32 @@ namespace DTXMania.Test.Stage.Performance
         public void LaneBackgroundRenderer_DrawLane_WithInvalidLaneIndex_ShouldReturnWithoutThrowing(int laneIndex)
         {
             var renderer = CreateUninitialized<LaneBackgroundRenderer>();
+            ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", new TrackingTextureResource());
 
-            var exception = Record.Exception(() => renderer.DrawLane(null!, laneIndex));
+            var exception = Record.Exception(() => renderer.DrawLane(CreateUninitialized<SpriteBatch>(), laneIndex));
+
+            Assert.Null(exception);
+        }
+
+        [Theory]
+        [InlineData(-1, -0.5f)]
+        [InlineData(PerformanceUILayout.LaneCount, 1.5f)]
+        public void LaneBackgroundRenderer_DrawLaneWithAlpha_WithInvalidLaneIndex_ShouldReturnWithoutThrowing(int laneIndex, float alpha)
+        {
+            var renderer = CreateUninitialized<LaneBackgroundRenderer>();
+            ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", new TrackingTextureResource());
+
+            var exception = Record.Exception(() => renderer.DrawLane(CreateUninitialized<SpriteBatch>(), laneIndex, alpha));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void LaneBackgroundRenderer_DrawWithAlpha_WhenWhiteTextureMissing_ShouldReturnWithoutThrowing()
+        {
+            var renderer = CreateUninitialized<LaneBackgroundRenderer>();
+
+            var exception = Record.Exception(() => renderer.Draw(CreateUninitialized<SpriteBatch>(), 0.5f));
 
             Assert.Null(exception);
         }
@@ -214,7 +281,6 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal("graphicsDevice", exception.ParamName);
         }
 
-        [Fact]
         public void JudgementLineRenderer_PropertySetters_ShouldClampAndStoreValues()
         {
             var renderer = CreateUninitialized<JudgementLineRenderer>();
@@ -259,6 +325,22 @@ namespace DTXMania.Test.Stage.Performance
                 renderer.Draw(null!);
                 renderer.Draw(null!, Color.Red);
                 renderer.Draw(null!, Color.Red, 0.5f);
+            });
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void JudgementLineRenderer_DrawOverloads_WhenWhiteTextureIsMissing_ShouldReturnWithoutThrowing()
+        {
+            var renderer = CreateUninitialized<JudgementLineRenderer>();
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+
+            var exception = Record.Exception(() =>
+            {
+                renderer.Draw(spriteBatch);
+                renderer.Draw(spriteBatch, Color.Red);
+                renderer.Draw(spriteBatch, Color.Red, 0.5f);
             });
 
             Assert.Null(exception);
@@ -328,7 +410,6 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Empty(activeEffects!.Cast<object>());
         }
 
-        [Fact]
         public void SpawnHitEffect_WhenEffectsAreEnabled_ShouldAddEffectAtLanePosition()
         {
             using var fixture = new EffectsManagerFixture(totalSprites: 4);
@@ -350,6 +431,20 @@ namespace DTXMania.Test.Stage.Performance
             fixture.Manager.SpawnHitEffect(1);
 
             var activeEffects = ReflectionHelpers.GetPrivateField<System.Collections.IList>(fixture.Manager, "_activeEffects");
+            Assert.Empty(activeEffects!.Cast<object>());
+        }
+
+        [Fact]
+        public void SpawnHitEffect_WhenTextureIsMissing_ShouldNotAddEffects()
+        {
+            var manager = CreateUninitialized<EffectsManager>();
+            ReflectionHelpers.SetPrivateField(manager, "_effectsEnabled", true);
+            ReflectionHelpers.SetPrivateField(manager, "_activeEffects", CreateActiveEffectsList());
+            ReflectionHelpers.SetPrivateField(manager, "_hitEffectTexture", null);
+
+            manager.SpawnHitEffect(1);
+
+            var activeEffects = ReflectionHelpers.GetPrivateField<System.Collections.IList>(manager, "_activeEffects");
             Assert.Empty(activeEffects!.Cast<object>());
         }
 
@@ -403,6 +498,32 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Draw_WhenEffectFrameIsValidButTextureIsMissing_ShouldReturnWithoutThrowing()
+        {
+            var manager = CreateUninitialized<EffectsManager>();
+            ReflectionHelpers.SetPrivateField(manager, "_effectsEnabled", true);
+            ReflectionHelpers.SetPrivateField(manager, "_hitEffectTexture", CreateSpriteTexture(totalSprites: 3));
+            ReflectionHelpers.SetPrivateField(manager, "_activeEffects", CreateActiveEffectsList(CreateEffectInstance(frameIndex: 1, totalFrames: 3)));
+
+            var exception = Record.Exception(() => manager.Draw(CreateUninitialized<SpriteBatch>()));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void Draw_WhenEffectFrameIsOutsideSpriteRange_ShouldSkipItWithoutThrowing()
+        {
+            var manager = CreateUninitialized<EffectsManager>();
+            ReflectionHelpers.SetPrivateField(manager, "_effectsEnabled", true);
+            ReflectionHelpers.SetPrivateField(manager, "_hitEffectTexture", CreateSpriteTexture(totalSprites: 1));
+            ReflectionHelpers.SetPrivateField(manager, "_activeEffects", CreateActiveEffectsList(CreateEffectInstance(frameIndex: 4, totalFrames: 1)));
+
+            var exception = Record.Exception(() => manager.Draw(CreateUninitialized<SpriteBatch>()));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void Dispose_ShouldDisposeHitTextureAndClearActiveEffects()
         {
             using var fixture = new EffectsManagerFixture(totalSprites: 4);
@@ -411,6 +532,7 @@ namespace DTXMania.Test.Stage.Performance
             fixture.Manager.Dispose();
 
             var activeEffects = ReflectionHelpers.GetPrivateField<System.Collections.IList>(fixture.Manager, "_activeEffects");
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(fixture.Manager, "_effectsEnabled"));
             Assert.Null(ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(fixture.Manager, "_hitEffectTexture"));
             Assert.Empty(activeEffects!.Cast<object>());
             Assert.True(fixture.HitTexture.WasDisposed);
@@ -449,6 +571,42 @@ namespace DTXMania.Test.Stage.Performance
             ReflectionHelpers.SetPrivateField(texture, "<TexelWidth>k__BackingField", 1f / width);
             ReflectionHelpers.SetPrivateField(texture, "<TexelHeight>k__BackingField", 1f / height);
             return texture;
+        }
+
+        private static ManagedSpriteTexture CreateSpriteTexture(int totalSprites)
+        {
+            var texture = CreateUninitialized<ManagedSpriteTexture>();
+            ReflectionHelpers.SetPrivateField(texture, "_spriteWidth", 8);
+            ReflectionHelpers.SetPrivateField(texture, "_spriteHeight", 32);
+            ReflectionHelpers.SetPrivateField(texture, "_spritesPerRow", Math.Max(1, totalSprites));
+            ReflectionHelpers.SetPrivateField(texture, "_totalSprites", totalSprites);
+            ReflectionHelpers.SetPrivateField(texture, "_texture", null);
+            return texture;
+        }
+
+        private static object CreateEffectInstance(int frameIndex, int totalFrames)
+        {
+            var effectType = typeof(EffectsManager).GetNestedType("EffectInstance", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(effectType);
+            var effect = Activator.CreateInstance(effectType!, new object[] { Vector2.Zero, totalFrames });
+            Assert.NotNull(effect);
+            ReflectionHelpers.SetPrivateField(effect!, "_frameIndex", frameIndex);
+            return effect!;
+        }
+
+        private static object CreateActiveEffectsList(params object[] effects)
+        {
+            var effectType = typeof(EffectsManager).GetNestedType("EffectInstance", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(effectType);
+            var listType = typeof(List<>).MakeGenericType(effectType!);
+            var list = Activator.CreateInstance(listType);
+            Assert.NotNull(list);
+            var addMethod = listType.GetMethod("Add")!;
+            foreach (var effect in effects)
+            {
+                addMethod.Invoke(list, new[] { effect });
+            }
+            return list!;
         }
 
         private sealed class EffectsManagerFixture : IDisposable

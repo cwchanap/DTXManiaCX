@@ -181,6 +181,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _backgroundTexture?.RemoveReference();
                     _backgroundTexture = null;
                     _whiteTexture?.Dispose();
+                    _whiteTexture = null;
                     
                     // Reset state variables to initial values for proper reactivation
                     _isLoading = false;
