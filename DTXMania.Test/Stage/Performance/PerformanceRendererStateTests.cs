@@ -281,6 +281,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal("graphicsDevice", exception.ParamName);
         }
 
+        [Fact]
         public void JudgementLineRenderer_PropertySetters_ShouldClampAndStoreValues()
         {
             var renderer = CreateUninitialized<JudgementLineRenderer>();
@@ -410,6 +411,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Empty(activeEffects!.Cast<object>());
         }
 
+        [Fact]
         public void SpawnHitEffect_WhenEffectsAreEnabled_ShouldAddEffectAtLanePosition()
         {
             using var fixture = new EffectsManagerFixture(totalSprites: 4);
