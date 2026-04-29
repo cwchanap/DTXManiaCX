@@ -227,6 +227,28 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public async Task StartJsonRpcServerAsync_WhenServerIsDisposed_ShouldSurfaceTheFailure()
+        {
+            var game = CreateGameForLifecycle(new ConfigData { GameApiPort = 12347 });
+            var gameApi = new Mock<IGameApi>();
+            gameApi.SetupGet(api => api.IsRunning).Returns(true);
+            var server = new JsonRpcServer(gameApi.Object, port: 12347);
+            server.Dispose();
+
+            await Assert.ThrowsAnyAsync<Exception>(() => game.StartJsonRpcServerAsync(server, CancellationToken.None));
+        }
+
+        [Fact]
+        public void CapturePendingScreenshot_WhenRenderTargetIsNull_ShouldReturnNullViaWrapper()
+        {
+            var game = CreateGameForLifecycle();
+
+            var result = game.CapturePendingScreenshot(null);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
         public void Draw_WhenGraphicsDeviceIsUnavailable_ShouldCompletePendingScreenshotWithNull()
         {
             var game = CreateGameForLifecycle();
