@@ -1332,7 +1332,7 @@ namespace DTXMania.Test.Stage
             Assert.NotNull(statusPanel);
             Assert.NotNull(previewImagePanel);
             Assert.Equal(Vector2.Zero, mainPanel!.Position);
-            Assert.Equal(new Vector2(game.GraphicsDevice.Viewport.Width, game.GraphicsDevice.Viewport.Height), mainPanel.Size);
+            Assert.Equal(new Vector2(SongSelectionUILayout.SongListDisplay.Width, SongSelectionUILayout.SongListDisplay.Height), mainPanel.Size);
             Assert.Equal(Color.Black * SongSelectionUILayout.Background.MainPanelAlpha, mainPanel.BackgroundColor);
             Assert.Equal(PanelLayoutMode.Manual, mainPanel.LayoutMode);
             Assert.Equal("Song Selection", titleLabel!.Text);

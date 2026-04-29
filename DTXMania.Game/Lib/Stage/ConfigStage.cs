@@ -702,6 +702,9 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         protected virtual void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
         {
+            if (_whitePixel == null)
+                return;
+
             _spriteBatch.Draw(_whitePixel, destinationRectangle, color);
         }
 
