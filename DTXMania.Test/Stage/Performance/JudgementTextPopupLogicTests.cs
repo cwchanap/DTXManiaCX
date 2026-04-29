@@ -166,8 +166,8 @@ public class JudgementTextPopupLogicTests
         var managerWithoutFont = CreateManager();
         GetActivePopups(managerWithoutFont).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
 
-        using var loadedFont = CreateLoadedBitmapFont();
-        var disposedManager = CreateManager(font: loadedFont, drawText: (_, _, _, _, _, _) => drawCount++, disposed: true);
+        using var fontForDisposedManager = CreateLoadedBitmapFont();
+        var disposedManager = CreateManager(font: fontForDisposedManager, drawText: (_, _, _, _, _, _) => drawCount++, disposed: true);
 
         var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
 

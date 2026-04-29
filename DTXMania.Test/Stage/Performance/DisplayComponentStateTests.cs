@@ -655,15 +655,26 @@ namespace DTXMania.Test.Stage.Performance
             var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
             var originalContentManager = contentManagerField.GetValue(null);
 
+            var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
+            var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
+            loadedFonts.CopyTo(originalEntries, 0);
+
             lock (factoryLock)
             {
                 try
                 {
                     contentManagerField.SetValue(null, null);
+                    loadedFonts.Clear();
                     return action();
                 }
                 finally
                 {
+                    loadedFonts.Clear();
+                    foreach (System.Collections.DictionaryEntry entry in originalEntries)
+                    {
+                        loadedFonts[entry.Key] = entry.Value;
+                    }
                     contentManagerField.SetValue(null, originalContentManager);
                 }
             }

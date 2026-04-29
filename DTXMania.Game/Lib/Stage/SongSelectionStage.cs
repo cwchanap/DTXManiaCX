@@ -361,11 +361,16 @@ namespace DTXMania.Game.Lib.Stage
         {
             _uiManager = new UIManager();
 
+            // Get viewport dimensions with fallback for test/headless environments
+            var viewport = _game.GraphicsDevice?.Viewport ?? default;
+            var width = viewport.Width > 0 ? viewport.Width : SongSelectionUILayout.SongListDisplay.Width;
+            var height = viewport.Height > 0 ? viewport.Height : SongSelectionUILayout.SongListDisplay.Height;
+
             // Create main panel
             _mainPanel = new UIPanel
             {
                 Position = Vector2.Zero,
-                Size = new Vector2(_game.GraphicsDevice.Viewport.Width, _game.GraphicsDevice.Viewport.Height),
+                Size = new Vector2(width, height),
                 BackgroundColor = Color.Black * SongSelectionUILayout.Background.MainPanelAlpha,
                 LayoutMode = PanelLayoutMode.Manual
             };
