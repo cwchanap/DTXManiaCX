@@ -14,6 +14,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -367,11 +368,13 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         CompleteBaseDraw(gameTime);
     }
 
+    [ExcludeFromCodeCoverage]
     internal virtual void SetDrawRenderTarget(RenderTarget2D? renderTarget)
     {
         GraphicsDevice.SetRenderTarget(renderTarget);
     }
 
+    [ExcludeFromCodeCoverage]
     internal virtual void ClearDrawSurface(Color color)
     {
         GraphicsDevice.Clear(color);
@@ -382,6 +385,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return CaptureRenderTargetAsPng(renderTarget);
     }
 
+    [ExcludeFromCodeCoverage]
     internal virtual void DrawRenderTargetToBackBuffer(RenderTarget2D renderTarget)
     {
         _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
@@ -389,6 +393,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         _spriteBatch.End();
     }
 
+    [ExcludeFromCodeCoverage]
     internal virtual void CompleteBaseDraw(GameTime gameTime)
     {
         base.Draw(gameTime);

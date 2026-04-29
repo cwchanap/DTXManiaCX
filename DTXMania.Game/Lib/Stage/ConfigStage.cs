@@ -11,6 +11,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 
@@ -686,21 +687,25 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        [ExcludeFromCodeCoverage]
         protected virtual void BeginDrawFrame()
         {
             _spriteBatch.Begin();
         }
 
+        [ExcludeFromCodeCoverage]
         protected virtual void EndDrawFrame()
         {
             _spriteBatch.End();
         }
 
+        [ExcludeFromCodeCoverage]
         protected virtual void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
         {
             _spriteBatch.Draw(_whitePixel, destinationRectangle, color);
         }
 
+        [ExcludeFromCodeCoverage]
         protected virtual Viewport GetViewport()
         {
             return _game.GraphicsDevice.Viewport;

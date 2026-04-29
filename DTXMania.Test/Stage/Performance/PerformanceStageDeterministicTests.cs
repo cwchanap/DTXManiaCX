@@ -1142,6 +1142,34 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawProgressBar_WhenFallbackDrawerAndTextureAreMissing_ShouldSkipFallbackFillWithoutThrowing()
+    {
+        var stage = CreateStage();
+        var progressBaseTexture = CreateTextureMock(width: 60, height: 540);
+
+        ReflectionHelpers.SetPrivateField(stage, "_progressBaseTexture", progressBaseTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.25f);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTexture", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawProgressBar"));
+
+        Assert.Null(exception);
+        progressBaseTexture.Verify(
+            texture => texture.Draw(
+                null!,
+                It.IsAny<Rectangle>(),
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0.2f),
+            Times.Once);
+    }
+
+    [Fact]
     public void DrawSkillPanel_WhenSkillPanelTextureExists_ShouldDrawAtUILayoutPanelPosition()
     {
         var stage = CreateStage();

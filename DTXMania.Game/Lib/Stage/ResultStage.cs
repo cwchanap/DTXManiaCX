@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -155,6 +156,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        [ExcludeFromCodeCoverage]
         internal virtual Texture2D CreateWhitePixel()
         {
             var whitePixel = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
@@ -162,6 +164,7 @@ namespace DTXMania.Game.Lib.Stage
             return whitePixel;
         }
 
+        [ExcludeFromCodeCoverage]
         internal virtual BitmapFont CreateResultFont()
         {
             var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
@@ -237,6 +240,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        [ExcludeFromCodeCoverage]
         internal virtual Viewport GetBackgroundViewport()
         {
             return _spriteBatch.GraphicsDevice.Viewport;
@@ -250,6 +254,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        [ExcludeFromCodeCoverage]
         internal virtual void DrawTexture(Texture2D texture, Rectangle destinationRectangle, Color color)
         {
             _spriteBatch.Draw(texture, destinationRectangle, color);
