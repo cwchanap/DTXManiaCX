@@ -51,7 +51,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 
 ### Test Projects
 - `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
-- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: Graphics/\*\*, BitmapFontTests, StressTestRunner, QA tests, SongBarRendererTests, SongStatusPanelTests, JudgementTextPopupTests, ResourceManagerTests, and helpers requiring GraphicsDevice. Defines `MAC_BUILD` constant.
+- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/BitmapFontTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/JudgementTextPopupTests.cs`, `Stage/Performance/PooledEffectsManagerTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Helpers/MockPerformanceStage.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
 
 ## Architecture Overview
 
@@ -63,6 +63,8 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 - **DTXMania.Test/** - xUnit test suite with Moq
 - **MCP/** - Model Context Protocol server for AI copilot integration
 - **DTXManiaNX/** - Legacy codebase (reference only)
+- **System/** - Default skin directory (Graphics/, Sounds/, Script/ subdirs); the fallback when no custom skin is active
+- **docs/** - Implementation design documents (resource management, stage transitions, skin system, etc.)
 
 ### Lib Namespace Organization
 ```text
@@ -90,6 +92,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - 6 transition types: Fade, DTXManiaFade, Crossfade, Instant, StartupToTitle, generic
 - Phase management follows DTXManiaNX eフェーズID patterns (Inactive, FadeIn, Normal, FadeOut)
 - BaseStage is the abstract base class; all stages implement IStage
+- `KeyAssign/` subdirectory: DrumKeyAssignPanel, SystemKeyAssignPanel, KeyConflictChecker for input mapping UI
 
 **Performance Stage** (`Lib/Stage/Performance/`): The most complex stage, composed of 18 specialized components:
 - AudioLoader, BackgroundRenderer, ComboDisplay, ComboManager, EffectsManager
@@ -137,7 +140,8 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - Environment variables: `DTXMANIA_API_URL`, `DTXMANIA_API_KEY`
 
 ### Key Interfaces
-- `IGameContext` - Game state access (StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager)
+- `IStageGame` - Internal interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which is for external API/MCP access
+- `IGameContext` - External game state access for API/MCP (same services as `IStageGame` but public-facing)
 - `IStageManager` / `IStage` / `IStageTransition` - Stage lifecycle and transitions
 - `IResourceManager` - Resource loading and caching
 - `IConfigManager` - Configuration access
