@@ -437,6 +437,43 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void UpdateGameplayManagers_WithAutoPlayDisabled_DoesNotProcessAutoPlay()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0);
+
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.NotEqual(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+    }
+
+    [Fact]
+    public void UpdateGameplayManagers_WithAutoPlayEnabled_AdvancesAutoPlay()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
