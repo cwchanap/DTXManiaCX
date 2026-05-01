@@ -313,7 +313,7 @@ namespace DTXMania.Game.Lib.Stage
             _autoPlayNoteIndex = 0;
             _autoPlayDiagnosticLogged = false;
 
-            System.Diagnostics.Debug.WriteLine(
+            Console.WriteLine(
                 $"[AutoPlay-Diag] InitializeAutoPlay: enabled={_autoPlayEnabled}, " +
                 $"chartLoaded={_chartManager != null}, " +
                 $"notesCount={_chartManager?.AllNotes.Count ?? -1}");
@@ -1184,7 +1184,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _autoPlayDiagnosticLogged = true;
                 var firstPending = (_autoPlayNoteIndex < allNotes.Count) ? allNotes[_autoPlayNoteIndex] : null;
-                System.Diagnostics.Debug.WriteLine(
+                Console.WriteLine(
                     $"[AutoPlay-Diag] ProcessAutoPlay first entry: " +
                     $"currentTimeMs={currentSongTimeMs:F1}, " +
                     $"notesCount={allNotes.Count}, " +
