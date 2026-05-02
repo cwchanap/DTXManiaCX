@@ -472,6 +472,20 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void Play_Parameterless_StartsPlayback()
+        {
+            // Arrange
+            using var sound = new ManagedSound(_fixture.ValidWavFile);
+
+            // Act
+            using var instance = sound.Play();
+
+            // Assert
+            Assert.NotNull(instance);
+            Assert.Equal(SoundState.Playing, instance.State);
+        }
+
+        [Fact]
         public void ISound_Play_WithVolume_WorksCorrectly()
         {
             // Arrange
