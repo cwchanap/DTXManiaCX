@@ -542,20 +542,47 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
 
+        // Seed a hittable note on lane 0 so PlayChipForNote would have something to play
+        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        var soundMock = new Mock<ISound>();
-        var cache = new ChipSoundCache(_ => soundMock.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var soundMock = new Mock<ISound>();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
+                 .GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
-        var args = new LaneHitEventArgs(0, new ButtonState("Player", true, 1.0f));
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+            // Set timer to playing state at 1010ms (within note's hit window)
+            // so without the autoplay guard, PlayChipForNote WOULD be called
+            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+                new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
 
-        // Pad must remain Idle (Pressed would mean TriggerPadPress fired)
-        var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
-        Assert.Equal(PadState.Idle, pads[0].State);
-        soundMock.Verify(s => s.Play(), Times.Never);
+            var args = new LaneHitEventArgs(0, new ButtonState("Player", true, 1.0f));
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+            // Pad must remain Idle (Pressed would mean TriggerPadPress fired)
+            var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+            Assert.Equal(PadState.Idle, pads[0].State);
+            // Sound must NOT play — autoplay guard prevents it even though a
+            // hittable note exists and the timer is playing
+            soundMock.Verify(s => s.Play(), Times.Never);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
     }
 
     [Fact]

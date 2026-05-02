@@ -531,10 +531,15 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private static string ResolveBGMPath(string wavPath, string dtxFilePath)
         {
+            // Normalize path separators for cross-platform compatibility
+            // DTX files use backslashes; Path.Combine on non-Windows won't resolve them
+            var normalizedWavPath = wavPath.Replace('\\', Path.DirectorySeparatorChar)
+                                           .Replace('/', Path.DirectorySeparatorChar);
+
             // Check if the WAV path is already absolute
-            if (Path.IsPathRooted(wavPath))
+            if (Path.IsPathRooted(normalizedWavPath))
             {
-                return wavPath;
+                return normalizedWavPath;
             }
 
             // Try different resolution strategies
@@ -542,7 +547,7 @@ namespace DTXMania.Game.Lib.Song
             // Strategy 1: Relative to DTX file directory (correct semantics: #WAV paths are
             // relative to the chart, not to the process working directory)
             var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
-            var dtxRelativePath = Path.Combine(dtxDirectory, wavPath);
+            var dtxRelativePath = Path.Combine(dtxDirectory, normalizedWavPath);
 
             if (File.Exists(dtxRelativePath))
             {
@@ -550,9 +555,9 @@ namespace DTXMania.Game.Lib.Song
             }
 
             // Strategy 2: Path as-is (relative to working directory) — fallback for edge cases
-            if (File.Exists(wavPath))
+            if (File.Exists(normalizedWavPath))
             {
-                return wavPath;
+                return normalizedWavPath;
             }
 
             // Strategy 3: Use the DTX-relative path even if file doesn't exist (let AudioLoader handle the error)
