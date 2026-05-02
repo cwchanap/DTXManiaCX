@@ -484,27 +484,32 @@ public class PerformanceStageDeterministicTests
 
         var soundMock = new Mock<ISound>();
         var stubWavPath = WriteTempStubWav();
-        var cache = new ChipSoundCache(_ => soundMock.Object);
-        cache.PreloadAsync(new Dictionary<string, string>
+        try
         {
-            ["07"] = stubWavPath,
-        }).GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string>
+            {
+                ["07"] = stubWavPath,
+            }).GetAwaiter().GetResult();
 
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+            ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
-        judgementManager.IsActive = true;
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+            var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+            judgementManager.IsActive = true;
+            ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+            ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0);
 
-        soundMock.Verify(s => s.Play(), Times.Once);
-
-        File.Delete(stubWavPath);
+            soundMock.Verify(s => s.Play(), Times.Once);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
     }
 
     [Fact]
@@ -2291,7 +2296,7 @@ public class PerformanceStageDeterministicTests
         var parsed = new ParsedChart("chip-sound-test.dtx") { Bpm = 120.0 };
         foreach (var n in notes)
         {
-            parsed.Notes.Add(n);
+            parsed.AddNote(n);
         }
         parsed.FinalizeChart();
         return new ChartManager(parsed);
