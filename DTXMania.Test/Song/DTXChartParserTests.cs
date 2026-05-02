@@ -282,5 +282,64 @@ namespace DTXMania.Test.Song
             Assert.False(DTXChartParser.IsSupportedFile(""));
             Assert.False(DTXChartParser.IsSupportedFile(null));
         }
+
+        [Fact]
+        public async Task ParseAsync_PopulatesWavDefinitionsWithResolvedPaths()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"dtx-test-{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            var dtxPath = Path.Combine(tempDir, "test.dtx");
+            try
+            {
+                File.WriteAllText(dtxPath,
+                    "#TITLE: Test\n" +
+                    "#BPM: 120\n" +
+                    "#WAV01: snare.wav\n" +
+                    "#WAV02: kick.wav\n" +
+                    "#00112: 0102\n");
+                // Touch the referenced WAV files so ResolveBGMPath returns the
+                // resolved (absolute) dtx-relative path rather than the raw input.
+                File.WriteAllBytes(Path.Combine(tempDir, "snare.wav"), Array.Empty<byte>());
+                File.WriteAllBytes(Path.Combine(tempDir, "kick.wav"), Array.Empty<byte>());
+
+                var chart = await DTXChartParser.ParseAsync(dtxPath);
+
+                Assert.Equal(2, chart.WavDefinitions.Count);
+                Assert.Contains("01", chart.WavDefinitions.Keys);
+                Assert.Contains("02", chart.WavDefinitions.Keys);
+                Assert.EndsWith("snare.wav", chart.WavDefinitions["01"]);
+                Assert.EndsWith("kick.wav", chart.WavDefinitions["02"]);
+                // Resolved paths should be absolute (or at least contain the temp dir)
+                Assert.Contains(tempDir, chart.WavDefinitions["01"]);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task ParseAsync_NoWavLines_WavDefinitionsEmpty()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"dtx-test-{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            var dtxPath = Path.Combine(tempDir, "no-wav.dtx");
+            try
+            {
+                File.WriteAllText(dtxPath,
+                    "#TITLE: NoWav\n" +
+                    "#BPM: 120\n" +
+                    "#00112: 01\n");
+
+                var chart = await DTXChartParser.ParseAsync(dtxPath);
+
+                Assert.NotNull(chart.WavDefinitions);
+                Assert.Empty(chart.WavDefinitions);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }

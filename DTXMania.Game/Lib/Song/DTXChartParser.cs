@@ -473,6 +473,14 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private static void FindBackgroundAudio(ParsedChart chart, Dictionary<string, string> wavDefinitions, string dtxFilePath)
         {
+            // Build resolved (id -> absolute path) map for all WAV definitions and hand to chart
+            var resolved = new Dictionary<string, string>(wavDefinitions.Count);
+            foreach (var kvp in wavDefinitions)
+            {
+                resolved[kvp.Key] = ResolveBGMPath(kvp.Value, dtxFilePath);
+            }
+            chart.SetWavDefinitions(resolved);
+
             // Resolve BGM event file paths first
             foreach (var bgmEvent in chart.BGMEvents)
             {
