@@ -396,5 +396,45 @@ namespace DTXMania.Test.Song
                 if (Directory.Exists(cwdDir)) Directory.Delete(cwdDir, recursive: true);
             }
         }
+
+        /// <summary>
+        /// DTX files use backslashes in #WAV paths (e.g. "Audio\drums\kick.wav").
+        /// On non-Windows platforms, these must be normalized so Path.Combine and
+        /// File.Exists resolve correctly.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_BackslashPathsNormalizedOnNonWindows()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"dtx-test-{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            var subDir = Path.Combine(tempDir, "Audio");
+            Directory.CreateDirectory(subDir);
+            var dtxPath = Path.Combine(tempDir, "test.dtx");
+            var wavName = $"test-{Guid.NewGuid():N}.wav";
+
+            try
+            {
+                // Write DTX with backslash path (as real DTX files do)
+                File.WriteAllText(dtxPath,
+                    "#TITLE: Backslash Test\n" +
+                    "#BPM: 120\n" +
+                    $"#WAV01: Audio\\{wavName}\n" +
+                    "#00112: 01\n");
+
+                // Place the actual WAV in the subdirectory
+                File.WriteAllBytes(Path.Combine(subDir, wavName), Array.Empty<byte>());
+
+                var chart = await DTXChartParser.ParseAsync(dtxPath);
+
+                Assert.Single(chart.WavDefinitions);
+                // The resolved path should point to the Audio subdirectory
+                Assert.Contains("Audio", chart.WavDefinitions["01"]);
+                Assert.EndsWith(wavName, chart.WavDefinitions["01"]);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }
