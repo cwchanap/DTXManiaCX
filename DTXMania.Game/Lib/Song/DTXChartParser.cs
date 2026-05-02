@@ -539,13 +539,8 @@ namespace DTXMania.Game.Lib.Song
 
             // Try different resolution strategies
 
-            // Strategy 1: Path as-is (relative to working directory)
-            if (File.Exists(wavPath))
-            {
-                return wavPath;
-            }
-
-            // Strategy 2: Relative to DTX file directory
+            // Strategy 1: Relative to DTX file directory (correct semantics: #WAV paths are
+            // relative to the chart, not to the process working directory)
             var dtxDirectory = Path.GetDirectoryName(dtxFilePath) ?? "";
             var dtxRelativePath = Path.Combine(dtxDirectory, wavPath);
 
@@ -554,8 +549,14 @@ namespace DTXMania.Game.Lib.Song
                 return dtxRelativePath;
             }
 
-            // Strategy 3: Use the path as-is even if file doesn't exist (let AudioLoader handle the error)
-            return wavPath;
+            // Strategy 2: Path as-is (relative to working directory) — fallback for edge cases
+            if (File.Exists(wavPath))
+            {
+                return wavPath;
+            }
+
+            // Strategy 3: Use the DTX-relative path even if file doesn't exist (let AudioLoader handle the error)
+            return dtxRelativePath;
         }
 
         /// <summary>
