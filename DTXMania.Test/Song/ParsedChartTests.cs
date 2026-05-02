@@ -45,6 +45,40 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region WavDefinitions Tests
+
+        [Fact]
+        public void WavDefinitions_DefaultsToEmpty()
+        {
+            var chart = new ParsedChart();
+            Assert.NotNull(chart.WavDefinitions);
+            Assert.Empty(chart.WavDefinitions);
+        }
+
+        [Fact]
+        public void SetWavDefinitions_StoresFrozenCopy()
+        {
+            var chart = new ParsedChart();
+            var input = new Dictionary<string, string> { ["01"] = "/path/snare.wav" };
+
+            chart.SetWavDefinitions(input);
+            input["02"] = "/path/extra.wav"; // Mutate after set — must not affect chart
+
+            Assert.Single(chart.WavDefinitions);
+            Assert.Equal("/path/snare.wav", chart.WavDefinitions["01"]);
+        }
+
+        [Fact]
+        public void SetWavDefinitions_NullInput_ClearsToEmpty()
+        {
+            var chart = new ParsedChart();
+            chart.SetWavDefinitions(new Dictionary<string, string> { ["01"] = "x" });
+            chart.SetWavDefinitions(null);
+            Assert.Empty(chart.WavDefinitions);
+        }
+
+        #endregion
+
         #region AddNote Tests
 
         [Fact]
