@@ -177,7 +177,9 @@ namespace DTXMania.Game.Lib.Resources
             if (_disposed || _soundEffect == null)
                 return null;
 
-            return _soundEffect.CreateInstance();
+            var instance = _soundEffect.CreateInstance();
+            instance?.Play();
+            return instance;
         }
 
 
