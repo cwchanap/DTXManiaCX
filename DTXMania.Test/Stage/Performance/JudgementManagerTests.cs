@@ -266,5 +266,53 @@ namespace DTXMania.Test.Stage.Performance
         {
             return new DTXMania.Test.Helpers.MockInputManagerCompat();
         }
+
+        [Fact]
+        public void OnLaneHit_WhenIgnorePlayerInputTrue_DropsPlayerEvent()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            judgementManager.IgnorePlayerInput = true;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            compat.TriggerLaneHit(0); // simulates player input via the modular input event
+            judgementManager.Update(1000.0);
+
+            Assert.Null(captured);
+        }
+
+        [Fact]
+        public void TestTriggerLaneHit_WhenIgnorePlayerInputTrue_StillEnqueuesHit()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            judgementManager.IgnorePlayerInput = true;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            judgementManager.TestTriggerLaneHit(0, "AutoPlay"); // bypasses gate
+            judgementManager.Update(1000.0);
+
+            Assert.NotNull(captured);
+        }
+
+        [Fact]
+        public void TestTriggerLaneHit_WhenIsActiveFalse_DropsHit()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            judgementManager.IsActive = false;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            judgementManager.TestTriggerLaneHit(0, "AutoPlay");
+            judgementManager.Update(1000.0);
+
+            Assert.Null(captured);
+        }
     }
 }
