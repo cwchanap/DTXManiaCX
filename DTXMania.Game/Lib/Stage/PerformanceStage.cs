@@ -79,6 +79,9 @@ namespace DTXMania.Game.Lib.Stage
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
         private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
 
+        // Drum chip-sound cache (per-note WAV playback for autoplay + player input)
+        private ChipSoundCache _chipSoundCache = null!;
+
         // UX components
         private BitmapFont _readyFont = null!;
 
@@ -552,6 +555,10 @@ namespace DTXMania.Game.Lib.Stage
                 // Load BGM sounds for all BGM events (separate from background audio)
                 await LoadBGMSoundsAsync();
 
+                // Preload drum chip sounds (per-note WAV playback)
+                _chipSoundCache = new ChipSoundCache();
+                await _chipSoundCache.PreloadAsync(_parsedChart.WavDefinitions);
+
                 // Schedule BGM events for playback
                 _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();
 
@@ -1002,7 +1009,10 @@ namespace DTXMania.Game.Lib.Stage
             _judgementManager = new JudgementManager(_inputManager, _chartManager);
             // Start with judgement manager inactive - it will be activated when song starts
             _judgementManager.IsActive = false;
-            
+            // Suppress player input when autoplay is on. Different from DTXManiaNX,
+            // which lets player and autoplay coexist.
+            _judgementManager.IgnorePlayerInput = _autoPlayEnabled;
+
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager();
@@ -1273,6 +1283,9 @@ namespace DTXMania.Game.Lib.Stage
             _comboManager = null;
             _gaugeManager?.Dispose();
             _gaugeManager = null;
+
+            _chipSoundCache?.Dispose();
+            _chipSoundCache = null!;
         }
 
         #endregion
@@ -1658,6 +1671,19 @@ namespace DTXMania.Game.Lib.Stage
         /// Logs performance-related errors and warnings
         /// </summary>
         /// <param name="message">The message to log</param>
+        /// <summary>
+        /// Lazily ensures the chip-sound cache exists. Production goes through
+        /// the preload path during chart load; this helper covers test paths
+        /// that touch chip playback without going through full activation.
+        /// </summary>
+        private void EnsureChipSoundCache()
+        {
+            if (_chipSoundCache == null)
+            {
+                _chipSoundCache = new ChipSoundCache();
+            }
+        }
+
         /// <param name="exception">Optional exception to include in the log</param>
         private void LogPerformanceError(string message, Exception? exception = null)
         {
