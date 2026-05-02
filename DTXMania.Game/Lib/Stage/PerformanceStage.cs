@@ -1717,19 +1717,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
-        /// <summary>
-        /// Lazily ensures the chip-sound cache exists. Production goes through
-        /// the preload path during chart load; this helper covers test paths
-        /// that touch chip playback without going through full activation.
-        /// </summary>
-        private void EnsureChipSoundCache()
-        {
-            if (_chipSoundCache == null)
-            {
-                _chipSoundCache = new ChipSoundCache();
-            }
-        }
-
         #region Logging
 
         /// <summary>
