@@ -348,5 +348,53 @@ namespace DTXMania.Test.Song
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
         }
+
+        /// <summary>
+        /// When a relative #WAV filename exists in both the DTX directory and the CWD,
+        /// the chart-relative file must win. This prevents wrong samples when the game
+        /// working directory coincidentally contains files with the same name.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_ChartRelativeWavWinsOverCwd()
+        {
+            var chartDir = Path.Combine(Path.GetTempPath(), $"dtx-chart-{Guid.NewGuid()}");
+            var cwdDir = Path.Combine(Path.GetTempPath(), $"dtx-cwd-{Guid.NewGuid()}");
+            Directory.CreateDirectory(chartDir);
+            Directory.CreateDirectory(cwdDir);
+
+            var wavName = "collision.wav";
+            var dtxPath = Path.Combine(chartDir, "chart.dtx");
+            var chartWav = Path.Combine(chartDir, wavName);
+            var cwdWav = Path.Combine(cwdDir, wavName);
+
+            var originalCwd = Directory.GetCurrentDirectory();
+            try
+            {
+                // Place distinct files in both directories
+                File.WriteAllBytes(chartWav, new byte[] { 0xCA }); // chart version
+                File.WriteAllBytes(cwdWav, new byte[] { 0xFE });   // CWD version
+
+                // Set CWD to the "wrong" directory
+                Directory.SetCurrentDirectory(cwdDir);
+
+                File.WriteAllText(dtxPath,
+                    "#TITLE: Collision Test\n" +
+                    "#BPM: 120\n" +
+                    $"#WAV01: {wavName}\n" +
+                    "#00112: 01\n");
+
+                var chart = await DTXChartParser.ParseAsync(dtxPath);
+
+                Assert.Single(chart.WavDefinitions);
+                // The resolved path must point to the chart directory, not the CWD
+                Assert.Equal(chartWav, chart.WavDefinitions["01"]);
+            }
+            finally
+            {
+                Directory.SetCurrentDirectory(originalCwd);
+                if (Directory.Exists(chartDir)) Directory.Delete(chartDir, recursive: true);
+                if (Directory.Exists(cwdDir)) Directory.Delete(cwdDir, recursive: true);
+            }
+        }
     }
 }
