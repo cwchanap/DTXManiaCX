@@ -2327,6 +2327,207 @@ public class PerformanceStageDeterministicTests
         Assert.Same(texture.Object, result);
     }
 
+    [Fact]
+    public void PlayChipForNote_WhenNoteIsNull_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        var soundMock = new Mock<ISound>();
+        var cache = new ChipSoundCache(_ => soundMock.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+        var ex = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", (Note)null!));
+
+        Assert.Null(ex);
+        soundMock.Verify(s => s.Play(), Times.Never);
+    }
+
+    [Fact]
+    public void PlayChipForNote_WhenNoteValueIsEmpty_ShouldNotPlayChip()
+    {
+        var stage = CreateStage();
+        var soundMock = new Mock<ISound>();
+        var cache = new ChipSoundCache(_ => soundMock.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "");
+
+        var ex = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note));
+
+        Assert.Null(ex);
+        soundMock.Verify(s => s.Play(), Times.Never);
+    }
+
+    [Fact]
+    public void PlayChipForNote_WhenChipSoundCacheIsNull_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", null);
+        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 };
+
+        var ex = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void FindNearestNoteForChip_WhenChartManagerIsNull_ShouldReturnNull()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 0, 500.0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindNearestNoteForChip_WhenJudgementManagerIsNull_ShouldReturnNull()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 0, 500.0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindNearestNoteForChip_WhenNoteInDifferentLane_ShouldReturnNull()
+    {
+        var stage = CreateStage();
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 7, 1000.0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindNearestNoteForChip_WhenNoteAlreadyHit_ShouldSkipAndReturnNull()
+    {
+        var stage = CreateStage();
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.TestTriggerLaneHit(3, "Test");
+        judgementManager.Update(1000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1000.0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindNearestNoteForChip_WhenNoteIsWithinWindow_ShouldReturnNearestNote()
+    {
+        var stage = CreateStage();
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1010.0);
+
+        Assert.NotNull(result);
+        Assert.Equal(1000.0, result!.TimeMs);
+    }
+
+    [Fact]
+    public void DrawCenteredText_WhenTextIsEmpty_ShouldReturnWithoutDrawing()
+    {
+        var stage = CreateStage();
+        var fallbackInvoked = false;
+        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((_, _, _) => fallbackInvoked = true));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "", Color.White);
+
+        Assert.False(fallbackInvoked);
+    }
+
+    [Fact]
+    public void DrawPads_WhenPadRendererIsNull_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
+
+        var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawPads"));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawNotes_WhenNoteRendererIsNull_ShouldReturnWithoutThrowing()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+
+        var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawNotes_WhenSongNotPlaying_ShouldReturnWithoutDrawing()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+
+        var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawNoteOverlays_WhenNoteRendererIsNull_ShouldReturnWithoutThrowing()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+
+        var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void DrawNoteOverlays_WhenSongNotPlaying_ShouldReturnWithoutDrawing()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+
+        var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNoteOverlays"));
+
+        Assert.Null(ex);
+    }
+
     private static PerformanceStage CreateStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050
