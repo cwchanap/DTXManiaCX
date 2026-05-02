@@ -1665,12 +1665,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
-        #region Logging
-
-        /// <summary>
-        /// Logs performance-related errors and warnings
-        /// </summary>
-        /// <param name="message">The message to log</param>
         /// <summary>
         /// Lazily ensures the chip-sound cache exists. Production goes through
         /// the preload path during chart load; this helper covers test paths
@@ -1684,6 +1678,12 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        #region Logging
+
+        /// <summary>
+        /// Logs performance-related errors and warnings
+        /// </summary>
+        /// <param name="message">The message to log</param>
         /// <param name="exception">Optional exception to include in the log</param>
         private void LogPerformanceError(string message, Exception? exception = null)
         {
