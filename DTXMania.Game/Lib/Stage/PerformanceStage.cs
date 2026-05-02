@@ -1231,14 +1231,28 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         // Auto-hit the note using the JudgementManager's test method
                         _judgementManager.TestTriggerLaneHit(note.LaneIndex, "AutoPlay");
-                        
+
                         // Trigger pad press effect for autoplay
                         _padRenderer?.TriggerPadPress(note.LaneIndex, true);
+
+                        // Play the per-note drum chip sound (silent if no cache or no WAV)
+                        PlayChipForNote(note);
                     }
-                    
+
                     _autoPlayNoteIndex++;
                 }
             }
+        }
+
+        /// <summary>
+        /// Plays the drum chip sound associated with a note's WAV id, if loaded.
+        /// No-op when cache is unavailable or note has no associated WAV.
+        /// </summary>
+        private void PlayChipForNote(Note note)
+        {
+            if (note == null || string.IsNullOrEmpty(note.Value))
+                return;
+            _chipSoundCache?.Play(note.Value);
         }
 
         /// <summary>
