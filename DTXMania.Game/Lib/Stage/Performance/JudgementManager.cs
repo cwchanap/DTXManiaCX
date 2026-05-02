@@ -53,6 +53,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public bool IsActive { get; set; } = true;
 
+        /// <summary>
+        /// When true, lane hit events received from the input system are silently
+        /// dropped. AutoPlay-driven hits via TestTriggerLaneHit bypass this gate.
+        /// Set during PerformanceStage activation based on Config.AutoPlay.
+        /// </summary>
+        public bool IgnorePlayerInput { get; set; } = false;
+
         #endregion
 
         #region Constructor
@@ -181,11 +188,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="buttonId">Optional button ID for the event</param>
         public void TestTriggerLaneHit(int lane, string buttonId = "TestButton")
         {
+            if (!IsActive || _disposed) return;
+
             var buttonState = new DTXMania.Game.Lib.Input.ButtonState(buttonId, true, 1.0f);
             var hitArgs = new LaneHitEventArgs(lane, buttonState);
-            
-            // Directly call the OnLaneHit method that normally receives events from input system
-            OnLaneHit(this, hitArgs);
+
+            // Bypass IgnorePlayerInput by enqueuing directly. Used by AutoPlay
+            // and unit tests; player events go through OnLaneHit which respects the gate.
+            lock (_pendingLaneHits)
+            {
+                _pendingLaneHits.Add(hitArgs);
+            }
         }
 
         #endregion
@@ -218,10 +231,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="args">Lane hit event arguments</param>
         private void OnLaneHit(object? sender, LaneHitEventArgs args)
         {
-            // Only process events when active
-            if (!IsActive || _disposed)
+            // Only process events when active and player input is allowed
+            if (!IsActive || _disposed || IgnorePlayerInput)
                 return;
-            
+
             // Add lane hit event to pending list for processing in next Update
             lock (_pendingLaneHits)
             {
