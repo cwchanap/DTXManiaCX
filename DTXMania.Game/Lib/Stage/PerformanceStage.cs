@@ -1065,8 +1065,18 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnLaneHitForPadFeedback(object? sender, LaneHitEventArgs e)
         {
+            // Suppress player feedback entirely when autoplay is driving hits
+            if (_autoPlayEnabled) return;
+
             // Trigger immediate pad press effect on input (regardless of judgement)
             _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
+
+            // Play the chip sound for the nearest unhit note in this lane within the
+            // hit window — mirrors what JudgementManager would resolve as the hit target.
+            var currentTimeMs = _songTimer?.GetCurrentMs(_currentGameTime) ?? 0.0;
+            var nearest = FindNearestNoteForChip(e.Lane, currentTimeMs);
+            if (nearest != null)
+                PlayChipForNote(nearest);
         }
 
         /// <summary>
@@ -1253,6 +1263,49 @@ namespace DTXMania.Game.Lib.Stage
             if (note == null || string.IsNullOrEmpty(note.Value))
                 return;
             _chipSoundCache?.Play(note.Value);
+        }
+
+        /// <summary>
+        /// Finds the nearest unhit note in a lane within the hit detection window.
+        /// Used by player-input chip playback to mirror what JudgementManager would
+        /// resolve. Returns null if no candidate exists.
+        /// </summary>
+        private Note? FindNearestNoteForChip(int laneIndex, double currentSongTimeMs)
+        {
+            if (_chartManager == null || _judgementManager == null)
+                return null;
+
+            const double windowMs = 200.0; // matches JudgementManager.HitDetectionWindowMs
+
+            var allNotes = _chartManager.AllNotes;
+            int startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
+
+            Note? nearest = null;
+            double nearestDistance = double.MaxValue;
+
+            for (int i = startIndex; i < allNotes.Count; i++)
+            {
+                var note = allNotes[i];
+                if (note.TimeMs - currentSongTimeMs > windowMs)
+                    break;
+                if (note.LaneIndex != laneIndex)
+                    continue;
+
+                var data = _judgementManager.GetNoteRuntimeData(note.Id);
+                if (data == null || data.Status != NoteStatus.Pending)
+                    continue;
+
+                var distance = Math.Abs(currentSongTimeMs - note.TimeMs);
+                if (distance > windowMs)
+                    continue;
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearest = note;
+                }
+            }
+
+            return nearest;
         }
 
         /// <summary>

@@ -537,6 +537,112 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnLaneHitForPadFeedback_WhenAutoPlayEnabled_NoPadOrChip()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var soundMock = new Mock<ISound>();
+        var cache = new ChipSoundCache(_ => soundMock.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+        var args = new LaneHitEventArgs(0, new ButtonState("Player", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+        // Pad must remain Idle (Pressed would mean TriggerPadPress fired)
+        var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.Equal(PadState.Idle, pads[0].State);
+        soundMock.Verify(s => s.Play(), Times.Never);
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_AutoPlayOff_PlaysChipForNearestNote()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var soundMock = new Mock<ISound>();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
+                 .GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+            // Drive _songTimer.GetCurrentMs(_currentGameTime) -> 1010ms (10ms past the note)
+            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+                new GameTime(TimeSpan.FromMilliseconds(1010.0), TimeSpan.FromSeconds(0.016)));
+
+            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+            soundMock.Verify(s => s.Play(), Times.Once);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_AutoPlayOff_NoNoteInWindow_NoChip()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+
+        // Note exists but is far away — outside the ±200ms window
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 5000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var soundMock = new Mock<ISound>();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
+                 .GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+                new GameTime(TimeSpan.FromMilliseconds(1000.0), TimeSpan.FromSeconds(0.016)));
+
+            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+            soundMock.Verify(s => s.Play(), Times.Never);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
