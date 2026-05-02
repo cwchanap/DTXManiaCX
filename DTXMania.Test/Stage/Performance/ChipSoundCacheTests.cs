@@ -223,6 +223,161 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
+        [Fact]
+        public void Play_WhenSoundPlayThrows_ShouldNotThrow()
+        {
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                soundMock.Setup(s => s.Play()).Throws(new InvalidOperationException("audio device error"));
+                using var cache = new ChipSoundCache(_ => soundMock.Object);
+                cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 }).GetAwaiter().GetResult();
+
+                var ex = Record.Exception(() => cache.Play("01"));
+
+                Assert.Null(ex);
+                soundMock.Verify(s => s.Play(), Times.Once);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Play_AfterDispose_ShouldBeSilent()
+        {
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                var cache = new ChipSoundCache(_ => soundMock.Object);
+                cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 }).GetAwaiter().GetResult();
+                cache.Dispose();
+
+                cache.Play("01");
+
+                soundMock.Verify(s => s.Play(), Times.Never);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Contains_WithNullOrEmptyWavId_ReturnsFalse(string? wavId)
+        {
+            using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+            Assert.False(cache.Contains(wavId!));
+        }
+
+        [Fact]
+        public async Task PreloadAsync_EmptyPathValue_ShouldSkipEntry()
+        {
+            using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+            await cache.PreloadAsync(new Dictionary<string, string>
+            {
+                ["01"] = "",
+                ["02"] = null!,
+            });
+
+            Assert.Equal(0, cache.Count);
+        }
+
+        [Fact]
+        public async Task PreloadAsync_DuplicateWavId_ShouldKeepFirstEntry()
+        {
+            var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
+            try
+            {
+                var factoryCalls = new List<string>();
+                var factory = new Func<string, ISound>(path =>
+                {
+                    factoryCalls.Add(path);
+                    return Mock.Of<ISound>();
+                });
+
+                using var cache = new ChipSoundCache(factory);
+                await cache.PreloadAsync(new Dictionary<string, string>
+                {
+                    ["01"] = file1,
+                });
+                await cache.PreloadAsync(new Dictionary<string, string>
+                {
+                    ["01"] = file2,
+                });
+
+                Assert.Equal(1, cache.Count);
+                Assert.Single(factoryCalls);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Dispose_WhenSoundDisposeThrows_ShouldSwallowErrorAndClear()
+        {
+            var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
+            try
+            {
+                var disposed = new List<ISound>();
+                var factory = new Func<string, ISound>(_ =>
+                {
+                    var m = new Mock<ISound>();
+                    m.Setup(s => s.Dispose()).Callback(() =>
+                    {
+                        disposed.Add(m.Object);
+                        if (disposed.Count == 1)
+                            throw new InvalidOperationException("dispose error");
+                    });
+                    return m.Object;
+                });
+
+                var cache = new ChipSoundCache(factory);
+                cache.PreloadAsync(new Dictionary<string, string>
+                {
+                    ["01"] = file1,
+                    ["02"] = file2,
+                }).GetAwaiter().GetResult();
+
+                cache.Dispose();
+
+                Assert.Equal(2, disposed.Count);
+                Assert.Equal(0, cache.Count);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Dispose_CalledTwice_ShouldNotThrow()
+        {
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+                cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 }).GetAwaiter().GetResult();
+                cache.Dispose();
+
+                var ex = Record.Exception(() => cache.Dispose());
+
+                Assert.Null(ex);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
         // --- helpers ---
 
         private static (string dir, string file1, string file2) CreateTempWavFiles(string name1, string? name2)
