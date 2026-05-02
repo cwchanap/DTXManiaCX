@@ -474,6 +474,64 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessAutoPlay_NoteInWindow_PlaysChipForNote()
+    {
+        var stage = CreateStage();
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 100.0 },
+        });
+
+        var soundMock = new Mock<ISound>();
+        var stubWavPath = WriteTempStubWav();
+        var cache = new ChipSoundCache(_ => soundMock.Object);
+        cache.PreloadAsync(new Dictionary<string, string>
+        {
+            ["07"] = stubWavPath,
+        }).GetAwaiter().GetResult();
+
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0);
+
+        soundMock.Verify(s => s.Play(), Times.Once);
+
+        File.Delete(stubWavPath);
+    }
+
+    [Fact]
+    public void ProcessAutoPlay_NoteInWindow_NoChipCache_DoesNotThrow()
+    {
+        var stage = CreateStage();
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 100.0 },
+        });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", null);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
+
+        var ex = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
@@ -2226,6 +2284,24 @@ public class PerformanceStageDeterministicTests
         parsedChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
         parsedChart.FinalizeChart();
         return new ChartManager(parsedChart);
+    }
+
+    private static ChartManager BuildChartManager(IEnumerable<Note> notes)
+    {
+        var parsed = new ParsedChart("chip-sound-test.dtx") { Bpm = 120.0 };
+        foreach (var n in notes)
+        {
+            parsed.Notes.Add(n);
+        }
+        parsed.FinalizeChart();
+        return new ChartManager(parsed);
+    }
+
+    private static string WriteTempStubWav()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"stub-{Guid.NewGuid()}.wav");
+        File.WriteAllBytes(path, new byte[] { 0 });
+        return path;
     }
 
     private static SpriteBatch CreateSpriteBatchStub(Viewport viewport)
