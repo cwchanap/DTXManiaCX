@@ -1069,9 +1069,15 @@ namespace DTXMania.Game.Lib.Stage
             // Trigger immediate pad press effect on input (regardless of judgement)
             _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
 
+            // Only play chip sounds when the song is actively playing — during the
+            // ready/load phase the timer returns 0.0, which would incorrectly match
+            // notes near time zero.
+            if (_songTimer?.IsPlaying != true)
+                return;
+
             // Play the chip sound for the nearest unhit note in this lane within the
             // hit window — mirrors what JudgementManager would resolve as the hit target.
-            var currentTimeMs = _songTimer?.GetCurrentMs(_currentGameTime) ?? 0.0;
+            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
             var nearest = FindNearestNoteForChip(e.Lane, currentTimeMs);
             if (nearest != null)
                 PlayChipForNote(nearest);

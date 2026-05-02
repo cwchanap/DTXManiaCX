@@ -123,7 +123,7 @@ _chipSoundCache = null;
 ## Data Flow
 
 **Chart load:**
-```
+```text
 DTXChartParser.ParseAsync(file)
   → builds wavDefinitions locally
   → resolves each WAV path (relative → absolute)
@@ -132,7 +132,7 @@ DTXChartParser.ParseAsync(file)
 ```
 
 **Stage activation:**
-```
+```text
 ExtractSharedData()
 InitializeAutoPlay()                  // reads Config.AutoPlay
 InitializeComponents()
@@ -144,7 +144,7 @@ InitializeComponents()
 ```
 
 **Per-frame (active gameplay, song playing):**
-```
+```csharp
 UpdateGameplay(dt)
   if (_songTimer.IsPlaying) {
     UpdateGameplayManagers(currentTimeMs)
@@ -158,7 +158,7 @@ UpdateGameplay(dt)
 ```
 
 **Player-input path (autoplay OFF):**
-```
+```text
 ModularInputManager.OnLaneHit
   ├── JudgementManager.OnLaneHit              → enqueues
   └── PerformanceStage.OnLaneHitForPadFeedback
@@ -168,7 +168,7 @@ ModularInputManager.OnLaneHit
 ```
 
 **Player-input path (autoplay ON):**
-```
+```text
 ModularInputManager.OnLaneHit
   ├── JudgementManager.OnLaneHit          → returns (IgnorePlayerInput=true)
   └── PerformanceStage.OnLaneHitForPadFeedback → returns (_autoPlayEnabled=true)
@@ -177,7 +177,7 @@ ModularInputManager.OnLaneHit
 ```
 
 **Cleanup:**
-```
+```text
 CleanupGameplayManagers()
   ...existing manager disposes...
   _chipSoundCache.Dispose()      // NEW: releases all loaded ISounds

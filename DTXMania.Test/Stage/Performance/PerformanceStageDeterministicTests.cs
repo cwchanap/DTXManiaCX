@@ -643,6 +643,54 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnLaneHitForPadFeedback_SongNotPlaying_VisualPadButNoChipSound()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 10.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var soundMock = new Mock<ISound>();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
+                 .GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+            // No _songTimer set — defaults to null, so IsPlaying is false.
+            // currentTimeMs would be 0.0 which is within 200ms of the note at 10ms,
+            // but chip playback must be suppressed because the song isn't playing.
+            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+                new GameTime(TimeSpan.FromMilliseconds(10.0), TimeSpan.FromSeconds(0.016)));
+
+            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+            // Pad visual feedback should still fire (pad is pressed)
+            var pads = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+            Assert.Equal(PadState.Pressed, pads[3].State);
+
+            // Chip sound must NOT play when song timer is not running
+            soundMock.Verify(s => s.Play(), Times.Never);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();

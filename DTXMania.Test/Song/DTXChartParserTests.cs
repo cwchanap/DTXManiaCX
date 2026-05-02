@@ -289,26 +289,33 @@ namespace DTXMania.Test.Song
             var tempDir = Path.Combine(Path.GetTempPath(), $"dtx-test-{Guid.NewGuid()}");
             Directory.CreateDirectory(tempDir);
             var dtxPath = Path.Combine(tempDir, "test.dtx");
+
+            // Use unique filenames to avoid collisions with files in the working directory
+            // that could cause ResolveBGMPath's Strategy 1 (File.Exists on raw path) to
+            // resolve to the CWD instead of the DTX-relative temp directory.
+            var wav1 = $"test-{Guid.NewGuid():N}.wav";
+            var wav2 = $"test-{Guid.NewGuid():N}.wav";
+
             try
             {
                 File.WriteAllText(dtxPath,
                     "#TITLE: Test\n" +
                     "#BPM: 120\n" +
-                    "#WAV01: snare.wav\n" +
-                    "#WAV02: kick.wav\n" +
+                    $"#WAV01: {wav1}\n" +
+                    $"#WAV02: {wav2}\n" +
                     "#00112: 0102\n");
                 // Touch the referenced WAV files so ResolveBGMPath returns the
                 // resolved (absolute) dtx-relative path rather than the raw input.
-                File.WriteAllBytes(Path.Combine(tempDir, "snare.wav"), Array.Empty<byte>());
-                File.WriteAllBytes(Path.Combine(tempDir, "kick.wav"), Array.Empty<byte>());
+                File.WriteAllBytes(Path.Combine(tempDir, wav1), Array.Empty<byte>());
+                File.WriteAllBytes(Path.Combine(tempDir, wav2), Array.Empty<byte>());
 
                 var chart = await DTXChartParser.ParseAsync(dtxPath);
 
                 Assert.Equal(2, chart.WavDefinitions.Count);
                 Assert.Contains("01", chart.WavDefinitions.Keys);
                 Assert.Contains("02", chart.WavDefinitions.Keys);
-                Assert.EndsWith("snare.wav", chart.WavDefinitions["01"]);
-                Assert.EndsWith("kick.wav", chart.WavDefinitions["02"]);
+                Assert.EndsWith(wav1, chart.WavDefinitions["01"]);
+                Assert.EndsWith(wav2, chart.WavDefinitions["02"]);
                 // Resolved paths should be absolute (or at least contain the temp dir)
                 Assert.Contains(tempDir, chart.WavDefinitions["01"]);
             }
