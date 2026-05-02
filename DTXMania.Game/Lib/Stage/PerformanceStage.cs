@@ -132,7 +132,6 @@ namespace DTXMania.Game.Lib.Stage
         // Autoplay functionality
         private bool _autoPlayEnabled = false;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
-        private bool _autoPlayDiagnosticLogged = false; // One-shot diagnostic for trigger investigation
         
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -314,10 +313,9 @@ namespace DTXMania.Game.Lib.Stage
             // Get autoplay setting from config
             _autoPlayEnabled = _game?.ConfigManager?.Config?.AutoPlay ?? false;
             _autoPlayNoteIndex = 0;
-            _autoPlayDiagnosticLogged = false;
 
-            Console.WriteLine(
-                $"[AutoPlay-Diag] InitializeAutoPlay: enabled={_autoPlayEnabled}, " +
+            System.Diagnostics.Debug.WriteLine(
+                $"[AutoPlay] InitializeAutoPlay: enabled={_autoPlayEnabled}, " +
                 $"chartLoaded={_chartManager != null}, " +
                 $"notesCount={_chartManager?.AllNotes.Count ?? -1}");
         }
@@ -1199,19 +1197,6 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             var allNotes = _chartManager.AllNotes;
-
-            if (!_autoPlayDiagnosticLogged)
-            {
-                _autoPlayDiagnosticLogged = true;
-                var firstPending = (_autoPlayNoteIndex < allNotes.Count) ? allNotes[_autoPlayNoteIndex] : null;
-                Console.WriteLine(
-                    $"[AutoPlay-Diag] ProcessAutoPlay first entry: " +
-                    $"currentTimeMs={currentSongTimeMs:F1}, " +
-                    $"notesCount={allNotes.Count}, " +
-                    $"firstPendingNoteTimeMs={firstPending?.TimeMs.ToString("F1") ?? "none"}, " +
-                    $"firstPendingLane={firstPending?.LaneIndex.ToString() ?? "none"}, " +
-                    $"judgementIsActive={_judgementManager.IsActive}");
-            }
 
             int autoPlayWindowMs = 50; // Configurable window for autoplay timing (±50ms)
             
