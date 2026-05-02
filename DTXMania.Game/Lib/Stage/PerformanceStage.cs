@@ -554,8 +554,16 @@ namespace DTXMania.Game.Lib.Stage
                 await LoadBGMSoundsAsync();
 
                 // Preload drum chip sounds (per-note WAV playback)
+                // Only load WAV ids actually referenced by notes — BGM-only WAVs are
+                // already loaded by LoadBGMSoundsAsync and should not be duplicated.
                 _chipSoundCache = new ChipSoundCache();
-                await _chipSoundCache.PreloadAsync(_parsedChart.WavDefinitions);
+                var noteWavIds = new HashSet<string>(
+                    _parsedChart.Notes.Select(n => n.Value)
+                        .Where(v => !string.IsNullOrEmpty(v)));
+                var noteWavDefs = _parsedChart.WavDefinitions
+                    .Where(kvp => noteWavIds.Contains(kvp.Key))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                await _chipSoundCache.PreloadAsync(noteWavDefs);
 
                 // Schedule BGM events for playback
                 _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();

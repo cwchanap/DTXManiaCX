@@ -378,7 +378,9 @@ namespace DTXMania.Game.Lib.Song
                 if (i * 2 + 1 >= noteData.Length)
                     break;
 
-                var pair = noteData.Substring(i * 2, 2);
+                // Normalize to uppercase so BGM WAV ids match #WAV header keys
+                // which are stored as uppercase by ParseHeaderCommand (.ToUpperInvariant).
+                var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
 
                 // Skip empty BGM events (00)
                 if (pair == "00" || string.IsNullOrWhiteSpace(pair))
@@ -412,7 +414,9 @@ namespace DTXMania.Game.Lib.Song
                 if (i * 2 + 1 >= noteData.Length)
                     break;
 
-                var pair = noteData.Substring(i * 2, 2);
+                // Normalize to uppercase so note values always match #WAV header keys
+                // which are stored as uppercase by ParseHeaderCommand (.ToUpperInvariant).
+                var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
 
                 // Skip empty notes (00)
                 if (pair == "00" || string.IsNullOrWhiteSpace(pair))
