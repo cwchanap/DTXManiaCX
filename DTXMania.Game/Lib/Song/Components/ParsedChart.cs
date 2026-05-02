@@ -33,6 +33,26 @@ namespace DTXMania.Game.Lib.Song.Components
         public List<BGMEvent> BGMEvents { get; } = new List<BGMEvent>();
 
         /// <summary>
+        /// Resolved WAV id → absolute audio file path. Populated by DTXChartParser
+        /// during parse from #WAVxx definitions. Used by ChipSoundCache to preload
+        /// per-note drum chip sounds. Empty when the chart has no #WAVxx lines.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> WavDefinitions => _wavDefinitions;
+
+        private Dictionary<string, string> _wavDefinitions = new Dictionary<string, string>();
+
+        /// <summary>
+        /// Replaces the WAV definitions table. Intended for parser-internal use:
+        /// called once by DTXChartParser after path resolution; not for runtime use.
+        /// </summary>
+        public void SetWavDefinitions(IDictionary<string, string> wavDefs)
+        {
+            _wavDefinitions = wavDefs != null
+                ? new Dictionary<string, string>(wavDefs)
+                : new Dictionary<string, string>();
+        }
+
+        /// <summary>
         /// Base BPM of the song (from #BPM header)
         /// Default is 120 if not specified
         /// </summary>
