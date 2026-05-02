@@ -188,6 +188,41 @@ namespace DTXMania.Test.Stage.Performance
                 () => cache.PreloadAsync(new Dictionary<string, string>()));
         }
 
+        [Fact]
+        public async Task PreloadAsync_FilteredSubset_OnlyLoadsSubset()
+        {
+            // Simulates filtering WavDefinitions to only note-referenced ids,
+            // excluding BGM-only ids that are loaded separately.
+            var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
+            try
+            {
+                var factoryCalls = new List<string>();
+                var factory = new Func<string, ISound>(path =>
+                {
+                    factoryCalls.Add(path);
+                    return Mock.Of<ISound>();
+                });
+
+                using var cache = new ChipSoundCache(factory);
+
+                // Full WavDefinitions has both ids, but we only preload the note-referenced one
+                await cache.PreloadAsync(new Dictionary<string, string>
+                {
+                    ["01"] = file1,
+                    // "02" is BGM-only and excluded from preload
+                });
+
+                Assert.Equal(1, cache.Count);
+                Assert.True(cache.Contains("01"));
+                Assert.False(cache.Contains("02"));
+                Assert.Single(factoryCalls);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
         // --- helpers ---
 
         private static (string dir, string file1, string file2) CreateTempWavFiles(string name1, string? name2)

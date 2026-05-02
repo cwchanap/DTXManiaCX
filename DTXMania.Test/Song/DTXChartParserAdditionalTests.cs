@@ -540,6 +540,63 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region WAV Id Case Normalization Tests
+
+        [Fact]
+        public async Task ParseAsync_LowercaseNoteValue_NormalizedToUppercase()
+        {
+            // #WAV0A header is stored as uppercase; measure data uses lowercase "0a"
+            var content =
+                "#BPM:120\n" +
+                "#WAV0A:snare.wav\n" +
+                "#00111:0a\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllText(Path.Combine(_tempDir, "snare.wav"), "fake");
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Single(chart.Notes);
+            Assert.Equal("0A", chart.Notes[0].Value);
+            Assert.True(chart.WavDefinitions.ContainsKey("0A"));
+        }
+
+        [Fact]
+        public async Task ParseAsync_LowercaseBGMValue_NormalizedToUppercase()
+        {
+            var content =
+                "#BPM:120\n" +
+                "#WAV0A:bgm.wav\n" +
+                "#00101:0a\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllText(Path.Combine(_tempDir, "bgm.wav"), "fake");
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Single(chart.BGMEvents);
+            Assert.Equal("0A", chart.BGMEvents[0].WavId);
+        }
+
+        [Fact]
+        public async Task ParseAsync_MixedCaseNoteValues_AllNormalizedToUppercase()
+        {
+            var content =
+                "#BPM:120\n" +
+                "#WAV0A:snare.wav\n" +
+                "#WAV0B:hihat.wav\n" +
+                "#00111:0a0b\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllText(Path.Combine(_tempDir, "snare.wav"), "fake");
+            File.WriteAllText(Path.Combine(_tempDir, "hihat.wav"), "fake");
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(2, chart.Notes.Count);
+            Assert.Equal("0A", chart.Notes[0].Value);
+            Assert.Equal("0B", chart.Notes[1].Value);
+        }
+
+        #endregion
+
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
         {
             var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
