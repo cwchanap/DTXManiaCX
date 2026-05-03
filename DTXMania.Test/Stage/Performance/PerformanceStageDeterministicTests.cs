@@ -410,17 +410,54 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessAutoPlay_WhenNextNoteIsTooFarInPast_ShouldSkipNote()
+    public void ProcessAutoPlay_WhenNoteIsLateDueToFrameHitch_ShouldStillAutoHit()
     {
+        // Autoplay should never skip a pending note, even if the frame arrived
+        // late due to a GC pause, frame hitch, or low FPS. A note at 1000ms
+        // processed at 1100ms (100ms late) must still be auto-hit.
         var stage = CreateStage();
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
+        // 100ms past note time — well beyond any reasonable frame budget
         ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1100.0);
+        judgementManager.Update(1100.0);
 
         Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+    }
+
+    [Fact]
+    public void ProcessAutoPlay_FrameHitchScenario_NoteAt1000ms_Frames999Then1051_ShouldAutoHit()
+    {
+        // Exact regression scenario from review: frame at 999ms (note still in future),
+        // then frame at 1051ms (51ms past note). The old code would skip because
+        // 51ms > 50ms autoPlayWindowMs. Autoplay must always hit pending past-due notes.
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        // Frame 1: 999ms — note at 1000ms is in the future, should NOT trigger
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 999.0);
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+
+        // Frame 2: 1051ms — note is 51ms late. Must still auto-hit, not skip.
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1051.0);
+        judgementManager.Update(1051.0);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
     }
 
     [Fact]
