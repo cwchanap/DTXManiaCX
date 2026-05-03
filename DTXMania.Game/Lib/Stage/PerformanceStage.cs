@@ -952,7 +952,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception ex)
                 {
-                    // BGM loading failed, continue with other sounds
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[PerformanceStage] Failed to load BGM WAV id '{bgmEvent.WavId}': {ex.Message}");
                 }
             }
         }
@@ -994,7 +995,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 catch (Exception ex)
                 {
-                    // BGM playback failed, continue with game
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[PerformanceStage] BGM playback failed for WAV id '{bgmEvent.WavId}': {ex.Message}");
                 }
             }
         }
