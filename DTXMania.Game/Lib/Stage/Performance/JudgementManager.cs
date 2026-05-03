@@ -187,7 +187,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="lane">Lane index that was hit</param>
         /// <param name="buttonId">Optional button ID for the event</param>
-        public void EnqueueLaneHit(int lane, string buttonId = "TestButton")
+        public void EnqueueLaneHit(int lane, string buttonId = "AutoPlay")
         {
             if (!IsActive || _disposed) return;
 
