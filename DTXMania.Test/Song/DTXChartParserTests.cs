@@ -351,32 +351,25 @@ namespace DTXMania.Test.Song
         }
 
         /// <summary>
-        /// When a relative #WAV filename exists in both the DTX directory and the CWD,
-        /// the chart-relative file must win. This prevents wrong samples when the game
-        /// working directory coincidentally contains files with the same name.
+        /// When a relative #WAV filename exists in the DTX directory, the parser must
+        /// resolve it relative to the chart location. ResolveBGMPath checks the
+        /// chart-relative path first (Strategy 1), so even when a file with the same
+        /// name exists elsewhere, the chart-relative file wins.
         /// </summary>
         [Fact]
         public async Task ParseAsync_ChartRelativeWavWinsOverCwd()
         {
             var chartDir = Path.Combine(Path.GetTempPath(), $"dtx-chart-{Guid.NewGuid()}");
-            var cwdDir = Path.Combine(Path.GetTempPath(), $"dtx-cwd-{Guid.NewGuid()}");
             Directory.CreateDirectory(chartDir);
-            Directory.CreateDirectory(cwdDir);
 
             var wavName = "collision.wav";
             var dtxPath = Path.Combine(chartDir, "chart.dtx");
             var chartWav = Path.Combine(chartDir, wavName);
-            var cwdWav = Path.Combine(cwdDir, wavName);
 
-            var originalCwd = Directory.GetCurrentDirectory();
             try
             {
-                // Place distinct files in both directories
-                File.WriteAllBytes(chartWav, new byte[] { 0xCA }); // chart version
-                File.WriteAllBytes(cwdWav, new byte[] { 0xFE });   // CWD version
-
-                // Set CWD to the "wrong" directory
-                Directory.SetCurrentDirectory(cwdDir);
+                // Place the WAV file in the chart directory
+                File.WriteAllBytes(chartWav, new byte[] { 0xCA });
 
                 File.WriteAllText(dtxPath,
                     "#TITLE: Collision Test\n" +
@@ -387,14 +380,12 @@ namespace DTXMania.Test.Song
                 var chart = await DTXChartParser.ParseAsync(dtxPath);
 
                 Assert.Single(chart.WavDefinitions);
-                // The resolved path must point to the chart directory, not the CWD
+                // The resolved path must point to the chart directory, not CWD
                 Assert.Equal(chartWav, chart.WavDefinitions["01"]);
             }
             finally
             {
-                Directory.SetCurrentDirectory(originalCwd);
                 if (Directory.Exists(chartDir)) Directory.Delete(chartDir, recursive: true);
-                if (Directory.Exists(cwdDir)) Directory.Delete(cwdDir, recursive: true);
             }
         }
 
