@@ -1236,8 +1236,10 @@ namespace DTXMania.Game.Lib.Stage
                 var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
                 if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
                 {
-                    // Auto-hit the note using the JudgementManager's test method
-                    _judgementManager.EnqueueLaneHit(note.LaneIndex, "AutoPlay");
+                    // Resolve directly by note ID, bypassing hit detection window.
+                    // This ensures deterministic hits even when currentSongTimeMs is
+                    // far past the note time (e.g., after GC pause or frame hitch).
+                    _judgementManager.ResolveAutoHit(note.Id);
 
                     // Trigger pad press effect for autoplay
                     _padRenderer?.TriggerPadPress(note.LaneIndex, true);

@@ -204,6 +204,44 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #endregion
 
+        #region AutoPlay Direct Resolution
+
+        /// <summary>
+        /// Directly resolves a specific note as Hit with Perfect timing, bypassing
+        /// the hit detection window entirely. Used exclusively by AutoPlay to ensure
+        /// notes are always resolved regardless of frame timing, GC pauses, or hitches.
+        /// Unlike EnqueueLaneHit which goes through FindNearestUnhitNote (window-limited),
+        /// this resolves by note ID directly and deterministically.
+        /// </summary>
+        /// <param name="noteId">The ID of the note to resolve</param>
+        /// <returns>True if the note was resolved as Hit, false if already processed or not found</returns>
+        public bool ResolveAutoHit(int noteId)
+        {
+            if (!IsActive || _disposed) return false;
+
+            if (!_noteRuntimeData.TryGetValue(noteId, out var noteData))
+                return false;
+
+            if (noteData.Status != NoteStatus.Pending)
+                return false;
+
+            // Autoplay always hits at perfect timing (delta = 0)
+            var judgementEvent = new JudgementEvent(
+                noteData.NoteId,
+                noteData.Note.LaneIndex,
+                0.0, // Perfect timing — autoplay hits at exact note time
+                JudgementType.Just
+            );
+
+            noteData.Status = NoteStatus.Hit;
+            noteData.JudgementEvent = judgementEvent;
+
+            JudgementMade?.Invoke(this, judgementEvent);
+            return true;
+        }
+
+        #endregion
+
         #region Private Methods
 
         /// <summary>
