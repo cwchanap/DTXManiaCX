@@ -2497,6 +2497,23 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void FindNearestNoteForChip_WhenNoteIsInMissRange_ShouldReturnNull()
+    {
+        var stage = CreateStage();
+        // Note at 1000ms; querying at 1180ms gives 180ms delta — within the 200ms hit
+        // detection window but classified as Miss (151-200ms). Chip playback should skip it.
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var result = ReflectionHelpers.InvokePrivateMethod<Note?>(stage, "FindNearestNoteForChip", 3, 1180.0);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public void DrawCenteredText_WhenTextIsEmpty_ShouldReturnWithoutDrawing()
     {
         var stage = CreateStage();

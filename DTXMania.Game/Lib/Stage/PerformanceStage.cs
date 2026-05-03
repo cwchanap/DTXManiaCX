@@ -1276,7 +1276,10 @@ namespace DTXMania.Game.Lib.Stage
             if (_chartManager == null || _judgementManager == null)
                 return null;
 
-            double windowMs = JudgementManager.HitDetectionWindowMs;
+            // Use the Poor window (150ms) so chip sounds only play for non-Miss judgements.
+            // The full HitDetectionWindowMs (200ms) includes Miss-range hits (151-200ms)
+            // where the player hears a chip sound but receives a Miss judgement.
+            double windowMs = TimingConstants.PoorWindowMs;
 
             var allNotes = _chartManager.AllNotes;
             int startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
