@@ -384,6 +384,32 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessAutoPlay_WhenNoteIsSlightlyEarly_ShouldNotTriggerUntilScheduledTime()
+    {
+        // Note is at 1000ms. Calling ProcessAutoPlay at 955ms (45ms early) should NOT trigger.
+        // Previously, a ±50ms window allowed early triggering which caused audible timing issues.
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        // 45ms before note time - should NOT trigger
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 955.0);
+
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+
+        // At exactly note time - should trigger
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+    }
+
+    [Fact]
     public void ProcessAutoPlay_WhenNextNoteIsTooFarInPast_ShouldSkipNote()
     {
         var stage = CreateStage();

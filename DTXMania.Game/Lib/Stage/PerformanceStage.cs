@@ -1214,7 +1214,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var allNotes = _chartManager.AllNotes;
 
-            int autoPlayWindowMs = 50; // Configurable window for autoplay timing (±50ms)
+            int autoPlayWindowMs = 50; // Configurable window for autoplay timing (late tolerance)
             
             // Process notes that should be auto-hit at current time
             while (_autoPlayNoteIndex < allNotes.Count)
@@ -1224,7 +1224,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Check timing difference
                 var timeDifference = currentSongTimeMs - note.TimeMs;
                 
-                if (timeDifference < -autoPlayWindowMs)
+                if (timeDifference < 0)
                 {
                     // This note is in the future, stop processing (do not increment index)
                     break;
