@@ -503,7 +503,7 @@ namespace DTXMania.Game.Lib.Song
             foreach (var bgmName in commonBgmNames)
             {
                 var matchingWav = wavDefinitions.Values.FirstOrDefault(wav =>
-                    string.Equals(Path.GetFileName(wav), bgmName, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(Path.GetFileName(wav.Replace('\\', '/')), bgmName, StringComparison.OrdinalIgnoreCase));
                 if (!string.IsNullOrEmpty(matchingWav))
                 {
                     backgroundWav = matchingWav;

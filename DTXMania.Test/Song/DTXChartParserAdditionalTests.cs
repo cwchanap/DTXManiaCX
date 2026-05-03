@@ -595,6 +595,28 @@ namespace DTXMania.Test.Song
             Assert.Equal("0B", chart.Notes[1].Value);
         }
 
+        [Fact]
+        public async Task ParseAsync_BackslashBgmPath_ShouldDetectCommonBgmName()
+        {
+            // On macOS/Linux, Path.GetFileName("Audio\\bgm.ogg") returns the whole string
+            // because backslash is not a directory separator. Verify that common BGM detection
+            // still works when WAV definitions use Windows-style backslash paths.
+            var audioDir = Path.Combine(_tempDir, "Audio");
+            Directory.CreateDirectory(audioDir);
+            File.WriteAllText(Path.Combine(audioDir, "bgm.ogg"), "fake");
+
+            var content =
+                "#BPM:120\n" +
+                "#WAV01:Drums\\snare.wav\n" +
+                "#WAV02:Audio\\bgm.ogg\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.False(string.IsNullOrWhiteSpace(chart.BackgroundAudioPath));
+            Assert.Equal("bgm.ogg", Path.GetFileName(chart.BackgroundAudioPath));
+        }
+
         #endregion
 
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
