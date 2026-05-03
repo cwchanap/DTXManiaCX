@@ -284,7 +284,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void TestTriggerLaneHit_WhenIgnorePlayerInputTrue_StillEnqueuesHit()
+        public void EnqueueLaneHit_WhenIgnorePlayerInputTrue_StillEnqueuesHit()
         {
             var compat = CreateMockInputManagerWithEvents();
             var judgementManager = new JudgementManager(compat, CreateTestChartManager());
@@ -293,14 +293,14 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? captured = null;
             judgementManager.JudgementMade += (_, e) => captured = e;
 
-            judgementManager.TestTriggerLaneHit(0, "AutoPlay"); // bypasses gate
+            judgementManager.EnqueueLaneHit(0, "AutoPlay"); // bypasses gate
             judgementManager.Update(1000.0);
 
             Assert.NotNull(captured);
         }
 
         [Fact]
-        public void TestTriggerLaneHit_WhenIsActiveFalse_DropsHit()
+        public void EnqueueLaneHit_WhenIsActiveFalse_DropsHit()
         {
             var compat = CreateMockInputManagerWithEvents();
             var judgementManager = new JudgementManager(compat, CreateTestChartManager());
@@ -309,7 +309,7 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? captured = null;
             judgementManager.JudgementMade += (_, e) => captured = e;
 
-            judgementManager.TestTriggerLaneHit(0, "AutoPlay");
+            judgementManager.EnqueueLaneHit(0, "AutoPlay");
             judgementManager.Update(1000.0);
 
             Assert.Null(captured);

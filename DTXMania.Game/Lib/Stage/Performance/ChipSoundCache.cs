@@ -97,10 +97,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed) return;
             _disposed = true;
 
-            foreach (var sound in _sounds.Values)
+            foreach (var kvp in _sounds)
             {
-                try { sound?.Dispose(); }
-                catch { /* swallow per-sound disposal errors */ }
+                try { kvp.Value?.Dispose(); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ChipSoundCache] Failed to dispose WAV id '{kvp.Key}': {ex.Message}");
+                }
             }
             _sounds.Clear();
         }

@@ -423,7 +423,7 @@ public class PerformanceStageDeterministicTests
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
-        judgementManager.TestTriggerLaneHit(0, "PreResolved");
+        judgementManager.EnqueueLaneHit(0, "PreResolved");
         judgementManager.Update(1000.0);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
@@ -2444,7 +2444,7 @@ public class PerformanceStageDeterministicTests
         var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
         var chartManager = BuildChartManager(new[] { note });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
-        judgementManager.TestTriggerLaneHit(3, "Test");
+        judgementManager.EnqueueLaneHit(3, "Test");
         judgementManager.Update(1000.0);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);

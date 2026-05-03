@@ -1239,7 +1239,7 @@ namespace DTXMania.Game.Lib.Stage
                     if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
                     {
                         // Auto-hit the note using the JudgementManager's test method
-                        _judgementManager.TestTriggerLaneHit(note.LaneIndex, "AutoPlay");
+                        _judgementManager.EnqueueLaneHit(note.LaneIndex, "AutoPlay");
 
                         // Trigger pad press effect for autoplay
                         _padRenderer?.TriggerPadPress(note.LaneIndex, true);
@@ -1274,7 +1274,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_chartManager == null || _judgementManager == null)
                 return null;
 
-            const double windowMs = 200.0; // matches JudgementManager.HitDetectionWindowMs
+            double windowMs = JudgementManager.HitDetectionWindowMs;
 
             var allNotes = _chartManager.AllNotes;
             int startIndex = _chartManager.BinarySearchStartIndex(currentSongTimeMs - windowMs);
