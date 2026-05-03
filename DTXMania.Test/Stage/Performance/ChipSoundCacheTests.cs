@@ -378,6 +378,60 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
+        // --- Instance tracking tests ---
+
+        [Fact]
+        public void Play_SoundReturnsNullInstance_DoesNotThrow()
+        {
+            // ISound.Play() can return null (e.g. disposed sound). Should be handled gracefully.
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                // Default Moq behavior returns null for reference types
+                using var cache = new ChipSoundCache(_ => soundMock.Object);
+                cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 }).GetAwaiter().GetResult();
+
+                var ex = Record.Exception(() => cache.Play("01"));
+
+                Assert.Null(ex);
+                soundMock.Verify(s => s.Play(), Times.Once);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void StopAll_AfterDispose_DoesNotThrow()
+        {
+            var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+            cache.Dispose();
+
+            var ex = Record.Exception(() => cache.StopAll());
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void CleanupStoppedInstances_AfterDispose_DoesNotThrow()
+        {
+            var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+            cache.Dispose();
+
+            var ex = Record.Exception(() => cache.CleanupStoppedInstances());
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void ActiveInstanceCount_NewInstance_IsZero()
+        {
+            using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
+            Assert.Equal(0, cache.ActiveInstanceCount);
+        }
+
         // --- helpers ---
 
         private static (string dir, string file1, string file2) CreateTempWavFiles(string name1, string? name2)

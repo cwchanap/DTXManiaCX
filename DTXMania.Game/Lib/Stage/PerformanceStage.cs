@@ -1214,9 +1214,10 @@ namespace DTXMania.Game.Lib.Stage
 
             var allNotes = _chartManager.AllNotes;
 
-            int autoPlayWindowMs = 50; // Configurable window for autoplay timing (late tolerance)
-            
-            // Process notes that should be auto-hit at current time
+            // Auto-hits notes at their exact time. Unlike player input, autoplay
+            // should NEVER skip a pending note. The window only prevents triggering
+            // notes that are in the future — any past-due note is auto-hit regardless
+            // of how late the frame arrived (GC pause, hitch, low FPS, etc.).
             while (_autoPlayNoteIndex < allNotes.Count)
             {
                 var note = allNotes[_autoPlayNoteIndex];
@@ -1229,29 +1230,23 @@ namespace DTXMania.Game.Lib.Stage
                     // This note is in the future, stop processing (do not increment index)
                     break;
                 }
-                else if (timeDifference > autoPlayWindowMs)
+
+                // Note is at or past its time — always auto-hit it if still pending.
+                // This prevents frame hitches from causing autoplay to miss notes.
+                var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
+                if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
                 {
-                    // This note is too far in the past, skip it
-                    _autoPlayNoteIndex++;
+                    // Auto-hit the note using the JudgementManager's test method
+                    _judgementManager.EnqueueLaneHit(note.LaneIndex, "AutoPlay");
+
+                    // Trigger pad press effect for autoplay
+                    _padRenderer?.TriggerPadPress(note.LaneIndex, true);
+
+                    // Play the per-note drum chip sound (silent if no cache or no WAV)
+                    PlayChipForNote(note);
                 }
-                else
-                {
-                    // Within autoplay window - trigger autoplay hit
-                    var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
-                    if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
-                    {
-                        // Auto-hit the note using the JudgementManager's test method
-                        _judgementManager.EnqueueLaneHit(note.LaneIndex, "AutoPlay");
 
-                        // Trigger pad press effect for autoplay
-                        _padRenderer?.TriggerPadPress(note.LaneIndex, true);
-
-                        // Play the per-note drum chip sound (silent if no cache or no WAV)
-                        PlayChipForNote(note);
-                    }
-
-                    _autoPlayNoteIndex++;
-                }
+                _autoPlayNoteIndex++;
             }
         }
 

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
+using Microsoft.Xna.Framework.Audio;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -12,12 +13,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// Loads and plays per-WAV-id drum chip sounds for a single chart.
     /// Owned by PerformanceStage and disposed on stage cleanup.
     /// Mirrors the existing _bgmSounds pattern but for on-demand chip playback.
+    /// Tracks active SoundEffectInstances to prevent native resource leaks.
     /// </summary>
     public class ChipSoundCache : IDisposable
     {
         private readonly Func<string, ISound> _soundFactory;
         private readonly Dictionary<string, ISound> _sounds = new Dictionary<string, ISound>();
+        private readonly List<SoundEffectInstance> _activeInstances = new List<SoundEffectInstance>();
         private bool _disposed;
+
+        /// <summary>
+        /// Maximum number of concurrent active instances before forcing cleanup.
+        /// Prevents unbounded growth during gameplay.
+        /// </summary>
+        internal const int MaxActiveInstances = 64;
 
         /// <summary>
         /// Creates a ChipSoundCache. The factory is overridable for unit tests;
@@ -29,6 +38,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         public int Count => _sounds.Count;
+
+        /// <summary>
+        /// Number of currently active (playing or paused) sound instances.
+        /// </summary>
+        public int ActiveInstanceCount => _activeInstances.Count;
 
         public bool Contains(string wavId) =>
             !string.IsNullOrEmpty(wavId) && _sounds.ContainsKey(wavId);
@@ -75,6 +89,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Plays the sound for the given WAV id. Unknown ids are silent — not
         /// exceptional, since charts often reference WAVs that aren't loaded.
+        /// Tracks the returned SoundEffectInstance for lifecycle management.
         /// </summary>
         public void Play(string wavId)
         {
@@ -83,7 +98,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                sound.Play();
+                var instance = sound.Play();
+                if (instance != null)
+                {
+                    _activeInstances.Add(instance);
+                }
+
+                // Periodically clean up stopped instances to prevent unbounded growth
+                if (_activeInstances.Count > MaxActiveInstances)
+                {
+                    CleanupStoppedInstances();
+                }
             }
             catch (Exception ex)
             {
@@ -92,11 +117,51 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        /// <summary>
+        /// Removes and disposes all instances that have finished playing.
+        /// Called automatically when active instance count exceeds the threshold.
+        /// </summary>
+        public void CleanupStoppedInstances()
+        {
+            for (int i = _activeInstances.Count - 1; i >= 0; i--)
+            {
+                var instance = _activeInstances[i];
+                if (instance.State == SoundState.Stopped)
+                {
+                    try { instance.Dispose(); }
+                    catch { /* Best effort */ }
+                    _activeInstances.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stops all active sound instances immediately. Used during stage transitions
+        /// to silence chip sounds before disposal.
+        /// </summary>
+        public void StopAll()
+        {
+            foreach (var instance in _activeInstances)
+            {
+                try { instance.Stop(); }
+                catch { /* Best effort */ }
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
 
+            // Stop and dispose all active instances
+            foreach (var instance in _activeInstances)
+            {
+                try { instance.Stop(); instance.Dispose(); }
+                catch { /* Best effort during cleanup */ }
+            }
+            _activeInstances.Clear();
+
+            // Dispose cached sounds
             foreach (var kvp in _sounds)
             {
                 try { kvp.Value?.Dispose(); }
