@@ -51,7 +51,7 @@ namespace DTXMania.Test.Stage.Performance
             double hitTime = 1000.0 + deltaMs;
             
             // Trigger a hit on lane 0 directly using test method
-            judgementManager.TestTriggerLaneHit(0);
+            judgementManager.EnqueueLaneHit(0);
             
             judgementManager.Update(hitTime);
 
@@ -74,7 +74,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit exactly at Just window boundary (25ms)
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1025.0);
 
             // Assert
@@ -95,7 +95,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit exactly at Great window boundary (50ms)
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1050.0);
 
             // Assert
@@ -116,7 +116,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit beyond detection window (±200ms as per JudgementManager spec)
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1251.0); // 251ms late, beyond ±200ms detection window
 
             // Assert - Note should be auto-marked as Miss due to being beyond hit window
@@ -136,7 +136,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit within detection window (200ms) and within Good threshold (≤100ms)
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1089.0); // 89ms late, within detection window
 
             // Assert
@@ -157,7 +157,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit between two notes, should hit the nearer one
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1025.0); // 25ms after first note, ~27ms before second note
 
             // Assert - Should hit the first note (at 1000ms) since it's closer
@@ -178,7 +178,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act - Hit early (negative delta)
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(960.0); // 40ms early
 
             // Assert
@@ -207,7 +207,7 @@ namespace DTXMania.Test.Stage.Performance
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
             // Act
-            judgementManager.TestTriggerLaneHit(0); // Direct test trigger for lane 0
+            judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1000.0 + deltaMs);
 
             // Assert

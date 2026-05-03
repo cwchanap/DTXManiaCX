@@ -32,7 +32,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _missDetectionIndex = 0;
 
         // Timing window for hit detection (±200ms to cover Miss threshold range)
-        private const double HitDetectionWindowMs = 200.0;
+        public const double HitDetectionWindowMs = 200.0;
 
         #endregion
 
@@ -55,10 +55,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// When true, lane hit events received from the input system are silently
-        /// dropped. AutoPlay-driven hits via TestTriggerLaneHit bypass this gate.
+        /// dropped. AutoPlay-driven hits via EnqueueLaneHit bypass this gate.
         /// Set during PerformanceStage activation based on Config.AutoPlay.
         /// </summary>
-        public bool IgnorePlayerInput { get; set; } = false;
+        public bool IgnorePlayerInput { get; internal set; } = false;
 
         #endregion
 
@@ -178,15 +178,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #endregion
 
-        #region Test Support Methods
+        #region Direct Hit Enqueue
 
         /// <summary>
-        /// Test-friendly method to directly simulate a lane hit event.
-        /// This bypasses the normal input system for unit testing purposes.
+        /// Directly enqueues a lane hit event into the pending queue.
+        /// Bypasses the IgnorePlayerInput gate — used by AutoPlay and unit tests.
+        /// Player-initiated events go through OnLaneHit which respects the gate.
         /// </summary>
         /// <param name="lane">Lane index that was hit</param>
         /// <param name="buttonId">Optional button ID for the event</param>
-        public void TestTriggerLaneHit(int lane, string buttonId = "TestButton")
+        public void EnqueueLaneHit(int lane, string buttonId = "TestButton")
         {
             if (!IsActive || _disposed) return;
 

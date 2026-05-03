@@ -100,7 +100,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new JudgementManager(input, chartManager);
 
             // Just hit at exactly 1000ms
-            manager.TestTriggerLaneHit(0);
+            manager.EnqueueLaneHit(0);
             manager.Update(1000.0);
 
             Assert.Equal(1, manager.GetJudgementCount(JudgementType.Just));
@@ -131,7 +131,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new JudgementManager(input, chartManager);
 
             // Good hit - 60ms delta (beyond Great window of 50ms)
-            manager.TestTriggerLaneHit(0);
+            manager.EnqueueLaneHit(0);
             manager.Update(1060.0);
 
             var stats = manager.GetStatistics();
@@ -146,7 +146,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new JudgementManager(input, chartManager);
 
             // Poor hit - 120ms delta (beyond Good window of 100ms)
-            manager.TestTriggerLaneHit(0);
+            manager.EnqueueLaneHit(0);
             manager.Update(1120.0);
 
             var stats = manager.GetStatistics();
@@ -165,7 +165,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new JudgementManager(input, chartManager);
 
             // Hit first note
-            manager.TestTriggerLaneHit(0);
+            manager.EnqueueLaneHit(0);
             manager.Update(1000.0);
 
             // Miss second note
@@ -195,7 +195,7 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             // Try to trigger a hit - should be ignored because IsActive is false
-            manager.TestTriggerLaneHit(0);
+            manager.EnqueueLaneHit(0);
             manager.Update(1000.0);
 
             Assert.Equal(0, eventCount);

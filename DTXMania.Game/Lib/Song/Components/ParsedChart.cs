@@ -45,7 +45,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Replaces the WAV definitions table. Intended for parser-internal use:
         /// called once by DTXChartParser after path resolution; not for runtime use.
         /// </summary>
-        public void SetWavDefinitions(IDictionary<string, string> wavDefs)
+        internal void SetWavDefinitions(IDictionary<string, string> wavDefs)
         {
             _wavDefinitions = wavDefs != null
                 ? new Dictionary<string, string>(wavDefs)
