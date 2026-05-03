@@ -13,6 +13,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for DTXChartParser
     /// Tests chart parsing functionality for Phase 2 implementation
     /// </summary>
+    [Collection("SongManager")]
     public class DTXChartParserTests
     {
         private readonly string _testDataPath;
