@@ -89,7 +89,7 @@ private Note? FindNearestNoteForChip(int laneIndex)
 }
 ```
 
-**Autoplay path** — in `ProcessAutoPlay`'s "within window" branch, after `TestTriggerLaneHit`:
+**Autoplay path** — in `ProcessAutoPlay`'s "within window" branch, after `EnqueueLaneHit`:
 ```csharp
 PlayChipForNote(note);
 ```
@@ -111,7 +111,7 @@ public bool IgnorePlayerInput { get; set; } = false;
 ```
 
 - `OnLaneHit` (private event handler) early-returns when `IgnorePlayerInput || !IsActive || _disposed`.
-- `TestTriggerLaneHit` is refactored to enqueue directly into `_pendingLaneHits` instead of calling `OnLaneHit`, bypassing the gate. Still respects `IsActive` and `_disposed`.
+- `EnqueueLaneHit` is refactored to enqueue directly into `_pendingLaneHits` instead of calling `OnLaneHit`, bypassing the gate. Still respects `IsActive` and `_disposed`.
 - Set in `PerformanceStage` after constructing `_judgementManager`: `_judgementManager.IgnorePlayerInput = _autoPlayEnabled;`
 
 **Disposal** — in `CleanupGameplayManagers`:
@@ -150,7 +150,7 @@ UpdateGameplay(dt)
     UpdateGameplayManagers(currentTimeMs)
       if (_autoPlayEnabled) ProcessAutoPlay(t)
         for each note in window:
-          _judgementManager.TestTriggerLaneHit(lane)   // enqueue, bypasses gate
+          _judgementManager.EnqueueLaneHit(lane)   // enqueue, bypasses gate
           _padRenderer.TriggerPadPress(lane, true)
           PlayChipForNote(note)                        // NEW
       _judgementManager.Update(t)        // processes queue, emits JudgementMade
@@ -211,7 +211,7 @@ If none of H1–H4 match, the implementation plan needs a small revision — bou
 - `DTXMania.Game/Lib/Song/Components/ParsedChart.cs` — add `WavDefinitions` property
 - `DTXMania.Game/Lib/Song/DTXChartParser.cs` — populate `WavDefinitions` (resolve paths once)
 - `DTXMania.Game/Lib/Stage/Performance/ChipSoundCache.cs` — new file
-- `DTXMania.Game/Lib/Stage/Performance/JudgementManager.cs` — add `IgnorePlayerInput`, refactor `TestTriggerLaneHit` to bypass gate
+- `DTXMania.Game/Lib/Stage/Performance/JudgementManager.cs` — add `IgnorePlayerInput`, refactor `EnqueueLaneHit` to bypass gate
 - `DTXMania.Game/Lib/Stage/PerformanceStage.cs` — instantiate cache, preload, fix trigger (per Step 0 result), `PlayChipForNote`, `FindNearestNoteForChip`, gate `OnLaneHitForPadFeedback`, set `IgnorePlayerInput`, dispose
 - Tests (see Testing Strategy)
 
@@ -237,7 +237,7 @@ All new tests are pure logic (mocked sounds via `ISound`, no `GraphicsDevice`), 
 
 **`JudgementManagerTests` (extend):**
 - `OnLaneHit_WhenIgnorePlayerInputTrue_DropsEvent` — player events don't queue.
-- `TestTriggerLaneHit_WhenIgnorePlayerInputTrue_StillEnqueues` — autoplay path bypasses.
+- `EnqueueLaneHit_WhenIgnorePlayerInputTrue_StillEnqueues` — autoplay path bypasses.
 
 **Out of scope:** end-to-end MCP flow (covered by manual run during Step 0), actual audio device emission (mocked).
 

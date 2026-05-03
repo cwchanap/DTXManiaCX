@@ -314,5 +314,94 @@ namespace DTXMania.Test.Stage.Performance
 
             Assert.Null(captured);
         }
+
+        [Fact]
+        public void ResolveAutoHit_WhenNoteIsPending_MarksAsHitWithPerfectTiming()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var chartManager = CreateTestChartManager();
+            var judgementManager = new JudgementManager(compat, chartManager);
+            var noteId = chartManager.AllNotes[0].Id;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            var result = judgementManager.ResolveAutoHit(noteId);
+
+            Assert.True(result);
+            Assert.NotNull(captured);
+            Assert.Equal(JudgementType.Just, captured.Type);
+            Assert.Equal(0.0, captured.DeltaMs);
+            Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(noteId)!.Status);
+        }
+
+        [Fact]
+        public void ResolveAutoHit_WhenNoteAlreadyHit_ReturnsFalse()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var chartManager = CreateTestChartManager();
+            var judgementManager = new JudgementManager(compat, chartManager);
+            var noteId = chartManager.AllNotes[0].Id;
+
+            // Hit it once
+            judgementManager.ResolveAutoHit(noteId);
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            // Try again
+            var result = judgementManager.ResolveAutoHit(noteId);
+
+            Assert.False(result);
+            Assert.Null(captured);
+        }
+
+        [Fact]
+        public void ResolveAutoHit_WhenNoteAlreadyMissed_ReturnsFalse()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var chartManager = CreateTestChartManager();
+            var judgementManager = new JudgementManager(compat, chartManager);
+            var noteId = chartManager.AllNotes[0].Id;
+
+            // Run update far past the note to trigger miss detection
+            // The test chart has a note at 1000ms, so advance well past the 200ms miss window
+            judgementManager.Update(1500.0);
+
+            Assert.Equal(NoteStatus.Missed, judgementManager.GetNoteRuntimeData(noteId)!.Status);
+
+            // Now try to resolve it with autoplay
+            var result = judgementManager.ResolveAutoHit(noteId);
+
+            Assert.False(result);
+            Assert.Equal(NoteStatus.Missed, judgementManager.GetNoteRuntimeData(noteId)!.Status);
+        }
+
+        [Fact]
+        public void ResolveAutoHit_WhenIsActiveFalse_ReturnsFalse()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var chartManager = CreateTestChartManager();
+            var judgementManager = new JudgementManager(compat, chartManager);
+            judgementManager.IsActive = false;
+            var noteId = chartManager.AllNotes[0].Id;
+
+            var result = judgementManager.ResolveAutoHit(noteId);
+
+            Assert.False(result);
+            Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(noteId)!.Status);
+        }
+
+        [Fact]
+        public void ResolveAutoHit_WhenNoteIdNotFound_ReturnsFalse()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var chartManager = CreateTestChartManager();
+            var judgementManager = new JudgementManager(compat, chartManager);
+
+            var result = judgementManager.ResolveAutoHit(99999);
+
+            Assert.False(result);
+        }
     }
 }

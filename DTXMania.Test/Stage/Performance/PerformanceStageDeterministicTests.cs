@@ -600,6 +600,67 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessAutoPlay_NoteFarPastHitWindow_StillResolvedAsHit()
+    {
+        // Regression test: Previously, ProcessAutoPlay used EnqueueLaneHit which
+        // went through FindNearestUnhitNote with a 200ms hit detection window.
+        // If a note was >200ms past its time (GC pause, frame hitch), the hit
+        // was enqueued but couldn't be matched → note got marked Missed instead.
+        // With ResolveAutoHit, autoplay directly resolves by note ID, bypassing
+        // the window entirely. A note at 1000ms processed at 1500ms (400ms late)
+        // must still be auto-hit with Perfect timing.
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        // 500ms past note time — far beyond the 200ms hit detection window.
+        // With the old EnqueueLaneHit flow, this note would be Missed.
+        // With ResolveAutoHit, it's deterministically resolved as Hit.
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1500.0);
+
+        // No need for judgementManager.Update — ResolveAutoHit is immediate
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+
+        // Verify it got Perfect (Just) timing
+        var noteData = judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!;
+        Assert.Equal(JudgementType.Just, noteData.JudgementEvent!.Type);
+        Assert.Equal(0.0, noteData.JudgementEvent.DeltaMs);
+    }
+
+    [Fact]
+    public void ProcessAutoPlay_MultipleNotesFarPastHitWindow_AllResolvedAsHit()
+    {
+        // Multiple notes all >200ms past their time — all must be resolved.
+        // This simulates a long GC pause where the song jumps forward significantly.
+        var stage = CreateStage();
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 },
+            new Note(laneIndex: 1, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 200.0 },
+            new Note(laneIndex: 2, bar: 0, tick: 0, channel: 0x13, value: "01") { TimeMs = 300.0 },
+        });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        // Jump to 1000ms — all notes are 700-900ms past their time, well beyond 200ms window
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 1000.0);
+
+        Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[2].Id)!.Status);
+    }
+
+    [Fact]
     public void OnLaneHitForPadFeedback_WhenAutoPlayEnabled_NoPadOrChip()
     {
         var stage = CreateStage();
