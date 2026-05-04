@@ -617,6 +617,98 @@ namespace DTXMania.Test.Song
             Assert.Equal("bgm.ogg", Path.GetFileName(chart.BackgroundAudioPath));
         }
 
+        [Fact]
+        public void IsTextProperlyDecoded_WithValidText_ReturnsTrue()
+        {
+            Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", ""));
+            Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", (string)null!));
+            Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "Hello World"));
+            Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "テスト"));
+        }
+
+        [Theory]
+        [InlineData("DRUM", 5)]
+        [InlineData("DRUMS", 5)]
+        [InlineData("GUITAR", 4)]
+        [InlineData("BASS", 3)]
+        public void ParseSongEntitiesAsync_WithLevelDataInstrumentFormat_ShouldParseCorrectly(string instrument, int level)
+        {
+            var content =
+                "#TITLE: Test\n" +
+                "#BPM: 120.0\n" +
+                $"#LEVEL: {instrument}:{level}\n";
+            var path = CreateTempDtx(content);
+
+            var (song, chart) = DTXChartParser.ParseSongEntitiesAsync(path).GetAwaiter().GetResult();
+
+            switch (instrument)
+            {
+                case "DRUM":
+                case "DRUMS":
+                    Assert.Equal(level, chart.DrumLevel);
+                    Assert.True(chart.HasDrumChart);
+                    break;
+                case "GUITAR":
+                    Assert.Equal(level, chart.GuitarLevel);
+                    Assert.True(chart.HasGuitarChart);
+                    break;
+                case "BASS":
+                    Assert.Equal(level, chart.BassLevel);
+                    Assert.True(chart.HasBassChart);
+                    break;
+            }
+        }
+
+        [Fact]
+        public async Task ParseSongEntitiesAsync_WithCorruptEncoding_ShouldFallBackToFilename()
+        {
+            var wavName = $"test-{Guid.NewGuid():N}.wav";
+            var content =
+                "#BPM: 120.0\n" +
+                $"#WAV01: {wavName}\n" +
+                "#00011: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(path);
+
+            Assert.False(string.IsNullOrEmpty(song.Title));
+        }
+
+        [Fact]
+        public async Task ParseSongEntitiesAsync_WithNoParsableMetadata_ShouldUseFilenameAsTitle()
+        {
+            var content = "#00011: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(path);
+
+            Assert.NotNull(song.Title);
+        }
+
+        [Fact]
+        public async Task ParseSongEntitiesAsync_ParseHeaderFails_ShouldUseFilenameAsTitle()
+        {
+            var txtPath = Path.Combine(_tempDir, "fallback_test.txt");
+            File.WriteAllText(txtPath, "#BPM: 120.0\n#DLEVEL: 5\n");
+
+            var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(txtPath);
+
+            Assert.Equal("fallback_test", song.Title);
+        }
+
+        [Fact]
+        public void IsTextProperlyDecoded_WithControlCharacter_ReturnsFalse()
+        {
+            var result = InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "test\x01value");
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsTextProperlyDecoded_WithTabAndNewline_ReturnsTrue()
+        {
+            Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "line1\tvalue\nline2"));
+        }
+
         #endregion
 
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
