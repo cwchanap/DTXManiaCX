@@ -420,7 +420,35 @@ namespace DTXMania.Game.Lib.Config
         {
             Config = new ConfigData();
         }
-        
+
+        public event EventHandler<ScrollSpeedChangedEventArgs>? ScrollSpeedChanged;
+
+        public void SetScrollSpeed(string configFilePath, int percent)
+        {
+            var snapped = ScrollSpeedRange.SnapAndClamp(percent);
+            var old = Config.ScrollSpeed;
+            if (snapped == old)
+                return;
+
+            Config.ScrollSpeed = snapped;
+
+            try
+            {
+                SaveConfig(configFilePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist ScrollSpeed change to {Path}; in-memory value still updated.", configFilePath);
+            }
+
+            ScrollSpeedChanged?.Invoke(this, new ScrollSpeedChangedEventArgs(old, snapped));
+        }
+
+        public void AdjustScrollSpeed(string configFilePath, int stepDelta)
+        {
+            SetScrollSpeed(configFilePath, Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
+        }
+
         /// <summary>
         /// Helper method for robust boolean parsing
         /// </summary>
