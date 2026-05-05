@@ -85,6 +85,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // UX components
         private BitmapFont _readyFont = null!;
+        private ScrollSpeedIndicator? _scrollSpeedIndicator;
 
         // Performance UI Assets - initialized in InitializeComponents
         private ITexture _backgroundTexture = null!;
@@ -218,6 +219,9 @@ namespace DTXMania.Game.Lib.Stage
             // Update performance components
             UpdateComponents(deltaTime);
 
+            // Update scroll-speed indicator toast
+            _scrollSpeedIndicator?.Update(_currentGameTime);
+
             // Update gameplay state
             UpdateGameplay(deltaTime);
 
@@ -275,7 +279,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw ready state or loading indicator
             DrawGameplayState();
-            
+
+            // Draw scroll-speed indicator toast (on top of everything via depth 0.0)
+            _scrollSpeedIndicator?.Draw(_spriteBatch);
 
             _spriteBatch.End();
 
@@ -525,7 +531,7 @@ namespace DTXMania.Game.Lib.Stage
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
         {
             _noteRenderer?.SetScrollSpeed(e.NewPercent);
-            // Indicator hookup added in Task 6.
+            _scrollSpeedIndicator?.Show(e.NewPercent);
         }
 
         #endregion
@@ -782,11 +788,13 @@ namespace DTXMania.Game.Lib.Stage
                 // Create bitmap font for ready text display
                 var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
                 _readyFont = new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
+                _scrollSpeedIndicator = new ScrollSpeedIndicator(_readyFont);
             }
             catch (Exception ex)
             {
                 // Font initialization failed, fallback will be used
                 _readyFont = null;
+                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
             }
         }
         
