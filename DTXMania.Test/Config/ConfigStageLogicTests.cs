@@ -68,13 +68,14 @@ public class ConfigStageLogicTests
 
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
-            Assert.Equal(7, configItems!.Count);
+            Assert.Equal(8, configItems!.Count);
             Assert.Collection(configItems,
                 item => Assert.Equal("Screen Resolution", item.Name),
                 item => Assert.Equal("Fullscreen", item.Name),
                 item => Assert.Equal("VSync Wait", item.Name),
                 item => Assert.Equal("No Fail", item.Name),
                 item => Assert.Equal("Auto Play", item.Name),
+                item => Assert.Equal("Scroll Speed", item.Name),
                 item => Assert.Equal("Drum Key Mapping", item.Name),
                 item => Assert.Equal("System Key Mapping", item.Name));
             Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
@@ -186,7 +187,7 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 5);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -600,7 +601,7 @@ public class ConfigStageLogicTests
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.NotNull(configItems);
-            Assert.Equal(7, configItems!.Count);
+            Assert.Equal(8, configItems!.Count);
             Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
         }
@@ -962,7 +963,7 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 5);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -978,7 +979,7 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");

@@ -296,11 +296,25 @@ namespace DTXMania.Game.Lib.Stage
                     System.Diagnostics.Debug.WriteLine($"AutoPlay changed to {value}");
                 });
 
+            var scrollSpeedItem = new IntegerConfigItem(
+                "Scroll Speed",
+                () => _workingConfig.ScrollSpeed,
+                value =>
+                {
+                    _workingConfig.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(value);
+                    _hasUnsavedChanges = true;
+                },
+                minValue: ScrollSpeedRange.Min,
+                maxValue: ScrollSpeedRange.Max,
+                step: ScrollSpeedRange.Step,
+                valueFormatter: ScrollSpeedRange.Format);
+
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
             _configItems.Add(vsyncItem);
             _configItems.Add(noFailItem);
             _configItems.Add(autoPlayItem);
+            _configItems.Add(scrollSpeedItem);
 
             // Drum and system key mapping navigation items
             _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
@@ -492,6 +506,7 @@ namespace DTXMania.Game.Lib.Stage
             bool prevVSync = config.VSyncWait;
             bool prevNoFail = config.NoFail;
             bool prevAutoPlay = config.AutoPlay;
+            int prevScrollSpeed = config.ScrollSpeed;
             var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
             var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
             var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
@@ -504,6 +519,7 @@ namespace DTXMania.Game.Lib.Stage
             config.VSyncWait = _workingConfig.VSyncWait;
             config.NoFail = _workingConfig.NoFail;
             config.AutoPlay = _workingConfig.AutoPlay;
+            config.ScrollSpeed = _workingConfig.ScrollSpeed;
 
             if (_configManager is ConfigManager concreteConfig)
             {
@@ -527,6 +543,7 @@ namespace DTXMania.Game.Lib.Stage
                 config.VSyncWait = prevVSync;
                 config.NoFail = prevNoFail;
                 config.AutoPlay = prevAutoPlay;
+                config.ScrollSpeed = prevScrollSpeed;
                 config.KeyBindings.Clear();
                 foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
                 config.UnboundDrumLanes.Clear();
