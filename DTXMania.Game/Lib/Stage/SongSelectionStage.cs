@@ -18,6 +18,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -138,6 +139,11 @@ namespace DTXMania.Game.Lib.Stage
                 _configManager = baseGame.ConfigManager;
             }
 
+            if (_configManager != null)
+            {
+                _configManager.ScrollSpeedChanged += OnScrollSpeedChanged;
+            }
+
             // Initialize graphics resources
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
             _resourceManager = _game.ResourceManager;
@@ -202,6 +208,11 @@ namespace DTXMania.Game.Lib.Stage
 
         public override void Deactivate()
         {
+            if (_configManager != null)
+            {
+                _configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+            }
+
             // Cancel any running song initialization task
             _cancellationTokenSource?.Cancel();
 
@@ -828,6 +839,16 @@ namespace DTXMania.Game.Lib.Stage
             // Draw UI (PreviewImagePanel will handle its own drawing including delay)
             _uiManager?.Draw(_spriteBatch, deltaTime);
 
+            // Draw current scroll-speed value as a small label
+            if (_bitmapFont != null && _configManager != null)
+            {
+                var label = "Scroll " + ScrollSpeedRange.Format(_configManager.Config.ScrollSpeed);
+                _bitmapFont.DrawText(_spriteBatch, label,
+                    SongSelectionUILayout.ScrollSpeedLabelX,
+                    SongSelectionUILayout.ScrollSpeedLabelY,
+                    Microsoft.Xna.Framework.Color.White);
+            }
+
             _spriteBatch.End();
         }
 
@@ -964,6 +985,14 @@ namespace DTXMania.Game.Lib.Stage
                             StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
                         }
                     }
+                    break;
+
+                case InputCommandType.IncreaseScrollSpeed:
+                    _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), +1);
+                    break;
+
+                case InputCommandType.DecreaseScrollSpeed:
+                    _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
                     break;
             }
         }
@@ -1463,6 +1492,16 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Game start sound failed, continue
             }
+        }
+
+        #endregion
+
+        #region Scroll Speed
+
+        private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
+        {
+            // Label re-renders each frame from current config; nothing to do here today.
+            // Hook kept for symmetry with PerformanceStage and to make future caching trivial.
         }
 
         #endregion

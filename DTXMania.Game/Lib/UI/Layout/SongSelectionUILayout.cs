@@ -559,7 +559,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         #endregion
         
         #region Spacing and Offsets
-        
+
         /// <summary>
         /// Common spacing and offset values
         /// </summary>
@@ -570,7 +570,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int BorderThickness = 2;   // Border thickness for panels
             public const int LabelValueSpacing = 5; // Space between label and value text
         }
-        
+
         #endregion
+
+        // Scroll-speed display (e.g., "Scroll x1.5") on song-select panel
+        public const int ScrollSpeedLabelX = 20;
+        public const int ScrollSpeedLabelY = 680; // bottom-left
     }
 }
