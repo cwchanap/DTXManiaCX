@@ -288,7 +288,7 @@ namespace DTXMania.Game.Lib.Config
                     break;
                 case "ScrollSpeed":
                     if (int.TryParse(value, out var scrollSpeed))
-                        Config.ScrollSpeed = scrollSpeed;
+                        Config.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(scrollSpeed);
                     break;
                 case "AutoPlay":
                     if (TryParseBool(value, out var autoPlay))

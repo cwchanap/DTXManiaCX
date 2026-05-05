@@ -32,7 +32,7 @@ namespace DTXMania.Game.Lib.Config
         public Dictionary<string, string> SystemKeyBindings { get; set; } = new();
 
         // Game settings
-        public int ScrollSpeed { get; set; } = 100;
+        public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
 
