@@ -128,8 +128,8 @@ namespace DTXMania.Game.Lib.Config
     }
 
     /// <summary>
-    /// Configuration item for integer values with min/max bounds
-    /// Similar to DTXManiaNX Integer type config items
+    /// Configuration item for integer values with min/max bounds.
+    /// Optional valueFormatter customizes the displayed value (default: stringified integer).
     /// </summary>
     public class IntegerConfigItem : BaseConfigItem
     {
@@ -138,9 +138,10 @@ namespace DTXMania.Game.Lib.Config
         private readonly int _minValue;
         private readonly int _maxValue;
         private readonly int _step;
+        private readonly Func<int, string> _valueFormatter;
 
-        public IntegerConfigItem(string name, Func<int> getCurrentValue, Action<int> setValue, 
-            int minValue, int maxValue, int step = 1)
+        public IntegerConfigItem(string name, Func<int> getCurrentValue, Action<int> setValue,
+            int minValue, int maxValue, int step = 1, Func<int, string> valueFormatter = null)
             : base(name)
         {
             _getCurrentValue = getCurrentValue ?? throw new ArgumentNullException(nameof(getCurrentValue));
@@ -148,6 +149,7 @@ namespace DTXMania.Game.Lib.Config
             _minValue = minValue;
             _maxValue = maxValue;
             _step = step;
+            _valueFormatter = valueFormatter;
 
             if (_minValue >= _maxValue)
                 throw new ArgumentException("Min value must be less than max value");
@@ -158,7 +160,8 @@ namespace DTXMania.Game.Lib.Config
         public override string GetDisplayText()
         {
             var currentValue = _getCurrentValue();
-            return $"{Name}: {currentValue}";
+            var formatted = _valueFormatter != null ? _valueFormatter(currentValue) : currentValue.ToString();
+            return $"{Name}: {formatted}";
         }
 
         public override void PreviousValue()
