@@ -17,7 +17,8 @@ namespace DTXMania.Test.Config
         [InlineData(0, 50)]
         [InlineData(-50, 50)]
         [InlineData(9999, 400)]
-        public void SnapAndClamp_ReturnsExpected(int input, int expected)
+        [Trait("Category", "Unit")]
+        public void SnapAndClamp_GivenInput_ReturnsExpected(int input, int expected)
         {
             Assert.Equal(expected, ScrollSpeedRange.SnapAndClamp(input));
         }
@@ -27,13 +28,15 @@ namespace DTXMania.Test.Config
         [InlineData(100, "x1.0")]
         [InlineData(150, "x1.5")]
         [InlineData(400, "x4.0")]
-        public void Format_ReturnsXMultiplier(int percent, string expected)
+        [Trait("Category", "Unit")]
+        public void Format_GivenPercent_ReturnsXMultiplier(int percent, string expected)
         {
             Assert.Equal(expected, ScrollSpeedRange.Format(percent));
         }
 
         [Fact]
-        public void Constants_HaveExpectedValues()
+        [Trait("Category", "Unit")]
+        public void Constants_WhenChecked_HaveExpectedValues()
         {
             Assert.Equal(50, ScrollSpeedRange.Min);
             Assert.Equal(400, ScrollSpeedRange.Max);

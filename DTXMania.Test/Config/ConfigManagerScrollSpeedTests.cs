@@ -26,6 +26,7 @@ namespace DTXMania.Test.Config
         [InlineData(130, 150)]
         [InlineData(425, 400)]
         [InlineData(30, 50)]
+        [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_SnapsToNearestStep(int input, int expected)
         {
             var cm = new ConfigManager();
@@ -37,6 +38,7 @@ namespace DTXMania.Test.Config
         [InlineData(0, 50)]
         [InlineData(-100, 50)]
         [InlineData(9999, 400)]
+        [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_ClampsToRange(int input, int expected)
         {
             var cm = new ConfigManager();
@@ -45,6 +47,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_RaisesChangedEventWithOldAndNew()
         {
             var cm = new ConfigManager();
@@ -61,6 +64,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_NoOpWhenUnchanged_DoesNotRaiseEvent()
         {
             var cm = new ConfigManager();
@@ -75,6 +79,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_PersistsToConfigIni()
         {
             var cm = new ConfigManager();
@@ -86,6 +91,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void LoadConfig_SnapsHandEditedScrollSpeedToNearestStep()
         {
             File.WriteAllText(_tempPath, "ScrollSpeed=133\n");
@@ -97,6 +103,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_StepsUp()
         {
             var cm = new ConfigManager();
@@ -106,6 +113,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_StepsDown()
         {
             var cm = new ConfigManager();
@@ -115,6 +123,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_FloorsAtMin()
         {
             var cm = new ConfigManager();
@@ -124,6 +133,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_CeilingsAtMax()
         {
             var cm = new ConfigManager();
@@ -133,6 +143,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_RaisesChangedEventWithOldAndNew()
         {
             var cm = new ConfigManager();

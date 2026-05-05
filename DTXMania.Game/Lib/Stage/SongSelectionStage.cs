@@ -1498,7 +1498,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Scroll Speed
 
-        private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
+        private void OnScrollSpeedChanged(object sender, ScrollSpeedChangedEventArgs e)
         {
             // Label re-renders each frame from current config; nothing to do here today.
             // Hook kept for symmetry with PerformanceStage and to make future caching trivial.

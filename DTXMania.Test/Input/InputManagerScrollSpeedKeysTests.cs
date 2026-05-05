@@ -6,31 +6,27 @@ namespace DTXMania.Test.Input
 {
     public class InputManagerScrollSpeedKeysTests
     {
-        [Fact]
-        public void DefaultMapping_PageUp_MapsToIncreaseScrollSpeed()
+        [Theory]
+        [InlineData(Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
+        [InlineData(Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
+        [Trait("Category", "Unit")]
+        public void DefaultMapping_Key_WhenQueried_ShouldMapToExpectedScrollCommand(Keys key, InputCommandType expected)
         {
             var im = new InputManager();
             var snapshot = im.GetKeyMappingSnapshot();
-            Assert.True(snapshot.TryGetValue(Keys.PageUp, out var cmd));
-            Assert.Equal(InputCommandType.IncreaseScrollSpeed, cmd);
+            Assert.True(snapshot.TryGetValue(key, out var cmd));
+            Assert.Equal(expected, cmd);
         }
 
         [Fact]
-        public void DefaultMapping_PageDown_MapsToDecreaseScrollSpeed()
-        {
-            var im = new InputManager();
-            var snapshot = im.GetKeyMappingSnapshot();
-            Assert.True(snapshot.TryGetValue(Keys.PageDown, out var cmd));
-            Assert.Equal(InputCommandType.DecreaseScrollSpeed, cmd);
-        }
-
-        [Fact]
+        [Trait("Category", "Unit")]
         public void Enum_HasIncreaseScrollSpeed()
         {
             Assert.Contains(InputCommandType.IncreaseScrollSpeed, System.Enum.GetValues<InputCommandType>());
         }
 
         [Fact]
+        [Trait("Category", "Unit")]
         public void Enum_HasDecreaseScrollSpeed()
         {
             Assert.Contains(InputCommandType.DecreaseScrollSpeed, System.Enum.GetValues<InputCommandType>());
