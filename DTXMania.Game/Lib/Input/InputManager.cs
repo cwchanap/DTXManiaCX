@@ -15,7 +15,9 @@ namespace DTXMania.Game.Lib.Input
         MoveLeft,
         MoveRight,
         Activate,
-        Back
+        Back,
+        IncreaseScrollSpeed,
+        DecreaseScrollSpeed
     }
 
     /// <summary>
@@ -99,6 +101,8 @@ namespace DTXMania.Game.Lib.Input
             _keyMapping[Keys.Right] = InputCommandType.MoveRight;
             _keyMapping[Keys.Enter] = InputCommandType.Activate;
             _keyMapping[Keys.Escape] = InputCommandType.Back;
+            _keyMapping[Keys.PageUp] = InputCommandType.IncreaseScrollSpeed;
+            _keyMapping[Keys.PageDown] = InputCommandType.DecreaseScrollSpeed;
         }
 
         public virtual void Update(double deltaTime = 0)
