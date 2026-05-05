@@ -19,6 +19,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -178,10 +179,20 @@ namespace DTXMania.Game.Lib.Stage
             // Start async chart loading and audio preparation
             _ = InitializeGameplayAsync();
 
+            var configManager = _game?.ConfigManager;
+            if (configManager != null)
+            {
+                configManager.ScrollSpeedChanged += OnScrollSpeedChanged;
+            }
         }
 
         protected override void OnDeactivate()
         {
+            var configManager = _game?.ConfigManager;
+            if (configManager != null)
+            {
+                configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+            }
 
             // Clean up components
             CleanupComponents();
@@ -451,10 +462,25 @@ namespace DTXMania.Game.Lib.Stage
             // Only process gameplay input when song is actively playing (not during loading or ready countdown)
             if (_songTimer?.IsPlaying == true && !_inputPaused && !_isLoading && !(_isReady && _readyCountdown > 0))
             {
-                // Input manager is already being updated in OnUpdate(), 
+                // Input manager is already being updated in OnUpdate(),
                 // so we don't need to do anything special here.
                 // The ModularInputManager will automatically trigger lane hit events
                 // which the JudgementManager is subscribed to.
+            }
+
+            // Scroll-speed adjust hotkeys (PageUp/PageDown) — active throughout performance,
+            // not gated on song playback so player can pre-adjust during the ready countdown.
+            var configManager = _game?.ConfigManager;
+            if (configManager != null)
+            {
+                if (_inputManager.IsCommandPressed(InputCommandType.IncreaseScrollSpeed))
+                {
+                    configManager.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), +1);
+                }
+                else if (_inputManager.IsCommandPressed(InputCommandType.DecreaseScrollSpeed))
+                {
+                    configManager.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
+                }
             }
         }
 
@@ -496,6 +522,12 @@ namespace DTXMania.Game.Lib.Stage
                 new DTXManiaFadeTransition(0.5), null);
         }
 
+        private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
+        {
+            _noteRenderer?.SetScrollSpeed(e.NewPercent);
+            // Indicator hookup added in Task 6.
+        }
+
         #endregion
 
         #region Phase 2 - Chart Loading and Gameplay
@@ -535,9 +567,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Set BPM and scroll speed in note renderer
                 _noteRenderer?.SetBpm(_parsedChart.Bpm);
 
-                // Set scroll speed based on user preference
-                // TODO: Get scroll speed from user config
-                var scrollSpeedSetting = 100; // Default scroll speed
+                // Set scroll speed based on user preference (read from config, applied at chart load).
+                // In-game adjustments are handled via ConfigManager.ScrollSpeedChanged subscription.
+                var scrollSpeedSetting = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
                 _noteRenderer?.SetScrollSpeed(scrollSpeedSetting);
 
                 // Load background audio - ALWAYS needed for SongTimer creation (master clock)

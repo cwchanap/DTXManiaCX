@@ -462,7 +462,13 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public const double NoteDefaultLookAheadMs = 1500.0;
         public const int NoteDefaultScrollSpeed = 100; // Default scroll speed percentage
-        
+
+        // Scroll-speed indicator (in-game toast shown when player adjusts scroll speed)
+        public const float ScrollSpeedIndicatorDurationSeconds = 1.5f;
+        public const float ScrollSpeedIndicatorFadeSeconds = 0.3f;
+        public const int ScrollSpeedIndicatorX = 640; // top-center of 1280-wide screen
+        public const int ScrollSpeedIndicatorY = 40;
+
         #endregion
         
         #region Performance Component Constants
