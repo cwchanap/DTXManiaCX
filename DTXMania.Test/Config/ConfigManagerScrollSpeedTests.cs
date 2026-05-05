@@ -86,6 +86,17 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void LoadConfig_SnapsHandEditedScrollSpeedToNearestStep()
+        {
+            File.WriteAllText(_tempPath, "ScrollSpeed=133\n");
+
+            var cm = new ConfigManager();
+            cm.LoadConfig(_tempPath);
+
+            Assert.Equal(150, cm.Config.ScrollSpeed);
+        }
+
+        [Fact]
         public void AdjustScrollSpeed_StepsUp()
         {
             var cm = new ConfigManager();
