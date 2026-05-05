@@ -120,5 +120,21 @@ namespace DTXMania.Test.Config
             cm.AdjustScrollSpeed(_tempPath, +1);
             Assert.Equal(400, cm.Config.ScrollSpeed);
         }
+
+        [Fact]
+        public void AdjustScrollSpeed_RaisesChangedEventWithOldAndNew()
+        {
+            var cm = new ConfigManager();
+            cm.Config.ScrollSpeed = 100;
+
+            ScrollSpeedChangedEventArgs? captured = null;
+            cm.ScrollSpeedChanged += (_, e) => captured = e;
+
+            cm.AdjustScrollSpeed(_tempPath, +1);
+
+            Assert.NotNull(captured);
+            Assert.Equal(100, captured!.OldPercent);
+            Assert.Equal(150, captured.NewPercent);
+        }
     }
 }
