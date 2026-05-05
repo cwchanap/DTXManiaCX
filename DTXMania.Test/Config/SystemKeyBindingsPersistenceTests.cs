@@ -348,4 +348,67 @@ public class SystemKeyBindingsPersistenceTests
         Assert.False(snap1.ContainsKey(Keys.F1));
         Assert.True(snap2.ContainsKey(Keys.F1));
     }
+
+    // ─── EvictDrumKeyConflicts ─────────────────────────────────────────────
+
+    [Fact]
+    public void LoadSystemKeyBindings_DrumKeyOverlapsDefaultScrollSpeed_ShouldEvictDefaultScrollSpeedBinding()
+    {
+        // Scenario: player bound PageUp to a drum lane. The default PageUp -> IncreaseScrollSpeed
+        // should be removed so pressing PageUp during performance doesn't change scroll speed.
+        var manager = new ConfigManager();
+        manager.Config.KeyBindings["Key.PageUp"] = 4; // bind PageUp to Snare Drum lane
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        // PageUp should NOT be mapped to IncreaseScrollSpeed
+        Assert.False(snapshot.TryGetValue(Keys.PageUp, out var pageUpCmd)
+            && pageUpCmd == InputCommandType.IncreaseScrollSpeed);
+    }
+
+    [Fact]
+    public void LoadSystemKeyBindings_DrumKeyOverlapsDefaultScrollSpeed_ShouldKeepNonConflictingDefault()
+    {
+        // PageDown is NOT a drum key, so its default mapping should remain
+        var manager = new ConfigManager();
+        manager.Config.KeyBindings["Key.PageUp"] = 4; // only PageUp is a drum key
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.DecreaseScrollSpeed, snapshot[Keys.PageDown]);
+    }
+
+    [Fact]
+    public void LoadSystemKeyBindings_DrumKeyOverlapsRequiredCommand_ShouldKeepRequiredBinding()
+    {
+        // A required system command (e.g., Back) should NOT be evicted even if it overlaps a drum key
+        var manager = new ConfigManager();
+        manager.Config.KeyBindings["Key.Escape"] = 0; // bind Escape to a drum lane
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        // Escape -> Back is required and should still be present
+        Assert.Equal(InputCommandType.Back, snapshot[Keys.Escape]);
+    }
+
+    [Fact]
+    public void LoadSystemKeyBindings_NoDrumOverlap_ShouldKeepDefaultScrollSpeedBindings()
+    {
+        // When no drum keys overlap, defaults should remain
+        var manager = new ConfigManager();
+        // No custom drum bindings — only defaults (A, S, D, F, G, J, K, L, Space, ;)
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.IncreaseScrollSpeed, snapshot[Keys.PageUp]);
+        Assert.Equal(InputCommandType.DecreaseScrollSpeed, snapshot[Keys.PageDown]);
+    }
 }

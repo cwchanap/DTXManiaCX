@@ -198,6 +198,29 @@ namespace DTXMania.Game.Lib.Config
             }
 
             EnsureRequiredSystemKeyBindings(inputManager);
+            EvictDrumKeyConflicts(inputManager, drumKeys);
+        }
+
+        /// <summary>
+        /// Removes non-required system key bindings that collide with drum keys,
+        /// so that a key used for gameplay does not also fire a system command
+        /// (e.g. scroll-speed adjust) during performance.
+        /// Required commands are never evicted; their fallback logic in
+        /// <see cref="EnsureRequiredSystemKeyBindings"/> already handles this.
+        /// </summary>
+        private static void EvictDrumKeyConflicts(InputManager inputManager, HashSet<Keys> drumKeys)
+        {
+            var snapshot = inputManager.GetKeyMappingSnapshot();
+            foreach (var kvp in snapshot)
+            {
+                if (!drumKeys.Contains(kvp.Key))
+                    continue;
+
+                if (IsRequiredSystemCommand(kvp.Value))
+                    continue;
+
+                inputManager.RemoveKeyMapping(kvp.Key);
+            }
         }
 
         public void SaveSystemKeyBindings(InputManager inputManager)
