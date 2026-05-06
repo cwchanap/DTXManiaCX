@@ -17,19 +17,5 @@ namespace DTXMania.Test.Input
             Assert.True(snapshot.TryGetValue(key, out var cmd));
             Assert.Equal(expected, cmd);
         }
-
-        [Fact]
-        [Trait("Category", "Unit")]
-        public void Enum_HasIncreaseScrollSpeed()
-        {
-            Assert.Contains(InputCommandType.IncreaseScrollSpeed, System.Enum.GetValues<InputCommandType>());
-        }
-
-        [Fact]
-        [Trait("Category", "Unit")]
-        public void Enum_HasDecreaseScrollSpeed()
-        {
-            Assert.Contains(InputCommandType.DecreaseScrollSpeed, System.Enum.GetValues<InputCommandType>());
-        }
     }
 }

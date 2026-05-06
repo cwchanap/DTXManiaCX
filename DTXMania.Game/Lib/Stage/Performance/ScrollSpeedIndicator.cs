@@ -18,6 +18,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private float _remainingSeconds;
         private bool _hasShown;
 
+        /// <summary>Current display text (set by Show).</summary>
+        internal string Text => _text;
+
+        /// <summary>Seconds remaining before the indicator hides.</summary>
+        internal float RemainingSeconds => _remainingSeconds;
+
+        /// <summary>Whether the indicator has been shown at least once and is still visible.</summary>
+        internal bool IsVisible => _hasShown && _remainingSeconds > 0f;
+
+        /// <summary>Current alpha value (0..1) used for fade-out near expiry.</summary>
+        internal float Alpha => (!_hasShown || _remainingSeconds <= 0f) ? 0f : ComputeAlpha();
+
         public ScrollSpeedIndicator(BitmapFont? font)
         {
             _font = font;
