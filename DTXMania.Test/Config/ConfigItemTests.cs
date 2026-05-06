@@ -356,6 +356,35 @@ namespace DTXMania.Test.Config
             Assert.Contains("75", text);
         }
 
+        [Fact]
+        public void GetDisplayText_WithFormatter_ShouldUseFormatter()
+        {
+            _currentValue = 150;
+            var item = new IntegerConfigItem(
+                "Scroll Speed",
+                () => _currentValue,
+                v => _currentValue = v,
+                50, 400, 50,
+                v => "x" + (v / 100.0).ToString("0.0"));
+
+            var text = item.GetDisplayText();
+            Assert.Equal("Scroll Speed: x1.5", text);
+        }
+
+        [Fact]
+        public void GetDisplayText_WithFormatterAtBoundary_ShouldFormatCorrectly()
+        {
+            _currentValue = 100;
+            var item = new IntegerConfigItem(
+                "Scroll Speed",
+                () => _currentValue,
+                v => _currentValue = v,
+                50, 400, 50,
+                v => "x" + (v / 100.0).ToString("0.0"));
+
+            Assert.Equal("Scroll Speed: x1.0", item.GetDisplayText());
+        }
+
         #endregion
 
         #region NextValue Tests
