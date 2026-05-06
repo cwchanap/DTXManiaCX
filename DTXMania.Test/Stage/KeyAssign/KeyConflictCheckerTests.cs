@@ -144,4 +144,78 @@ public class KeyConflictCheckerTests
         Assert.NotNull(result);
         Assert.Contains("MoveUp", result);
     }
+
+    // ─── IsRequiredCommand ──────────────────────────────────────────────────
+
+    [Fact]
+    public void IsRequiredCommand_RequiredCommand_ShouldReturnTrue()
+    {
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.MoveUp));
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.MoveDown));
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.MoveLeft));
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.MoveRight));
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.Activate));
+        Assert.True(KeyConflictChecker.IsRequiredCommand(InputCommandType.Back));
+    }
+
+    [Fact]
+    public void IsRequiredCommand_NonRequiredCommand_ShouldReturnFalse()
+    {
+        Assert.False(KeyConflictChecker.IsRequiredCommand(InputCommandType.IncreaseScrollSpeed));
+        Assert.False(KeyConflictChecker.IsRequiredCommand(InputCommandType.DecreaseScrollSpeed));
+    }
+
+    // ─── GetRequiredSystemConflict ────────────────────────────────────────────
+
+    [Fact]
+    public void GetRequiredSystemConflict_RequiredCommand_ShouldReturnCommand()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Up] = InputCommandType.MoveUp
+        };
+
+        var result = KeyConflictChecker.GetRequiredSystemConflict(systemBindings, Keys.Up);
+
+        Assert.Equal(InputCommandType.MoveUp, result);
+    }
+
+    [Fact]
+    public void GetRequiredSystemConflict_NonRequiredCommand_ShouldReturnNull()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+        };
+
+        var result = KeyConflictChecker.GetRequiredSystemConflict(systemBindings, Keys.PageUp);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetRequiredSystemConflict_KeyNotInSystemBindings_ShouldReturnNull()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Up] = InputCommandType.MoveUp
+        };
+
+        var result = KeyConflictChecker.GetRequiredSystemConflict(systemBindings, Keys.PageUp);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetRequiredSystemConflict_PageDownScrollSpeed_ShouldReturnNull()
+    {
+        var systemBindings = new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageDown] = InputCommandType.DecreaseScrollSpeed
+        };
+
+        var result = KeyConflictChecker.GetRequiredSystemConflict(systemBindings, Keys.PageDown);
+
+        Assert.Null(result);
+    }
 }
