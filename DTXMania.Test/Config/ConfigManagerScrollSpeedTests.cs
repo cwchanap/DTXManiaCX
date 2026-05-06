@@ -163,30 +163,38 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_SaveFailure_StillUpdatesInMemoryAndFiresEvent()
         {
-            // Use an invalid path that cannot be written to (directory that doesn't exist
-            // on a path segment marked read-only isn't reliable cross-platform,
-            // so use a path with illegal characters on Windows / too-long on Unix).
-            // Instead: create a directory where the file should be, making it unwritable.
-            var cm = new ConfigManager();
-            cm.Config.ScrollSpeed = 100;
+            // Create a regular file where a directory would need to be created.
+            // When SaveConfig tries Directory.CreateDirectory on a path whose parent
+            // is a file (not a directory), it throws — exercising the catch block.
+            var blockerFile = Path.Combine(Path.GetTempPath(),
+                "dtxmania-scrollspeed-blocker-" + Guid.NewGuid().ToString("N"));
+            var badPath = Path.Combine(blockerFile, "sub", "config.ini");
+            File.WriteAllText(blockerFile, "blocker");
 
-            ScrollSpeedChangedEventArgs? captured = null;
-            cm.ScrollSpeedChanged += (_, e) => captured = e;
+            try
+            {
+                var cm = new ConfigManager();
+                cm.Config.ScrollSpeed = 100;
 
-            // Use an impossible path — SaveConfig will throw, but in-memory should still update
-            var badPath = Path.Combine(Path.GetTempPath(),
-                "dtxmania-scrollspeed-nonexistent-" + Guid.NewGuid(), "sub", "config.ini");
+                ScrollSpeedChangedEventArgs? captured = null;
+                cm.ScrollSpeedChanged += (_, e) => captured = e;
 
-            // This should NOT throw — the failure is caught internally
-            cm.SetScrollSpeed(badPath, 200);
+                // This should NOT throw — the failure is caught internally
+                cm.SetScrollSpeed(badPath, 200);
 
-            // In-memory value should be updated despite save failure
-            Assert.Equal(200, cm.Config.ScrollSpeed);
+                // In-memory value should be updated despite save failure
+                Assert.Equal(200, cm.Config.ScrollSpeed);
 
-            // Event should still fire despite save failure
-            Assert.NotNull(captured);
-            Assert.Equal(100, captured!.OldPercent);
-            Assert.Equal(200, captured.NewPercent);
+                // Event should still fire despite save failure
+                Assert.NotNull(captured);
+                Assert.Equal(100, captured!.OldPercent);
+                Assert.Equal(200, captured.NewPercent);
+            }
+            finally
+            {
+                if (File.Exists(blockerFile))
+                    File.Delete(blockerFile);
+            }
         }
     }
 }

@@ -34,6 +34,15 @@ namespace DTXMania.Test.Config
             Assert.Equal(expected, ScrollSpeedRange.Format(percent));
         }
 
+        [Theory]
+        [InlineData(int.MaxValue, 400)]
+        [InlineData(int.MinValue, 50)]
+        [Trait("Category", "Unit")]
+        public void SnapAndClamp_ExtremeValues_ClampToRange(int input, int expected)
+        {
+            Assert.Equal(expected, ScrollSpeedRange.SnapAndClamp(input));
+        }
+
         [Fact]
         [Trait("Category", "Unit")]
         public void Constants_WhenChecked_HaveExpectedValues()

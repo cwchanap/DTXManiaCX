@@ -21,10 +21,10 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         public static int SnapAndClamp(int percent)
         {
-            var snapped = (int)Math.Round(percent / (double)Step, MidpointRounding.AwayFromZero) * Step;
+            var snapped = (long)Math.Round(percent / (double)Step, MidpointRounding.AwayFromZero) * Step;
             if (snapped < Min) return Min;
             if (snapped > Max) return Max;
-            return snapped;
+            return (int)snapped;
         }
 
         /// <summary>
