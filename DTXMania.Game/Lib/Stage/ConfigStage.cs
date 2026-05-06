@@ -338,6 +338,7 @@ namespace DTXMania.Game.Lib.Stage
             _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             _drumPanel._commandPressedProvider = IsPanelCommandPressed;
+            _drumPanel.EvictSystemBinding = key => _workingSystemBindings.Remove(key);
             _drumPanel.Saved += OnPanelSaved;
             _drumPanel.Closed += OnPanelClosed;
 

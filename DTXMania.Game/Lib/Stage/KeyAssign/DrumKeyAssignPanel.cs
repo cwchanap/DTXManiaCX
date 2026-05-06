@@ -135,14 +135,19 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void AssignKey(Keys key)
         {
-            var conflict = KeyConflictChecker.CheckAgainstSystemBindings(
-                GetLiveSystemMapping(), key);
+            var systemMapping = GetLiveSystemMapping();
 
-            if (conflict != null)
+            // Reject if the key is bound to a REQUIRED system command (navigation/core)
+            var requiredConflict = KeyConflictChecker.GetRequiredSystemConflict(systemMapping, key);
+            if (requiredConflict != null)
             {
-                ShowConflict(conflict);
+                ShowConflict($"{key} is already bound to system action: {requiredConflict}");
                 return;
             }
+
+            // Auto-evict non-required system binding (e.g. IncreaseScrollSpeed) so the
+            // drum lane can claim this key, mirroring EvictDrumKeyConflicts() at config load.
+            EvictSystemBinding?.Invoke(key);
 
             _workingBindings.BindButton(KeyBindings.CreateKeyButtonId(key), _selectedIndex);
             _state = CaptureState.Browsing;
@@ -186,6 +191,12 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         internal Func<KeyBindings>? _workingBindingsProvider;
         internal Func<IReadOnlyDictionary<Keys, InputCommandType>>? _navigationMappingProvider;
         internal Func<InputCommandType, bool>? _commandPressedProvider;
+
+        /// <summary>
+        /// Injected by ConfigStage. Called to evict a non-required system key binding
+        /// from the working system map when a drum lane claims that key.
+        /// </summary>
+        internal Action<Keys>? EvictSystemBinding;
 
         internal KeyBindings GetWorkingBindingsSnapshot() => _workingBindings.Clone();
 

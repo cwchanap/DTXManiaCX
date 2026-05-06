@@ -12,6 +12,26 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     public static class KeyConflictChecker
     {
         /// <summary>
+        /// System commands that must always remain bound (navigation/core actions).
+        /// Non-required commands (e.g. IncreaseScrollSpeed) can be auto-evicted
+        /// when the user assigns that key to a drum lane.
+        /// </summary>
+        private static readonly HashSet<InputCommandType> RequiredCommands = new()
+        {
+            InputCommandType.MoveUp,
+            InputCommandType.MoveDown,
+            InputCommandType.MoveLeft,
+            InputCommandType.MoveRight,
+            InputCommandType.Activate,
+            InputCommandType.Back,
+        };
+
+        /// <summary>
+        /// Returns true if the command is a required system command that cannot be evicted.
+        /// </summary>
+        public static bool IsRequiredCommand(InputCommandType command) => RequiredCommands.Contains(command);
+
+        /// <summary>
         /// Checks if a candidate key is already mapped as a system navigation key.
         /// Returns a human-readable error message, or null if no conflict.
         /// </summary>
@@ -21,6 +41,22 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         {
             if (systemBindings.TryGetValue(candidate, out var command))
                 return $"{candidate} is already bound to system action: {command}";
+            return null;
+        }
+
+        /// <summary>
+        /// Checks if a candidate key conflicts with a required system command.
+        /// Returns the conflicting command if it is required, or null if the key
+        /// is either not in system bindings or only bound to non-required commands.
+        /// Non-required commands (e.g. IncreaseScrollSpeed) can be auto-evicted
+        /// by the caller when assigning a drum lane.
+        /// </summary>
+        public static InputCommandType? GetRequiredSystemConflict(
+            IReadOnlyDictionary<Keys, InputCommandType> systemBindings,
+            Keys candidate)
+        {
+            if (systemBindings.TryGetValue(candidate, out var command) && IsRequiredCommand(command))
+                return command;
             return null;
         }
 
