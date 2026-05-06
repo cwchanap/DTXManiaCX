@@ -46,7 +46,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private CaptureState _state;
         private string? _conflictMessage;
         private double _conflictTimer;
-        private HashSet<Keys> _pendingEvictions = new();
+        private readonly HashSet<Keys> _pendingEvictions = new();
 
         public bool IsActive { get; private set; }
         public event EventHandler? Closed;

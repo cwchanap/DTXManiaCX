@@ -158,5 +158,35 @@ namespace DTXMania.Test.Config
             Assert.Equal(100, captured!.OldPercent);
             Assert.Equal(150, captured.NewPercent);
         }
+
+        [Fact]
+        [Trait("Category", "ConfigManager")]
+        public void SetScrollSpeed_SaveFailure_StillUpdatesInMemoryAndFiresEvent()
+        {
+            // Use an invalid path that cannot be written to (directory that doesn't exist
+            // on a path segment marked read-only isn't reliable cross-platform,
+            // so use a path with illegal characters on Windows / too-long on Unix).
+            // Instead: create a directory where the file should be, making it unwritable.
+            var cm = new ConfigManager();
+            cm.Config.ScrollSpeed = 100;
+
+            ScrollSpeedChangedEventArgs? captured = null;
+            cm.ScrollSpeedChanged += (_, e) => captured = e;
+
+            // Use an impossible path — SaveConfig will throw, but in-memory should still update
+            var badPath = Path.Combine(Path.GetTempPath(),
+                "dtxmania-scrollspeed-nonexistent-" + Guid.NewGuid(), "sub", "config.ini");
+
+            // This should NOT throw — the failure is caught internally
+            cm.SetScrollSpeed(badPath, 200);
+
+            // In-memory value should be updated despite save failure
+            Assert.Equal(200, cm.Config.ScrollSpeed);
+
+            // Event should still fire despite save failure
+            Assert.NotNull(captured);
+            Assert.Equal(100, captured!.OldPercent);
+            Assert.Equal(200, captured.NewPercent);
+        }
     }
 }

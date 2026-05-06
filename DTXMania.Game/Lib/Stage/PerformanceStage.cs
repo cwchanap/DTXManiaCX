@@ -790,12 +790,13 @@ namespace DTXMania.Game.Lib.Stage
                 _readyFont = new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
                 _scrollSpeedIndicator = new ScrollSpeedIndicator(_readyFont);
             }
-            catch (Exception ex)
-            {
-                // Font initialization failed, fallback will be used
-                _readyFont = null;
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
-            }
+    catch (Exception ex)
+    {
+        // Font initialization failed, fallback will be used
+        System.Diagnostics.Debug.WriteLine($"[PerformanceStage] InitializeReadyFont failed: {ex.Message}");
+        _readyFont = null;
+        _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
+    }
         }
         
         /// <summary>

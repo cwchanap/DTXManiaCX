@@ -7,6 +7,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,6 +26,16 @@ namespace DTXMania.Game.Lib.Config
             InputCommandType.Activate,
             InputCommandType.Back,
         };
+
+        private static bool IsRequiredSystemCommand(InputCommandType command)
+        {
+            return KeyConflictChecker.IsRequiredCommand(command);
+        }
+
+        private static InputCommandType[] GetRequiredSystemCommands()
+        {
+            return RequiredSystemCommands;
+        }
 
         private readonly ILogger<ConfigManager> _logger;
         public ConfigData Config { get; private set; }
@@ -219,6 +230,8 @@ namespace DTXMania.Game.Lib.Config
                 if (IsRequiredSystemCommand(kvp.Value))
                     continue;
 
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ConfigManager] Evicting system binding: {kvp.Key} -> {kvp.Value} (conflicts with drum key)");
                 inputManager.RemoveKeyMapping(kvp.Key);
             }
         }
@@ -461,7 +474,7 @@ namespace DTXMania.Game.Lib.Config
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to persist ScrollSpeed change to {Path}; in-memory value still updated.", configFilePath);
+                _logger.LogError(ex, "Failed to persist ScrollSpeed change to {Path}; in-memory value still updated.", configFilePath);
             }
 
             ScrollSpeedChanged?.Invoke(this, new ScrollSpeedChangedEventArgs(old, snapped));
@@ -579,16 +592,6 @@ namespace DTXMania.Game.Lib.Config
             }
 
             return explicitlyUnboundButtons;
-        }
-
-        private static bool IsRequiredSystemCommand(InputCommandType command)
-        {
-            return RequiredSystemCommands.Contains(command);
-        }
-
-        private static InputCommandType[] GetRequiredSystemCommands()
-        {
-            return RequiredSystemCommands;
         }
 
         private static bool HasSystemKeyBinding(InputManager inputManager, InputCommandType command)
