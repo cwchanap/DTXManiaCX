@@ -124,7 +124,14 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private void TryUnbindSelectedAction()
         {
             var action = Actions[_selectedIndex];
-            ShowConflict($"{action} must remain bound");
+
+            if (KeyConflictChecker.IsRequiredCommand(action))
+            {
+                ShowConflict($"{action} must remain bound");
+                return;
+            }
+
+            RemoveBindingsForAction(action);
         }
 
         private void HandleKeyCapture(KeyboardState current, KeyboardState previous)

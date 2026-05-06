@@ -344,8 +344,6 @@ public class KeyAssignPanelWorkingCopyTests
     [InlineData(2, Keys.Left, InputCommandType.MoveLeft)]
     [InlineData(3, Keys.Right, InputCommandType.MoveRight)]
     [InlineData(5, Keys.Escape, InputCommandType.Back)]
-    [InlineData(6, Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
-    [InlineData(7, Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
     public void SystemPanel_DeleteOnRequiredAction_ShouldKeepBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
     {
         using var inputManager = new InputManager();
@@ -361,6 +359,154 @@ public class KeyAssignPanelWorkingCopyTests
         var snapshot = panel.GetWorkingMappingSnapshot();
         Assert.True(snapshot.ContainsKey(expectedKey));
         Assert.Equal(command, snapshot[expectedKey]);
+    }
+
+    [Trait("Category", "Unit")]
+    [Theory]
+    [InlineData(6, Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
+    [InlineData(7, Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
+    public void SystemPanel_DeleteOnOptionalAction_ShouldClearBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new System.Collections.Generic.Dictionary<string, int>();
+        panel.Activate();
+
+        for (int i = 0; i < selectedIndex; i++)
+            PressKey(panel, Keys.Down);
+
+        var before = panel.GetWorkingMappingSnapshot();
+        Assert.True(before.ContainsKey(expectedKey));
+
+        PressKey(panel, Keys.Delete);
+
+        var after = panel.GetWorkingMappingSnapshot();
+        Assert.False(after.ContainsKey(expectedKey),
+            $"{command} is non-required and should be clearable via Delete");
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_EvictSystemBinding_ShouldBeDeferredUntilSave()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+
+        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
+        };
+        panel._liveSystemMappingProvider = () => systemMap;
+
+        var evictedKeys = new System.Collections.Generic.List<Keys>();
+        panel.EvictSystemBinding = key => evictedKeys.Add(key);
+
+        panel.Activate();
+
+        // Enter key capture for lane 0 and assign PageUp
+        PressKey(panel, Keys.Enter);
+        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+
+        // Eviction should NOT have happened yet (deferred)
+        Assert.Empty(evictedKeys);
+
+        // Drum binding should be recorded in working copy
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.PageUp)));
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_EvictSystemBinding_ShouldApplyOnSave()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+
+        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
+        };
+        panel._liveSystemMappingProvider = () => systemMap;
+
+        var evictedKeys = new System.Collections.Generic.List<Keys>();
+        panel.EvictSystemBinding = key => evictedKeys.Add(key);
+
+        panel.Activate();
+
+        // Assign PageUp to lane 0
+        PressKey(panel, Keys.Enter);
+        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+
+        // Navigate to SAVE and commit
+        for (int i = 0; i < 10; i++)
+            PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Enter);
+
+        // Now eviction should have been applied
+        Assert.Single(evictedKeys);
+        Assert.Equal(Keys.PageUp, evictedKeys[0]);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_EvictSystemBinding_ShouldNotApplyOnCancel()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+
+        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
+        };
+        panel._liveSystemMappingProvider = () => systemMap;
+
+        var evictedKeys = new System.Collections.Generic.List<Keys>();
+        panel.EvictSystemBinding = key => evictedKeys.Add(key);
+
+        panel.Activate();
+
+        // Assign PageUp to lane 0
+        PressKey(panel, Keys.Enter);
+        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+
+        // Cancel the panel
+        PressKey(panel, Keys.Escape);
+
+        // Eviction should NOT have been applied
+        Assert.Empty(evictedKeys);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_EvictSystemBinding_ShouldNotEvictClearedLane()
+    {
+        var liveBindings = new KeyBindings();
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+
+        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
+        {
+            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
+        };
+        panel._liveSystemMappingProvider = () => systemMap;
+
+        var evictedKeys = new System.Collections.Generic.List<Keys>();
+        panel.EvictSystemBinding = key => evictedKeys.Add(key);
+
+        panel.Activate();
+
+        // Assign PageUp to lane 0
+        PressKey(panel, Keys.Enter);
+        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+
+        // Clear lane 0
+        PressKey(panel, Keys.Delete);
+
+        // Save — eviction should NOT apply because PageUp is no longer bound to any lane
+        for (int i = 0; i < 10; i++)
+            PressKey(panel, Keys.Down);
+        PressKey(panel, Keys.Enter);
+
+        Assert.Empty(evictedKeys);
     }
 
     [Trait("Category", "Unit")]

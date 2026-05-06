@@ -46,6 +46,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private CaptureState _state;
         private string? _conflictMessage;
         private double _conflictTimer;
+        private HashSet<Keys> _pendingEvictions = new();
 
         public bool IsActive { get; private set; }
         public event EventHandler? Closed;
@@ -66,6 +67,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             _state = CaptureState.Browsing;
             _conflictMessage = null;
             _conflictTimer = 0;
+            _pendingEvictions.Clear();
             IsActive = true;
         }
 
@@ -147,7 +149,9 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             // Auto-evict non-required system binding (e.g. IncreaseScrollSpeed) so the
             // drum lane can claim this key, mirroring EvictDrumKeyConflicts() at config load.
-            EvictSystemBinding?.Invoke(key);
+            // Deferred: the eviction is recorded and only applied when the user saves,
+            // so cancelling the panel does not leave a partially-mutated system map.
+            _pendingEvictions.Add(key);
 
             _workingBindings.BindButton(KeyBindings.CreateKeyButtonId(key), _selectedIndex);
             _state = CaptureState.Browsing;
@@ -155,6 +159,16 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
         private void CommitAndClose()
         {
+            // Apply deferred evictions — but only for keys still bound to a drum lane.
+            // If the user assigned a key (triggering an eviction) then cleared that lane,
+            // there is no reason to evict the system binding anymore.
+            foreach (var key in _pendingEvictions)
+            {
+                var buttonId = KeyBindings.CreateKeyButtonId(key);
+                if (_workingBindings.GetLane(buttonId) >= 0)
+                    EvictSystemBinding?.Invoke(key);
+            }
+
             Deactivate();
             Saved?.Invoke(this, EventArgs.Empty);
             Closed?.Invoke(this, EventArgs.Empty);
