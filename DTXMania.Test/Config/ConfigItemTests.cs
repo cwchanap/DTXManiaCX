@@ -365,7 +365,7 @@ namespace DTXMania.Test.Config
                 () => _currentValue,
                 v => _currentValue = v,
                 50, 400, 50,
-                v => "x" + (v / 100.0).ToString("0.0"));
+                v => "x" + (v / 100.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
 
             var text = item.GetDisplayText();
             Assert.Equal("Scroll Speed: x1.5", text);
@@ -380,7 +380,7 @@ namespace DTXMania.Test.Config
                 () => _currentValue,
                 v => _currentValue = v,
                 50, 400, 50,
-                v => "x" + (v / 100.0).ToString("0.0"));
+                v => "x" + (v / 100.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
 
             Assert.Equal("Scroll Speed: x1.0", item.GetDisplayText());
         }

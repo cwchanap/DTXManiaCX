@@ -377,6 +377,7 @@ public class KeyAssignPanelWorkingCopyTests
 
         var before = panel.GetWorkingMappingSnapshot();
         Assert.True(before.ContainsKey(expectedKey));
+        Assert.Equal(command, before[expectedKey]);
 
         PressKey(panel, Keys.Delete);
 

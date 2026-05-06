@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -8,6 +9,9 @@ namespace DTXMania.Test.Stage.Performance
     [Trait("Category", "Unit")]
     public class ScrollSpeedIndicatorTests
     {
+        private const float Duration = PerformanceUILayout.ScrollSpeedIndicatorDurationSeconds;
+        private const float Fade = PerformanceUILayout.ScrollSpeedIndicatorFadeSeconds;
+
         /// <summary>
         /// ScrollSpeedIndicator is created with null font (font init can fail at runtime).
         /// All logic tests work without a real BitmapFont because Show/Update/ComputeAlpha
@@ -23,29 +27,26 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Show_SetsTextFromScrollSpeedPercent()
         {
-            // We can't read _text directly, but we can verify indirectly through
-            // the visible state: after Show, Update should count down from > 0.
             var indicator = CreateIndicator();
             indicator.Show(200);
 
-            // After Show with no Update, the indicator should be in a visible state.
-            // We verify by updating and checking it doesn't crash and accepts frames.
-            var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(100));
-            indicator.Update(gameTime);
-            // If Show didn't set _remainingSeconds, Update would be a no-op.
-            // After 100ms of a 1500ms timer, it should still have time remaining.
+            Assert.Equal("Scroll Speed x2.0", indicator.Text);
+            Assert.True(indicator.IsVisible);
         }
 
         [Fact]
         public void Show_WithDifferentSpeeds_SetsDifferentText()
         {
             var indicator = CreateIndicator();
-            // Show sets _text = "Scroll Speed " + Format(percent)
-            // Format is tested in ScrollSpeedRangeTests, so we just verify Show doesn't throw
+
             indicator.Show(50);
+            Assert.Equal("Scroll Speed x0.5", indicator.Text);
+
             indicator.Show(100);
+            Assert.Equal("Scroll Speed x1.0", indicator.Text);
+
             indicator.Show(400);
-            // No exception = success
+            Assert.Equal("Scroll Speed x4.0", indicator.Text);
         }
 
         [Fact]
@@ -57,14 +58,13 @@ namespace DTXMania.Test.Stage.Performance
             // Advance most of the duration
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(1400));
             indicator.Update(gameTime);
+            Assert.True(indicator.RemainingSeconds < Duration - 1.0f);
 
             // Show again — should reset the timer
             indicator.Show(200);
 
-            // After another 200ms, it should still be visible (timer was reset to 1500ms)
-            var gameTime2 = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(200));
-            indicator.Update(gameTime2);
-            // If timer wasn't reset, total time would be 1600ms > 1500ms and indicator would be hidden
+            Assert.Equal(Duration, indicator.RemainingSeconds);
+            Assert.True(indicator.IsVisible);
         }
 
         #endregion
@@ -77,10 +77,12 @@ namespace DTXMania.Test.Stage.Performance
             var indicator = CreateIndicator();
             indicator.Show(100);
 
-            // Duration is 1.5 seconds (1500ms)
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(500));
             indicator.Update(gameTime);
-            // Remaining should be ~1000ms — indicator still visible
+
+            var expected = Duration - 0.5f;
+            Assert.InRange(indicator.RemainingSeconds, expected - 0.01f, expected + 0.01f);
+            Assert.True(indicator.IsVisible);
         }
 
         [Fact]
@@ -92,7 +94,9 @@ namespace DTXMania.Test.Stage.Performance
             // Advance past the full duration
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(5));
             indicator.Update(gameTime);
-            // Remaining should be clamped to 0, not negative
+
+            Assert.Equal(0f, indicator.RemainingSeconds);
+            Assert.False(indicator.IsVisible);
         }
 
         [Fact]
@@ -101,7 +105,9 @@ namespace DTXMania.Test.Stage.Performance
             var indicator = CreateIndicator();
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(100));
             indicator.Update(gameTime);
-            // No exception — Update is a no-op when not shown
+
+            Assert.Equal(0f, indicator.RemainingSeconds);
+            Assert.False(indicator.IsVisible);
         }
 
         [Fact]
@@ -113,41 +119,44 @@ namespace DTXMania.Test.Stage.Performance
             // Expire the timer
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(5));
             indicator.Update(gameTime);
+            Assert.Equal(0f, indicator.RemainingSeconds);
 
-            // Update again — should be no-op, not crash
+            // Update again — remaining should stay at 0
             indicator.Update(gameTime);
+            Assert.Equal(0f, indicator.RemainingSeconds);
         }
 
         #endregion
 
-        #region ComputeAlpha (indirect)
+        #region Alpha
 
         [Fact]
         public void Alpha_IsFullWhenRecentlyShown()
         {
-            // ComputeAlpha is private, but we can verify the behavior indirectly.
-            // When recently shown, the indicator should be fully visible (alpha = 1).
-            // We test this by showing, updating a tiny amount, and verifying no exception.
             var indicator = CreateIndicator();
             indicator.Show(100);
 
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(1));
             indicator.Update(gameTime);
-            // Alpha should be 1.0 at this point (1.5s - 0.001s >> 0.3s fade)
+
+            Assert.Equal(1.0f, indicator.Alpha);
         }
 
         [Fact]
         public void Alpha_FadesNearEndOfDuration()
         {
-            // Fade starts at _remainingSeconds < ScrollSpeedIndicatorFadeSeconds (0.3s).
-            // Show sets _remainingSeconds = 1.5s. After 1.3s, remaining = 0.2s < 0.3s = fade.
             var indicator = CreateIndicator();
             indicator.Show(100);
 
+            // Advance to 1300ms: remaining = 200ms, which is in the fade zone (200ms < 300ms fade)
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(1300));
             indicator.Update(gameTime);
-            // _remainingSeconds ≈ 0.2s, which is in the fade zone.
+
             // Alpha ≈ 0.2 / 0.3 ≈ 0.667
+            var expected = (Duration - 1.3f) / Fade;
+            Assert.InRange(indicator.Alpha, expected - 0.05f, expected + 0.05f);
+            Assert.True(indicator.Alpha < 1.0f);
+            Assert.True(indicator.Alpha > 0f);
         }
 
         [Fact]
@@ -158,7 +167,15 @@ namespace DTXMania.Test.Stage.Performance
 
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(5));
             indicator.Update(gameTime);
-            // _remainingSeconds = 0, so Draw would return early.
+
+            Assert.Equal(0f, indicator.Alpha);
+        }
+
+        [Fact]
+        public void Alpha_IsZeroBeforeFirstShow()
+        {
+            var indicator = CreateIndicator();
+            Assert.Equal(0f, indicator.Alpha);
         }
 
         #endregion
@@ -166,26 +183,39 @@ namespace DTXMania.Test.Stage.Performance
         #region Integration
 
         [Fact]
-        public void FullLifecycle_ShowUpdateExpire_ShouldNotThrow()
+        public void FullLifecycle_ShowUpdateExpire_ShouldTransitionThroughStates()
         {
             var indicator = CreateIndicator();
 
+            // Initially not visible
+            Assert.False(indicator.IsVisible);
+            Assert.Equal(string.Empty, indicator.Text);
+
             // Show
             indicator.Show(150);
+            Assert.Equal("Scroll Speed x1.5", indicator.Text);
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(1.0f, indicator.Alpha);
 
-            // Update through visible period
+            // Update through visible period (100 frames × 16ms ≈ 1.6s > 1.5s duration)
             var frameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(16));
-            for (var i = 0; i < 100; i++) // ~1.6 seconds
+            for (var i = 0; i < 100; i++)
             {
                 indicator.Update(frameTime);
             }
 
-            // After all updates, timer should be expired
+            // Timer should be expired
+            Assert.False(indicator.IsVisible);
+            Assert.Equal(0f, indicator.RemainingSeconds);
+
             // Show again
             indicator.Show(300);
+            Assert.Equal("Scroll Speed x3.0", indicator.Text);
+            Assert.True(indicator.IsVisible);
 
-            // Partial update
+            // Partial update — still visible
             indicator.Update(frameTime);
+            Assert.True(indicator.IsVisible);
         }
 
         #endregion
