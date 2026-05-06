@@ -197,6 +197,10 @@ namespace DTXMania.Game.Lib.Config
                     {
                         EnsureRequiredSystemKeyBinding(inputManager, command);
                     }
+                    else
+                    {
+                        RemoveSystemKeyBinding(inputManager, command);
+                    }
 
                     continue;
                 }

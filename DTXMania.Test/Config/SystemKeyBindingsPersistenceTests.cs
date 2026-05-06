@@ -411,4 +411,26 @@ public class SystemKeyBindingsPersistenceTests
         Assert.Equal(InputCommandType.IncreaseScrollSpeed, snapshot[Keys.PageUp]);
         Assert.Equal(InputCommandType.DecreaseScrollSpeed, snapshot[Keys.PageDown]);
     }
+
+    [Fact]
+    public void LoadSystemKeyBindings_SavedScrollKeyFilteredByDrumKey_ShouldRemoveConstructorDefault()
+    {
+        // Scenario: user configured IncreaseScrollSpeed=F1, but F1 is also a drum key.
+        // All configured keys are filtered out, so the command should be fully unbound —
+        // the constructor default PageUp -> IncreaseScrollSpeed must NOT survive.
+        var manager = new ConfigManager();
+        manager.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"] = "F1";
+        manager.Config.KeyBindings["Key.F1"] = 4; // F1 mapped to Snare Drum lane
+
+        var inputMgr = new InputManager();
+        manager.LoadSystemKeyBindings(inputMgr);
+
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        // F1 should not be mapped (drum key conflict)
+        Assert.False(snapshot.TryGetValue(Keys.F1, out var f1Cmd)
+            && f1Cmd == InputCommandType.IncreaseScrollSpeed);
+        // PageUp default should also be removed since the saved binding was fully filtered
+        Assert.False(snapshot.TryGetValue(Keys.PageUp, out var pageUpCmd)
+            && pageUpCmd == InputCommandType.IncreaseScrollSpeed);
+    }
 }
