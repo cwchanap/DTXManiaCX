@@ -296,7 +296,7 @@ public class ConfigStageTests
         panel.Closed += (_, _) => closedFired = true;
         panel.Activate();
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 8; i++)
         {
             DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Down");
         }

@@ -113,8 +113,8 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Saved += (_, _) => savedFired = true;
         panel.Closed += (_, _) => { closedFired = true; savedBeforeClosed = savedFired; };
 
-        // Navigate to FooterSave (index 6 = ActionCount)
-        for (int i = 0; i < 6; i++)
+        // Navigate to FooterSave (index = ActionCount)
+        for (int i = 0; i < 8; i++)
             PressKey(panel, Keys.Down);
         PressKey(panel, Keys.Enter);
 
@@ -344,6 +344,8 @@ public class KeyAssignPanelWorkingCopyTests
     [InlineData(2, Keys.Left, InputCommandType.MoveLeft)]
     [InlineData(3, Keys.Right, InputCommandType.MoveRight)]
     [InlineData(5, Keys.Escape, InputCommandType.Back)]
+    [InlineData(6, Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
+    [InlineData(7, Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
     public void SystemPanel_DeleteOnRequiredAction_ShouldKeepBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
     {
         using var inputManager = new InputManager();
@@ -374,7 +376,7 @@ public class KeyAssignPanelWorkingCopyTests
         };
         panel.Activate();
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 8; i++)
             PressKey(panel, Keys.Down);
 
         PressKey(panel, Keys.Enter);
@@ -431,7 +433,7 @@ public class KeyAssignPanelWorkingCopyTests
 
         panel.Update(2.1, new KeyboardState(), new KeyboardState());
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 6; i++)
             PressKey(panel, Keys.S);
 
         PressKey(panel, Keys.F);
@@ -541,7 +543,7 @@ public class KeyAssignPanelWorkingCopyTests
 
         panel.Activate();
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 8; i++)
         {
             pressedCommand = InputCommandType.MoveDown;
             panel.Update(0.0, new KeyboardState(), new KeyboardState());

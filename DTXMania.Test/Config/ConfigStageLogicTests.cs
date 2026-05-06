@@ -1381,12 +1381,14 @@ public class ConfigStageLogicTests
                 [Keys.F3] = InputCommandType.MoveLeft,
                 [Keys.F4] = InputCommandType.MoveRight,
                 [Keys.F5] = InputCommandType.Activate,
-                [Keys.F6] = InputCommandType.Back
+                [Keys.F6] = InputCommandType.Back,
+                [Keys.F7] = InputCommandType.IncreaseScrollSpeed,
+                [Keys.F8] = InputCommandType.DecreaseScrollSpeed
             };
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
             ReflectionHelpers.SetPrivateField(systemPanel!, "_workingMapping", newWorkingMapping);
-            ReflectionHelpers.SetPrivateField(systemPanel!, "_selectedIndex", 6);
+            ReflectionHelpers.SetPrivateField(systemPanel!, "_selectedIndex", 8);
 
             systemPanel.Update(0.016, new KeyboardState(Keys.Enter), new KeyboardState());
 

@@ -31,6 +31,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             InputCommandType.MoveRight,
             InputCommandType.Activate,
             InputCommandType.Back,
+            InputCommandType.IncreaseScrollSpeed,
+            InputCommandType.DecreaseScrollSpeed,
         };
 
         private static readonly int ActionCount = Actions.Length;
