@@ -211,6 +211,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_configManager != null)
             {
                 _configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+                _configManager.FlushPendingSave();
             }
 
             // Cancel any running song initialization task

@@ -386,9 +386,12 @@ public class KeyAssignPanelWorkingCopyTests
             $"{command} is non-required and should be clearable via Delete");
     }
 
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_EvictSystemBinding_ShouldBeDeferredUntilSave()
+    /// <summary>
+    /// Shared setup helper for the four EvictSystemBinding tests:
+    /// creates a DrumKeyAssignPanel with PageUp mapped to IncreaseScrollSpeed,
+    /// wires up the eviction callback, activates the panel, and assigns PageUp to lane 0.
+    /// </summary>
+    private static (DrumKeyAssignPanel panel, List<Keys> evictedKeys) SetupDrumPanelWithPageUpAssigned()
     {
         var liveBindings = new KeyBindings();
         var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
@@ -408,6 +411,15 @@ public class KeyAssignPanelWorkingCopyTests
         PressKey(panel, Keys.Enter);
         panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
 
+        return (panel, evictedKeys);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void DrumPanel_EvictSystemBinding_ShouldBeDeferredUntilSave()
+    {
+        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
+
         // Eviction should NOT have happened yet (deferred)
         Assert.Empty(evictedKeys);
 
@@ -420,23 +432,7 @@ public class KeyAssignPanelWorkingCopyTests
     [Fact]
     public void DrumPanel_EvictSystemBinding_ShouldApplyOnSave()
     {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
-        {
-            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
-        };
-        panel._liveSystemMappingProvider = () => systemMap;
-
-        var evictedKeys = new System.Collections.Generic.List<Keys>();
-        panel.EvictSystemBinding = key => evictedKeys.Add(key);
-
-        panel.Activate();
-
-        // Assign PageUp to lane 0
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
 
         // Navigate to SAVE and commit
         for (int i = 0; i < 10; i++)
@@ -452,23 +448,7 @@ public class KeyAssignPanelWorkingCopyTests
     [Fact]
     public void DrumPanel_EvictSystemBinding_ShouldNotApplyOnCancel()
     {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
-        {
-            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
-        };
-        panel._liveSystemMappingProvider = () => systemMap;
-
-        var evictedKeys = new System.Collections.Generic.List<Keys>();
-        panel.EvictSystemBinding = key => evictedKeys.Add(key);
-
-        panel.Activate();
-
-        // Assign PageUp to lane 0
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
 
         // Cancel the panel
         PressKey(panel, Keys.Escape);
@@ -481,23 +461,7 @@ public class KeyAssignPanelWorkingCopyTests
     [Fact]
     public void DrumPanel_EvictSystemBinding_ShouldNotEvictClearedLane()
     {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
-        {
-            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
-        };
-        panel._liveSystemMappingProvider = () => systemMap;
-
-        var evictedKeys = new System.Collections.Generic.List<Keys>();
-        panel.EvictSystemBinding = key => evictedKeys.Add(key);
-
-        panel.Activate();
-
-        // Assign PageUp to lane 0
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
+        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
 
         // Clear lane 0
         PressKey(panel, Keys.Delete);

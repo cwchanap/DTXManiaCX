@@ -30,5 +30,11 @@ namespace DTXMania.Game.Lib.Config
         /// SetScrollSpeed(path, current + stepDelta * Step).
         /// </summary>
         void AdjustScrollSpeed(string configFilePath, int stepDelta);
+
+        /// <summary>
+        /// Flushes any deferred config changes to disk. Call this on stage exit
+        /// or game shutdown to ensure pending writes are persisted.
+        /// </summary>
+        void FlushPendingSave();
     }
 }
