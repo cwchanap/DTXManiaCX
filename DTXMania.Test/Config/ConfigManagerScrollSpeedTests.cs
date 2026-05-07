@@ -84,6 +84,7 @@ namespace DTXMania.Test.Config
         {
             var cm = new ConfigManager();
             cm.SetScrollSpeed(_tempPath, 250);
+            cm.FlushPendingSave();
 
             var roundTrip = new ConfigManager();
             roundTrip.LoadConfig(_tempPath);
@@ -161,7 +162,7 @@ namespace DTXMania.Test.Config
 
         [Fact]
         [Trait("Category", "ConfigManager")]
-        public void SetScrollSpeed_SaveFailure_StillUpdatesInMemoryAndFiresEvent()
+        public void FlushPendingSave_FailureStillRetainsInMemoryAndFiredEvent()
         {
             // Create a regular file where a directory would need to be created.
             // When SaveConfig tries Directory.CreateDirectory on a path whose parent
@@ -179,16 +180,22 @@ namespace DTXMania.Test.Config
                 ScrollSpeedChangedEventArgs? captured = null;
                 cm.ScrollSpeedChanged += (_, e) => captured = e;
 
-                // This should NOT throw — the failure is caught internally
+                // SetScrollSpeed defers the write; event fires immediately
                 cm.SetScrollSpeed(badPath, 200);
 
-                // In-memory value should be updated despite save failure
+                // In-memory value should be updated
                 Assert.Equal(200, cm.Config.ScrollSpeed);
 
-                // Event should still fire despite save failure
+                // Event should have fired
                 Assert.NotNull(captured);
                 Assert.Equal(100, captured!.OldPercent);
                 Assert.Equal(200, captured.NewPercent);
+
+                // Flush attempts the write — should NOT throw; failure is caught internally
+                cm.FlushPendingSave();
+
+                // In-memory value should still be updated despite save failure
+                Assert.Equal(200, cm.Config.ScrollSpeed);
             }
             finally
             {

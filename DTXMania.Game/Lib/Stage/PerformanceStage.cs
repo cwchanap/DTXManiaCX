@@ -86,6 +86,7 @@ namespace DTXMania.Game.Lib.Stage
         // UX components
         private BitmapFont _readyFont = null!;
         private ScrollSpeedIndicator? _scrollSpeedIndicator;
+        private IConfigManager? _subscribedConfigManager;
 
         // Performance UI Assets - initialized in InitializeComponents
         private ITexture _backgroundTexture = null!;
@@ -183,16 +184,18 @@ namespace DTXMania.Game.Lib.Stage
             var configManager = _game?.ConfigManager;
             if (configManager != null)
             {
+                _subscribedConfigManager = configManager;
                 configManager.ScrollSpeedChanged += OnScrollSpeedChanged;
             }
         }
 
         protected override void OnDeactivate()
         {
-            var configManager = _game?.ConfigManager;
-            if (configManager != null)
+            if (_subscribedConfigManager != null)
             {
-                configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+                _subscribedConfigManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
+                _subscribedConfigManager.FlushPendingSave();
+                _subscribedConfigManager = null;
             }
 
             // Clean up components

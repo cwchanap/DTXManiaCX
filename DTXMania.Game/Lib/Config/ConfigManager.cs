@@ -40,6 +40,12 @@ namespace DTXMania.Game.Lib.Config
         private readonly ILogger<ConfigManager> _logger;
         public ConfigData Config { get; private set; }
 
+        /// <summary>
+        /// Path of the config file that has a deferred (debounced) write pending.
+        /// Null when no write is pending.
+        /// </summary>
+        private string? _pendingSavePath;
+
         public ConfigManager(ILogger<ConfigManager>? logger = null)
         {
             _logger = logger ?? NullLogger<ConfigManager>.Instance;
@@ -223,7 +229,7 @@ namespace DTXMania.Game.Lib.Config
         /// Required commands are never evicted; their fallback logic in
         /// <see cref="EnsureRequiredSystemKeyBindings"/> already handles this.
         /// </summary>
-        private static void EvictDrumKeyConflicts(InputManager inputManager, HashSet<Keys> drumKeys)
+        private void EvictDrumKeyConflicts(InputManager inputManager, HashSet<Keys> drumKeys)
         {
             var snapshot = inputManager.GetKeyMappingSnapshot();
             foreach (var kvp in snapshot)
@@ -234,8 +240,7 @@ namespace DTXMania.Game.Lib.Config
                 if (IsRequiredSystemCommand(kvp.Value))
                     continue;
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[ConfigManager] Evicting system binding: {kvp.Key} -> {kvp.Value} (conflicts with drum key)");
+                _logger.LogDebug("Evicting system binding: {Key} -> {Command} (conflicts with drum key)", kvp.Key, kvp.Value);
                 inputManager.RemoveKeyMapping(kvp.Key);
             }
         }
@@ -472,14 +477,8 @@ namespace DTXMania.Game.Lib.Config
 
             Config.ScrollSpeed = snapped;
 
-            try
-            {
-                SaveConfig(configFilePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to persist ScrollSpeed change to {Path}; in-memory value still updated.", configFilePath);
-            }
+            // Defer disk write — mark dirty and flush later via FlushPendingSave.
+            _pendingSavePath = configFilePath;
 
             ScrollSpeedChanged?.Invoke(this, new ScrollSpeedChangedEventArgs(old, snapped));
         }
@@ -487,6 +486,25 @@ namespace DTXMania.Game.Lib.Config
         public void AdjustScrollSpeed(string configFilePath, int stepDelta)
         {
             SetScrollSpeed(configFilePath, Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
+        }
+
+        /// <inheritdoc/>
+        public void FlushPendingSave()
+        {
+            var path = _pendingSavePath;
+            if (path == null)
+                return;
+
+            _pendingSavePath = null;
+
+            try
+            {
+                SaveConfig(path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date.", path);
+            }
         }
 
         /// <summary>

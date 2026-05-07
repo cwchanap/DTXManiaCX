@@ -25,7 +25,7 @@ namespace DTXMania.Test.Stage.Performance
         #region Show
 
         [Fact]
-        public void Show_SetsTextFromScrollSpeedPercent()
+        public void Show_ShouldSetTextFromScrollSpeedPercent()
         {
             var indicator = CreateIndicator();
             indicator.Show(200);
@@ -34,23 +34,19 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(indicator.IsVisible);
         }
 
-        [Fact]
-        public void Show_WithDifferentSpeeds_SetsDifferentText()
+        [Theory]
+        [InlineData(50, "Scroll Speed x0.5")]
+        [InlineData(100, "Scroll Speed x1.0")]
+        [InlineData(400, "Scroll Speed x4.0")]
+        public void Show_WithDifferentSpeeds_ShouldSetExpectedText(int speed, string expectedText)
         {
             var indicator = CreateIndicator();
-
-            indicator.Show(50);
-            Assert.Equal("Scroll Speed x0.5", indicator.Text);
-
-            indicator.Show(100);
-            Assert.Equal("Scroll Speed x1.0", indicator.Text);
-
-            indicator.Show(400);
-            Assert.Equal("Scroll Speed x4.0", indicator.Text);
+            indicator.Show(speed);
+            Assert.Equal(expectedText, indicator.Text);
         }
 
         [Fact]
-        public void Show_CalledMultipleTimes_ResetsTimer()
+        public void Show_CalledMultipleTimes_ShouldResetTimer()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -72,7 +68,7 @@ namespace DTXMania.Test.Stage.Performance
         #region Update
 
         [Fact]
-        public void Update_CountsDownRemainingTime()
+        public void Update_ShouldCountDownRemainingTime()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -86,7 +82,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_ClampsRemainingToZero()
+        public void Update_ShouldClampRemainingToZero()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -100,7 +96,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_WhenNotShown_IsNoOp()
+        public void Update_WhenNotShown_ShouldBeNoOp()
         {
             var indicator = CreateIndicator();
             var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(100));
@@ -111,7 +107,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_AfterExpired_ContinuesAsNoOp()
+        public void Update_AfterExpired_ShouldContinueAsNoOp()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -131,7 +127,7 @@ namespace DTXMania.Test.Stage.Performance
         #region Alpha
 
         [Fact]
-        public void Alpha_IsFullWhenRecentlyShown()
+        public void Alpha_ShouldBeFullWhenRecentlyShown()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -143,7 +139,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Alpha_FadesNearEndOfDuration()
+        public void Alpha_ShouldFadeNearEndOfDuration()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -160,7 +156,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Alpha_IsZeroWhenExpired()
+        public void Alpha_ShouldBeZeroWhenExpired()
         {
             var indicator = CreateIndicator();
             indicator.Show(100);
@@ -172,7 +168,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Alpha_IsZeroBeforeFirstShow()
+        public void Alpha_ShouldBeZeroBeforeFirstShow()
         {
             var indicator = CreateIndicator();
             Assert.Equal(0f, indicator.Alpha);
