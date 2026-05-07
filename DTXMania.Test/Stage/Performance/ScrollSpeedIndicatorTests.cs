@@ -1,7 +1,11 @@
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -212,6 +216,123 @@ namespace DTXMania.Test.Stage.Performance
             // Partial update — still visible
             indicator.Update(frameTime);
             Assert.True(indicator.IsVisible);
+        }
+
+        #endregion
+
+        #region Draw
+
+        [Fact]
+        public void Draw_WhenNotShown_ShouldNotThrow()
+        {
+            var indicator = CreateIndicator();
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+
+            Assert.False(indicator.IsVisible);
+        }
+
+        [Fact]
+        public void Draw_WhenExpired_ShouldNotThrow()
+        {
+            var indicator = CreateIndicator();
+            indicator.Show(100);
+            var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(5));
+            indicator.Update(gameTime);
+            Assert.Equal(0f, indicator.RemainingSeconds);
+
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+        }
+
+        [Fact]
+        public void Draw_WithVisibleStateAndNullFont_ShouldReturnEarly()
+        {
+            var indicator = CreateIndicator();
+            indicator.Show(100);
+            Assert.True(indicator.IsVisible);
+
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+        }
+
+        [Fact]
+        public void Draw_WithFontAndVisible_ShouldExecuteDrawPath()
+        {
+            var font = CreateTestBitmapFont();
+            var indicator = new ScrollSpeedIndicator(font);
+            indicator.Show(100);
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+
+            Assert.True(indicator.IsVisible);
+            Assert.Equal(1.0f, indicator.Alpha);
+        }
+
+        [Fact]
+        public void Draw_WithFontDuringFade_ShouldExecuteDrawPathWithFadedAlpha()
+        {
+            var font = CreateTestBitmapFont();
+            var indicator = new ScrollSpeedIndicator(font);
+            indicator.Show(100);
+
+            var gameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromMilliseconds(1300));
+            indicator.Update(gameTime);
+            Assert.True(indicator.Alpha < 1.0f);
+            Assert.True(indicator.Alpha > 0f);
+
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+        }
+
+        [Fact]
+        public void Draw_WithFontAtFullAlpha_ShouldPassWhiteColorToDrawText()
+        {
+            var font = CreateTestBitmapFont();
+            var indicator = new ScrollSpeedIndicator(font);
+            indicator.Show(200);
+
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+        }
+
+        [Fact]
+        public void Draw_AfterReShow_ShouldUseNewText()
+        {
+            var font = CreateTestBitmapFont();
+            var indicator = new ScrollSpeedIndicator(font);
+            indicator.Show(100);
+
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+
+            indicator.Draw(spriteBatch);
+
+            indicator.Show(400);
+            Assert.Equal("Scroll Speed x4.0", indicator.Text);
+
+            indicator.Draw(spriteBatch);
+        }
+
+        private static BitmapFont CreateTestBitmapFont()
+        {
+            var font = ReflectionHelpers.CreateUninitialized<BitmapFont>();
+
+            var config = BitmapFont.CreateConsoleFontConfig();
+            ReflectionHelpers.SetPrivateField(font, "_config", config);
+
+            var mockTexture = new Mock<ITexture>().Object;
+            ReflectionHelpers.SetPrivateField(font, "_fontTextures", new ITexture[] { mockTexture });
+
+            ReflectionHelpers.SetPrivateField(font, "_characterRectangles",
+                new Rectangle[config.DisplayableCharacters.Length]);
+
+            return font;
         }
 
         #endregion
