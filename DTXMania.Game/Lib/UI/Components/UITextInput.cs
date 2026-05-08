@@ -66,6 +66,24 @@ namespace DTXMania.Game.Lib.UI.Components
             _caretIndex++;
         }
 
+        public void Backspace()
+        {
+            if (_caretIndex == 0 || _text.Length == 0) return;
+            _text = _text.Remove(_caretIndex - 1, 1);
+            _caretIndex--;
+        }
+
+        public void MoveCaret(int delta)
+        {
+            _caretIndex = Math.Clamp(_caretIndex + delta, 0, _text.Length);
+        }
+
+        public void Clear()
+        {
+            _text = "";
+            _caretIndex = 0;
+        }
+
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (Font == null) return;

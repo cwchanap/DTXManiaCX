@@ -53,5 +53,77 @@ namespace DTXMania.Test.UI
 
             Assert.Equal("abc", input.Text);
         }
+
+        [Fact]
+        public void Backspace_RemovesCharBeforeCaret()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('a');
+            src.Fire('b');
+            src.Fire('c');
+            input.Backspace();
+
+            Assert.Equal("ab", input.Text);
+            Assert.Equal(2, input.CaretIndex);
+        }
+
+        [Fact]
+        public void Backspace_OnEmpty_NoOp()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            input.Backspace();
+
+            Assert.Equal("", input.Text);
+            Assert.Equal(0, input.CaretIndex);
+        }
+
+        [Fact]
+        public void MoveCaret_LeftRight_ClampedToTextRange()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+            src.Fire('a');
+            src.Fire('b');
+
+            input.MoveCaret(-5);
+            Assert.Equal(0, input.CaretIndex);
+
+            input.MoveCaret(+10);
+            Assert.Equal(2, input.CaretIndex);
+        }
+
+        [Fact]
+        public void Backspace_FromMiddleOfText_RemovesCorrectChar()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+            src.Fire('a');
+            src.Fire('b');
+            src.Fire('c');
+            input.MoveCaret(-1); // caret between 'b' and 'c'
+
+            input.Backspace();
+
+            Assert.Equal("ac", input.Text);
+            Assert.Equal(1, input.CaretIndex);
+        }
+
+        [Fact]
+        public void Clear_ResetsTextAndCaret()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+            src.Fire('a');
+            src.Fire('b');
+
+            input.Clear();
+
+            Assert.Equal("", input.Text);
+            Assert.Equal(0, input.CaretIndex);
+        }
     }
 }
