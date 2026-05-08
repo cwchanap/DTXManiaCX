@@ -153,5 +153,53 @@ namespace DTXMania.Test.Song.Components
             Assert.False(resetFired);
             Assert.True(appliedFired);
         }
+
+        [Fact]
+        public void Open_SearchBoxIsInitiallyFocused()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void FocusNext_CyclesThroughFieldsInOrder()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            var order = new[]
+            {
+                SongSearchFilterModal.Field.SearchBox,
+                SongSearchFilterModal.Field.MinLevel,
+                SongSearchFilterModal.Field.MaxLevel,
+                SongSearchFilterModal.Field.PlayedStatus,
+                SongSearchFilterModal.Field.SortBy,
+                SongSearchFilterModal.Field.SortDirection,
+                SongSearchFilterModal.Field.ResetButton,
+                SongSearchFilterModal.Field.ApplyButton
+            };
+
+            for (int i = 0; i < order.Length; i++)
+            {
+                Assert.Equal(order[i], modal.FocusedField);
+                modal.FocusNext();
+            }
+            // After last, wraps back to SearchBox
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void FocusPrev_ReverseOfFocusNext()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            modal.FocusPrev();
+            Assert.Equal(SongSearchFilterModal.Field.ApplyButton, modal.FocusedField);
+            modal.FocusPrev();
+            Assert.Equal(SongSearchFilterModal.Field.ResetButton, modal.FocusedField);
+        }
     }
 }
