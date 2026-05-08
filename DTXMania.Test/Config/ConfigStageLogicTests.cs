@@ -1541,4 +1541,31 @@ public class ConfigStageLogicTests
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
+
+    [Fact]
+    public void ApplyConfiguration_SaveFailure_ShouldRollbackScrollSpeed()
+    {
+        var configManager = new RecordingConfigManager(
+            new ConfigData { ScrollSpeed = 100 },
+            saveException: new IOException("disk full"));
+
+        var (stage, _, inputManager) = CreateStage(configManager);
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_workingConfig", new ConfigData
+            {
+                ScreenWidth = 1280,
+                ScreenHeight = 720,
+                ScrollSpeed = 250
+            });
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
+
+            Assert.False(result);
+            // ScrollSpeed should be rolled back to the original value
+            Assert.Equal(100, configManager.Config.ScrollSpeed);
+        }
+    }
 }

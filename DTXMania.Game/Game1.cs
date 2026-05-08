@@ -134,6 +134,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());
 
+        // Ensure deferred config writes (e.g. scroll-speed changes) are flushed
+        // even if the normal deactivate path is skipped during abrupt exit.
+        Exiting += OnGameExiting;
+
         // Initialize graphics manager
         _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>());
 
@@ -449,6 +453,21 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         _logger.LogWarning("Graphics device lost");
     }
 
+    private void OnGameExiting(object? sender, EventArgs e)
+    {
+        // Belt-and-suspenders: ensure any deferred config write (e.g. scroll-speed)
+        // is flushed even if the normal stage-deactivation path is skipped.
+        try
+        {
+            if (ConfigManager is ConfigManager concrete)
+                concrete.FlushPendingSave();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to flush pending config save on exit");
+        }
+    }
+
     private void OnGraphicsDeviceReset(object? sender, EventArgs e)
     {
         // Handle device reset scenario
@@ -484,6 +503,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
     private void DisposeManagedResources()
     {
+        // Unsubscribe from Game.Exiting to avoid double-flush during normal shutdown
+        Exiting -= OnGameExiting;
+
         // Dispose StageManager first to properly cleanup all stages
         if (StageManager != null)
         {
