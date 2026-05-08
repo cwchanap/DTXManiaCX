@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
@@ -100,6 +101,115 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
             Apply();
+        }
+
+        public void HandleKey(Microsoft.Xna.Framework.Input.Keys key)
+        {
+            if (!_isOpen) return;
+
+            switch (key)
+            {
+                case Microsoft.Xna.Framework.Input.Keys.Escape:
+                    Cancel();
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Tab:
+                case Microsoft.Xna.Framework.Input.Keys.Down:
+                    FocusNext();
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Up:
+                    FocusPrev();
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Enter:
+                    HandleEnter();
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Left:
+                    AdjustFocusedField(-1);
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Right:
+                    AdjustFocusedField(+1);
+                    return;
+            }
+        }
+
+        private void HandleEnter()
+        {
+            switch (_focusedField)
+            {
+                case Field.SearchBox:
+                    SubmitFromSearchBox();
+                    return;
+                case Field.ResetButton:
+                    Reset();
+                    return;
+                case Field.ApplyButton:
+                    Apply();
+                    return;
+                default:
+                    // On numeric/cycle fields, Enter applies (default action)
+                    Apply();
+                    return;
+            }
+        }
+
+        private const int LevelStep = 5;
+        private const int LevelMin = 0;
+        private const int LevelMax = 99;
+
+        private void AdjustFocusedField(int dir)
+        {
+            switch (_focusedField)
+            {
+                case Field.MinLevel:
+                    _draft = _draft with { MinLevel = AdjustLevel(_draft.MinLevel, dir) };
+                    return;
+                case Field.MaxLevel:
+                    _draft = _draft with { MaxLevel = AdjustLevel(_draft.MaxLevel, dir) };
+                    return;
+                case Field.PlayedStatus:
+                    _draft = _draft with { PlayedStatus = CycleEnum(_draft.PlayedStatus, dir) };
+                    return;
+                case Field.SortBy:
+                    _draft = _draft with { SortBy = CycleSort(_draft.SortBy, dir) };
+                    return;
+                case Field.SortDirection:
+                    _draft = _draft with { SortDescending = !_draft.SortDescending };
+                    return;
+            }
+        }
+
+        private static int? AdjustLevel(int? current, int dir)
+        {
+            int next = (current ?? 0) + (dir * LevelStep);
+            if (next < LevelMin) next = LevelMin;
+            if (next > LevelMax) next = LevelMax;
+            return next == 0 ? (int?)null : next;
+        }
+
+        private static PlayedStatus CycleEnum(PlayedStatus current, int dir)
+        {
+            int count = 4; // All, Unplayed, Played, Cleared
+            int idx = ((int)current + dir + count) % count;
+            return (PlayedStatus)idx;
+        }
+
+        private static SongSortCriteria CycleSort(SongSortCriteria current, int dir)
+        {
+            // Modal exposes only Title / Artist / Level (no Genre)
+            var allowed = new[]
+            {
+                SongSortCriteria.Title,
+                SongSortCriteria.Artist,
+                SongSortCriteria.Level
+            };
+            int currentIdx = System.Array.IndexOf(allowed, current);
+            if (currentIdx < 0) currentIdx = 0;
+            int next = (currentIdx + dir + allowed.Length) % allowed.Length;
+            return allowed[next];
         }
 
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
