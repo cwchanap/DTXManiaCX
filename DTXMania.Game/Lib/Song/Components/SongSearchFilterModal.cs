@@ -64,6 +64,16 @@ namespace DTXMania.Game.Lib.Song.Components
             _draft = newDraft ?? SongFilterCriteria.Default;
         }
 
+        public void SubmitFromSearchBox()
+        {
+            if (string.Equals(_draft.SearchQuery, "/q", StringComparison.OrdinalIgnoreCase))
+            {
+                Reset();
+                return;
+            }
+            Apply();
+        }
+
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             // Drawing implemented in Task 28.

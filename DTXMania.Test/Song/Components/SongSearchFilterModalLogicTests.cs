@@ -86,5 +86,72 @@ namespace DTXMania.Test.Song.Components
             Assert.Equal("orig", initial.SearchQuery);
             Assert.Equal("edited", modal.CurrentDraft.SearchQuery);
         }
+
+        [Fact]
+        public void SubmitFromSearchBox_QSlashCommand_TriggersReset()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/q" });
+            bool resetFired = false;
+            bool appliedFired = false;
+            modal.FilterReset += (_, _) => resetFired = true;
+            modal.FilterApplied += (_, _) => appliedFired = true;
+
+            modal.SubmitFromSearchBox();
+
+            Assert.True(resetFired);
+            Assert.False(appliedFired);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void SubmitFromSearchBox_QSlashCommand_CaseInsensitive()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/Q" });
+            bool resetFired = false;
+            modal.FilterReset += (_, _) => resetFired = true;
+
+            modal.SubmitFromSearchBox();
+
+            Assert.True(resetFired);
+        }
+
+        [Fact]
+        public void SubmitFromSearchBox_NormalQuery_TriggersApply()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "beatles" });
+            bool resetFired = false;
+            bool appliedFired = false;
+            modal.FilterReset += (_, _) => resetFired = true;
+            modal.FilterApplied += (_, _) => appliedFired = true;
+
+            modal.SubmitFromSearchBox();
+
+            Assert.False(resetFired);
+            Assert.True(appliedFired);
+        }
+
+        [Fact]
+        public void SubmitFromSearchBox_QPrefixedQuery_NotResetCommand()
+        {
+            // "/quiet" is a literal search, not /q
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/quiet" });
+            bool resetFired = false;
+            bool appliedFired = false;
+            modal.FilterReset += (_, _) => resetFired = true;
+            modal.FilterApplied += (_, _) => appliedFired = true;
+
+            modal.SubmitFromSearchBox();
+
+            Assert.False(resetFired);
+            Assert.True(appliedFired);
+        }
     }
 }
