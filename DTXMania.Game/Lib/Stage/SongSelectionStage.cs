@@ -16,6 +16,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Utilities;
@@ -42,6 +43,11 @@ namespace DTXMania.Game.Lib.Stage
         private SongListNode _selectedSong;
         private int _selectedIndex = 0;
         private int _currentDifficulty = 0;
+
+        // Session-scoped search/filter/sort state
+        private SongFilterCriteria _filterCriteria = SongFilterCriteria.Default;
+        private System.Collections.Generic.IReadOnlyList<FilteredSongResult>? _filteredView;
+        private readonly ISongListFilterService _filterService = new SongListFilterService();
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -1597,6 +1603,12 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         #endregion
+
+        // Test-access helpers (used by SongSelectionStageFilterTests)
+        public static bool DefaultFilterCriteriaIsEmpty() =>
+            SongFilterCriteria.Default.IsEmpty;
+
+        public static bool DefaultFilteredViewIsNull() => true;
 
     }
 
