@@ -203,5 +203,52 @@ namespace DTXMania.Test.Config
                     File.Delete(blockerFile);
             }
         }
+
+        [Fact]
+        [Trait("Category", "ConfigManager")]
+        public void FlushPendingSave_FailurePreservesPendingPathForRetry()
+        {
+            // After a failed flush, _pendingSavePath should remain set so the next flush retries.
+            var blockerFile = Path.Combine(Path.GetTempPath(),
+                "dtxmania-scrollspeed-retry-" + Guid.NewGuid().ToString("N"));
+            var badPath = Path.Combine(blockerFile, "sub", "config.ini");
+            File.WriteAllText(blockerFile, "blocker");
+
+            try
+            {
+                var cm = new ConfigManager();
+                cm.Config.ScrollSpeed = 100;
+                cm.SetScrollSpeed(badPath, 200);
+
+                // First flush fails
+                cm.FlushPendingSave();
+
+                // In-memory value is still updated
+                Assert.Equal(200, cm.Config.ScrollSpeed);
+
+                // Remove blocker so the next write can succeed
+                File.Delete(blockerFile);
+
+                // Second flush should succeed — pending path was preserved
+                cm.FlushPendingSave();
+
+                // Verify the value was persisted
+                var roundTrip = new ConfigManager();
+                roundTrip.LoadConfig(badPath);
+                Assert.Equal(200, roundTrip.Config.ScrollSpeed);
+
+                // Cleanup
+                if (File.Exists(badPath))
+                    File.Delete(badPath);
+                var dir = Path.GetDirectoryName(badPath);
+                if (dir != null && Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+            finally
+            {
+                if (File.Exists(blockerFile))
+                    File.Delete(blockerFile);
+            }
+        }
     }
 }

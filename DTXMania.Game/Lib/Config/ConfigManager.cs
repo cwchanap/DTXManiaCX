@@ -458,7 +458,11 @@ namespace DTXMania.Game.Lib.Config
                 }
             }
 
-            File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+            // Write atomically via temp-file to avoid truncation on crash/disk-full.
+            // Write to temp first — if it fails, original remains intact.
+            var tempFile = filePath + ".tmp";
+            File.WriteAllText(tempFile, sb.ToString(), Encoding.UTF8);
+            File.Move(tempFile, filePath, overwrite: true);
         }
 
         public void ResetToDefaults()
@@ -495,15 +499,14 @@ namespace DTXMania.Game.Lib.Config
             if (path == null)
                 return;
 
-            _pendingSavePath = null;
-
             try
             {
                 SaveConfig(path);
+                _pendingSavePath = null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date.", path);
+                _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date. Will retry on next flush.", path);
             }
         }
 

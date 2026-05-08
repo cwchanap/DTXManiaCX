@@ -785,6 +785,29 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void Deactivate_ShouldFlushPendingSave()
+        {
+            var configManager = new Mock<IConfigManager>();
+            var stage = CreateStage();
+            SetPrivateField(stage, "_configManager", configManager.Object);
+
+            stage.Deactivate();
+
+            configManager.Verify(x => x.FlushPendingSave(), Times.Once);
+        }
+
+        [Fact]
+        public void Deactivate_WhenConfigManagerNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_configManager", null);
+
+            var exception = Record.Exception(() => stage.Deactivate());
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void NavigateIntoBox_ShouldPushStateAndPopulateChildren()
         {
             var stage = CreateStage();
