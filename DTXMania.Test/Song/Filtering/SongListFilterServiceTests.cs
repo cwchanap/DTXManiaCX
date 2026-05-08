@@ -228,5 +228,91 @@ namespace DTXMania.Test.Song.Filtering
 
             Assert.Single(result);
         }
+
+        private static SongListNode ScoreWith(string title, int playCount, int bestRank)
+        {
+            var node = new SongListNode { Type = NodeType.Score, Title = title };
+            node.Scores[0] = new DTXMania.Game.Lib.Song.Entities.SongScore
+            {
+                DifficultyLevel = 50,
+                PlayCount = playCount,
+                BestRank = bestRank
+            };
+            return node;
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusUnplayed_KeepsOnlyZeroPlays()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("Untouched", playCount: 0, bestRank: 0),
+                ScoreWith("Tried",     playCount: 3, bestRank: 80)
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Unplayed };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Untouched" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusPlayed_KeepsAnyPlayedSong()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("Untouched", playCount: 0, bestRank: 0),
+                ScoreWith("Tried",     playCount: 3, bestRank: 0)  // played but failed
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Played };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Tried" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusCleared_RequiresPlayCountAndNonFRank()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("Untouched", playCount: 0, bestRank: 0),
+                ScoreWith("Failed",    playCount: 5, bestRank: 0),    // F bucket
+                ScoreWith("Cleared",   playCount: 1, bestRank: 80)    // A bucket
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Cleared" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusAll_NoFilter()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("A", playCount: 0, bestRank: 0),
+                ScoreWith("B", playCount: 1, bestRank: 80)
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.All };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(2, result.Count);
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusUnplayed_TreatsMissingScoresAsUnplayed()
+        {
+            var node = new SongListNode { Type = NodeType.Score, Title = "NoScores" };
+            // node.Scores is all-null
+            var roots = new List<SongListNode> { node };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Unplayed };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Single(result);
+        }
     }
 }
