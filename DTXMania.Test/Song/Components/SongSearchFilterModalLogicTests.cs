@@ -1,0 +1,90 @@
+using System;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Filtering;
+using DTXMania.Game.Lib.UI.Components;
+using Microsoft.Xna.Framework;
+using Xunit;
+
+namespace DTXMania.Test.Song.Components
+{
+    public class SongSearchFilterModalLogicTests
+    {
+        private sealed class FakeSource : ITextInputSource
+        {
+            public event EventHandler<TextInputEventArgs>? TextInput;
+            public void Fire(char c) =>
+                TextInput?.Invoke(this, new TextInputEventArgs(c,
+                    Microsoft.Xna.Framework.Input.Keys.None));
+        }
+
+        [Fact]
+        public void Open_DefaultCriteria_PopulatesFromArgument()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            var initial = SongFilterCriteria.Default with { SearchQuery = "abc" };
+
+            modal.Open(initial);
+
+            Assert.True(modal.IsOpen);
+            Assert.Equal("abc", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void Cancel_FiresCancelledEvent_AndCloses()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            bool fired = false;
+            modal.Cancelled += (_, _) => fired = true;
+
+            modal.Cancel();
+
+            Assert.True(fired);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void Apply_FiresFilterAppliedWithDraft_AndCloses()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            var initial = SongFilterCriteria.Default with { SearchQuery = "x" };
+            modal.Open(initial);
+            SongFilterCriteria? captured = null;
+            modal.FilterApplied += (_, c) => captured = c;
+
+            modal.Apply();
+
+            Assert.NotNull(captured);
+            Assert.Equal("x", captured!.SearchQuery);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void Reset_FiresFilterResetAndCloses()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { SearchQuery = "x" });
+            bool fired = false;
+            modal.FilterReset += (_, _) => fired = true;
+
+            modal.Reset();
+
+            Assert.True(fired);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void EditDraft_DoesNotMutateInitialCriteria()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            var initial = SongFilterCriteria.Default with { SearchQuery = "orig" };
+
+            modal.Open(initial);
+            modal.UpdateDraft(initial with { SearchQuery = "edited" });
+
+            Assert.Equal("orig", initial.SearchQuery);
+            Assert.Equal("edited", modal.CurrentDraft.SearchQuery);
+        }
+    }
+}
