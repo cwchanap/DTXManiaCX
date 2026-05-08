@@ -11,9 +11,23 @@ namespace DTXMania.Game.Lib.Song.Components
 {
     public class SongSearchFilterModal : UIElement
     {
+        public enum Field
+        {
+            SearchBox = 0,
+            MinLevel = 1,
+            MaxLevel = 2,
+            PlayedStatus = 3,
+            SortBy = 4,
+            SortDirection = 5,
+            ResetButton = 6,
+            ApplyButton = 7
+        }
+
         private readonly ITextInputSource _textSource;
         private SongFilterCriteria _draft = SongFilterCriteria.Default;
         private bool _isOpen;
+        private const int FieldCount = 8;
+        private Field _focusedField = Field.SearchBox;
 
         public SongSearchFilterModal(ITextInputSource textSource)
         {
@@ -27,12 +41,26 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public bool IsOpen => _isOpen;
         public SongFilterCriteria CurrentDraft => _draft;
+        public Field FocusedField => _focusedField;
 
         public void Open(SongFilterCriteria initial)
         {
             _draft = initial ?? SongFilterCriteria.Default;
+            _focusedField = Field.SearchBox;
             _isOpen = true;
             Visible = true;
+        }
+
+        public void FocusNext()
+        {
+            int next = ((int)_focusedField + 1) % FieldCount;
+            _focusedField = (Field)next;
+        }
+
+        public void FocusPrev()
+        {
+            int prev = ((int)_focusedField - 1 + FieldCount) % FieldCount;
+            _focusedField = (Field)prev;
         }
 
         public void Close()
