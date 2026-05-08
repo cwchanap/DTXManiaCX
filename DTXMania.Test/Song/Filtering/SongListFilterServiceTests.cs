@@ -314,5 +314,89 @@ namespace DTXMania.Test.Song.Filtering
 
             Assert.Single(result);
         }
+
+        [Fact]
+        public void Apply_SortByTitleDescending()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Apple"), Score("Banana"), Score("Cherry")
+            };
+            var criteria = SongFilterCriteria.Default with
+            {
+                SortBy = SongSortCriteria.Title,
+                SortDescending = true
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Cherry", "Banana", "Apple" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SortByLevelAscending()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("High", level: 90),
+                Score("Low",  level: 20),
+                Score("Mid",  level: 50)
+            };
+            var criteria = SongFilterCriteria.Default with
+            {
+                SortBy = SongSortCriteria.Level,
+                SortDescending = false
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Low", "Mid", "High" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SortByArtist()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("X", "Zenith"),
+                Score("Y", "Apex")
+            };
+            var criteria = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Artist };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Y", "X" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_CombinedSearchLevelPlayedSort()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("Beatles - Yesterday", playCount: 1, bestRank: 80),
+                ScoreWith("Beatles - Hard Rock", playCount: 0, bestRank: 0),
+                ScoreWith("Other Artist Song",   playCount: 1, bestRank: 80)
+            };
+            // Wire artist on first and second
+            roots[0].DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song
+            { Title = "Beatles - Yesterday", Artist = "The Beatles" };
+            roots[1].DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song
+            { Title = "Beatles - Hard Rock", Artist = "The Beatles" };
+
+            var criteria = SongFilterCriteria.Default with
+            {
+                SearchQuery = "beatles",
+                PlayedStatus = PlayedStatus.Played,
+                SortBy = SongSortCriteria.Title,
+                SortDescending = true
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Beatles - Yesterday" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
     }
 }
