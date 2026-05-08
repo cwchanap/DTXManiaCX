@@ -18,7 +18,8 @@ namespace DTXMania.Game.Lib.Song.Filtering
                 Flatten(root, parentPath: "", flat);
 
             var afterSearch = ApplySearch(flat, criteria.SearchQuery);
-            return SortResults(afterSearch, criteria);
+            var afterLevel  = ApplyLevel(afterSearch, criteria.MinLevel, criteria.MaxLevel);
+            return SortResults(afterLevel, criteria);
         }
 
         private static void Flatten(SongListNode node, string parentPath, List<FilteredSongResult> sink)
@@ -51,6 +52,23 @@ namespace DTXMania.Game.Lib.Song.Filtering
                 Contains(r.Node.DisplayTitle, query) ||
                 Contains(r.Node.DatabaseSong?.DisplayArtist, query))
                 .ToList();
+        }
+
+        private static List<FilteredSongResult> ApplyLevel(
+            List<FilteredSongResult> flat, int? min, int? max)
+        {
+            if (min is null && max is null) return flat;
+
+            // Swap if min > max
+            int lo = min ?? int.MinValue;
+            int hi = max ?? int.MaxValue;
+            if (lo > hi) (lo, hi) = (hi, lo);
+
+            return flat.Where(r =>
+            {
+                int level = r.Node.MaxDifficultyLevel;
+                return level >= lo && level <= hi;
+            }).ToList();
         }
 
         private static bool Contains(string? haystack, string needle)
