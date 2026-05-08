@@ -17,7 +17,8 @@ namespace DTXMania.Game.Lib.Song.Filtering
             foreach (var root in roots)
                 Flatten(root, parentPath: "", flat);
 
-            return SortResults(flat, criteria);
+            var afterSearch = ApplySearch(flat, criteria.SearchQuery);
+            return SortResults(afterSearch, criteria);
         }
 
         private static void Flatten(SongListNode node, string parentPath, List<FilteredSongResult> sink)
@@ -39,6 +40,23 @@ namespace DTXMania.Game.Lib.Song.Filtering
                     Flatten(child, childPath, sink);
             }
             // BackBox / Random: ignore
+        }
+
+        private static List<FilteredSongResult> ApplySearch(
+            List<FilteredSongResult> flat, string query)
+        {
+            if (string.IsNullOrEmpty(query)) return flat;
+
+            return flat.Where(r =>
+                Contains(r.Node.DisplayTitle, query) ||
+                Contains(r.Node.DatabaseSong?.DisplayArtist, query))
+                .ToList();
+        }
+
+        private static bool Contains(string? haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(haystack)) return false;
+            return haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static IReadOnlyList<FilteredSongResult> SortResults(

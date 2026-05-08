@@ -108,5 +108,65 @@ namespace DTXMania.Test.Song.Filtering
 
             Assert.Equal(new[] { "InsideSong" }, result.Select(r => r.Node.DisplayTitle));
         }
+
+        [Fact]
+        public void Apply_SearchByTitle_CaseInsensitiveSubstring()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Yesterday", "The Beatles"),
+                Score("Hey Jude", "The Beatles"),
+                Score("Smoke On The Water", "Deep Purple")
+            };
+            var criteria = SongFilterCriteria.Default with { SearchQuery = "yesterDAY" };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Yesterday" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SearchByArtist_CaseInsensitiveSubstring()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Yesterday", "The Beatles"),
+                Score("Smoke On The Water", "Deep Purple")
+            };
+            var criteria = SongFilterCriteria.Default with { SearchQuery = "beatles" };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Yesterday" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SearchEmpty_ReturnsAll()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("A"), Score("B")
+            };
+            var criteria = SongFilterCriteria.Default with { SearchQuery = "" };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(2, result.Count);
+        }
+
+        [Fact]
+        public void Apply_SearchNoMatch_ReturnsEmpty()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("A", "Artist1"),
+                Score("B", "Artist2")
+            };
+            var criteria = SongFilterCriteria.Default with { SearchQuery = "zzz" };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Empty(result);
+        }
     }
 }
