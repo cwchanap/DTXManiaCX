@@ -125,5 +125,59 @@ namespace DTXMania.Test.UI
             Assert.Equal("", input.Text);
             Assert.Equal(0, input.CaretIndex);
         }
+
+        private sealed class CountingSource : ITextInputSource
+        {
+            public event EventHandler<TextInputEventArgs>? TextInput;
+            public int HandlerCount =>
+                TextInput?.GetInvocationList().Length ?? 0;
+            public void Fire(char c) =>
+                TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+        }
+
+        [Fact]
+        public void Focused_True_SubscribesToSource()
+        {
+            var src = new CountingSource();
+            var input = new UITextInput(src);
+
+            input.Focused = true;
+
+            Assert.Equal(1, src.HandlerCount);
+        }
+
+        [Fact]
+        public void Focused_False_UnsubscribesFromSource()
+        {
+            var src = new CountingSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            input.Focused = false;
+
+            Assert.Equal(0, src.HandlerCount);
+        }
+
+        [Fact]
+        public void Focused_TrueTwice_SubscribesOnlyOnce()
+        {
+            var src = new CountingSource();
+            var input = new UITextInput(src);
+
+            input.Focused = true;
+            input.Focused = true;
+
+            Assert.Equal(1, src.HandlerCount);
+        }
+
+        [Fact]
+        public void Dispose_UnsubscribesFromSource()
+        {
+            var src = new CountingSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            input.Dispose();
+
+            Assert.Equal(0, src.HandlerCount);
+        }
     }
 }
