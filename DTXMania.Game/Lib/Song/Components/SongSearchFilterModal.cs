@@ -27,6 +27,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly ITextInputSource _textSource;
         private SongFilterCriteria _draft = SongFilterCriteria.Default;
         private bool _isOpen;
+        private bool _subscribedToText;
         private const int FieldCount = 8;
         private Field _focusedField = Field.SearchBox;
 
@@ -50,6 +51,7 @@ namespace DTXMania.Game.Lib.Song.Components
             _focusedField = Field.SearchBox;
             _isOpen = true;
             Visible = true;
+            SubscribeText();
         }
 
         public void FocusNext()
@@ -66,8 +68,43 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public void Close()
         {
+            UnsubscribeText();
             _isOpen = false;
             Visible = false;
+        }
+
+        private void SubscribeText()
+        {
+            if (_subscribedToText) return;
+            _textSource.TextInput += OnTextInput;
+            _subscribedToText = true;
+        }
+
+        private void UnsubscribeText()
+        {
+            if (!_subscribedToText) return;
+            _textSource.TextInput -= OnTextInput;
+            _subscribedToText = false;
+        }
+
+        private void OnTextInput(object? sender, TextInputEventArgs e)
+        {
+            if (!_isOpen) return;
+            if (_focusedField != Field.SearchBox) return;
+
+            char c = e.Character;
+            if (c == '\b' || c == '\r' || c == '\n' || c == '\t') return;
+            if (char.IsControl(c)) return;
+
+            _draft = _draft with { SearchQuery = (_draft.SearchQuery ?? "") + c };
+        }
+
+        private void HandleBackspace()
+        {
+            if (_focusedField != Field.SearchBox) return;
+            var q = _draft.SearchQuery ?? "";
+            if (q.Length == 0) return;
+            _draft = _draft with { SearchQuery = q.Substring(0, q.Length - 1) };
         }
 
         public void Cancel()
@@ -132,6 +169,10 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 case Microsoft.Xna.Framework.Input.Keys.Right:
                     AdjustFocusedField(+1);
+                    return;
+
+                case Microsoft.Xna.Framework.Input.Keys.Back:
+                    HandleBackspace();
                     return;
             }
         }
