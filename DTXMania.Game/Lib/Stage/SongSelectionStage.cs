@@ -74,6 +74,10 @@ namespace DTXMania.Game.Lib.Stage
 
         // Status panel navigation state
         private bool _isInStatusPanel = false;
+
+        // Search/filter modal
+        private SongSearchFilterModal _searchFilterModal;
+        private WindowTextInputSource _textInputSource;
         
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
@@ -489,6 +493,25 @@ namespace DTXMania.Game.Lib.Stage
             _mainPanel.AddChild(_statusPanel);
             _mainPanel.AddChild(_previewImagePanel);
 
+            // Search/filter modal (guarded: Window is unavailable in headless/test environments)
+            try
+            {
+                var window = _game.Window;
+                if (window != null)
+                {
+                    _textInputSource = new WindowTextInputSource(window);
+                    _searchFilterModal = new SongSearchFilterModal(_textInputSource);
+                    _searchFilterModal.FilterApplied += OnFilterApplied;
+                    _searchFilterModal.FilterReset   += OnFilterReset;
+                    _searchFilterModal.Cancelled     += OnFilterCancelled;
+                    _mainPanel.AddChild(_searchFilterModal);
+                }
+            }
+            catch (Exception)
+            {
+                // Window unavailable in headless/test environments; modal will be skipped
+            }
+
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
 
@@ -798,6 +821,55 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        private void OnFilterApplied(object sender, SongFilterCriteria criteria)
+        {
+            _filterCriteria = criteria;
+            RebuildFilteredView();
+            PopulateSongListForCurrentMode();
+            _inputManager?.ClearPendingCommands();
+        }
+
+        private void OnFilterReset(object sender, System.EventArgs e)
+        {
+            _filterCriteria = SongFilterCriteria.Default;
+            _filteredView = null;
+            PopulateSongListForCurrentMode();
+            _inputManager?.ClearPendingCommands();
+        }
+
+        private void OnFilterCancelled(object sender, System.EventArgs e)
+        {
+            // Discard draft; no state change
+            _inputManager?.ClearPendingCommands();
+        }
+
+        private void RebuildFilteredView()
+        {
+            if (_filterCriteria.IsEmpty)
+            {
+                _filteredView = null;
+                return;
+            }
+            var roots = SongManager.Instance.RootSongs;
+            _filteredView = _filterService.Apply(roots, _filterCriteria);
+        }
+
+        private void PopulateSongListForCurrentMode()
+        {
+            if (_filteredView != null)
+                PopulateFilteredSongList();
+            else
+                PopulateSongList();
+        }
+
+        private void PopulateFilteredSongList()
+        {
+            var displayList = new System.Collections.Generic.List<SongListNode>(_filteredView!.Count);
+            foreach (var r in _filteredView)
+                displayList.Add(r.Node);
+            _songListDisplay.CurrentList = displayList;
+        }
+
         private void UpdateBreadcrumb()
         {
             _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
@@ -885,12 +957,29 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleInput()
         {
-            // Don't process input if input manager is disposed
             if (_inputManager == null)
                 return;
-                
-            // Process queued input commands from InputManager
+
+            if (_searchFilterModal != null && _searchFilterModal.IsOpen)
+            {
+                ProcessModalKeys();
+                return;
+            }
+
             ProcessInputCommands();
+        }
+
+        private Microsoft.Xna.Framework.Input.KeyboardState _prevModalKbState;
+
+        private void ProcessModalKeys()
+        {
+            var current = Microsoft.Xna.Framework.Input.Keyboard.GetState();
+            foreach (var key in current.GetPressedKeys())
+            {
+                if (!_prevModalKbState.IsKeyDown(key))
+                    _searchFilterModal.HandleKey(key);
+            }
+            _prevModalKbState = current;
         }
 
         /// <summary>
@@ -1001,7 +1090,19 @@ namespace DTXMania.Game.Lib.Stage
                 case InputCommandType.DecreaseScrollSpeed:
                     _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
                     break;
+
+                case InputCommandType.OpenSearch:
+                    OpenSearchFilterModal();
+                    break;
             }
+        }
+
+        private void OpenSearchFilterModal()
+        {
+            if (_searchFilterModal == null) return;
+            // Exit status-panel mode first
+            _isInStatusPanel = false;
+            _searchFilterModal.Open(_filterCriteria);
         }
 
         private void CycleDifficulty(int direction)
