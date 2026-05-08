@@ -331,5 +331,61 @@ namespace DTXMania.Test.Song.Components
             // wraps
             Assert.Equal(PlayedStatus.All, modal.CurrentDraft.PlayedStatus);
         }
+
+        [Fact]
+        public void TypingChars_OnSearchBox_AppendsToSearchQuery()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            // SearchBox is initial focus
+            src.Fire('h');
+            src.Fire('i');
+
+            Assert.Equal("hi", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void TypingChars_WhenNotOnSearchBox_Ignored()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+
+            src.Fire('5');
+
+            Assert.Equal("", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void Backspace_HandleKey_RemovesLastSearchChar()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            src.Fire('a');
+            src.Fire('b');
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Back);
+
+            Assert.Equal("a", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void Close_UnsubscribesFromTextSource()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            src.Fire('a');
+            Assert.Equal("a", modal.CurrentDraft.SearchQuery);
+
+            modal.Cancel(); // closes
+
+            src.Fire('b');
+            // After close, characters must not affect the now-stale draft
+            Assert.Equal("a", modal.CurrentDraft.SearchQuery);
+        }
     }
 }
