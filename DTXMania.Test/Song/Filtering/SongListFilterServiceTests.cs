@@ -168,5 +168,65 @@ namespace DTXMania.Test.Song.Filtering
 
             Assert.Empty(result);
         }
+
+        [Fact]
+        public void Apply_LevelRange_FiltersByMaxDifficulty()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Easy", level: 30),
+                Score("Mid",  level: 60),
+                Score("Hard", level: 90)
+            };
+            var criteria = SongFilterCriteria.Default with { MinLevel = 50, MaxLevel = 80 };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Mid" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_LevelMinOnly_NoMaxBound()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Easy", level: 30),
+                Score("Hard", level: 90)
+            };
+            var criteria = SongFilterCriteria.Default with { MinLevel = 50, MaxLevel = null };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Hard" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_LevelMaxOnly_NoMinBound()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Easy", level: 30),
+                Score("Hard", level: 90)
+            };
+            var criteria = SongFilterCriteria.Default with { MinLevel = null, MaxLevel = 50 };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Easy" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_LevelMinGreaterThanMax_SwapsSilently()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Mid", level: 50)
+            };
+            var criteria = SongFilterCriteria.Default with { MinLevel = 80, MaxLevel = 30 };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Single(result);
+        }
     }
 }
