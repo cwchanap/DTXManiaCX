@@ -19,7 +19,8 @@ namespace DTXMania.Game.Lib.Song.Filtering
 
             var afterSearch = ApplySearch(flat, criteria.SearchQuery);
             var afterLevel  = ApplyLevel(afterSearch, criteria.MinLevel, criteria.MaxLevel);
-            return SortResults(afterLevel, criteria);
+            var afterPlayed = ApplyPlayedStatus(afterLevel, criteria.PlayedStatus);
+            return SortResults(afterPlayed, criteria);
         }
 
         private static void Flatten(SongListNode node, string parentPath, List<FilteredSongResult> sink)
@@ -69,6 +70,30 @@ namespace DTXMania.Game.Lib.Song.Filtering
                 int level = r.Node.MaxDifficultyLevel;
                 return level >= lo && level <= hi;
             }).ToList();
+        }
+
+        private static List<FilteredSongResult> ApplyPlayedStatus(
+            List<FilteredSongResult> flat, PlayedStatus status)
+        {
+            if (status == PlayedStatus.All) return flat;
+
+            return flat.Where(r => Match(r.Node, status)).ToList();
+        }
+
+        private static bool Match(SongListNode node, PlayedStatus status)
+        {
+            bool anyPlayed   = node.Scores.Any(s => s != null && s.PlayCount > 0);
+            bool anyCleared  = node.Scores.Any(s => s != null && s.PlayCount > 0
+                                && DTXMania.Game.Lib.Song.Entities.SongScore
+                                       .ComputeRankIndex(s.BestRank) < 7);
+
+            return status switch
+            {
+                PlayedStatus.Unplayed => !anyPlayed,
+                PlayedStatus.Played   => anyPlayed,
+                PlayedStatus.Cleared  => anyCleared,
+                _ => true
+            };
         }
 
         private static bool Contains(string? haystack, string needle)
