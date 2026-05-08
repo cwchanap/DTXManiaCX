@@ -10,6 +10,12 @@ namespace DTXMania.Test.Stage.KeyAssign;
 [Trait("Category", "Unit")]
 public class DrumKeyAssignPanelCoverageTests
 {
+    /// <summary>
+    /// Number of Down presses needed to navigate past all drum lanes
+    /// to reach the Save footer row (LaneCount = 10 in DrumKeyAssignPanel).
+    /// </summary>
+    private const int PressesToReachSaveRow = 10;
+
     private static ModularInputManager CreateModularInputManager()
     {
         var configManager = new ConfigManager();
@@ -122,7 +128,7 @@ public class DrumKeyAssignPanelCoverageTests
     }
 
     [Fact]
-    public void CommitAndClose_ShouldFireSavedAndClosed()
+    public void CommitWithPendingChanges_ShouldFireSavedAndClosed()
     {
         var modularInputManager = CreateModularInputManager();
         var panel = new DrumKeyAssignPanel(modularInputManager);
@@ -131,7 +137,7 @@ public class DrumKeyAssignPanelCoverageTests
         panel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>();
         panel.EvictSystemBinding = _ => { };
         panel.Activate();
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < PressesToReachSaveRow; i++)
             panel.Update(0.016, new KeyboardState(Keys.Down), new KeyboardState());
 
         var savedFired = false;
@@ -147,7 +153,7 @@ public class DrumKeyAssignPanelCoverageTests
     }
 
     [Fact]
-    public void CancelAndClose_ShouldFireClosedOnly()
+    public void CancelWithoutSaving_ShouldFireClosedOnly()
     {
         var modularInputManager = CreateModularInputManager();
         var panel = new DrumKeyAssignPanel(modularInputManager);

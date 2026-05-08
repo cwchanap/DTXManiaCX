@@ -19,7 +19,8 @@ namespace DTXMania.Test.Stage.Performance
         /// <summary>
         /// ScrollSpeedIndicator is created with null font (font init can fail at runtime).
         /// All logic tests work without a real BitmapFont because Show/Update/ComputeAlpha
-        /// do not touch the font — only Draw does, and Draw is excluded from unit tests.
+        /// do not touch the font — only Draw does. Draw tests use CreateTestBitmapFont
+        /// for full coverage, while logic tests rely on the null-font fast path.
         /// </summary>
         private static ScrollSpeedIndicator CreateIndicator()
         {
@@ -291,7 +292,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Draw_WithFontAtFullAlpha_ShouldPassWhiteColorToDrawText()
+        public void Draw_WithFontAtFullAlpha_DoesNotThrow()
         {
             var font = CreateTestBitmapFont();
             var indicator = new ScrollSpeedIndicator(font);
