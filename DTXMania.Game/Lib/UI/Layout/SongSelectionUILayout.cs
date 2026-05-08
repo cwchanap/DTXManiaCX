@@ -576,5 +576,60 @@ namespace DTXMania.Game.Lib.UI.Layout
         // Scroll-speed display (e.g., "Scroll x1.5") on song-select panel
         public const int ScrollSpeedLabelX = 20;
         public const int ScrollSpeedLabelY = 680; // bottom-left
+
+        #region Search Filter Modal Layout
+
+        /// <summary>
+        /// Layout constants for the search/filter/sort modal overlay.
+        /// </summary>
+        public static class SearchFilterModal
+        {
+            // Centered in 1280x720
+            public const int X = 340;
+            public const int Y = 180;
+            public const int Width = 600;
+            public const int Height = 360;
+
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Vector2 Size => new Vector2(Width, Height);
+            public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
+
+            // Title bar
+            public const int TitleY = 12;             // relative to modal top
+            public const int TitleHeight = 28;
+
+            // Field rows (relative to modal top-left)
+            public const int RowSpacing = 44;
+            public const int FirstRowY = 56;
+            public const int LabelX = 24;
+            public const int FieldX = 130;
+
+            // Search box
+            public const int SearchBoxY = FirstRowY;
+            public const int SearchBoxWidth = 430;
+            public const int SearchBoxHeight = 30;
+
+            // Level row
+            public const int LevelRowY = FirstRowY + RowSpacing;
+            public const int LevelMinX = FieldX;
+            public const int LevelMaxX = FieldX + 180;
+            public const int LevelInputWidth = 80;
+            public const int LevelInputHeight = 30;
+
+            // Played-status row
+            public const int PlayedRowY = FirstRowY + RowSpacing * 2;
+
+            // Sort row
+            public const int SortRowY = FirstRowY + RowSpacing * 3;
+
+            // Buttons
+            public const int ButtonRowY = FirstRowY + RowSpacing * 4 + 8;
+            public const int ResetButtonX = 200;
+            public const int ApplyButtonX = 360;
+            public const int ButtonWidth = 120;
+            public const int ButtonHeight = 36;
+        }
+
+        #endregion
     }
 }
