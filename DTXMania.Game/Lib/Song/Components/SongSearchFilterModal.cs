@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using static DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout;
 
 namespace DTXMania.Game.Lib.Song.Components
 {
@@ -259,9 +260,138 @@ namespace DTXMania.Game.Lib.Song.Components
             return allowed[next];
         }
 
+        public Texture2D? WhitePixel { get; set; }
+        public SpriteFont? Font { get; set; }
+
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
-            // Drawing implemented in Task 28.
+            if (!_isOpen || WhitePixel == null || Font == null) return;
+
+            var modalBounds = SearchFilterModal.Bounds;
+
+            // Dim the screen behind the modal
+            spriteBatch.Draw(WhitePixel,
+                new Microsoft.Xna.Framework.Rectangle(0, 0, 1280, 720),
+                new Microsoft.Xna.Framework.Color(0, 0, 0, 160));
+
+            // Modal panel background
+            spriteBatch.Draw(WhitePixel, modalBounds,
+                new Microsoft.Xna.Framework.Color(28, 28, 32));
+
+            // Title
+            DrawText(spriteBatch, "SEARCH & FILTER",
+                new Microsoft.Xna.Framework.Vector2(
+                    modalBounds.X + (modalBounds.Width - Font.MeasureString("SEARCH & FILTER").X) / 2,
+                    modalBounds.Y + 12),
+                Microsoft.Xna.Framework.Color.White);
+
+            DrawSearchRow(spriteBatch, modalBounds);
+            DrawLevelRow(spriteBatch, modalBounds);
+            DrawPlayedRow(spriteBatch, modalBounds);
+            DrawSortRow(spriteBatch, modalBounds);
+            DrawButtons(spriteBatch, modalBounds);
+
+            if (!IsLibraryReady)
+            {
+                DrawText(spriteBatch, LoadingHintText,
+                    new Microsoft.Xna.Framework.Vector2(modalBounds.X + 24, modalBounds.Y + modalBounds.Height - 24),
+                    Microsoft.Xna.Framework.Color.Yellow);
+            }
+        }
+
+        private void DrawText(SpriteBatch spriteBatch, string text, Microsoft.Xna.Framework.Vector2 pos, Microsoft.Xna.Framework.Color color)
+        {
+            spriteBatch.DrawString(Font!, text, pos, color);
+        }
+
+        private static readonly Microsoft.Xna.Framework.Color FocusedBg = new(60, 60, 80);
+        private static readonly Microsoft.Xna.Framework.Color FieldBg   = new(40, 40, 50);
+
+        private void DrawSearchRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
+        {
+            DrawText(sb, "Search:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.SearchBoxY + 6),
+                Microsoft.Xna.Framework.Color.LightGray);
+            var box = new Microsoft.Xna.Framework.Rectangle(
+                modal.X + SearchFilterModal.FieldX, modal.Y + SearchFilterModal.SearchBoxY, SearchFilterModal.SearchBoxWidth, SearchFilterModal.SearchBoxHeight);
+            sb.Draw(WhitePixel,
+                box,
+                _focusedField == Field.SearchBox ? FocusedBg : FieldBg);
+            DrawText(sb, _draft.SearchQuery ?? "",
+                new Microsoft.Xna.Framework.Vector2(box.X + 6, box.Y + 6),
+                Microsoft.Xna.Framework.Color.White);
+        }
+
+        private void DrawLevelRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
+        {
+            DrawText(sb, "Level:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.LevelRowY + 6),
+                Microsoft.Xna.Framework.Color.LightGray);
+            DrawNumeric(sb, modal.X + SearchFilterModal.LevelMinX, modal.Y + SearchFilterModal.LevelRowY,
+                SearchFilterModal.LevelInputWidth, SearchFilterModal.LevelInputHeight,
+                _draft.MinLevel, _focusedField == Field.MinLevel, "Min");
+            DrawNumeric(sb, modal.X + SearchFilterModal.LevelMaxX, modal.Y + SearchFilterModal.LevelRowY,
+                SearchFilterModal.LevelInputWidth, SearchFilterModal.LevelInputHeight,
+                _draft.MaxLevel, _focusedField == Field.MaxLevel, "Max");
+        }
+
+        private void DrawNumeric(SpriteBatch sb, int x, int y, int w, int h, int? value, bool focused, string label)
+        {
+            sb.Draw(WhitePixel, new Microsoft.Xna.Framework.Rectangle(x, y, w, h),
+                focused ? FocusedBg : FieldBg);
+            string text = value?.ToString() ?? label;
+            DrawText(sb, text, new Microsoft.Xna.Framework.Vector2(x + 6, y + 6),
+                value is null ? Microsoft.Xna.Framework.Color.Gray : Microsoft.Xna.Framework.Color.White);
+        }
+
+        private void DrawPlayedRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
+        {
+            DrawText(sb, "Played:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.PlayedRowY + 6),
+                Microsoft.Xna.Framework.Color.LightGray);
+            var rowBg = _focusedField == Field.PlayedStatus ? FocusedBg : FieldBg;
+            var box = new Microsoft.Xna.Framework.Rectangle(
+                modal.X + SearchFilterModal.FieldX, modal.Y + SearchFilterModal.PlayedRowY, 380, 30);
+            sb.Draw(WhitePixel, box, rowBg);
+            DrawText(sb, "(◀ ▶) " + _draft.PlayedStatus,
+                new Microsoft.Xna.Framework.Vector2(box.X + 6, box.Y + 6),
+                Microsoft.Xna.Framework.Color.White);
+        }
+
+        private void DrawSortRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
+        {
+            DrawText(sb, "Sort by:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.SortRowY + 6),
+                Microsoft.Xna.Framework.Color.LightGray);
+            var sortBox = new Microsoft.Xna.Framework.Rectangle(
+                modal.X + SearchFilterModal.FieldX, modal.Y + SearchFilterModal.SortRowY, 160, 30);
+            sb.Draw(WhitePixel, sortBox,
+                _focusedField == Field.SortBy ? FocusedBg : FieldBg);
+            DrawText(sb, _draft.SortBy.ToString(),
+                new Microsoft.Xna.Framework.Vector2(sortBox.X + 6, sortBox.Y + 6),
+                Microsoft.Xna.Framework.Color.White);
+
+            var dirBox = new Microsoft.Xna.Framework.Rectangle(
+                sortBox.X + sortBox.Width + 20, sortBox.Y, 100, 30);
+            sb.Draw(WhitePixel, dirBox,
+                _focusedField == Field.SortDirection ? FocusedBg : FieldBg);
+            DrawText(sb, _draft.SortDescending ? "Desc" : "Asc",
+                new Microsoft.Xna.Framework.Vector2(dirBox.X + 6, dirBox.Y + 6),
+                Microsoft.Xna.Framework.Color.White);
+        }
+
+        private void DrawButtons(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
+        {
+            var resetRect = new Microsoft.Xna.Framework.Rectangle(
+                modal.X + SearchFilterModal.ResetButtonX, modal.Y + SearchFilterModal.ButtonRowY, SearchFilterModal.ButtonWidth, SearchFilterModal.ButtonHeight);
+            var applyRect = new Microsoft.Xna.Framework.Rectangle(
+                modal.X + SearchFilterModal.ApplyButtonX, modal.Y + SearchFilterModal.ButtonRowY, SearchFilterModal.ButtonWidth, SearchFilterModal.ButtonHeight);
+            sb.Draw(WhitePixel, resetRect,
+                _focusedField == Field.ResetButton ? FocusedBg : FieldBg);
+            sb.Draw(WhitePixel, applyRect,
+                _focusedField == Field.ApplyButton ? FocusedBg : FieldBg);
+            DrawText(sb, "Reset",
+                new Microsoft.Xna.Framework.Vector2(resetRect.X + 36, resetRect.Y + 8),
+                Microsoft.Xna.Framework.Color.White);
+            DrawText(sb, "Apply",
+                new Microsoft.Xna.Framework.Vector2(applyRect.X + 36, applyRect.Y + 8),
+                Microsoft.Xna.Framework.Color.White);
         }
     }
 }

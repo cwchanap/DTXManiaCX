@@ -503,6 +503,9 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     _textInputSource = new WindowTextInputSource(window);
                     _searchFilterModal = new SongSearchFilterModal(_textInputSource);
+                    // Inject graphics resources
+                    _searchFilterModal.WhitePixel = _whitePixel;
+                    _searchFilterModal.Font = _statusPanel?.Font;
                     _searchFilterModal.FilterApplied += OnFilterApplied;
                     _searchFilterModal.FilterReset   += OnFilterReset;
                     _searchFilterModal.Cancelled     += OnFilterCancelled;
