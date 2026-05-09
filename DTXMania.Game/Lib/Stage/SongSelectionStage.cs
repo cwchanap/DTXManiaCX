@@ -48,6 +48,7 @@ namespace DTXMania.Game.Lib.Stage
         private SongFilterCriteria _filterCriteria = SongFilterCriteria.Default;
         private System.Collections.Generic.IReadOnlyList<FilteredSongResult>? _filteredView;
         private readonly ISongListFilterService _filterService = new SongListFilterService();
+        private bool _showEmptyFilterMessage;
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -836,6 +837,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             _filterCriteria = SongFilterCriteria.Default;
             _filteredView = null;
+            _showEmptyFilterMessage = false;
             PopulateSongListForCurrentMode();
             UpdateBreadcrumb();
             UpdateStatusPanelFolderHint();
@@ -853,10 +855,12 @@ namespace DTXMania.Game.Lib.Stage
             if (_filterCriteria.IsEmpty)
             {
                 _filteredView = null;
+                _showEmptyFilterMessage = false;
                 return;
             }
             var roots = SongManager.Instance.RootSongs;
             _filteredView = _filterService.Apply(roots, _filterCriteria);
+            _showEmptyFilterMessage = _filteredView.Count == 0;
         }
 
         private void PopulateSongListForCurrentMode()
@@ -957,6 +961,16 @@ namespace DTXMania.Game.Lib.Stage
                     SongSelectionUILayout.ScrollSpeedLabelX,
                     SongSelectionUILayout.ScrollSpeedLabelY,
                     Microsoft.Xna.Framework.Color.White);
+            }
+
+            // Draw empty-state message when the active filter returns no results
+            if (_showEmptyFilterMessage && _bitmapFont != null)
+            {
+                string msg = "No songs match this filter";
+                _bitmapFont.DrawText(_spriteBatch, msg,
+                    SongSelectionUILayout.SongBars.UnselectedBarX + 100,
+                    SongSelectionUILayout.SongBars.SelectedBarY,
+                    Microsoft.Xna.Framework.Color.LightGray);
             }
 
             _spriteBatch.End();
