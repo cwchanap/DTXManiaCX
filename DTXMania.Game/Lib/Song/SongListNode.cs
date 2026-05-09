@@ -197,11 +197,14 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (score == null) continue;
 
-                // Find the persisted score row for this instrument across all charts.
-                // Each chart may have at most one persisted row per instrument.
+                // Find the persisted score row for this instrument AND difficulty across all charts.
+                // Each chart may have at most one persisted row per instrument; matching by
+                // DifficultyLevel as well ensures the correct chart's history is used when
+                // multiple charts share the same instrument (e.g. Basic + Extreme drums).
                 var persisted = charts
                     .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
-                    .FirstOrDefault(ps => ps.Instrument == score.Instrument);
+                    .FirstOrDefault(ps => ps.Instrument == score.Instrument
+                                          && ps.DifficultyLevel == score.DifficultyLevel);
 
                 if (persisted == null) continue;
 
