@@ -820,8 +820,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private void NavigateBack()
         {
-            if (_filteredView != null) return;
-
             if (_navigationStack.Count > 0)
             {
                 var previousState = _navigationStack.Pop();
@@ -1197,6 +1195,11 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         // Exit status panel mode - no debounce needed for navigation
                         _isInStatusPanel = false;
+                    }
+                    else if (_filteredView != null)
+                    {
+                        // Clear active filter so subsequent Back presses navigate normally
+                        OnFilterReset(this, System.EventArgs.Empty);
                     }
                     else if (_navigationStack.Count > 0)
                     {
@@ -1886,7 +1889,13 @@ namespace DTXMania.Game.Lib.Stage
         private static string? FormatLevel(int? min, int? max)
         {
             if (min is null && max is null) return null;
-            if (min is not null && max is not null) return $"Lv {min}-{max}";
+            if (min is not null && max is not null)
+            {
+                // Normalize inverted ranges to match the filter service behavior
+                int lo = min.Value, hi = max.Value;
+                if (lo > hi) (lo, hi) = (hi, lo);
+                return $"Lv {lo}-{hi}";
+            }
             if (min is not null) return $"Lv {min}+";
             return $"Lv ≤{max}";
         }

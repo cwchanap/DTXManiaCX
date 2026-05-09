@@ -288,6 +288,23 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
+        public void Apply_PlayedStatusCleared_NormalizesLegacyOrdinalBestRank()
+        {
+            // Legacy ordinal 2 = A rank. Without normalization this maps to F via ComputeRankIndex.
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("LegacyA", playCount: 1, bestRank: 2),   // legacy ordinal A
+                ScoreWith("ModernA", playCount: 1, bestRank: 80),  // canonical A bucket
+                ScoreWith("Failed",  playCount: 3, bestRank: 0)    // F bucket
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "LegacyA", "ModernA" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
         public void Apply_PlayedStatusAll_NoFilter()
         {
             var roots = new List<SongListNode>
