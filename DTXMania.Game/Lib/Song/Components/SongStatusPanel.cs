@@ -517,8 +517,8 @@ namespace DTXMania.Game.Lib.Song.Components
             if (!string.IsNullOrEmpty(FolderHint) && _font != null)
             {
                 var pos = new Microsoft.Xna.Framework.Vector2(
-                    AbsolutePosition.X + 12,
-                    AbsolutePosition.Y + 6);
+                    AbsolutePosition.X + SongSelectionUILayout.FolderHintOverlay.OffsetX,
+                    AbsolutePosition.Y + SongSelectionUILayout.FolderHintOverlay.OffsetY);
                 spriteBatch.DrawString(_font, "From: " + FolderHint, pos, Microsoft.Xna.Framework.Color.LightGray);
             }
 

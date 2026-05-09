@@ -7,7 +7,7 @@ namespace DTXMania.Test.Song.Filtering
     public class SongFilterCriteriaTests
     {
         [Fact]
-        public void Default_HasExpectedValues()
+        public void Default_ShouldHaveExpectedValues()
         {
             var c = SongFilterCriteria.Default;
 
@@ -20,48 +20,48 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void IsEmpty_TrueForDefault()
+        public void Default_IsEmpty_ShouldBeTrue()
         {
             Assert.True(SongFilterCriteria.Default.IsEmpty);
         }
 
         [Fact]
-        public void IsEmpty_FalseWhenSearchQuerySet()
+        public void WhenSearchQuerySet_IsEmpty_ShouldBeFalse()
         {
             var c = SongFilterCriteria.Default with { SearchQuery = "abc" };
             Assert.False(c.IsEmpty);
         }
 
         [Fact]
-        public void IsEmpty_FalseWhenLevelSet()
+        public void WhenMinLevelSet_IsEmpty_ShouldBeFalse()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 50 };
             Assert.False(c.IsEmpty);
         }
 
         [Fact]
-        public void IsEmpty_FalseWhenPlayedStatusNotAll()
+        public void WhenPlayedStatusNotAll_IsEmpty_ShouldBeFalse()
         {
             var c = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Unplayed };
             Assert.False(c.IsEmpty);
         }
 
         [Fact]
-        public void IsEmpty_FalseWhenSortDescending()
+        public void WhenSortDescending_IsEmpty_ShouldBeFalse()
         {
             var c = SongFilterCriteria.Default with { SortDescending = true };
             Assert.False(c.IsEmpty);
         }
 
         [Fact]
-        public void IsEmpty_FalseWhenSortByNotTitle()
+        public void WhenSortByNotTitle_IsEmpty_ShouldBeFalse()
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Artist };
             Assert.False(c.IsEmpty);
         }
 
         [Fact]
-        public void Equality_RecordValueSemantics()
+        public void Equals_RecordValueSemantics_ShouldBeTrue()
         {
             var a = SongFilterCriteria.Default with { SearchQuery = "x" };
             var b = SongFilterCriteria.Default with { SearchQuery = "x" };

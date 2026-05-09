@@ -240,7 +240,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private static PlayedStatus CycleEnum(PlayedStatus current, int dir)
         {
-            int count = 4; // All, Unplayed, Played, Cleared
+            int count = System.Enum.GetValues(typeof(PlayedStatus)).Length;
             int idx = ((int)current + dir + count) % count;
             return (PlayedStatus)idx;
         }
@@ -271,7 +271,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Dim the screen behind the modal
             spriteBatch.Draw(WhitePixel,
-                new Microsoft.Xna.Framework.Rectangle(0, 0, 1280, 720),
+                new Microsoft.Xna.Framework.Rectangle(0, 0,
+                    DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.SongListDisplay.Width,
+                    DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.SongListDisplay.Height),
                 new Microsoft.Xna.Framework.Color(0, 0, 0, 160));
 
             // Modal panel background
