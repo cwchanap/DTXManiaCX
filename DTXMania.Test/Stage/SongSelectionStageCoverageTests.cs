@@ -393,6 +393,18 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_OpenSearch_WhenModalIsNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_searchFilterModal", null);
+
+            var exception = Record.Exception(() =>
+                InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.OpenSearch, 0.0)));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void HandleActivateInput_InStatusPanelWithScore_ShouldSelectSong()
         {
             var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);

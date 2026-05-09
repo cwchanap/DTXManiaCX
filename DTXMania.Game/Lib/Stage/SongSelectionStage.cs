@@ -668,6 +668,9 @@ namespace DTXMania.Game.Lib.Stage
                     // Update the song list on the main thread
                     _currentSongList = songList;
                     PopulateSongList();
+
+                    // Reapply any persisted filter now that the real song list is available
+                    ReapplyPersistedFilterIfActive();
                 }
                 catch (Exception ex)
                 {
@@ -1023,7 +1026,9 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Draw empty-state message when the active filter returns no results
-            if (_showEmptyFilterMessage && _bitmapFont != null)
+            // Skip when the search modal is open to avoid overlaying the modal contents
+            if (_showEmptyFilterMessage && _bitmapFont != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 string msg = "No songs match this filter";
                 _bitmapFont.DrawText(_spriteBatch, msg,
@@ -1229,6 +1234,10 @@ namespace DTXMania.Game.Lib.Stage
 
                 case InputCommandType.DecreaseScrollSpeed:
                     _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
+                    break;
+
+                case InputCommandType.OpenSearch:
+                    OpenSearchFilterModal();
                     break;
 
             }

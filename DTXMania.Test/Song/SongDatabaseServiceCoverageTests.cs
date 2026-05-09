@@ -136,6 +136,27 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSongWithChartsAsync_ShouldIncludePersistedScores()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+
+        var (songId, chart) = await AddSongAsync("Scored Song", "Coverage Bot", "scored-song.dtx", drumLevel: 50);
+
+        // Submit a score so there is a persisted SongScore row
+        await _databaseService.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, 850_000, 88.0, fullCombo: false);
+
+        var result = await _databaseService.GetSongWithChartsAsync(songId);
+
+        Assert.NotNull(result);
+        var returnedChart = Assert.Single(result!.Value.charts);
+        Assert.NotNull(returnedChart.Scores);
+        var persistedScore = Assert.Single(returnedChart.Scores);
+        Assert.Equal(850_000, persistedScore.BestScore);
+        Assert.Equal(88.0, persistedScore.BestAchievementRate);
+        Assert.Equal(1, persistedScore.PlayCount);
+    }
+
+    [Fact]
     public async Task UpdateScoreAsync_WhenNewBestScoreSubmitted_ShouldUpdateBestLastAndCounters()
     {
         await _databaseService.InitializeDatabaseAsync();
