@@ -826,6 +826,7 @@ namespace DTXMania.Game.Lib.Stage
             _filterCriteria = criteria;
             RebuildFilteredView();
             PopulateSongListForCurrentMode();
+            UpdateBreadcrumb();
             _inputManager?.ClearPendingCommands();
         }
 
@@ -834,6 +835,7 @@ namespace DTXMania.Game.Lib.Stage
             _filterCriteria = SongFilterCriteria.Default;
             _filteredView = null;
             PopulateSongListForCurrentMode();
+            UpdateBreadcrumb();
             _inputManager?.ClearPendingCommands();
         }
 
@@ -872,9 +874,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void UpdateBreadcrumb()
         {
-            _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
-                ? "Root"
-                : _currentBreadcrumb;
+            string filterSummary = SummarizeFilter(_filterCriteria);
+            if (!string.IsNullOrEmpty(filterSummary))
+                _breadcrumbLabel.Text = filterSummary;
+            else
+                _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
+                    ? "Root"
+                    : _currentBreadcrumb;
         }
 
         #endregion
@@ -1725,6 +1731,43 @@ namespace DTXMania.Game.Lib.Stage
             SongFilterCriteria.Default.IsEmpty;
 
         public static bool DefaultFilteredViewIsNull() => true;
+
+        // Breadcrumb filter summary helpers
+        public static string SummarizeFilter(SongFilterCriteria c)
+        {
+            if (c.IsEmpty) return "";
+
+            var parts = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrEmpty(c.SearchQuery))
+                parts.Add($"\"{c.SearchQuery}\"");
+
+            string? levelPart = FormatLevel(c.MinLevel, c.MaxLevel);
+            if (levelPart != null) parts.Add(levelPart);
+
+            if (c.PlayedStatus != PlayedStatus.All)
+                parts.Add(c.PlayedStatus.ToString());
+
+            string? sortPart = FormatSort(c.SortBy, c.SortDescending);
+            if (sortPart != null) parts.Add(sortPart);
+
+            return "Filtered: " + string.Join(" · ", parts);
+        }
+
+        private static string? FormatLevel(int? min, int? max)
+        {
+            if (min is null && max is null) return null;
+            if (min is not null && max is not null) return $"Lv {min}-{max}";
+            if (min is not null) return $"Lv {min}+";
+            return $"Lv ≤{max}";
+        }
+
+        private static string? FormatSort(SongSortCriteria by, bool desc)
+        {
+            // Default sort (Title ascending) is omitted from the summary
+            if (by == SongSortCriteria.Title && !desc) return null;
+            char arrow = desc ? '↓' : '↑';
+            return $"{by}{arrow}";
+        }
 
     }
 
