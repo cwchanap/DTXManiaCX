@@ -873,10 +873,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PopulateFilteredSongList()
         {
+            var prev = _songListDisplay?.SelectedSong;
             var displayList = new System.Collections.Generic.List<SongListNode>(_filteredView!.Count);
             foreach (var r in _filteredView)
                 displayList.Add(r.Node);
             _songListDisplay.CurrentList = displayList;
+            _songListDisplay.SelectedIndex = ClampSelectionIndex(prev, displayList);
         }
 
         private void UpdateBreadcrumb()
@@ -1770,6 +1772,18 @@ namespace DTXMania.Game.Lib.Stage
             SongFilterCriteria.Default.IsEmpty;
 
         public static bool DefaultFilteredViewIsNull() => true;
+
+        public static int ClampSelectionIndex(SongListNode previousSelected, System.Collections.Generic.IReadOnlyList<SongListNode> newList)
+        {
+            if (newList == null || newList.Count == 0) return 0;
+            if (previousSelected == null) return 0;
+            for (int i = 0; i < newList.Count; i++)
+            {
+                if (ReferenceEquals(newList[i], previousSelected))
+                    return i;
+            }
+            return 0;
+        }
 
         // Breadcrumb filter summary helpers
         public static string SummarizeFilter(SongFilterCriteria c)
