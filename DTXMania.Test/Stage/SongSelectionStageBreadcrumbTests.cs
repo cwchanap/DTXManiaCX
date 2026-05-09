@@ -29,6 +29,13 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void Summarize_LevelRangeInverted_SwapsToAscending()
+        {
+            var c = SongFilterCriteria.Default with { MinLevel = 80, MaxLevel = 30 };
+            Assert.Equal("Filtered: Lv 30-80", SongSelectionStage.SummarizeFilter(c));
+        }
+
+        [Fact]
         public void Summarize_LevelMinOnly()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 50, MaxLevel = null };

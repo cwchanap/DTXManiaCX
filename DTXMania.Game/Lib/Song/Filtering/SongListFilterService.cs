@@ -91,7 +91,9 @@ namespace DTXMania.Game.Lib.Song.Filtering
             bool anyPlayed   = node.Scores.Any(s => s != null && s.PlayCount > 0);
             bool anyCleared  = node.Scores.Any(s => s != null && s.PlayCount > 0
                                 && DTXMania.Game.Lib.Song.Entities.SongScore
-                                       .ComputeRankIndex(s.BestRank) < ClearedRankThreshold);
+                                       .ComputeRankIndex(
+                                           DTXMania.Game.Lib.Song.Entities.SongScore
+                                               .NormalizeStoredBestRank(s.BestRank)) < ClearedRankThreshold);
 
             return status switch
             {
