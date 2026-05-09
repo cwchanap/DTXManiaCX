@@ -393,5 +393,12 @@ namespace DTXMania.Game.Lib.Song.Components
                 new Microsoft.Xna.Framework.Vector2(applyRect.X + 36, applyRect.Y + 8),
                 Microsoft.Xna.Framework.Color.White);
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                UnsubscribeText();
+            base.Dispose(disposing);
+        }
     }
 }

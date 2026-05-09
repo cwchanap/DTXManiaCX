@@ -5,9 +5,10 @@ using Microsoft.Xna.Framework;
 
 namespace DTXMania.Game.Lib.UI.Components
 {
-    public sealed class WindowTextInputSource : ITextInputSource
+    public sealed class WindowTextInputSource : ITextInputSource, IDisposable
     {
         private readonly GameWindow _window;
+        private bool _disposed;
 
         public WindowTextInputSource(GameWindow window)
         {
@@ -20,6 +21,13 @@ namespace DTXMania.Game.Lib.UI.Components
         private void OnTextInput(object? sender, TextInputEventArgs e)
         {
             TextInput?.Invoke(sender, e);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _window.TextInput -= OnTextInput;
+            _disposed = true;
         }
     }
 }
