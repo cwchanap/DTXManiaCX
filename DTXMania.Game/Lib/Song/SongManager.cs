@@ -2223,6 +2223,9 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
+                // Populate play history from persisted score records (if eagerly loaded).
+                songNode.PopulatePlayHistoryFromCharts(charts);
+
                 return songNode;
             }
             catch (Exception ex)

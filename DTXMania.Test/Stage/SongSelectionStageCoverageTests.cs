@@ -1070,5 +1070,62 @@ namespace DTXMania.Test.Stage
                 EnqueueCommand(command);
             }
         }
+
+        /// <summary>
+        /// InputManager subclass that supports both command enqueuing and simulated
+        /// Backspace key press. Used to test the modal-open-frame race condition.
+        /// </summary>
+        private sealed class BackspaceInputManager : InputManager
+        {
+            private bool _backspacePressed;
+
+            public void Enqueue(InputCommand command)
+            {
+                EnqueueCommand(command);
+            }
+
+            public BackspaceInputManager WithBackspace()
+            {
+                _backspacePressed = true;
+                return this;
+            }
+
+            public override bool IsKeyPressed(int keyCode)
+            {
+                if (keyCode == (int)Microsoft.Xna.Framework.Input.Keys.Back && _backspacePressed)
+                    return true;
+                return base.IsKeyPressed(keyCode);
+            }
+        }
+
+        [Fact]
+        public void HandleInput_WhenModalJustOpened_ShouldNotProcessStageCommands()
+        {
+            // Simulate a frame where Backspace opens the modal AND a MoveDown command
+            // is already queued. The modal should block the stage command on this frame.
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
+            var inputManager = new BackspaceInputManager();
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_inputManager", inputManager.WithBackspace());
+            // Queue a navigation command that should NOT execute on this frame
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+
+            // Set up the search filter modal
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "HandleInput");
+
+            // Modal should be open
+            Assert.True(modal.IsOpen);
+            // Selection should NOT have moved (MoveDown was blocked)
+            Assert.Equal("A", display.SelectedSong!.Title);
+        }
     }
 }

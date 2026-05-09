@@ -1075,6 +1075,12 @@ namespace DTXMania.Game.Lib.Stage
             // UI uses it as a meta cancel-capture key, so we poll raw keyboard state here.
             DetectOpenSearchKey();
 
+            // If the modal was just opened this frame, skip processing normal
+            // input commands so queued navigation/Back inputs don't leak through
+            // underneath the modal on the same frame.
+            if (_searchFilterModal != null && _searchFilterModal.IsOpen)
+                return;
+
             ProcessInputCommands();
         }
 
