@@ -781,6 +781,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void NavigateBack()
         {
+            if (_filteredView != null) return;
+
             if (_navigationStack.Count > 0)
             {
                 var previousState = _navigationStack.Pop();
@@ -1705,6 +1707,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void HandleActivateInput()
         {
+            if (_filteredView != null && _songListDisplay?.SelectedSong?.Type != NodeType.Score)
+            {
+                // Filter is active; only Score nodes are valid targets in flat mode.
+                return;
+            }
+
             if (_isInStatusPanel)
             {
                 // When in status panel, Enter should select the chart and transition to song transition stage
