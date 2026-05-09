@@ -585,6 +585,7 @@ namespace DTXMania.Test.Song
         var persistedScore = new SongScore
         {
             Instrument = EInstrumentPart.DRUMS,
+            Chart = chart, // EF Core sets this navigation automatically; required for DifficultyLevel matching
             PlayCount = 7,
             BestRank = 80,
             BestScore = 950000,
@@ -638,6 +639,7 @@ namespace DTXMania.Test.Song
         chart.Scores.Add(new SongScore
         {
             Instrument = EInstrumentPart.DRUMS,
+            Chart = chart, // Required for DifficultyLevel matching
             PlayCount = 5,
             BestRank = 90,
             BestScore = 800000
@@ -645,6 +647,7 @@ namespace DTXMania.Test.Song
         chart.Scores.Add(new SongScore
         {
             Instrument = EInstrumentPart.GUITAR,
+            Chart = chart, // Required for DifficultyLevel matching
             PlayCount = 2,
             BestRank = 70,
             BestScore = 600000
@@ -681,15 +684,26 @@ namespace DTXMania.Test.Song
     }
 
     [Fact]
-    public void PopulatePlayHistoryFromCharts_WithMultipleCharts_ShouldMatchAcrossCharts()
+    public void PopulatePlayHistoryFromCharts_WithMultipleCharts_ShouldMatchByInstrumentAndDifficulty()
     {
+        // chart1 has DRUMS at level 60 with a persisted score
         var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
-        var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
         chart1.Scores.Add(new SongScore
         {
             Instrument = EInstrumentPart.DRUMS,
+            Chart = chart1, // Required for DifficultyLevel matching
             PlayCount = 10,
             BestRank = 95
+        });
+
+        // chart2 has DRUMS at level 80 with its own persisted score
+        var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
+        chart2.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            Chart = chart2, // Required for DifficultyLevel matching
+            PlayCount = 25,
+            BestRank = 88
         });
 
         var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
@@ -706,9 +720,49 @@ namespace DTXMania.Test.Song
 
         node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
 
-        // Both score slots with DRUMS match the persisted DRUMS score on chart1
+        // Each slot should match the persisted score with the same instrument AND difficulty level
         Assert.Equal(10, node.Scores[0]!.PlayCount);
-        Assert.Equal(10, node.Scores[1]!.PlayCount);
+        Assert.Equal(95, node.Scores[0]!.BestRank);
+        Assert.Equal(25, node.Scores[1]!.PlayCount);
+        Assert.Equal(88, node.Scores[1]!.BestRank);
+    }
+
+    [Fact]
+    public void PopulatePlayHistoryFromCharts_WithMultipleCharts_NoMatchingDifficulty_ShouldKeepDefaults()
+    {
+        // Only chart1 has a persisted DRUMS score at level 60
+        var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
+        chart1.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            Chart = chart1, // Required for DifficultyLevel matching
+            PlayCount = 10,
+            BestRank = 95
+        });
+
+        // chart2 has DRUMS at level 80 but no persisted score
+        var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
+
+        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+        node.Scores[0] = new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            DifficultyLevel = 60
+        };
+        node.Scores[1] = new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            DifficultyLevel = 80
+        };
+
+        node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
+
+        // Slot 0 matches chart1's persisted score (same instrument + level 60)
+        Assert.Equal(10, node.Scores[0]!.PlayCount);
+        Assert.Equal(95, node.Scores[0]!.BestRank);
+        // Slot 1 has no matching persisted score (level 80, no data) — stays default
+        Assert.Equal(0, node.Scores[1]!.PlayCount);
+        Assert.Equal(0, node.Scores[1]!.BestRank);
     }
 
     #endregion
