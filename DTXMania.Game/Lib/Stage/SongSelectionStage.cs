@@ -966,7 +966,25 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
+            // Detect Backspace edge-press to open the search/filter modal.
+            // Backspace is not a default InputCommand binding because the KeyAssign
+            // UI uses it as a meta cancel-capture key, so we poll raw keyboard state here.
+            DetectOpenSearchKey();
+
             ProcessInputCommands();
+        }
+
+        private Microsoft.Xna.Framework.Input.KeyboardState _prevOpenSearchKbState;
+
+        private void DetectOpenSearchKey()
+        {
+            var current = Microsoft.Xna.Framework.Input.Keyboard.GetState();
+            bool wasDown = _prevOpenSearchKbState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Back);
+            bool isDown = current.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Back);
+            _prevOpenSearchKbState = current;
+
+            if (isDown && !wasDown)
+                OpenSearchFilterModal();
         }
 
         private Microsoft.Xna.Framework.Input.KeyboardState _prevModalKbState;
@@ -1091,9 +1109,6 @@ namespace DTXMania.Game.Lib.Stage
                     _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
                     break;
 
-                case InputCommandType.OpenSearch:
-                    OpenSearchFilterModal();
-                    break;
             }
         }
 
