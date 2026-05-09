@@ -263,6 +263,12 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up UI
             _uiManager?.Dispose();
 
+            // Unsubscribe from GameWindow.TextInput so the modal's adapter doesn't
+            // keep firing into a deactivated stage.
+            _textInputSource?.Dispose();
+            _textInputSource = null;
+            _searchFilterModal = null;
+
             if (_ownsInputManager)
             {
                 _inputManager?.ClearPendingCommands();
@@ -512,9 +518,18 @@ namespace DTXMania.Game.Lib.Stage
                     _mainPanel.AddChild(_searchFilterModal);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Window unavailable in headless/test environments; modal will be skipped
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: search-filter modal init skipped: {ex.Message}");
+            }
+
+            // Clean up if modal construction left _textInputSource orphaned
+            if (_searchFilterModal == null && _textInputSource != null)
+            {
+                _textInputSource.Dispose();
+                _textInputSource = null;
             }
 
             // Add panel to UI manager
@@ -1183,8 +1198,12 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_searchFilterModal == null) return;
             _isInStatusPanel = false;
+            // Synchronous-init path: when SongManager was already initialized at Activate
+            // time, _songInitializationTask is null and _songInitializationProcessed never
+            // flips to true — but _currentSongList is set. Treat that as ready.
             _searchFilterModal.IsLibraryReady =
-                _songInitializationProcessed && _currentSongList != null;
+                _currentSongList != null
+                && (_songInitializationTask == null || _songInitializationProcessed);
             _searchFilterModal.Open(_filterCriteria);
         }
 
