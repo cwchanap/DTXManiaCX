@@ -498,14 +498,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
-            if (!string.IsNullOrEmpty(FolderHint) && _font != null)
-            {
-                var pos = new Microsoft.Xna.Framework.Vector2(
-                    AbsolutePosition.X + 12,
-                    AbsolutePosition.Y + 6);
-                spriteBatch.DrawString(_font, "From: " + FolderHint, pos, Microsoft.Xna.Framework.Color.LightGray);
-            }
-
             var bounds = Bounds;            // Debug logging removed for cleaner code
 
             // Draw background using DTXManiaNX styling
@@ -520,7 +512,16 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 DrawNoSongMessage(spriteBatch, bounds);
             }
-            
+
+            // Folder-hint overlay (top of panel) — drawn last so it sits on top of the background.
+            if (!string.IsNullOrEmpty(FolderHint) && _font != null)
+            {
+                var pos = new Microsoft.Xna.Framework.Vector2(
+                    AbsolutePosition.X + 12,
+                    AbsolutePosition.Y + 6);
+                spriteBatch.DrawString(_font, "From: " + FolderHint, pos, Microsoft.Xna.Framework.Color.LightGray);
+            }
+
             base.OnDraw(spriteBatch, deltaTime);
         }
 
