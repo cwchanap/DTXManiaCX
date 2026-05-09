@@ -861,9 +861,21 @@ namespace DTXMania.Game.Lib.Stage
                 _showEmptyFilterMessage = false;
                 return;
             }
-            var roots = SongManager.Instance.RootSongs;
-            _filteredView = _filterService.Apply(roots, _filterCriteria);
-            _showEmptyFilterMessage = _filteredView.Count == 0;
+
+            try
+            {
+                var roots = SongManager.Instance.RootSongs;
+                _filteredView = _filterService.Apply(roots, _filterCriteria);
+                _showEmptyFilterMessage = _filteredView.Count == 0;
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: filter projection failed: {ex.Message}");
+                // Leave existing list reference unchanged.
+                _filteredView = null;
+                _showEmptyFilterMessage = false;
+            }
         }
 
         private void PopulateSongListForCurrentMode()
