@@ -141,7 +141,17 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             get => _whitePixel;
             set => _whitePixel = value;
-        }        /// <summary>
+        }
+
+        /// <summary>
+        /// Optional folder breadcrumb to render at the top of the panel.
+        /// Set when the song selection list is in filtered (flat) mode so the
+        /// player can see where the selected song lives in the hierarchy.
+        /// Empty/null = nothing rendered.
+        /// </summary>
+        public string FolderHint { get; set; } = "";
+
+        /// <summary>
         /// Initialize graphics generator for enhanced rendering
         /// </summary>
         public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
@@ -486,6 +496,14 @@ namespace DTXMania.Game.Lib.Song.Components
             if (!Visible)
             {
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(FolderHint) && _font != null)
+            {
+                var pos = new Microsoft.Xna.Framework.Vector2(
+                    AbsolutePosition.X + 12,
+                    AbsolutePosition.Y + 6);
+                spriteBatch.DrawString(_font, "From: " + FolderHint, pos, Microsoft.Xna.Framework.Color.LightGray);
             }
 
             var bounds = Bounds;            // Debug logging removed for cleaner code
