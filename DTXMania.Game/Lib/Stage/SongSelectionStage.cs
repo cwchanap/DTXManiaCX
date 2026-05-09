@@ -1056,30 +1056,37 @@ namespace DTXMania.Game.Lib.Stage
             ProcessInputCommands();
         }
 
-        private Microsoft.Xna.Framework.Input.KeyboardState _prevOpenSearchKbState;
-
         private void DetectOpenSearchKey()
         {
-            var current = Microsoft.Xna.Framework.Input.Keyboard.GetState();
-            bool wasDown = _prevOpenSearchKbState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Back);
-            bool isDown = current.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Back);
-            _prevOpenSearchKbState = current;
-
-            if (isDown && !wasDown)
+            // Route through InputManager so MCP/API key injection is picked up
+            // alongside hardware presses. (Raw Keyboard.GetState() misses injected keys.)
+            if (_inputManager != null && _inputManager.IsKeyPressed((int)Microsoft.Xna.Framework.Input.Keys.Back))
                 OpenSearchFilterModal();
         }
 
-        private Microsoft.Xna.Framework.Input.KeyboardState _prevModalKbState;
+        // Set of keys the modal cares about (Esc/Tab/arrows/Enter/Backspace).
+        private static readonly Microsoft.Xna.Framework.Input.Keys[] ModalKeys = new[]
+        {
+            Microsoft.Xna.Framework.Input.Keys.Escape,
+            Microsoft.Xna.Framework.Input.Keys.Tab,
+            Microsoft.Xna.Framework.Input.Keys.Up,
+            Microsoft.Xna.Framework.Input.Keys.Down,
+            Microsoft.Xna.Framework.Input.Keys.Left,
+            Microsoft.Xna.Framework.Input.Keys.Right,
+            Microsoft.Xna.Framework.Input.Keys.Enter,
+            Microsoft.Xna.Framework.Input.Keys.Back
+        };
 
         private void ProcessModalKeys()
         {
-            var current = Microsoft.Xna.Framework.Input.Keyboard.GetState();
-            foreach (var key in current.GetPressedKeys())
+            // Route through InputManager so MCP/API key injection works while the
+            // modal is open. Each key is edge-detected per frame by IsKeyPressed.
+            if (_inputManager == null) return;
+            foreach (var key in ModalKeys)
             {
-                if (!_prevModalKbState.IsKeyDown(key))
+                if (_inputManager.IsKeyPressed((int)key))
                     _searchFilterModal.HandleKey(key);
             }
-            _prevModalKbState = current;
         }
 
         /// <summary>
