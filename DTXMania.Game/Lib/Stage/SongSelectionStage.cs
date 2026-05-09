@@ -483,6 +483,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Wire up events
             _songListDisplay.SelectionChanged += OnSongSelectionChanged;
+            _songListDisplay.SelectionChanged += (_, _) => UpdateStatusPanelFolderHint();
             _songListDisplay.SongActivated += OnSongActivated;
             _songListDisplay.DifficultyChanged += OnDifficultyChanged;
 
@@ -827,6 +828,7 @@ namespace DTXMania.Game.Lib.Stage
             RebuildFilteredView();
             PopulateSongListForCurrentMode();
             UpdateBreadcrumb();
+            UpdateStatusPanelFolderHint();
             _inputManager?.ClearPendingCommands();
         }
 
@@ -836,6 +838,7 @@ namespace DTXMania.Game.Lib.Stage
             _filteredView = null;
             PopulateSongListForCurrentMode();
             UpdateBreadcrumb();
+            UpdateStatusPanelFolderHint();
             _inputManager?.ClearPendingCommands();
         }
 
@@ -881,6 +884,28 @@ namespace DTXMania.Game.Lib.Stage
                 _breadcrumbLabel.Text = string.IsNullOrEmpty(_currentBreadcrumb)
                     ? "Root"
                     : _currentBreadcrumb;
+        }
+
+        private void UpdateStatusPanelFolderHint()
+        {
+            if (_statusPanel == null) return;
+            if (_filteredView == null)
+            {
+                _statusPanel.FolderHint = "";
+                return;
+            }
+            var selectedNode = _songListDisplay?.SelectedSong;
+            if (selectedNode == null) { _statusPanel.FolderHint = ""; return; }
+
+            foreach (var r in _filteredView)
+            {
+                if (ReferenceEquals(r.Node, selectedNode))
+                {
+                    _statusPanel.FolderHint = r.FolderPath;
+                    return;
+                }
+            }
+            _statusPanel.FolderHint = "";
         }
 
         #endregion
