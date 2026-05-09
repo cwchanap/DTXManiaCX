@@ -45,7 +45,16 @@ namespace DTXMania.Game.Lib.Stage
         private int _currentDifficulty = 0;
 
         // Session-scoped search/filter/sort state
-        private SongFilterCriteria _filterCriteria = SongFilterCriteria.Default;
+        // Static so the filter survives stage re-entry within an app session.
+        // StageManager creates a fresh SongSelectionStage on every entry, so an
+        // instance field would reset on every Title→SongSelect bounce.
+        private static SongFilterCriteria s_persistedFilterCriteria = SongFilterCriteria.Default;
+
+        private SongFilterCriteria _filterCriteria
+        {
+            get => s_persistedFilterCriteria;
+            set => s_persistedFilterCriteria = value;
+        }
         private System.Collections.Generic.IReadOnlyList<FilteredSongResult>? _filteredView;
         private readonly ISongListFilterService _filterService = new SongListFilterService();
         private bool _showEmptyFilterMessage;
@@ -593,6 +602,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
 
                 PopulateSongList();
+                ReapplyPersistedFilterIfActive();
             }
             catch (Exception ex)
             {
@@ -602,6 +612,20 @@ namespace DTXMania.Game.Lib.Stage
                 _currentSongList = new List<SongListNode>();
                 PopulateSongList();
             }
+        }
+
+        /// <summary>
+        /// If the user had a filter active when they last left the stage, restore it
+        /// so the song list reflects the persisted state immediately on re-entry.
+        /// </summary>
+        private void ReapplyPersistedFilterIfActive()
+        {
+            if (_filterCriteria.IsEmpty) return;
+
+            RebuildFilteredView();
+            PopulateSongListForCurrentMode();
+            UpdateBreadcrumb();
+            UpdateStatusPanelFolderHint();
         }
 
         #endregion
