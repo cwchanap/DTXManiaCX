@@ -17,7 +17,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Focused_AppendsTypedCharacters()
+        public void WhenFocused_ShouldAppendTypedCharacters()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -30,7 +30,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Unfocused_IgnoresTypedCharacters()
+        public void WhenUnfocused_ShouldIgnoreTypedCharacters()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = false };
@@ -41,7 +41,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void MaxLength_ClampsInsert()
+        public void WhenMaxLengthExceeded_ShouldClampInsert()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true, MaxLength = 3 };
@@ -55,7 +55,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Backspace_RemovesCharBeforeCaret()
+        public void Backspace_WhenCharsExist_ShouldRemoveCharBeforeCaret()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -70,7 +70,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Backspace_OnEmpty_NoOp()
+        public void Backspace_OnEmpty_ShouldBeNoOp()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -82,7 +82,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void MoveCaret_LeftRight_ClampedToTextRange()
+        public void MoveCaret_WhenLeftRight_ShouldBeClampedToTextRange()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -97,7 +97,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Backspace_FromMiddleOfText_RemovesCorrectChar()
+        public void Backspace_WhenFromMiddleOfText_ShouldRemoveCorrectChar()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -113,7 +113,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Clear_ResetsTextAndCaret()
+        public void Clear_WhenTextPresent_ShouldResetTextAndCaret()
         {
             var src = new FakeSource();
             var input = new UITextInput(src) { Focused = true };
@@ -136,7 +136,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Focused_True_SubscribesToSource()
+        public void Focused_WhenSetTrue_ShouldSubscribeToSource()
         {
             var src = new CountingSource();
             var input = new UITextInput(src);
@@ -147,7 +147,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Focused_False_UnsubscribesFromSource()
+        public void Focused_WhenSetFalse_ShouldUnsubscribeFromSource()
         {
             var src = new CountingSource();
             var input = new UITextInput(src) { Focused = true };
@@ -158,7 +158,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Focused_TrueTwice_SubscribesOnlyOnce()
+        public void Focused_WhenSetTrueTwice_ShouldSubscribeOnlyOnce()
         {
             var src = new CountingSource();
             var input = new UITextInput(src);
@@ -170,7 +170,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Dispose_UnsubscribesFromSource()
+        public void Dispose_WhenFocused_ShouldUnsubscribeFromSource()
         {
             var src = new CountingSource();
             var input = new UITextInput(src) { Focused = true };

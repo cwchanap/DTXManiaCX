@@ -26,7 +26,20 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
         
         #endregion
-        
+
+        #region Folder Hint Overlay Layout
+
+        /// <summary>
+        /// Folder-hint overlay position offsets (drawn at top of status panel)
+        /// </summary>
+        public static class FolderHintOverlay
+        {
+            public const int OffsetX = 12;
+            public const int OffsetY = 6;
+        }
+
+        #endregion
+
         #region BPM and Song Length Section
         
         /// <summary>
