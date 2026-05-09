@@ -410,13 +410,14 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
-        /// Get a song by ID with all its charts
+        /// Get a song by ID with all its charts (including persisted scores)
         public async Task<(SongEntity song, SongChart[] charts)?> GetSongWithChartsAsync(int songId)
         {
             using var context = CreateContext();
 
             var song = await context.Songs
                 .Include(s => s.Charts)
+                    .ThenInclude(c => c.Scores)
                 .FirstOrDefaultAsync(s => s.Id == songId);
 
             if (song == null)
