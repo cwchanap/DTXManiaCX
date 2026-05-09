@@ -638,6 +638,9 @@ namespace DTXMania.Game.Lib.Stage
                     // Clean up the task reference
                     _songInitializationTask = null;
                 }
+
+                if (_searchFilterModal != null && _searchFilterModal.IsOpen)
+                    _searchFilterModal.IsLibraryReady = true;
             }
         }
 
@@ -1162,8 +1165,9 @@ namespace DTXMania.Game.Lib.Stage
         private void OpenSearchFilterModal()
         {
             if (_searchFilterModal == null) return;
-            // Exit status-panel mode first
             _isInStatusPanel = false;
+            _searchFilterModal.IsLibraryReady =
+                _songInitializationProcessed && _currentSongList != null;
             _searchFilterModal.Open(_filterCriteria);
         }
 

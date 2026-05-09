@@ -45,6 +45,10 @@ namespace DTXMania.Game.Lib.Song.Components
         public SongFilterCriteria CurrentDraft => _draft;
         public Field FocusedField => _focusedField;
 
+        public bool IsLibraryReady { get; set; } = true;
+
+        public string LoadingHintText { get; set; } = "Library still loading…";
+
         public void Open(SongFilterCriteria initial)
         {
             _draft = initial ?? SongFilterCriteria.Default;
@@ -115,6 +119,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public void Apply()
         {
+            if (!IsLibraryReady) return;
             FilterApplied?.Invoke(this, _draft);
             Close();
         }
@@ -132,6 +137,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public void SubmitFromSearchBox()
         {
+            if (!IsLibraryReady) return;
             if (string.Equals(_draft.SearchQuery, "/q", StringComparison.OrdinalIgnoreCase))
             {
                 Reset();

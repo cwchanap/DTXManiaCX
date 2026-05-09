@@ -387,5 +387,32 @@ namespace DTXMania.Test.Song.Components
             // After close, characters must not affect the now-stale draft
             Assert.Equal("a", modal.CurrentDraft.SearchQuery);
         }
+
+        [Fact]
+        public void Apply_WhenLibraryNotReady_DoesNotFire()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            modal.Open(SongFilterCriteria.Default);
+            bool fired = false;
+            modal.FilterApplied += (_, _) => fired = true;
+
+            modal.Apply();
+
+            Assert.False(fired);
+            Assert.True(modal.IsOpen); // stays open
+        }
+
+        [Fact]
+        public void Reset_StillWorksWhenLibraryNotReady()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            modal.Open(SongFilterCriteria.Default);
+            bool fired = false;
+            modal.FilterReset += (_, _) => fired = true;
+
+            modal.Reset();
+
+            Assert.True(fired);
+        }
     }
 }
