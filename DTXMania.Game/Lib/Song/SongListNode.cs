@@ -184,6 +184,44 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        /// <summary>
+        /// Copies play history (PlayCount, BestRank, BestScore, etc.) from persisted
+        /// SongScore entities attached to each chart into the corresponding entries of
+        /// the <see cref="Scores"/> array.  Charts are matched to score slots by instrument.
+        /// </summary>
+        public void PopulatePlayHistoryFromCharts(SongChart[] charts)
+        {
+            if (charts == null) return;
+
+            foreach (var score in Scores)
+            {
+                if (score == null) continue;
+
+                // Find the persisted score row for this instrument across all charts.
+                // Each chart may have at most one persisted row per instrument.
+                var persisted = charts
+                    .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
+                    .FirstOrDefault(ps => ps.Instrument == score.Instrument);
+
+                if (persisted == null) continue;
+
+                score.PlayCount       = persisted.PlayCount;
+                score.BestRank        = persisted.BestRank;
+                score.BestScore       = persisted.BestScore;
+                score.BestSkillPoint  = persisted.BestSkillPoint;
+                score.BestAchievementRate = persisted.BestAchievementRate;
+                score.FullCombo       = persisted.FullCombo;
+                score.Excellent       = persisted.Excellent;
+                score.ClearCount      = persisted.ClearCount;
+                score.MaxCombo        = persisted.MaxCombo;
+                score.HighSkill       = persisted.HighSkill;
+                score.SongSkill       = persisted.SongSkill;
+                score.LastPlayedAt    = persisted.LastPlayedAt;
+                score.LastScore       = persisted.LastScore;
+                score.LastSkillPoint  = persisted.LastSkillPoint;
+            }
+        }
+
         #endregion
 
         #region Calculated Properties
@@ -332,6 +370,9 @@ namespace DTXMania.Game.Lib.Song
                     DifficultyLabel = "BASS"
                 };
             }
+
+            // Populate play history from persisted score records (if eagerly loaded).
+            node.PopulatePlayHistoryFromCharts(new[] { chart });
 
             return node;
         }

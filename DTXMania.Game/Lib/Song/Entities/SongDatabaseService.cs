@@ -393,6 +393,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             return await context.Songs
                 .Include(s => s.Charts)
+                    .ThenInclude(c => c.Scores)
                 .OrderBy(s => s.Title)
                 .ToListAsync();
         }
