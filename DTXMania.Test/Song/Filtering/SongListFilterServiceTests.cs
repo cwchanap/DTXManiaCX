@@ -473,5 +473,161 @@ namespace DTXMania.Test.Song.Filtering
             Assert.Equal(new[] { "Beatles - Yesterday" },
                 result.Select(r => r.Node.DisplayTitle));
         }
+
+        [Fact]
+        public void Apply_NullRoots_Throws()
+        {
+            Assert.Throws<ArgumentNullException>(() => _svc.Apply(null!, SongFilterCriteria.Default));
+        }
+
+        [Fact]
+        public void Apply_NullCriteria_Throws()
+        {
+            var roots = new List<SongListNode> { Score("A") };
+            Assert.Throws<ArgumentNullException>(() => _svc.Apply(roots, null!));
+        }
+
+        [Fact]
+        public void Apply_EmptyRoots_ReturnsEmpty()
+        {
+            var result = _svc.Apply(new List<SongListNode>(), SongFilterCriteria.Default);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Apply_SortByGenre()
+        {
+            var a = Score("SongA");
+            a.Genre = "Rock";
+            var b = Score("SongB");
+            b.Genre = "Pop";
+            var c = Score("SongC");
+            c.Genre = "Rock";
+            var roots = new List<SongListNode> { a, b, c };
+            var criteria = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "SongB", "SongA", "SongC" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SortByGenreDescending()
+        {
+            var a = Score("SongA");
+            a.Genre = "Rock";
+            var b = Score("SongB");
+            b.Genre = "Pop";
+            var roots = new List<SongListNode> { a, b };
+            var criteria = SongFilterCriteria.Default with
+            {
+                SortBy = SongSortCriteria.Genre,
+                SortDescending = true
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "SongA", "SongB" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_SearchNullArtist_DoesNotThrow()
+        {
+            var node = Score("TestSong");
+            node.DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song
+            { Title = "TestSong", Artist = null };
+            var roots = new List<SongListNode> { node };
+            var criteria = SongFilterCriteria.Default with { SearchQuery = "test" };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Single(result);
+        }
+
+        [Fact]
+        public void Apply_SortByLevelDescending()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Low", level: 20),
+                Score("High", level: 90),
+                Score("Mid", level: 50)
+            };
+            var criteria = SongFilterCriteria.Default with
+            {
+                SortBy = SongSortCriteria.Level,
+                SortDescending = true
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "High", "Mid", "Low" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_NullNodeInRoots_IsSkipped()
+        {
+            var roots = new List<SongListNode> { null!, Score("Valid") };
+            var result = _svc.Apply(roots, SongFilterCriteria.Default);
+
+            Assert.Single(result);
+            Assert.Equal("Valid", result[0].Node.DisplayTitle);
+        }
+
+        [Fact]
+        public void Apply_BoxWithNoChildren_IgnoresBox()
+        {
+            var box = SongListNode.CreateBoxNode("Empty", "/empty");
+            var roots = new List<SongListNode> { box };
+
+            var result = _svc.Apply(roots, SongFilterCriteria.Default);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Apply_BackBoxNode_Ignored()
+        {
+            var box = Box("Folder", Score("Inside"));
+            var back = SongListNode.CreateBackNode(box);
+            var roots = new List<SongListNode> { box, back };
+
+            var result = _svc.Apply(roots, SongFilterCriteria.Default);
+
+            Assert.Equal(new[] { "Inside" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_LevelRange_BothNull_ReturnsAll()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("A", level: 20),
+                Score("B", level: 90)
+            };
+            var criteria = SongFilterCriteria.Default with { MinLevel = null, MaxLevel = null };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(2, result.Count);
+        }
+
+        [Fact]
+        public void Apply_BoxNodeAtPathRoot_PopulatesFolderCorrectly()
+        {
+            var innerScore = Score("Inner");
+            var childBox = SongListNode.CreateBoxNode("SubFolder", "/sub");
+            childBox.AddChild(innerScore);
+            var rootBox = SongListNode.CreateBoxNode("RootFolder", "/root");
+            rootBox.AddChild(childBox);
+
+            var result = _svc.Apply(new[] { rootBox }, SongFilterCriteria.Default);
+
+            Assert.Single(result);
+            Assert.Equal("RootFolder / SubFolder", result[0].FolderPath);
+        }
     }
 }

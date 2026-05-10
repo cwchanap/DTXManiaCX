@@ -225,5 +225,74 @@ namespace DTXMania.Test.UI
 
             Assert.Equal(3, input.CaretIndex); // clamped to new length
         }
+
+        [Fact]
+        public void OnTextInput_BackslashCharCode_Ignored()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('\b');
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void OnTextInput_ReturnCharCode_Ignored()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('\r');
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void OnTextInput_NewlineCharCode_Ignored()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('\n');
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void OnTextInput_TabCharCode_Ignored()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('\t');
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void OnTextInput_ControlChar_Ignored()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            src.Fire('\u0001');
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void Backspace_WhenCaretAtPosition0_IsNoOp()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+            src.Fire('a');
+            input.MoveCaret(-1); // caret at 0
+
+            input.Backspace();
+
+            Assert.Equal("a", input.Text);
+            Assert.Equal(0, input.CaretIndex);
+        }
     }
 }
