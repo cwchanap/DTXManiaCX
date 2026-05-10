@@ -402,7 +402,6 @@ namespace DTXMania.Test.Song.Components
             Assert.True(modal.IsOpen); // stays open
         }
 
-        [Fact]
         public void Reset_StillWorksWhenLibraryNotReady()
         {
             var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
@@ -413,6 +412,279 @@ namespace DTXMania.Test.Song.Components
             modal.Reset();
 
             Assert.True(fired);
+        }
+
+        [Fact]
+        public void HandleKey_WhenNotOpen_IsNoOp()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            bool cancelled = false;
+            modal.Cancelled += (_, _) => cancelled = true;
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Escape);
+
+            Assert.False(cancelled);
+        }
+
+        [Fact]
+        public void HandleKey_LeftRight_OnMaxLevel_AdjustsBy5()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+            modal.FocusNext(); // MaxLevel
+            Assert.Equal(SongSearchFilterModal.Field.MaxLevel, modal.FocusedField);
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(5, modal.CurrentDraft.MaxLevel);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(10, modal.CurrentDraft.MaxLevel);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
+            Assert.Equal(5, modal.CurrentDraft.MaxLevel);
+        }
+
+        [Fact]
+        public void HandleKey_LeftRight_OnSortBy_CyclesSortCriteria()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // Navigate to SortBy (index 4)
+            for (int i = 0; i < 4; i++) modal.FocusNext();
+            Assert.Equal(SongSearchFilterModal.Field.SortBy, modal.FocusedField);
+
+            Assert.Equal(SongSortCriteria.Title, modal.CurrentDraft.SortBy);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(SongSortCriteria.Artist, modal.CurrentDraft.SortBy);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(SongSortCriteria.Level, modal.CurrentDraft.SortBy);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(SongSortCriteria.Title, modal.CurrentDraft.SortBy); // wraps
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
+            Assert.Equal(SongSortCriteria.Level, modal.CurrentDraft.SortBy);
+        }
+
+        [Fact]
+        public void HandleKey_LeftRight_OnSortDirection_Toggles()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            for (int i = 0; i < 5; i++) modal.FocusNext();
+            Assert.Equal(SongSearchFilterModal.Field.SortDirection, modal.FocusedField);
+
+            Assert.False(modal.CurrentDraft.SortDescending);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.True(modal.CurrentDraft.SortDescending);
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
+            Assert.False(modal.CurrentDraft.SortDescending);
+        }
+
+        [Fact]
+        public void HandleKey_Back_WhenNotOnSearchBox_IsNoOp()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "abc" });
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Back);
+
+            Assert.Equal("abc", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void HandleKey_Back_WhenQueryEmpty_IsNoOp()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Back);
+
+            Assert.Equal("", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void HandleKey_Enter_OnPlayedStatus_FieldsApplies()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            for (int i = 0; i < 3; i++) modal.FocusNext();
+            Assert.Equal(SongSearchFilterModal.Field.PlayedStatus, modal.FocusedField);
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Enter);
+
+            Assert.True(applied);
+        }
+
+        [Fact]
+        public void HandleKey_Enter_OnMinLevelField_Applies()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Enter);
+
+            Assert.True(applied);
+        }
+
+        [Fact]
+        public void HandleKey_Enter_OnMaxLevelField_Applies()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+            modal.FocusNext(); // MaxLevel
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Enter);
+
+            Assert.True(applied);
+        }
+
+        [Fact]
+        public void OnTextInput_ControlCharacters_Ignored()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+
+            src.Fire('\t');
+            src.Fire('\r');
+            src.Fire('\n');
+            src.Fire('\u0001'); // control char
+
+            Assert.Equal("", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void OnTextInput_BackspaceCharCode_Ignored()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+
+            src.Fire('\b');
+
+            Assert.Equal("", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void OnTextInput_WhenModalClosed_Ignored()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            modal.Cancel();
+
+            src.Fire('x');
+
+            Assert.Equal("", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void AdjustLevel_ClampsAtMin0()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
+            Assert.Null(modal.CurrentDraft.MinLevel);
+        }
+
+        [Fact]
+        public void AdjustLevel_ClampsAtMax99()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { MinLevel = 95 });
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(99, modal.CurrentDraft.MinLevel);
+        }
+
+        [Fact]
+        public void SubmitFromSearchBox_WhenLibraryNotReady_DoesNotFire()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            modal.Open(SongFilterCriteria.Default);
+            modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "test" });
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.SubmitFromSearchBox();
+
+            Assert.False(applied);
+            Assert.True(modal.IsOpen);
+        }
+
+        [Fact]
+        public void Dispose_UnsubscribesFromSource()
+        {
+            var src = new FakeSource();
+            var modal = new SongSearchFilterModal(src);
+            modal.Open(SongFilterCriteria.Default);
+            src.Fire('a');
+            Assert.Equal("a", modal.CurrentDraft.SearchQuery);
+
+            modal.Dispose();
+
+            src.Fire('b');
+            Assert.Equal("a", modal.CurrentDraft.SearchQuery);
+        }
+
+        [Fact]
+        public void Open_NullInitial_UsesDefault()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(null);
+
+            Assert.True(modal.IsOpen);
+            Assert.Equal(SongFilterCriteria.Default, modal.CurrentDraft);
+        }
+
+        [Fact]
+        public void UpdateDraft_Null_UsesDefault()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { SearchQuery = "test" });
+            modal.UpdateDraft(null);
+
+            Assert.Equal(SongFilterCriteria.Default, modal.CurrentDraft);
+        }
+
+        [Fact]
+        public void Constructor_NullTextSource_Throws()
+        {
+            Assert.Throws<ArgumentNullException>(() => new SongSearchFilterModal(null!));
+        }
+
+        [Fact]
+        public void CycleSort_StartFromGenre_ResetsToArtist()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre });
+            for (int i = 0; i < 4; i++) modal.FocusNext();
+            Assert.Equal(SongSearchFilterModal.Field.SortBy, modal.FocusedField);
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Right);
+            Assert.Equal(SongSortCriteria.Artist, modal.CurrentDraft.SortBy);
+        }
+
+        [Fact]
+        public void AdjustLevel_DecrementToZero_ReturnsNull()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { MinLevel = 5 });
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
+            Assert.Null(modal.CurrentDraft.MinLevel);
         }
     }
 }

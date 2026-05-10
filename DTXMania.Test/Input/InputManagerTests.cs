@@ -129,6 +129,96 @@ public class InputManagerTests
         Assert.True(state.Suppressed);
     }
 
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SetKeyMapping_EvictsPreviousKeyForSameCommand()
+    {
+        var manager = new InputManager();
+        manager.SetKeyMapping(Keys.Enter, InputCommandType.Activate);
+        manager.SetKeyMapping(Keys.Space, InputCommandType.Activate);
+
+        var snapshot = manager.GetKeyMappingSnapshot();
+        Assert.DoesNotContain(Keys.Enter, snapshot.Keys);
+        Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void RemoveKeyMapping_RemovesMapping()
+    {
+        var manager = new InputManager();
+        Assert.Contains(Keys.Enter, manager.GetKeyMappingSnapshot().Keys);
+
+        manager.RemoveKeyMapping(Keys.Enter);
+
+        Assert.DoesNotContain(Keys.Enter, manager.GetKeyMappingSnapshot().Keys);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void GetKeyMappingSnapshot_ReturnsCopy()
+    {
+        var manager = new InputManager();
+        var snap1 = manager.GetKeyMappingSnapshot();
+        manager.RemoveKeyMapping(Keys.Enter);
+        var snap2 = manager.GetKeyMappingSnapshot();
+
+        Assert.Contains(Keys.Enter, snap1.Keys);
+        Assert.DoesNotContain(Keys.Enter, snap2.Keys);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void Dispose_ClearsState()
+    {
+        var manager = new InputManager();
+        manager.Dispose();
+
+        Assert.False(manager.HasPendingCommands);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void SetKeyMapping_SameKeySameCommand_NoOp()
+    {
+        var manager = new InputManager();
+        var countBefore = manager.GetKeyMappingSnapshot().Count;
+        manager.SetKeyMapping(Keys.Enter, InputCommandType.Activate);
+        Assert.Equal(countBefore, manager.GetKeyMappingSnapshot().Count);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void GetNextCommand_ReturnsNullWhenEmpty()
+    {
+        var manager = new InputManager();
+        Assert.Null(manager.GetNextCommand());
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void IsCommandDown_ReturnsFalseWhenNoKeyHeld()
+    {
+        var manager = new InputManager();
+        Assert.False(manager.IsCommandDown(InputCommandType.Activate));
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void IsKeyReleased_ReturnsFalseInitially()
+    {
+        var manager = new InputManager();
+        Assert.False(manager.IsKeyReleased((int)Keys.Enter));
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void IsKeyDown_ReturnsFalseInitially()
+    {
+        var manager = new InputManager();
+        Assert.False(manager.IsKeyDown((int)Keys.Enter));
+    }
+
     private sealed class TestableInputManager : InputManager
     {
         public void QueueCommand(InputCommandType commandType, double timestamp, bool isRepeat = false)
