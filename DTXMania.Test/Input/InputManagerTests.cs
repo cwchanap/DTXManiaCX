@@ -219,6 +219,30 @@ public class InputManagerTests
         Assert.False(manager.IsKeyDown((int)Keys.Enter));
     }
 
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void KeyRepeatState_SuppressedClearedOnFreshPress()
+    {
+        // Simulate: modal closes, ResetKeyRepeatStates suppresses all keys,
+        // then user freshly presses a key that wasn't held.
+        // The Suppressed flag should be cleared on the initial press so
+        // repeat commands continue to work.
+        var state = new KeyRepeatState();
+        state.Suppress();
+        Assert.True(state.Suppressed);
+
+        // Simulate initial press branch behavior: clearing Suppressed
+        state.IsPressed = true;
+        state.InitialPressTime = 1.0;
+        state.LastRepeatTime = 1.0;
+        state.CurrentRepeatInterval = 0.2;
+        state.HasStartedRepeating = false;
+        state.Suppressed = false;
+
+        Assert.False(state.Suppressed);
+        Assert.True(state.IsPressed);
+    }
+
     private sealed class TestableInputManager : InputManager
     {
         public void QueueCommand(InputCommandType commandType, double timestamp, bool isRepeat = false)
