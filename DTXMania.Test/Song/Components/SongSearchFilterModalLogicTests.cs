@@ -402,6 +402,7 @@ namespace DTXMania.Test.Song.Components
             Assert.True(modal.IsOpen); // stays open
         }
 
+        [Fact]
         public void Reset_StillWorksWhenLibraryNotReady()
         {
             var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };

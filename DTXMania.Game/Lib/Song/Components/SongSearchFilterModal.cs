@@ -352,7 +352,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var box = new Microsoft.Xna.Framework.Rectangle(
                 modal.X + SearchFilterModal.FieldX, modal.Y + SearchFilterModal.PlayedRowY, 380, 30);
             sb.Draw(WhitePixel, box, rowBg);
-            DrawText(sb, "(◀ ▶) " + _draft.PlayedStatus,
+            DrawText(sb, "(< >) " + _draft.PlayedStatus,
                 new Microsoft.Xna.Framework.Vector2(box.X + 6, box.Y + 6),
                 Microsoft.Xna.Framework.Color.White);
         }
