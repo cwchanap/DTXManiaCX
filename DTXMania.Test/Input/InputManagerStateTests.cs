@@ -142,6 +142,100 @@ public class InputManagerStateTests
         Assert.False(state.HasStartedRepeating);
     }
 
+    [Fact]
+    public void UpdateKeyRepeatStates_WhenSuppressed_ShouldSkipRepeatCommand()
+    {
+        var manager = new InputManager();
+        SetKeyboardStates(manager, new KeyboardState(Keys.Up), new KeyboardState(Keys.Up));
+        SetCurrentTime(manager, 0.5);
+
+        GetRepeatStates(manager)[Keys.Up] = new KeyRepeatState
+        {
+            IsPressed = false,
+            InitialPressTime = 0.0,
+            LastRepeatTime = 0.0,
+            CurrentRepeatInterval = 0.2,
+            HasStartedRepeating = false,
+            Suppressed = true
+        };
+
+        InvokeUpdateKeyRepeatStates(manager);
+
+        Assert.Empty(manager.GetInputCommands());
+        Assert.True(GetRepeatState(manager, Keys.Up).Suppressed);
+    }
+
+    [Fact]
+    public void UpdateKeyRepeatStates_WhenSuppressedKeyRePressed_ShouldClearSuppression()
+    {
+        var manager = new InputManager();
+        SetKeyboardStates(manager, new KeyboardState(Keys.Up), new KeyboardState());
+        SetCurrentTime(manager, 1.0);
+
+        GetRepeatStates(manager)[Keys.Up] = new KeyRepeatState
+        {
+            IsPressed = false,
+            InitialPressTime = 0.0,
+            LastRepeatTime = 0.0,
+            CurrentRepeatInterval = 0.2,
+            HasStartedRepeating = false,
+            Suppressed = true
+        };
+
+        InvokeUpdateKeyRepeatStates(manager);
+
+        var command = Assert.Single(manager.GetInputCommands());
+        Assert.Equal(InputCommandType.MoveUp, command.Type);
+        Assert.False(command.IsRepeat);
+        Assert.False(GetRepeatState(manager, Keys.Up).Suppressed);
+    }
+
+    [Fact]
+    public void ResetKeyRepeatStates_WhenCalled_ShouldSuppressAllStates()
+    {
+        var manager = new InputManager();
+        SetKeyboardStates(manager, new KeyboardState(Keys.Up, Keys.Down), new KeyboardState());
+        SetCurrentTime(manager, 0.5);
+
+        InvokeUpdateKeyRepeatStates(manager);
+
+        manager.ResetKeyRepeatStates();
+
+        var upState = GetRepeatState(manager, Keys.Up);
+        Assert.True(upState.Suppressed);
+        Assert.False(upState.IsPressed);
+        var downState = GetRepeatState(manager, Keys.Down);
+        Assert.True(downState.Suppressed);
+        Assert.False(downState.IsPressed);
+    }
+
+    [Fact]
+    public void Dispose_WhenCalledTwice_ShouldNotThrow()
+    {
+        var manager = new InputManager();
+        manager.Dispose();
+        manager.Dispose();
+    }
+
+    [Fact]
+    public void SetKeyMapping_WhenReplacingExistingCommand_ShouldEvictOldKey()
+    {
+        var manager = new InputManager();
+        manager.SetKeyMapping(Keys.W, InputCommandType.MoveUp);
+        var snapshot = manager.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
+        Assert.DoesNotContain(Keys.Up, snapshot.Keys);
+    }
+
+    [Fact]
+    public void RemoveKeyMapping_WhenKeyExists_ShouldRemove()
+    {
+        var manager = new InputManager();
+        manager.RemoveKeyMapping(Keys.Up);
+        var snapshot = manager.GetKeyMappingSnapshot();
+        Assert.DoesNotContain(Keys.Up, snapshot.Keys);
+    }
+
     private static void SetKeyboardStates(InputManager manager, KeyboardState current, KeyboardState previous)
     {
         ReflectionHelpers.SetPrivateField(manager, "_currentKeyboardState", current);
