@@ -873,6 +873,14 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnFilterApplied(object sender, SongFilterCriteria criteria)
         {
+            // Normalize level range so breadcrumb always shows the effective range.
+            // SongListFilterService previously swapped silently, leaving _filterCriteria
+            // inconsistent with the actual filter result.
+            if (criteria.MinLevel.HasValue && criteria.MaxLevel.HasValue
+                && criteria.MinLevel > criteria.MaxLevel)
+            {
+                criteria = criteria with { MinLevel = criteria.MaxLevel, MaxLevel = criteria.MinLevel };
+            }
             _filterCriteria = criteria;
             RebuildFilteredView();
             PopulateSongListForCurrentMode();
@@ -920,7 +928,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"SongSelectionStage: filter projection failed: {ex.Message}");
-                // Leave existing list reference unchanged.
+                // Reset filter state entirely so breadcrumb and list stay consistent.
+                _filterCriteria = SongFilterCriteria.Default;
                 _filteredView = null;
                 _showEmptyFilterMessage = false;
             }

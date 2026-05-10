@@ -179,5 +179,51 @@ namespace DTXMania.Test.UI
 
             Assert.Equal(0, src.HandlerCount);
         }
+
+        [Fact]
+        public void TextSetter_WhenExceedsMaxLength_ShouldTruncate()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true, MaxLength = 5 };
+
+            input.Text = "abcdefghij";
+
+            Assert.Equal("abcde", input.Text);
+        }
+
+        [Fact]
+        public void TextSetter_WhenWithinMaxLength_ShouldNotTruncate()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true, MaxLength = 10 };
+
+            input.Text = "hello";
+
+            Assert.Equal("hello", input.Text);
+        }
+
+        [Fact]
+        public void TextSetter_WhenNull_ShouldSetEmpty()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+
+            input.Text = null;
+
+            Assert.Equal("", input.Text);
+        }
+
+        [Fact]
+        public void TextSetter_WhenTruncated_CaretShouldBeClamped()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true, MaxLength = 3 };
+            input.Text = "abc";
+            input.MoveCaret(3); // caret at end (3)
+
+            input.Text = "abcdefgh"; // gets truncated to "abc"
+
+            Assert.Equal(3, input.CaretIndex); // clamped to new length
+        }
     }
 }

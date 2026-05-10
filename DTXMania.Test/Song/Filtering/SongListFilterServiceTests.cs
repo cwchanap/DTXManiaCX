@@ -216,17 +216,39 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelMinGreaterThanMax_SwapsSilently()
+        public void Apply_LevelMinGreaterThanMax_NoLongerSwaps_NormalizedAtCaller()
         {
             var roots = new List<SongListNode>
             {
-                Score("Mid", level: 50)
+                Score("Low",  level: 20),
+                Score("Mid",  level: 50),
+                Score("High", level: 90)
             };
+            // Min > Max is now the caller's responsibility to normalize
+            // before passing to the service. The service treats the range as-is.
             var criteria = SongFilterCriteria.Default with { MinLevel = 80, MaxLevel = 30 };
 
             var result = _svc.Apply(roots, criteria);
 
-            Assert.Single(result);
+            // With lo=80, hi=30, no level satisfies level >= 80 AND level <= 30
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Apply_LevelRange_NormalizedByCaller_FiltersCorrectly()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Low",  level: 20),
+                Score("Mid",  level: 50),
+                Score("High", level: 90)
+            };
+            // Caller normalizes MinLevel/MaxLevel before creating criteria
+            var criteria = SongFilterCriteria.Default with { MinLevel = 30, MaxLevel = 80 };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Mid" }, result.Select(r => r.Node.DisplayTitle));
         }
 
         private static SongListNode ScoreWith(string title, int playCount, int bestRank, int clearCount = 0)
