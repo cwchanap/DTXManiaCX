@@ -879,6 +879,7 @@ namespace DTXMania.Game.Lib.Stage
             UpdateBreadcrumb();
             UpdateStatusPanelFolderHint();
             _inputManager?.ClearPendingCommands();
+            _inputManager?.ResetKeyRepeatStates();
         }
 
         private void OnFilterReset(object sender, System.EventArgs e)
@@ -890,12 +891,14 @@ namespace DTXMania.Game.Lib.Stage
             UpdateBreadcrumb();
             UpdateStatusPanelFolderHint();
             _inputManager?.ClearPendingCommands();
+            _inputManager?.ResetKeyRepeatStates();
         }
 
         private void OnFilterCancelled(object sender, System.EventArgs e)
         {
             // Discard draft; no state change
             _inputManager?.ClearPendingCommands();
+            _inputManager?.ResetKeyRepeatStates();
         }
 
         private void RebuildFilteredView()

@@ -67,6 +67,18 @@ public class InputManagerTests
         Assert.Contains("return concreteConfig.CreateConfiguredInputManager();", source, StringComparison.Ordinal);
     }
 
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void ResetKeyRepeatStates_ShouldNotThrow_WhenNoRepeatStates()
+    {
+        var manager = new TestableInputManager();
+
+        // Should not throw even when no keys have been pressed
+        manager.ResetKeyRepeatStates();
+
+        Assert.False(manager.HasPendingCommands);
+    }
+
     private sealed class TestableInputManager : InputManager
     {
         public void QueueCommand(InputCommandType commandType, double timestamp, bool isRepeat = false)

@@ -170,6 +170,17 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Resets all key repeat states so held keys will not produce repeat
+        /// commands on the next frame. Use after closing modals to prevent a
+        /// held close-key from immediately re-triggering stage actions.
+        /// </summary>
+        public virtual void ResetKeyRepeatStates()
+        {
+            foreach (var state in _keyRepeatStates.Values)
+                state.Reset();
+        }
+
+        /// <summary>
         /// Enqueue a navigation command directly (for use by subclasses injecting virtual input)
         /// </summary>
         protected void EnqueueCommand(InputCommand command)
