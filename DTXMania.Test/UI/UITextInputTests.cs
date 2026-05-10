@@ -295,5 +295,61 @@ namespace DTXMania.Test.UI
             Assert.Equal("a", input.Text);
             Assert.Equal(0, input.CaretIndex);
         }
+
+        [Fact]
+        public void OnTextInput_WhenMaxLengthExactlyReached_ShouldNotInsertMore()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true, MaxLength = 2 };
+            src.Fire('a');
+            src.Fire('b');
+            src.Fire('c');
+
+            Assert.Equal("ab", input.Text);
+            Assert.Equal(2, input.CaretIndex);
+        }
+
+        [Fact]
+        public void MoveCaret_WhenAtEndAndMoveRight_ShouldClamp()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true };
+            src.Fire('x');
+            input.MoveCaret(1);
+
+            Assert.Equal(1, input.CaretIndex);
+        }
+
+        [Fact]
+        public void OnTextInput_WhenNotFocused_ShouldNotInsert()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = false };
+
+            src.Fire('a');
+
+            Assert.Equal("", input.Text);
+            Assert.Equal(0, input.CaretIndex);
+        }
+
+        [Fact]
+        public void Constructor_WhenNullSource_ShouldThrow()
+        {
+            Assert.Throws<ArgumentNullException>(() => new UITextInput(null!));
+        }
+
+        [Fact]
+        public void Backspace_WhenTextEmptyAndCaretNonZero_ShouldBeNoOp()
+        {
+            var src = new FakeSource();
+            var input = new UITextInput(src) { Focused = true, MaxLength = 5 };
+            input.Text = "ab";
+            input.Clear();
+            Assert.Equal("", input.Text);
+
+            input.Backspace();
+
+            Assert.Equal("", input.Text);
+        }
     }
 }

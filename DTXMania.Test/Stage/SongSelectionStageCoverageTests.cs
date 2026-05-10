@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game.Lib.UI.Components;
@@ -986,6 +987,589 @@ namespace DTXMania.Test.Stage
                     It.IsAny<IStageTransition>(),
                     It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], song))),
                 Times.Once);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_BackWithActiveFilteredView_ShouldCallOnFilterReset()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "folder") };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_isInStatusPanel", false);
+            SetPrivateField(stage, "_filteredView", filteredView);
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.True(((SongFilterCriteria)prop!.GetValue(stage)!).IsEmpty);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_BackWithFilteredViewAndInStatusPanel_ShouldExitStatusPanelOnly()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "folder") };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.NotNull(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+        }
+
+        [Fact]
+        public void OpenSearchFilterModal_WhenModalIsNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_searchFilterModal", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "OpenSearchFilterModal"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void OpenSearchFilterModal_WhenSongListNotNullAndTaskNull_ShouldSetLibraryReady()
+        {
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", null);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            Assert.True(modal.IsLibraryReady);
+            Assert.True(modal.IsOpen);
+            Assert.False(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+        }
+
+        [Fact]
+        public void OpenSearchFilterModal_WhenSongListNullAndTaskNull_ShouldSetLibraryNotReady()
+        {
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", null);
+            SetPrivateField(stage, "_songInitializationTask", null);
+
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            Assert.False(modal.IsLibraryReady);
+        }
+
+        [Fact]
+        public void OpenSearchFilterModal_WhenTaskProcessed_ShouldSetLibraryReady()
+        {
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode>()));
+            SetPrivateField(stage, "_songInitializationProcessed", true);
+
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            Assert.True(modal.IsLibraryReady);
+        }
+
+        [Fact]
+        public void OpenSearchFilterModal_WhenTaskNotProcessed_ShouldSetLibraryNotReady()
+        {
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode>()));
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            Assert.False(modal.IsLibraryReady);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenFilterActive_ShouldShowFilterSummary()
+        {
+            var stage = CreateStage();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder");
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("hello", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            Assert.Contains("Filtered", breadcrumb.Text);
+            Assert.Contains("hello", breadcrumb.Text);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenFilterNotActiveAndBreadcrumbEmpty_ShouldShowRoot()
+        {
+            var stage = CreateStage();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "");
+            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            Assert.Equal("Root", breadcrumb.Text);
+        }
+
+        [Fact]
+        public void UpdateBreadcrumb_WhenFilterNotActiveAndBreadcrumbNonEmpty_ShouldShowBreadcrumb()
+        {
+            var stage = CreateStage();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder > Sub");
+            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+
+            InvokePrivateMethod(stage, "UpdateBreadcrumb");
+
+            Assert.Equal("Root > Folder > Sub", breadcrumb.Text);
+        }
+
+        [Fact]
+        public void UpdateStatusPanelFolderHint_WhenStatusPanelNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_statusPanel", null);
+            SetPrivateField(stage, "_filteredView", new List<FilteredSongResult> { new(CreateScoreNode("S"), "f") });
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "UpdateStatusPanelFolderHint"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void UpdateStatusPanelFolderHint_WhenFilteredViewNull_ShouldSetEmptyHint()
+        {
+            var stage = CreateStage();
+            var statusPanel = new SongStatusPanel();
+            AttachCoreUi(stage, statusPanel: statusPanel);
+            SetPrivateField(stage, "_filteredView", null);
+
+            InvokePrivateMethod(stage, "UpdateStatusPanelFolderHint");
+
+            Assert.Equal("", statusPanel.FolderHint);
+        }
+
+        [Fact]
+        public void UpdateStatusPanelFolderHint_WhenSelectedNodeNull_ShouldSetEmptyHint()
+        {
+            var stage = CreateStage();
+            var statusPanel = new SongStatusPanel();
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "folder") };
+            AttachCoreUi(stage, display: display, statusPanel: statusPanel);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "UpdateStatusPanelFolderHint");
+
+            Assert.Equal("", statusPanel.FolderHint);
+        }
+
+        [Fact]
+        public void UpdateStatusPanelFolderHint_WhenNodeFoundInFilteredView_ShouldSetFolderPath()
+        {
+            var stage = CreateStage();
+            var statusPanel = new SongStatusPanel();
+            var song = CreateScoreNode("Song");
+            var display = new SongListDisplay { CurrentList = [song] };
+            var filteredView = new List<FilteredSongResult> { new(song, "Rock > Hard Rock") };
+            AttachCoreUi(stage, display: display, statusPanel: statusPanel);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "UpdateStatusPanelFolderHint");
+
+            Assert.Equal("Rock > Hard Rock", statusPanel.FolderHint);
+        }
+
+        [Fact]
+        public void UpdateStatusPanelFolderHint_WhenNodeNotFoundInFilteredView_ShouldSetEmptyHint()
+        {
+            var stage = CreateStage();
+            var statusPanel = new SongStatusPanel();
+            var songA = CreateScoreNode("A");
+            var songB = CreateScoreNode("B");
+            var display = new SongListDisplay { CurrentList = [songA] };
+            var filteredView = new List<FilteredSongResult> { new(songB, "Other") };
+            AttachCoreUi(stage, display: display, statusPanel: statusPanel);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "UpdateStatusPanelFolderHint");
+
+            Assert.Equal("", statusPanel.FolderHint);
+        }
+
+        [Fact]
+        public void RebuildFilteredView_WhenFilterEmpty_ShouldClearFilteredView()
+        {
+            var stage = CreateStage();
+            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+            SetPrivateField(stage, "_filteredView", new List<FilteredSongResult>());
+
+            InvokePrivateMethod(stage, "RebuildFilteredView");
+
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            Assert.False(GetPrivateField<bool>(stage, "_showEmptyFilterMessage"));
+        }
+
+        [Fact]
+        public void PopulateFilteredSongList_WithItems_ShouldPopulateDisplay()
+        {
+            var stage = CreateStage();
+            var song = CreateScoreNode("Song");
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult>
+            {
+                new(song, "Folder1"),
+                new(CreateScoreNode("Other"), "Folder2"),
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "PopulateFilteredSongList");
+
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Same(song, display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WithNullParams_ShouldSetFieldsToNull()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_backgroundMusic", null);
+            SetPrivateField(stage, "_backgroundMusicInstance", null);
+
+            stage.SetBackgroundMusic(null, null);
+
+            Assert.Null(GetPrivateField<ISound>(stage, "_backgroundMusic"));
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WithNonNullParams_ShouldSetFields()
+        {
+            var stage = CreateStage();
+            var mockSound = new Mock<ISound>();
+            var mockInstance = new Mock<ISoundInstance>();
+
+            stage.SetBackgroundMusic(mockSound.Object, mockInstance.Object);
+
+            Assert.Same(mockSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
+            Assert.Same(mockInstance.Object, GetPrivateField<ISoundInstance>(stage, "_backgroundMusicInstance"));
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WhenReplacingExistingBGM_ShouldDisposeOld()
+        {
+            var stage = CreateStage();
+            var oldSound = new Mock<ISound>();
+            var oldInstance = new Mock<ISoundInstance>();
+            var newSound = new Mock<ISound>();
+            var newInstance = new Mock<ISoundInstance>();
+
+            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
+
+            stage.SetBackgroundMusic(newSound.Object, newInstance.Object);
+
+            oldSound.Verify(x => x.RemoveReference(), Times.Once);
+            oldInstance.Verify(x => x.Stop(), Times.Once);
+            oldInstance.Verify(x => x.Dispose(), Times.Once);
+            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WhenOldRemoveReferenceThrows_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            var oldSound = new Mock<ISound>();
+            oldSound.Setup(x => x.RemoveReference()).Throws(new Exception("boom"));
+            var newSound = new Mock<ISound>();
+
+            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", null);
+
+            var exception = Record.Exception(() => stage.SetBackgroundMusic(newSound.Object, null));
+
+            Assert.Null(exception);
+            Assert.Same(newSound.Object, GetPrivateField<ISound>(stage, "_backgroundMusic"));
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WhenOldStopThrows_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            var oldSound = new Mock<ISound>();
+            var oldInstance = new Mock<ISoundInstance>();
+            oldInstance.Setup(x => x.Stop()).Throws(new Exception("stop fail"));
+
+            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
+
+            var exception = Record.Exception(() => stage.SetBackgroundMusic(null, null));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void SetBackgroundMusic_WhenOldDisposeThrows_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            var oldSound = new Mock<ISound>();
+            var oldInstance = new Mock<ISoundInstance>();
+            oldInstance.Setup(x => x.Dispose()).Throws(new Exception("dispose fail"));
+
+            SetPrivateField(stage, "_backgroundMusic", oldSound.Object);
+            SetPrivateField(stage, "_backgroundMusicInstance", oldInstance.Object);
+
+            var exception = Record.Exception(() => stage.SetBackgroundMusic(null, null));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void DetectOpenSearchKey_WhenBackspacePressed_ShouldOpenModal()
+        {
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            var inputManager = new BackspaceInputManager().WithBackspace();
+
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "DetectOpenSearchKey");
+
+            Assert.True(modal.IsOpen);
+        }
+
+        [Fact]
+        public void DetectOpenSearchKey_WhenInputManagerNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DetectOpenSearchKey"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenInputManagerNull_ShouldNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_inputManager", null);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "ProcessModalKeys"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void UpdatePreviewSoundTimers_WhenNotActive_ShouldNotChange()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isPreviewDelayActive", false);
+            SetPrivateField(stage, "_isBgmFadingOut", false);
+            SetPrivateField(stage, "_isBgmFadingIn", false);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.016));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void UpdatePreviewSoundTimers_WhenPreviewDelayActiveBelowThreshold_ShouldIncrement()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isPreviewDelayActive", true);
+            SetPrivateField(stage, "_previewPlayDelay", 0.0);
+            SetPrivateField(stage, "_previewSound", null);
+            SetPrivateField(stage, "_isBgmFadingOut", false);
+            SetPrivateField(stage, "_isBgmFadingIn", false);
+
+            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
+
+            Assert.Equal(0.1, GetPrivateField<double>(stage, "_previewPlayDelay"));
+            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+        }
+
+        [Fact]
+        public void UpdatePreviewSoundTimers_WhenBgmFadeOutActiveBelowDuration_ShouldIncrement()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isPreviewDelayActive", false);
+            SetPrivateField(stage, "_isBgmFadingOut", true);
+            SetPrivateField(stage, "_bgmFadeOutTimer", 0.0);
+            SetPrivateField(stage, "_backgroundMusicInstance", null);
+            SetPrivateField(stage, "_isBgmFadingIn", false);
+
+            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
+
+            Assert.Equal(0.1, GetPrivateField<double>(stage, "_bgmFadeOutTimer"));
+            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+        }
+
+        [Fact]
+        public void UpdatePreviewSoundTimers_WhenBgmFadeInActiveBelowDuration_ShouldIncrement()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isPreviewDelayActive", false);
+            SetPrivateField(stage, "_isBgmFadingOut", false);
+            SetPrivateField(stage, "_isBgmFadingIn", true);
+            SetPrivateField(stage, "_bgmFadeInTimer", 0.0);
+            SetPrivateField(stage, "_backgroundMusicInstance", null);
+
+            InvokePrivateMethod(stage, "UpdatePreviewSoundTimers", 0.1);
+
+            Assert.Equal(0.1, GetPrivateField<double>(stage, "_bgmFadeInTimer"));
+            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
+        }
+
+        [Fact]
+        public void OnFilterReset_ShouldClearFilterState()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display: display);
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filteredView", new List<FilteredSongResult>());
+            SetPrivateField(stage, "_showEmptyFilterMessage", true);
+
+            InvokePrivateMethod(stage, "OnFilterReset", stage, EventArgs.Empty);
+
+            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
+            Assert.True(applied.IsEmpty);
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            Assert.False(GetPrivateField<bool>(stage, "_showEmptyFilterMessage"));
+        }
+
+        [Fact]
+        public void OnFilterCancelled_ShouldNotChangeFilterState()
+        {
+            var stage = CreateStage();
+            var criteria = new SongFilterCriteria("kept", null, null, PlayedStatus.All, SongSortCriteria.Title, false);
+            SetProperty(stage, "_filterCriteria", criteria);
+
+            InvokePrivateMethod(stage, "OnFilterCancelled", stage, EventArgs.Empty);
+
+            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
+            Assert.Equal("kept", applied.SearchQuery);
+        }
+
+        [Fact]
+        public void PopulateSongListForCurrentMode_WhenFilteredViewNotNull_ShouldCallPopulateFilteredSongList()
+        {
+            var stage = CreateStage();
+            var song = CreateScoreNode("S");
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(song, "folder") };
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_filteredView", filteredView);
+
+            InvokePrivateMethod(stage, "PopulateSongListForCurrentMode");
+
+            Assert.Equal(1, display.CurrentList.Count);
+            Assert.Same(song, display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void PopulateSongListForCurrentMode_WhenFilteredViewNull_ShouldCallPopulateSongList()
+        {
+            var stage = CreateStage();
+            var song = CreateScoreNode("S");
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { song });
+            SetPrivateField(stage, "_filteredView", null);
+
+            InvokePrivateMethod(stage, "PopulateSongListForCurrentMode");
+
+            Assert.Equal(1, display.CurrentList.Count);
+            Assert.Same(song, display.CurrentList[0]);
+        }
+
+        [Fact]
+        public void HandleActivateInput_WithFilteredViewAndNonScoreNode_ShouldDoNothing()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var box = CreateBoxNode("Folder");
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "f") };
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_filteredView", filteredView);
+            SetPrivateField(stage, "_selectedSong", box);
+            SetPrivateField(stage, "_isInStatusPanel", false);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "HandleActivateInput"));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void StartBGMFade_WhenFadeOut_ShouldSetFadeOutState()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isBgmFadingIn", true);
+            SetPrivateField(stage, "_isBgmFadingOut", false);
+
+            InvokePrivateMethod(stage, "StartBGMFade", true);
+
+            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
+            Assert.Equal(0.0, GetPrivateField<double>(stage, "_bgmFadeOutTimer"));
+        }
+
+        [Fact]
+        public void StartBGMFade_WhenFadeIn_ShouldSetFadeInState()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_isBgmFadingOut", true);
+            SetPrivateField(stage, "_isBgmFadingIn", false);
+
+            InvokePrivateMethod(stage, "StartBGMFade", false);
+
+            Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
+            Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+            Assert.Equal(0.0, GetPrivateField<double>(stage, "_bgmFadeInTimer"));
+        }
+
+        [Fact]
+        public void OnFilterApplied_WithSwappedLevels_ShouldNormalizeAndApply()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, display: display, breadcrumb: breadcrumb);
+            var criteria = new SongFilterCriteria("", 50, 10, PlayedStatus.All, SongSortCriteria.Title, false);
+
+            InvokePrivateMethod(stage, "OnFilterApplied", stage, criteria);
+
+            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
+            Assert.Equal(10, applied.MinLevel);
+            Assert.Equal(50, applied.MaxLevel);
         }
 
         private static void AttachCoreUi(
