@@ -229,14 +229,15 @@ namespace DTXMania.Test.Song.Filtering
             Assert.Single(result);
         }
 
-        private static SongListNode ScoreWith(string title, int playCount, int bestRank)
+        private static SongListNode ScoreWith(string title, int playCount, int bestRank, int clearCount = 0)
         {
             var node = new SongListNode { Type = NodeType.Score, Title = title };
             node.Scores[0] = new DTXMania.Game.Lib.Song.Entities.SongScore
             {
                 DifficultyLevel = 50,
                 PlayCount = playCount,
-                BestRank = bestRank
+                BestRank = bestRank,
+                ClearCount = clearCount
             };
             return node;
         }
@@ -285,6 +286,41 @@ namespace DTXMania.Test.Song.Filtering
             var result = _svc.Apply(roots, criteria);
 
             Assert.Equal(new[] { "Cleared" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusCleared_CountsClearCountWhenBestRankIsF()
+        {
+            // Songs persisted via SongDatabaseService.UpdateScoreAsync have ClearCount > 0
+            // but BestRank stays at 0 (F). These should still be considered cleared.
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("PersistedClear", playCount: 3, bestRank: 0, clearCount: 2),
+                ScoreWith("PlayedButFailed", playCount: 2, bestRank: 0, clearCount: 0),
+                ScoreWith("Untouched",       playCount: 0, bestRank: 0, clearCount: 0)
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "PersistedClear" }, result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void Apply_PlayedStatusCleared_RankBasedClearStillWorksWithoutClearCount()
+        {
+            // In-memory update path sets BestRank but not ClearCount
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("RankClear",    playCount: 1, bestRank: 70, clearCount: 0),
+                ScoreWith("RankClearA",   playCount: 1, bestRank: 80, clearCount: 0),
+                ScoreWith("Failed",       playCount: 5, bestRank: 0,  clearCount: 0)
+            };
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "RankClear", "RankClearA" }, result.Select(r => r.Node.DisplayTitle));
         }
 
         [Fact]
