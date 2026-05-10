@@ -6,6 +6,7 @@ using Xunit;
 
 namespace DTXMania.Test.Song.Filtering
 {
+    [Trait("Category", "Unit")]
     public class SongListFilterServiceTests
     {
         private readonly SongListFilterService _svc = new();
@@ -39,7 +40,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_FlattensRootScoreNodes_NoFilter()
+        public void FlatteningRootScoreNodes_WithNoFilter_ShouldReturnAllRootScores()
         {
             var roots = new List<SongListNode>
             {
@@ -54,7 +55,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_FlattensNestedScoreNodes_NoFilter()
+        public void FlatteningNestedScoreNodes_WithNoFilter_ShouldReturnAllScores()
         {
             var roots = new List<SongListNode>
             {
@@ -73,7 +74,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PopulatesFolderPathFromParentBreadcrumb()
+        public void FolderPath_WhenNestedInBoxes_ShouldPopulateFromParentBreadcrumb()
         {
             var roots = new List<SongListNode>
             {
@@ -88,7 +89,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_RootScoreHasEmptyFolderPath()
+        public void FolderPath_WhenRootScore_ShouldBeEmpty()
         {
             var roots = new List<SongListNode> { Score("RootOnly") };
 
@@ -98,7 +99,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_ExcludesBackBoxAndRandomNodes()
+        public void Apply_WithBackAndRandomNodes_ShouldExcludeThem()
         {
             var box = Box("Folder", Score("InsideSong"));
             box.AddChild(SongListNode.CreateBackNode(box));
@@ -110,7 +111,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SearchByTitle_CaseInsensitiveSubstring()
+        public void SearchByTitle_WithCaseInsensitiveSubstring_ShouldMatch()
         {
             var roots = new List<SongListNode>
             {
@@ -126,7 +127,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SearchByArtist_CaseInsensitiveSubstring()
+        public void SearchByArtist_WithCaseInsensitiveSubstring_ShouldMatch()
         {
             var roots = new List<SongListNode>
             {
@@ -141,7 +142,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SearchEmpty_ReturnsAll()
+        public void Search_WhenEmpty_ShouldReturnAll()
         {
             var roots = new List<SongListNode>
             {
@@ -155,7 +156,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SearchNoMatch_ReturnsEmpty()
+        public void Search_WhenNoMatch_ShouldReturnEmpty()
         {
             var roots = new List<SongListNode>
             {
@@ -170,7 +171,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelRange_FiltersByMaxDifficulty()
+        public void LevelRange_WithBothBounds_ShouldFilterByMaxDifficulty()
         {
             var roots = new List<SongListNode>
             {
@@ -186,7 +187,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelMinOnly_NoMaxBound()
+        public void LevelMinOnly_WithNoMaxBound_ShouldReturnAboveMin()
         {
             var roots = new List<SongListNode>
             {
@@ -201,7 +202,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelMaxOnly_NoMinBound()
+        public void LevelMaxOnly_WithNoMinBound_ShouldReturnBelowMax()
         {
             var roots = new List<SongListNode>
             {
@@ -216,7 +217,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelMinGreaterThanMax_NoLongerSwaps_NormalizedAtCaller()
+        public void LevelRange_WhenMinGreaterThanMax_ShouldReturnEmpty()
         {
             var roots = new List<SongListNode>
             {
@@ -235,7 +236,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelRange_NormalizedByCaller_FiltersCorrectly()
+        public void LevelRange_WhenNormalizedByCaller_ShouldFilterCorrectly()
         {
             var roots = new List<SongListNode>
             {
@@ -265,7 +266,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusUnplayed_KeepsOnlyZeroPlays()
+        public void PlayedStatusUnplayed_WhenFiltering_ShouldKeepOnlyZeroPlays()
         {
             var roots = new List<SongListNode>
             {
@@ -280,7 +281,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusPlayed_KeepsAnyPlayedSong()
+        public void PlayedStatusPlayed_WhenFiltering_ShouldKeepAnyPlayedSong()
         {
             var roots = new List<SongListNode>
             {
@@ -295,7 +296,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusCleared_RequiresPlayCountAndNonFRank()
+        public void PlayedStatusCleared_WhenFiltering_ShouldRequirePlayCountAndNonFRank()
         {
             var roots = new List<SongListNode>
             {
@@ -311,7 +312,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusCleared_CountsClearCountWhenBestRankIsF()
+        public void PlayedStatusCleared_WithClearCountAndFRank_ShouldCountAsCleared()
         {
             // Songs persisted via SongDatabaseService.UpdateScoreAsync have ClearCount > 0
             // but BestRank stays at 0 (F). These should still be considered cleared.
@@ -329,7 +330,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusCleared_RankBasedClearStillWorksWithoutClearCount()
+        public void PlayedStatusCleared_WithRankBasedClearAndNoClearCount_ShouldStillWork()
         {
             // In-memory update path sets BestRank but not ClearCount
             var roots = new List<SongListNode>
@@ -346,7 +347,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusCleared_NormalizesLegacyOrdinalBestRank()
+        public void PlayedStatusCleared_WithLegacyOrdinalBestRank_ShouldNormalize()
         {
             // Legacy ordinal 2 = A rank. Without normalization this maps to F via ComputeRankIndex.
             var roots = new List<SongListNode>
@@ -363,7 +364,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusAll_NoFilter()
+        public void PlayedStatusAll_WhenFiltering_ShouldReturnAll()
         {
             var roots = new List<SongListNode>
             {
@@ -378,7 +379,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_PlayedStatusUnplayed_TreatsMissingScoresAsUnplayed()
+        public void PlayedStatusUnplayed_WithMissingScores_ShouldTreatAsUnplayed()
         {
             var node = new SongListNode { Type = NodeType.Score, Title = "NoScores" };
             // node.Scores is all-null
@@ -391,7 +392,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SortByTitleDescending()
+        public void SortByTitleDescending_WhenApplied_ShouldSortDescending()
         {
             var roots = new List<SongListNode>
             {
@@ -410,7 +411,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SortByLevelAscending()
+        public void SortByLevelAscending_WhenApplied_ShouldSortByLevel()
         {
             var roots = new List<SongListNode>
             {
@@ -431,7 +432,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SortByArtist()
+        public void SortByArtist_WhenApplied_ShouldSortByArtist()
         {
             var roots = new List<SongListNode>
             {
@@ -446,7 +447,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_CombinedSearchLevelPlayedSort()
+        public void CombinedSearchLevelPlayedSort_WhenApplied_ShouldFilterCorrectly()
         {
             var roots = new List<SongListNode>
             {
@@ -475,27 +476,27 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_NullRoots_Throws()
+        public void Apply_WhenNullRoots_ShouldThrow()
         {
             Assert.Throws<ArgumentNullException>(() => _svc.Apply(null!, SongFilterCriteria.Default));
         }
 
         [Fact]
-        public void Apply_NullCriteria_Throws()
+        public void Apply_WhenNullCriteria_ShouldThrow()
         {
             var roots = new List<SongListNode> { Score("A") };
             Assert.Throws<ArgumentNullException>(() => _svc.Apply(roots, null!));
         }
 
         [Fact]
-        public void Apply_EmptyRoots_ReturnsEmpty()
+        public void Apply_WhenEmptyRoots_ShouldReturnEmpty()
         {
             var result = _svc.Apply(new List<SongListNode>(), SongFilterCriteria.Default);
             Assert.Empty(result);
         }
 
         [Fact]
-        public void Apply_SortByGenre()
+        public void SortByGenre_WhenApplied_ShouldSortByGenre()
         {
             var a = Score("SongA");
             a.Genre = "Rock";
@@ -513,7 +514,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SortByGenreDescending()
+        public void SortByGenreDescending_WhenApplied_ShouldSortDescending()
         {
             var a = Score("SongA");
             a.Genre = "Rock";
@@ -533,7 +534,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SearchNullArtist_DoesNotThrow()
+        public void Search_WithNullArtist_ShouldNotThrow()
         {
             var node = Score("TestSong");
             node.DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song
@@ -547,7 +548,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_SortByLevelDescending()
+        public void SortByLevelDescending_WhenApplied_ShouldSortDescending()
         {
             var roots = new List<SongListNode>
             {
@@ -568,7 +569,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_NullNodeInRoots_IsSkipped()
+        public void Apply_WithNullNodeInRoots_ShouldSkipNull()
         {
             var roots = new List<SongListNode> { null!, Score("Valid") };
             var result = _svc.Apply(roots, SongFilterCriteria.Default);
@@ -578,7 +579,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_BoxWithNoChildren_IgnoresBox()
+        public void Apply_WithBoxWithNoChildren_ShouldIgnoreBox()
         {
             var box = SongListNode.CreateBoxNode("Empty", "/empty");
             var roots = new List<SongListNode> { box };
@@ -589,7 +590,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_BackBoxNode_Ignored()
+        public void Apply_WithBackBoxNode_ShouldBeIgnored()
         {
             var box = Box("Folder", Score("Inside"));
             var back = SongListNode.CreateBackNode(box);
@@ -601,7 +602,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_LevelRange_BothNull_ReturnsAll()
+        public void LevelRange_WithBothNull_ShouldReturnAll()
         {
             var roots = new List<SongListNode>
             {
@@ -616,7 +617,7 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
-        public void Apply_BoxNodeAtPathRoot_PopulatesFolderCorrectly()
+        public void BoxNodeAtPathRoot_WhenNested_ShouldPopulateFolderCorrectly()
         {
             var innerScore = Score("Inner");
             var childBox = SongListNode.CreateBoxNode("SubFolder", "/sub");

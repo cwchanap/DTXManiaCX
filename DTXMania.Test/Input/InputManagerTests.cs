@@ -131,7 +131,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SetKeyMapping_EvictsPreviousKeyForSameCommand()
+    public void SetKeyMapping_WhenSettingNewKeyForSameCommand_ShouldEvictPreviousKey()
     {
         var manager = new InputManager();
         manager.SetKeyMapping(Keys.Enter, InputCommandType.Activate);
@@ -144,7 +144,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void RemoveKeyMapping_RemovesMapping()
+    public void RemoveKeyMapping_WhenCalled_ShouldRemoveMapping()
     {
         var manager = new InputManager();
         Assert.Contains(Keys.Enter, manager.GetKeyMappingSnapshot().Keys);
@@ -156,7 +156,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void GetKeyMappingSnapshot_ReturnsCopy()
+    public void GetKeyMappingSnapshot_WhenCalledAfterMutation_ShouldReturnCopy()
     {
         var manager = new InputManager();
         var snap1 = manager.GetKeyMappingSnapshot();
@@ -169,7 +169,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void Dispose_ClearsState()
+    public void Dispose_WhenCalled_ShouldClearState()
     {
         var manager = new InputManager();
         manager.Dispose();
@@ -179,7 +179,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SetKeyMapping_SameKeySameCommand_NoOp()
+    public void SetKeyMapping_WhenSameKeySameCommand_ShouldBeNoOp()
     {
         var manager = new InputManager();
         var countBefore = manager.GetKeyMappingSnapshot().Count;
@@ -189,7 +189,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void GetNextCommand_ReturnsNullWhenEmpty()
+    public void GetNextCommand_WhenNoCommandsQueued_ShouldReturnNull()
     {
         var manager = new InputManager();
         Assert.Null(manager.GetNextCommand());
@@ -197,7 +197,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void IsCommandDown_ReturnsFalseWhenNoKeyHeld()
+    public void IsCommandDown_WhenNoKeyHeld_ShouldReturnFalse()
     {
         var manager = new InputManager();
         Assert.False(manager.IsCommandDown(InputCommandType.Activate));
@@ -205,7 +205,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void IsKeyReleased_ReturnsFalseInitially()
+    public void IsKeyReleased_WhenInitiallyQueried_ShouldReturnFalse()
     {
         var manager = new InputManager();
         Assert.False(manager.IsKeyReleased((int)Keys.Enter));
@@ -213,7 +213,7 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void IsKeyDown_ReturnsFalseInitially()
+    public void IsKeyDown_WhenInitiallyQueried_ShouldReturnFalse()
     {
         var manager = new InputManager();
         Assert.False(manager.IsKeyDown((int)Keys.Enter));

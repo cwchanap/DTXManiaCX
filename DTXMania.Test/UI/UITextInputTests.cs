@@ -5,6 +5,7 @@ using Xunit;
 
 namespace DTXMania.Test.UI
 {
+    [Trait("Category", "Unit")]
     public class UITextInputTests
     {
         private sealed class FakeSource : ITextInputSource
