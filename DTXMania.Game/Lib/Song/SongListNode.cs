@@ -209,7 +209,8 @@ namespace DTXMania.Game.Lib.Song
                 {
                     persisted = charts
                         .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
-                        .FirstOrDefault(ps => ps.ChartId == score.ChartId);
+                        .FirstOrDefault(ps => ps.ChartId == score.ChartId
+                                              && ps.Instrument == score.Instrument);
                 }
                 else
                 {

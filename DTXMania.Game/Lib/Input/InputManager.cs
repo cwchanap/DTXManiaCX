@@ -356,6 +356,10 @@ namespace DTXMania.Game.Lib.Input
                     state.LastRepeatTime = _currentTime;
                     state.CurrentRepeatInterval = INITIAL_REPEAT_DELAY;
                     state.HasStartedRepeating = false;
+                    // Clear any leftover suppression from a prior modal/filter close.
+                    // Suppression is only meant to block repeats of keys already held at that
+                    // point; a fresh physical press should always produce commands normally.
+                    state.Suppressed = false;
 
                     // Queue initial command
                     _inputCommandQueue.Enqueue(new InputCommand(commandType, _currentTime, false));

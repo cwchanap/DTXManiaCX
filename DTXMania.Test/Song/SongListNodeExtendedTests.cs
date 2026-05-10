@@ -814,6 +814,56 @@ namespace DTXMania.Test.Song
         Assert.Equal(900000, node.Scores[1]!.BestScore);
     }
 
+    [Fact]
+    public void PopulatePlayHistoryFromCharts_SameChartIdDifferentInstruments_ShouldMatchByInstrument()
+    {
+        // A single chart (ChartId=10) has persisted scores for both DRUMS and GUITAR.
+        var chart = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60, HasGuitarChart = true, GuitarLevel = 70 };
+        chart.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            ChartId = 10,
+            Chart = chart,
+            PlayCount = 8,
+            BestScore = 950000,
+            BestRank = 90
+        });
+        chart.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.GUITAR,
+            ChartId = 10,
+            Chart = chart,
+            PlayCount = 3,
+            BestScore = 600000,
+            BestRank = 70
+        });
+
+        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+        node.Scores[0] = new SongScore
+        {
+            ChartId = 10,
+            Instrument = EInstrumentPart.DRUMS,
+            DifficultyLevel = 60
+        };
+        node.Scores[1] = new SongScore
+        {
+            ChartId = 10,
+            Instrument = EInstrumentPart.GUITAR,
+            DifficultyLevel = 70
+        };
+
+        node.PopulatePlayHistoryFromCharts(new[] { chart });
+
+        // Each slot should match the persisted score for its own instrument
+        Assert.Equal(8, node.Scores[0]!.PlayCount);
+        Assert.Equal(950000, node.Scores[0]!.BestScore);
+        Assert.Equal(90, node.Scores[0]!.BestRank);
+
+        Assert.Equal(3, node.Scores[1]!.PlayCount);
+        Assert.Equal(600000, node.Scores[1]!.BestScore);
+        Assert.Equal(70, node.Scores[1]!.BestRank);
+    }
+
     #endregion
 
         #region Note Tests
