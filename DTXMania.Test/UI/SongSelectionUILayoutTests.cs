@@ -4,10 +4,11 @@ using Xunit;
 
 namespace DTXMania.Test.UI
 {
+    [Trait("Category", "UI")]
     public class SongSelectionUILayoutTests
     {
         [Fact]
-        public void StatusPanel_PositionMatchesConstants()
+        public void StatusPanel_Position_ShouldMatchConstants()
         {
             Assert.Equal(new Vector2(SongSelectionUILayout.StatusPanel.X, SongSelectionUILayout.StatusPanel.Y),
                 SongSelectionUILayout.StatusPanel.Position);
@@ -16,7 +17,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SearchFilterModal_BoundsMatchConstants()
+        public void SearchFilterModal_Bounds_ShouldMatchConstants()
         {
             var bounds = SongSelectionUILayout.SearchFilterModal.Bounds;
             Assert.Equal(SongSelectionUILayout.SearchFilterModal.X, bounds.X);
@@ -26,7 +27,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void DifficultyGrid_GetCellPosition_ReturnsValidVector()
+        public void DifficultyGrid_GetCellPosition_ShouldReturnValidVector()
         {
             var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(0, 0);
             Assert.True(pos.X > 0);
@@ -34,7 +35,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void DifficultyGrid_GetCellContentPosition_Has20pxOffset()
+        public void DifficultyGrid_GetCellContentPosition_ShouldHave20pxOffset()
         {
             var cell = SongSelectionUILayout.DifficultyGrid.GetCellPosition(2, 1);
             var content = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(2, 1);
@@ -42,140 +43,140 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void BPMSection_PositionMatchesConstants()
+        public void BPMSection_Position_ShouldMatchConstants()
         {
             Assert.Equal(new Vector2(SongSelectionUILayout.BPMSection.X, SongSelectionUILayout.BPMSection.Y),
                 SongSelectionUILayout.BPMSection.Position);
         }
 
         [Fact]
-        public void SkillPointSection_PositionMatchesConstants()
+        public void SkillPointSection_Position_ShouldMatchConstants()
         {
             Assert.Equal(new Vector2(SongSelectionUILayout.SkillPointSection.X, SongSelectionUILayout.SkillPointSection.Y),
                 SongSelectionUILayout.SkillPointSection.Position);
         }
 
         [Fact]
-        public void GraphPanel_BasePositionIsValid()
+        public void GraphPanel_BasePosition_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.GraphPanel.BasePosition.X > 0);
             Assert.True(SongSelectionUILayout.GraphPanel.BasePosition.Y > 0);
         }
 
         [Fact]
-        public void SongBars_SelectedBarPosition_MatchesConstants()
+        public void SongBars_SelectedBarPosition_ShouldMatchConstants()
         {
             Assert.Equal(new Vector2(SongSelectionUILayout.SongBars.SelectedBarX, SongSelectionUILayout.SongBars.SelectedBarY),
                 SongSelectionUILayout.SongBars.SelectedBarPosition);
         }
 
         [Fact]
-        public void NoteDistributionBars_Drums_LaneCount()
+        public void NoteDistributionBars_Drums_ShouldHave10Lanes()
         {
             Assert.Equal(10, SongSelectionUILayout.NoteDistributionBars.Drums.LaneCount);
         }
 
         [Fact]
-        public void NoteDistributionBars_GuitarBass_LaneCount()
+        public void NoteDistributionBars_GuitarBass_ShouldHave6Lanes()
         {
             Assert.Equal(6, SongSelectionUILayout.NoteDistributionBars.GuitarBass.LaneCount);
         }
 
         [Fact]
-        public void Timing_FadeInDuration_IsPositive()
+        public void Timing_FadeInDuration_ShouldBePositive()
         {
             Assert.True(SongSelectionUILayout.Timing.FadeInDuration > 0);
         }
 
         [Fact]
-        public void Audio_PreviewSoundVolume_InRange()
+        public void Audio_PreviewSoundVolume_ShouldBeInRange()
         {
             Assert.InRange(SongSelectionUILayout.Audio.PreviewSoundVolume, 0f, 1f);
         }
 
         [Fact]
-        public void ScrollSpeedLabel_PositionIsValid()
+        public void ScrollSpeedLabel_Position_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.ScrollSpeedLabelX >= 0);
             Assert.True(SongSelectionUILayout.ScrollSpeedLabelY >= 0);
         }
 
         [Fact]
-        public void FolderHintOverlay_OffsetsAreNonNegative()
+        public void FolderHintOverlay_Offsets_ShouldBeNonNegative()
         {
             Assert.True(SongSelectionUILayout.FolderHintOverlay.OffsetX >= 0);
             Assert.True(SongSelectionUILayout.FolderHintOverlay.OffsetY >= 0);
         }
 
         [Fact]
-        public void CommentBar_PositionIsValid()
+        public void CommentBar_Position_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.CommentBar.X >= 0);
             Assert.True(SongSelectionUILayout.CommentBar.Y >= 0);
         }
 
         [Fact]
-        public void ItemCounter_BasePositionIsValid()
+        public void ItemCounter_BasePosition_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.ItemCounter.BaseX > 0);
             Assert.True(SongSelectionUILayout.ItemCounter.BaseY > 0);
         }
 
         [Fact]
-        public void Scrollbar_PositionIsValid()
+        public void Scrollbar_Position_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.Scrollbar.X > 0);
             Assert.True(SongSelectionUILayout.Scrollbar.Height > 0);
         }
 
         [Fact]
-        public void SongListDisplay_FullScreen()
+        public void SongListDisplay_ShouldBeFullScreen()
         {
             Assert.Equal(1280, SongSelectionUILayout.SongListDisplay.Width);
             Assert.Equal(720, SongSelectionUILayout.SongListDisplay.Height);
         }
 
         [Fact]
-        public void Background_DefaultFontSize_IsPositive()
+        public void Background_DefaultFontSize_ShouldBePositive()
         {
             Assert.True(SongSelectionUILayout.Background.DefaultFontSize > 0);
         }
 
         [Fact]
-        public void Spacing_BorderThickness_IsPositive()
+        public void Spacing_BorderThickness_ShouldBePositive()
         {
             Assert.True(SongSelectionUILayout.Spacing.BorderThickness > 0);
         }
 
         [Fact]
-        public void SongBars_GetBarPosition_CenterIndex_ReturnsSelectedPosition()
+        public void SongBars_GetBarPosition_WhenCenterIndex_ShouldReturnSelectedPosition()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(SongSelectionUILayout.SongBars.CenterIndex);
             Assert.Equal(SongSelectionUILayout.SongBars.SelectedBarPosition, pos);
         }
 
         [Fact]
-        public void SongBars_GetBarPosition_InvalidIndex_ReturnsZeroY()
+        public void SongBars_GetBarPosition_WhenInvalidIndex_ShouldReturnZeroY()
         {
             var pos = SongSelectionUILayout.SongBars.GetBarPosition(-1);
             Assert.Equal(0, pos.Y);
         }
 
         [Fact]
-        public void PreviewImagePanel_WithStatusPanel_HasValidBounds()
+        public void PreviewImagePanel_WithStatusPanel_ShouldHaveValidBounds()
         {
             Assert.True(SongSelectionUILayout.PreviewImagePanel.WithStatusPanel.Size > 0);
         }
 
         [Fact]
-        public void UILabels_Title_PositionIsValid()
+        public void UILabels_Title_Position_ShouldBeValid()
         {
             Assert.True(SongSelectionUILayout.UILabels.Title.X >= 0);
             Assert.True(SongSelectionUILayout.UILabels.Title.Y >= 0);
         }
 
         [Fact]
-        public void SearchFilterModal_ButtonWidthAndHeight_ArePositive()
+        public void SearchFilterModal_ButtonWidthAndHeight_ShouldBePositive()
         {
             Assert.True(SongSelectionUILayout.SearchFilterModal.ButtonWidth > 0);
             Assert.True(SongSelectionUILayout.SearchFilterModal.ButtonHeight > 0);

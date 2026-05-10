@@ -5,59 +5,60 @@ using Xunit;
 
 namespace DTXMania.Test.Stage
 {
+    [Trait("Category", "Unit")]
     public class SongSelectionStageBreadcrumbTests
     {
         [Fact]
-        public void Summarize_DefaultCriteria_ReturnsEmpty()
+        public void DefaultCriteria_ShouldReturnEmpty()
         {
             var s = SongSelectionStage.SummarizeFilter(SongFilterCriteria.Default);
             Assert.Equal("", s);
         }
 
         [Fact]
-        public void Summarize_OnlySearchQuery_ShowsQuoted()
+        public void OnlySearchQuery_ShouldShowQuoted()
         {
             var c = SongFilterCriteria.Default with { SearchQuery = "beatles" };
             Assert.Equal("Filtered: \"beatles\"", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_LevelRange_ShowsLevels()
+        public void LevelRange_ShouldShowLevels()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 50, MaxLevel = 85 };
             Assert.Equal("Filtered: Lv 50-85", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_LevelRangeInverted_SwapsToAscending()
+        public void LevelRangeInverted_ShouldSwapToAscending()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 80, MaxLevel = 30 };
             Assert.Equal("Filtered: Lv 30-80", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_LevelMinOnly()
+        public void LevelMinOnly_ShouldShowMinLevel()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 50, MaxLevel = null };
             Assert.Equal("Filtered: Lv 50+", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_LevelMaxOnly()
+        public void LevelMaxOnly_ShouldShowMaxLevel()
         {
             var c = SongFilterCriteria.Default with { MinLevel = null, MaxLevel = 85 };
             Assert.Equal("Filtered: Lv ≤85", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_PlayedStatus()
+        public void PlayedStatus_ShouldShowStatus()
         {
             var c = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Unplayed };
             Assert.Equal("Filtered: Unplayed", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void Summarize_SortNonDefault_AppendedWithArrow()
+        public void SortNonDefault_ShouldBeAppendedWithArrow()
         {
             var c = SongFilterCriteria.Default with
             {
@@ -68,7 +69,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void Summarize_SortDescending_DownArrow()
+        public void SortDescending_ShouldShowDownArrow()
         {
             var c = SongFilterCriteria.Default with
             {
@@ -79,7 +80,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void Summarize_AllFacets_JoinedWithDot()
+        public void AllFacets_ShouldBeJoinedWithDot()
         {
             var c = new SongFilterCriteria(
                 SearchQuery: "beatles",

@@ -6,22 +6,23 @@ using Xunit;
 
 namespace DTXMania.Test.Stage
 {
+    [Trait("Category", "Unit")]
     public class SongSelectionStageFilterTests
     {
         [Fact]
-        public void NewStage_FilterCriteriaDefaultsToEmpty()
+        public void NewStage_WhenCreated_ShouldHaveDefaultFilterCriteriaEmpty()
         {
             Assert.True(SongSelectionStage.DefaultFilterCriteriaIsEmpty());
         }
 
         [Fact]
-        public void DefaultFilteredViewIsNull()
+        public void DefaultFilteredView_WhenCreated_ShouldBeNull()
         {
             Assert.True(SongSelectionStage.DefaultFilteredViewIsNull());
         }
 
         [Fact]
-        public void IsLibraryReady_SyncInitPath_DoesNotBlockApply()
+        public void IsLibraryReady_WhenSyncInitPath_ShouldNotBlockApply()
         {
             object? list = new List<SongListNode>();
             System.Threading.Tasks.Task? task = null;
@@ -33,7 +34,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void IsLibraryReady_AsyncStillRunning_BlocksApply()
+        public void IsLibraryReady_WhenAsyncStillRunning_ShouldBlockApply()
         {
             object? list = new List<SongListNode>();
             System.Threading.Tasks.Task task = System.Threading.Tasks.Task.CompletedTask;
@@ -47,13 +48,13 @@ namespace DTXMania.Test.Stage
         #region SummarizeFilter
 
         [Fact]
-        public void SummarizeFilter_EmptyCriteria_ReturnsEmpty()
+        public void SummarizeFilter_WithEmptyCriteria_ShouldReturnEmpty()
         {
             Assert.Equal("", SongSelectionStage.SummarizeFilter(SongFilterCriteria.Default));
         }
 
         [Fact]
-        public void SummarizeFilter_SearchOnly()
+        public void SummarizeFilter_WithSearchQuery_ShouldContainQuery()
         {
             var c = SongFilterCriteria.Default with { SearchQuery = "hello" };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -62,7 +63,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_LevelRange()
+        public void SummarizeFilter_WithLevelRange_ShouldContainRange()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 30, MaxLevel = 70 };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -70,7 +71,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_LevelMinOnly()
+        public void SummarizeFilter_WithLevelMinOnly_ShouldContainMinLevel()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 50 };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -78,7 +79,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_LevelMaxOnly()
+        public void SummarizeFilter_WithLevelMaxOnly_ShouldContainMaxLevel()
         {
             var c = SongFilterCriteria.Default with { MaxLevel = 60 };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -86,7 +87,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_InvertedLevelRange_Normalizes()
+        public void SummarizeFilter_WithInvertedLevelRange_ShouldNormalize()
         {
             var c = SongFilterCriteria.Default with { MinLevel = 80, MaxLevel = 30 };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -94,7 +95,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_PlayedStatus()
+        public void SummarizeFilter_WithPlayedStatus_ShouldContainStatus()
         {
             var c = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -102,7 +103,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_SortDescending()
+        public void SummarizeFilter_WithSortDescending_ShouldContainSort()
         {
             var c = SongFilterCriteria.Default with { SortDescending = true };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -110,7 +111,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_SortByArtistAscending()
+        public void SummarizeFilter_WithSortByArtistAscending_ShouldContainSort()
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Artist };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -118,7 +119,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_SortByLevelDescending()
+        public void SummarizeFilter_WithSortByLevelDescending_ShouldContainSort()
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Level, SortDescending = true };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -126,7 +127,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_SortByGenre()
+        public void SummarizeFilter_WithSortByGenre_ShouldContainSort()
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -134,7 +135,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_DefaultSortTitleAscending_Omitted()
+        public void SummarizeFilter_WithDefaultSortTitleAscending_ShouldOmitSort()
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Title, SortDescending = false };
             var result = SongSelectionStage.SummarizeFilter(c);
@@ -142,7 +143,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SummarizeFilter_CombinedSearchAndLevelAndPlayed()
+        public void SummarizeFilter_WithCombinedSearchLevelPlayed_ShouldContainAll()
         {
             var c = SongFilterCriteria.Default with
             {
@@ -162,26 +163,26 @@ namespace DTXMania.Test.Stage
         #region ClampSelectionIndex
 
         [Fact]
-        public void ClampSelectionIndex_NullList_Returns0()
+        public void ClampSelectionIndex_WithNullList_ShouldReturn0()
         {
             Assert.Equal(0, SongSelectionStage.ClampSelectionIndex(null, null));
         }
 
         [Fact]
-        public void ClampSelectionIndex_EmptyList_Returns0()
+        public void ClampSelectionIndex_WithEmptyList_ShouldReturn0()
         {
             Assert.Equal(0, SongSelectionStage.ClampSelectionIndex(null, new List<SongListNode>()));
         }
 
         [Fact]
-        public void ClampSelectionIndex_NullPrevious_Returns0()
+        public void ClampSelectionIndex_WithNullPrevious_ShouldReturn0()
         {
             var list = new List<SongListNode> { new SongListNode { Title = "A" } };
             Assert.Equal(0, SongSelectionStage.ClampSelectionIndex(null, list));
         }
 
         [Fact]
-        public void ClampSelectionIndex_FoundInList_ReturnsIndex()
+        public void ClampSelectionIndex_WhenFoundInList_ShouldReturnIndex()
         {
             var node = new SongListNode { Title = "B" };
             var list = new List<SongListNode>
@@ -194,7 +195,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ClampSelectionIndex_NotFound_Returns0()
+        public void ClampSelectionIndex_WhenNotFound_ShouldReturn0()
         {
             var prev = new SongListNode { Title = "X" };
             var list = new List<SongListNode>
@@ -206,7 +207,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ClampSelectionIndex_SameReferenceFirst_Returns0()
+        public void ClampSelectionIndex_WithSameReferenceFirst_ShouldReturn0()
         {
             var node = new SongListNode { Title = "A" };
             var list = new List<SongListNode> { node, new SongListNode { Title = "B" } };
