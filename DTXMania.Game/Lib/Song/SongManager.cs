@@ -2213,6 +2213,7 @@ namespace DTXMania.Game.Lib.Song
 
                         songNode.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
                         {
+                            ChartId = chart.Id,
                             Instrument = primaryInstrument,
                             DifficultyLevel = difficultyLevel,
                             DifficultyLabel = $"Level {scoreIndex + 1}"

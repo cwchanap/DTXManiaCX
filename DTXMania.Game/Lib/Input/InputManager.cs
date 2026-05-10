@@ -49,11 +49,22 @@ namespace DTXMania.Game.Lib.Input
         public double CurrentRepeatInterval { get; set; }
         public bool HasStartedRepeating { get; set; }
 
+        /// <summary>
+        /// When true, the key is physically held but should not produce repeat commands.
+        /// Set by <see cref="Suppress"/> when a modal/filter closes while a mapped key is held.
+        /// Cleared by <see cref="Reset"/> when the key is physically released.
+        /// </summary>
+        public bool Suppressed { get; set; }
+
         public KeyRepeatState()
         {
             Reset();
         }
 
+        /// <summary>
+        /// Full reset — used when the key is physically released.
+        /// Clears all state including suppression.
+        /// </summary>
         public void Reset()
         {
             IsPressed = false;
@@ -61,6 +72,22 @@ namespace DTXMania.Game.Lib.Input
             LastRepeatTime = 0;
             CurrentRepeatInterval = 0;
             HasStartedRepeating = false;
+            Suppressed = false;
+        }
+
+        /// <summary>
+        /// Suppress a held key without waiting for release.
+        /// Zeroes timers and marks the state as suppressed so <c>UpdateKeyRepeatStates</c>
+        /// skips it until the key is physically released.
+        /// </summary>
+        public void Suppress()
+        {
+            IsPressed = false;
+            InitialPressTime = 0;
+            LastRepeatTime = 0;
+            CurrentRepeatInterval = 0;
+            HasStartedRepeating = false;
+            Suppressed = true;
         }
     }
 
@@ -170,14 +197,16 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
-        /// Resets all key repeat states so held keys will not produce repeat
-        /// commands on the next frame. Use after closing modals to prevent a
-        /// held close-key from immediately re-triggering stage actions.
+        /// Suppresses all held keys so they will not produce repeat commands on
+        /// the next frame. Unlike a plain reset, this sets a <see cref="KeyRepeatState.Suppressed"/>
+        /// flag so the repeat logic skips the key until it is physically released.
+        /// Use after closing modals or clearing filters to prevent a held close-key
+        /// from immediately re-triggering stage actions.
         /// </summary>
         public virtual void ResetKeyRepeatStates()
         {
             foreach (var state in _keyRepeatStates.Values)
-                state.Reset();
+                state.Suppress();
         }
 
         /// <summary>
@@ -273,6 +302,23 @@ namespace DTXMania.Game.Lib.Input
             _keyMapping[key] = command;
         }
 
+        /// <summary>
+        /// Returns the <see cref="KeyRepeatState"/> for a key, or null if none exists.
+        /// Intended for testing.
+        /// </summary>
+        internal KeyRepeatState? TryGetKeyRepeatState(Keys key)
+        {
+            return _keyRepeatStates.TryGetValue(key, out var state) ? state : null;
+        }
+
+        /// <summary>
+        /// Seeds a <see cref="KeyRepeatState"/> for a key. Intended for testing.
+        /// </summary>
+        internal void SeedKeyRepeatState(Keys key, KeyRepeatState state)
+        {
+            _keyRepeatStates[key] = state;
+        }
+
         public void RemoveKeyMapping(Keys key)
         {
             _keyMapping.Remove(key);
@@ -316,7 +362,13 @@ namespace DTXMania.Game.Lib.Input
                 }
                 else if (isCurrentlyPressed && wasPressed)
                 {
-                    // Key held down - check for repeat
+                    // Key held down — but skip if suppressed (e.g. modal just closed
+                    // while this key was still physically held). The suppression is
+                    // cleared when the key is released (the branch below).
+                    if (state.Suppressed)
+                        continue;
+
+                    // check for repeat
                     double timeSinceInitialPress = _currentTime - state.InitialPressTime;
                     double timeSinceLastRepeat = _currentTime - state.LastRepeatTime;
 

@@ -187,7 +187,10 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Copies play history (PlayCount, BestRank, BestScore, etc.) from persisted
         /// SongScore entities attached to each chart into the corresponding entries of
-        /// the <see cref="Scores"/> array.  Charts are matched to score slots by instrument.
+        /// the <see cref="Scores"/> array.
+        /// Charts are matched to score slots by <see cref="SongScore.ChartId"/> when
+        /// both sides carry a non-zero ChartId; otherwise falls back to matching by
+        /// Instrument + DifficultyLevel.
         /// </summary>
         public void PopulatePlayHistoryFromCharts(SongChart[] charts)
         {
@@ -197,14 +200,24 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (score == null) continue;
 
-                // Find the persisted score row for this instrument AND difficulty across all charts.
-                // Each chart may have at most one persisted row per instrument; matching by
-                // DifficultyLevel as well ensures the correct chart's history is used when
-                // multiple charts share the same instrument (e.g. Basic + Extreme drums).
-                var persisted = charts
-                    .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
-                    .FirstOrDefault(ps => ps.Instrument == score.Instrument
-                                          && ps.DifficultyLevel == score.DifficultyLevel);
+                SongScore? persisted;
+
+                // Prefer ChartId matching when both sides carry a non-zero ChartId.
+                // This disambiguates multi-chart songs where two charts share the
+                // same instrument and numeric difficulty level.
+                if (score.ChartId != 0)
+                {
+                    persisted = charts
+                        .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
+                        .FirstOrDefault(ps => ps.ChartId == score.ChartId);
+                }
+                else
+                {
+                    persisted = charts
+                        .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
+                        .FirstOrDefault(ps => ps.Instrument == score.Instrument
+                                              && ps.DifficultyLevel == score.DifficultyLevel);
+                }
 
                 if (persisted == null) continue;
 
@@ -344,6 +357,7 @@ namespace DTXMania.Game.Lib.Song
                 node.DifficultyLabels[scoreIndex] = $"DRUMS Lv.{chart.DrumLevel}";
                 node.Scores[scoreIndex] = new SongScore
                 {
+                    ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
                     DifficultyLevel = chart.DrumLevel,
                     DifficultyLabel = "DRUMS"
@@ -356,6 +370,7 @@ namespace DTXMania.Game.Lib.Song
                 node.DifficultyLabels[scoreIndex] = $"GUITAR Lv.{chart.GuitarLevel}";
                 node.Scores[scoreIndex] = new SongScore
                 {
+                    ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
                     DifficultyLevel = chart.GuitarLevel,
                     DifficultyLabel = "GUITAR"
@@ -368,6 +383,7 @@ namespace DTXMania.Game.Lib.Song
                 node.DifficultyLabels[scoreIndex] = $"BASS Lv.{chart.BassLevel}";
                 node.Scores[scoreIndex] = new SongScore
                 {
+                    ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
                     DifficultyLevel = chart.BassLevel,
                     DifficultyLabel = "BASS"

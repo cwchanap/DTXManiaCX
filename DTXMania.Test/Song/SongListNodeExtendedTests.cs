@@ -765,6 +765,55 @@ namespace DTXMania.Test.Song
         Assert.Equal(0, node.Scores[1]!.BestRank);
     }
 
+    [Fact]
+    public void PopulatePlayHistoryFromCharts_WithDuplicateDifficulty_ShouldMatchByChartId()
+    {
+        // Two charts both have DRUMS at level 60 — matching by instrument+level alone
+        // would return the first chart's score for both slots.
+        var chart1 = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60 };
+        chart1.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            ChartId = 10,
+            Chart = chart1,
+            PlayCount = 5,
+            BestScore = 100000
+        });
+
+        var chart2 = new SongChart { Id = 20, HasDrumChart = true, DrumLevel = 60 };
+        chart2.Scores.Add(new SongScore
+        {
+            Instrument = EInstrumentPart.DRUMS,
+            ChartId = 20,
+            Chart = chart2,
+            PlayCount = 25,
+            BestScore = 900000
+        });
+
+        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+        // Slot 0 linked to chart1, slot 1 linked to chart2
+        node.Scores[0] = new SongScore
+        {
+            ChartId = 10,
+            Instrument = EInstrumentPart.DRUMS,
+            DifficultyLevel = 60
+        };
+        node.Scores[1] = new SongScore
+        {
+            ChartId = 20,
+            Instrument = EInstrumentPart.DRUMS,
+            DifficultyLevel = 60
+        };
+
+        node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
+
+        // Each slot should match its own chart's persisted score, not the first one
+        Assert.Equal(5, node.Scores[0]!.PlayCount);
+        Assert.Equal(100000, node.Scores[0]!.BestScore);
+        Assert.Equal(25, node.Scores[1]!.PlayCount);
+        Assert.Equal(900000, node.Scores[1]!.BestScore);
+    }
+
     #endregion
 
         #region Note Tests
