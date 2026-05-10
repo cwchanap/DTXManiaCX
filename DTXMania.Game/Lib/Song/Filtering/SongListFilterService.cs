@@ -66,10 +66,9 @@ namespace DTXMania.Game.Lib.Song.Filtering
         {
             if (min is null && max is null) return flat;
 
-            // Swap if min > max
+            // MinLevel/MaxLevel are normalized by the caller before reaching here.
             int lo = min ?? int.MinValue;
             int hi = max ?? int.MaxValue;
-            if (lo > hi) (lo, hi) = (hi, lo);
 
             return flat.Where(r =>
             {
