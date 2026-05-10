@@ -79,11 +79,73 @@ public class InputManagerTests
         Assert.False(manager.HasPendingCommands);
     }
 
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void KeyRepeatState_Suppress_ShouldSetSuppressedFlag()
+    {
+        var state = new KeyRepeatState();
+
+        Assert.False(state.Suppressed);
+
+        state.Suppress();
+
+        Assert.True(state.Suppressed);
+        Assert.False(state.IsPressed);
+        Assert.Equal(0, state.LastRepeatTime);
+        Assert.Equal(0, state.CurrentRepeatInterval);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void KeyRepeatState_Reset_ShouldClearSuppressedFlag()
+    {
+        var state = new KeyRepeatState();
+        state.Suppress();
+
+        Assert.True(state.Suppressed);
+
+        state.Reset();
+
+        Assert.False(state.Suppressed);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
+    public void ResetKeyRepeatStates_ShouldSuppressRatherThanReset()
+    {
+        var manager = new TestableInputManager();
+
+        // Simulate that Escape was pressed — seed a KeyRepeatState so
+        // ResetKeyRepeatStates has something to suppress.
+        manager.SimulateKeyRepeatState(Keys.Escape);
+
+        // Now suppress via ResetKeyRepeatStates (e.g. modal closed while Escape held).
+        manager.ResetKeyRepeatStates();
+
+        // The state should be suppressed, not just reset — this means if the key is
+        // still held on the next frame, no phantom repeat will fire.
+        var state = manager.GetKeyRepeatState(Keys.Escape);
+        Assert.NotNull(state);
+        Assert.True(state.Suppressed);
+    }
+
     private sealed class TestableInputManager : InputManager
     {
         public void QueueCommand(InputCommandType commandType, double timestamp, bool isRepeat = false)
         {
             EnqueueCommand(new InputCommand(commandType, timestamp, isRepeat));
+        }
+
+        public void SimulateKeyRepeatState(Keys key)
+        {
+            // Add mapping and seed a repeat state so ResetKeyRepeatStates has something to suppress.
+            AddKeyMapping(key, InputCommandType.Back);
+            SeedKeyRepeatState(key, new KeyRepeatState());
+        }
+
+        public KeyRepeatState? GetKeyRepeatState(Keys key)
+        {
+            return TryGetKeyRepeatState(key);
         }
     }
 
