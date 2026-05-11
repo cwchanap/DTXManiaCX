@@ -88,6 +88,7 @@ namespace DTXMania.Game.Lib.Stage
         // Search/filter modal
         private SongSearchFilterModal? _searchFilterModal = null;
         private WindowTextInputSource? _textInputSource = null;
+        private Microsoft.Xna.Framework.Input.MouseState? _previousMouseState = null;
         
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
@@ -1109,29 +1110,51 @@ namespace DTXMania.Game.Lib.Stage
                 OpenSearchFilterModal();
         }
 
-        // Set of keys the modal cares about (Esc/Tab/arrows/Enter/Backspace).
-        private static readonly Microsoft.Xna.Framework.Input.Keys[] ModalKeys = new[]
+        // Text-editing keys that are NOT represented in InputCommandType.
+        // These must be polled as raw keys alongside the command-based navigation.
+        private static readonly Microsoft.Xna.Framework.Input.Keys[] ModalRawKeys = new[]
         {
-            Microsoft.Xna.Framework.Input.Keys.Escape,
             Microsoft.Xna.Framework.Input.Keys.Tab,
-            Microsoft.Xna.Framework.Input.Keys.Up,
-            Microsoft.Xna.Framework.Input.Keys.Down,
-            Microsoft.Xna.Framework.Input.Keys.Left,
-            Microsoft.Xna.Framework.Input.Keys.Right,
-            Microsoft.Xna.Framework.Input.Keys.Enter,
             Microsoft.Xna.Framework.Input.Keys.Back
         };
 
         private void ProcessModalKeys()
         {
-            // Route through InputManager so MCP/API key injection works while the
-            // modal is open. Each key is edge-detected per frame by IsKeyPressed.
             if (_inputManager == null) return;
-            foreach (var key in ModalKeys)
+
+            // 1. Command-based navigation (respects remapped key bindings)
+            var commandTypes = new[]
+            {
+                InputCommandType.MoveUp,
+                InputCommandType.MoveDown,
+                InputCommandType.MoveLeft,
+                InputCommandType.MoveRight,
+                InputCommandType.Activate,
+                InputCommandType.Back
+            };
+            foreach (var cmd in commandTypes)
+            {
+                if (_inputManager.IsCommandPressed(cmd))
+                    _searchFilterModal.HandleCommand(cmd);
+            }
+
+            // 2. Raw keys for text editing (Tab = cycle focus, Back = backspace)
+            //    These are not in the InputCommandType system.
+            foreach (var key in ModalRawKeys)
             {
                 if (_inputManager.IsKeyPressed((int)key))
                     _searchFilterModal.HandleKey(key);
             }
+
+            // 3. Mouse click routing for modal buttons
+            var mouseState = Microsoft.Xna.Framework.Input.Mouse.GetState();
+            if (_previousMouseState != null &&
+                _previousMouseState.Value.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Released &&
+                mouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed)
+            {
+                _searchFilterModal.HandleClick(new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y));
+            }
+            _previousMouseState = mouseState;
         }
 
         /// <summary>
