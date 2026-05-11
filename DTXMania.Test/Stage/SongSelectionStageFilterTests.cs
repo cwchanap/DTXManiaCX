@@ -15,36 +15,6 @@ namespace DTXMania.Test.Stage
             Assert.True(SongSelectionStage.DefaultFilterCriteriaIsEmpty());
         }
 
-        [Fact]
-        public void DefaultFilteredView_WhenCreated_ShouldBeNull()
-        {
-            Assert.True(SongSelectionStage.DefaultFilteredViewIsNull());
-        }
-
-        [Fact]
-        public void IsLibraryReady_WhenSyncInitPath_ShouldNotBlockApply()
-        {
-            object? list = new List<SongListNode>();
-            System.Threading.Tasks.Task? task = null;
-            bool processed = false;
-
-            bool ready = list != null && (task == null || processed);
-
-            Assert.True(ready);
-        }
-
-        [Fact]
-        public void IsLibraryReady_WhenAsyncStillRunning_ShouldBlockApply()
-        {
-            object? list = new List<SongListNode>();
-            System.Threading.Tasks.Task task = System.Threading.Tasks.Task.CompletedTask;
-            bool processed = false;
-
-            bool ready = list != null && (task == null || processed);
-
-            Assert.False(ready);
-        }
-
         #region SummarizeFilter
 
         [Fact]

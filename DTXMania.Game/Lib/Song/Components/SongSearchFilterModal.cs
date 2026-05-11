@@ -50,7 +50,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public string LoadingHintText { get; set; } = "Library still loading…";
 
-        public void Open(SongFilterCriteria initial)
+        public void Open(SongFilterCriteria? initial)
         {
             _draft = initial ?? SongFilterCriteria.Default;
             _focusedField = Field.SearchBox;
@@ -131,7 +131,7 @@ namespace DTXMania.Game.Lib.Song.Components
             Close();
         }
 
-        public void UpdateDraft(SongFilterCriteria newDraft)
+        public void UpdateDraft(SongFilterCriteria? newDraft)
         {
             _draft = newDraft ?? SongFilterCriteria.Default;
         }

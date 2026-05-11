@@ -192,7 +192,7 @@ namespace DTXMania.Game.Lib.Song
         /// both sides carry a non-zero ChartId; otherwise falls back to matching by
         /// Instrument + DifficultyLevel.
         /// </summary>
-        public void PopulatePlayHistoryFromCharts(SongChart[] charts)
+        public void PopulatePlayHistoryFromCharts(SongChart[]? charts)
         {
             if (charts == null) return;
 
