@@ -147,7 +147,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Optional folder breadcrumb to render at the top of the panel.
         /// Set when the song selection list is in filtered (flat) mode so the
         /// player can see where the selected song lives in the hierarchy.
-        /// Empty/null = nothing rendered.
+        /// Empty = nothing rendered.
         /// </summary>
         public string FolderHint { get; set; } = "";
 

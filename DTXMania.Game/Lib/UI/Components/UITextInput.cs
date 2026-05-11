@@ -27,8 +27,9 @@ namespace DTXMania.Game.Lib.UI.Components
             set
             {
                 var incoming = value ?? "";
-                _text = incoming.Length > MaxLength
-                    ? incoming.Substring(0, MaxLength)
+                var maxLen = Math.Max(0, MaxLength);
+                _text = incoming.Length > maxLen
+                    ? incoming.Substring(0, maxLen)
                     : incoming;
                 _caretIndex = Math.Clamp(_caretIndex, 0, _text.Length);
             }

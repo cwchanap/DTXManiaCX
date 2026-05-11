@@ -7,7 +7,7 @@ namespace DTXMania.Game.Lib.Song.Filtering
     public sealed class SongListFilterService : ISongListFilterService
     {
         /// <summary>
-        /// Minimum rank index required to consider a song "cleared".
+        /// Exclusive upper bound for rank indices that count as "cleared".
         /// Ranks with ComputeRankIndex below this threshold count as cleared.
         /// </summary>
         private const int ClearedRankThreshold = 7;

@@ -86,8 +86,8 @@ namespace DTXMania.Game.Lib.Stage
         private bool _isInStatusPanel = false;
 
         // Search/filter modal
-        private SongSearchFilterModal _searchFilterModal;
-        private WindowTextInputSource _textInputSource;
+        private SongSearchFilterModal? _searchFilterModal = null;
+        private WindowTextInputSource? _textInputSource = null;
         
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
@@ -1874,13 +1874,11 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
-        // Test-access helpers (used by SongSelectionStageFilterTests)
-        public static bool DefaultFilterCriteriaIsEmpty() =>
+        // Internal helper for tests (InternalsVisibleTo)
+        internal static bool DefaultFilterCriteriaIsEmpty() =>
             SongFilterCriteria.Default.IsEmpty;
 
-        public static bool DefaultFilteredViewIsNull() => true;
-
-        public static int ClampSelectionIndex(SongListNode previousSelected, System.Collections.Generic.IReadOnlyList<SongListNode> newList)
+        public static int ClampSelectionIndex(SongListNode? previousSelected, System.Collections.Generic.IReadOnlyList<SongListNode>? newList)
         {
             if (newList == null || newList.Count == 0) return 0;
             if (previousSelected == null) return 0;
