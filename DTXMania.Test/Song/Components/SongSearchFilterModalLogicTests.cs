@@ -688,5 +688,207 @@ namespace DTXMania.Test.Song.Components
             modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Left);
             Assert.Null(modal.CurrentDraft.MinLevel);
         }
+
+        #region HandleCommand tests (command-based navigation)
+
+        [Fact]
+        public void HandleCommand_WhenMoveDown_ShouldAdvanceFocus()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveDown);
+
+            Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenMoveUp_ShouldRetreatFocus()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveUp);
+
+            Assert.Equal(SongSearchFilterModal.Field.ApplyButton, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenMoveLeftOnMinLevel_ShouldAdjust()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { MinLevel = 10 });
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveLeft);
+
+            Assert.Equal(5, modal.CurrentDraft.MinLevel);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenMoveRightOnMinLevel_ShouldAdjust()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.FocusNext(); // MinLevel
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveRight);
+
+            Assert.Equal(5, modal.CurrentDraft.MinLevel);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenActivateOnSearchBox_ShouldSubmit()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default with { SearchQuery = "abc" });
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.Activate);
+
+            Assert.True(applied);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenActivateOnApplyButton_ShouldFireApply()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            for (int i = 0; i < 7; i++) modal.FocusNext();
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.Activate);
+
+            Assert.True(applied);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenActivateOnResetButton_ShouldFireReset()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            for (int i = 0; i < 6; i++) modal.FocusNext();
+            bool reset = false;
+            modal.FilterReset += (_, _) => reset = true;
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.Activate);
+
+            Assert.True(reset);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenBack_ShouldFireCancel()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            bool fired = false;
+            modal.Cancelled += (_, _) => fired = true;
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.Back);
+
+            Assert.True(fired);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void HandleCommand_WhenNotOpen_ShouldBeNoOp()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            bool cancelled = false;
+            modal.Cancelled += (_, _) => cancelled = true;
+
+            modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.Back);
+
+            Assert.False(cancelled);
+        }
+
+        #endregion
+
+        #region HandleClick tests (mouse interaction)
+
+        [Fact]
+        public void HandleClick_WhenClickResetButton_ShouldFireReset()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            bool reset = false;
+            modal.FilterReset += (_, _) => reset = true;
+
+            // Reset button: modal X=340 + ResetButtonX=200 = 540, Y=180 + ButtonRowY=240 = 420
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(600, 438));
+
+            Assert.True(clicked);
+            Assert.True(reset);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickApplyButton_ShouldFireApply()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            bool applied = false;
+            modal.FilterApplied += (_, _) => applied = true;
+
+            // Apply button: modal X=340 + ApplyButtonX=360 = 700, Y=180 + ButtonRowY=240 = 420
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(760, 438));
+
+            Assert.True(clicked);
+            Assert.True(applied);
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickInsideModalSearchArea_ShouldFocusSearchBox()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // Click in search box area: modal Y=180 + SearchBoxY=56 + 10 = 246
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(400, 246));
+
+            Assert.True(clicked);
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickOutsideModal_ShouldReturnFalse()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(10, 10));
+
+            Assert.False(clicked);
+        }
+
+        [Fact]
+        public void HandleClick_WhenNotOpen_ShouldReturnFalse()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+
+            // Click right on the modal area, but modal is closed
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(570, 258));
+
+            Assert.False(clicked);
+        }
+
+        #endregion
+
+        #region Position/Size sync on Open
+
+        [Fact]
+        public void Open_WhenCalled_ShouldSetUIElementBoundsToLayout()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            var layout = DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.SearchFilterModal.Bounds;
+
+            modal.Open(SongFilterCriteria.Default);
+
+            Assert.Equal(layout, modal.Bounds);
+        }
+
+        #endregion
     }
 }

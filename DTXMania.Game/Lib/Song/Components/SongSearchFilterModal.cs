@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.UI;
@@ -56,6 +57,10 @@ namespace DTXMania.Game.Lib.Song.Components
             _focusedField = Field.SearchBox;
             _isOpen = true;
             Visible = true;
+            // Sync UIElement bounds to the layout constants so HitTest/click routing works
+            var layout = SearchFilterModal.Bounds;
+            Position = new Microsoft.Xna.Framework.Vector2(layout.X, layout.Y);
+            Size = new Microsoft.Xna.Framework.Vector2(layout.Width, layout.Height);
             SubscribeText();
         }
 
@@ -184,6 +189,39 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        /// <summary>
+        /// Handle a navigational InputCommandType (respects remapped key bindings).
+        /// Falls back to the same logic as HandleKey for directional and action commands.
+        /// Tab and Backspace are NOT handled here — they are text-editing keys polled
+        /// as raw keys because they are not in the InputCommandType system.
+        /// </summary>
+        public void HandleCommand(InputCommandType command)
+        {
+            if (!_isOpen) return;
+
+            switch (command)
+            {
+                case InputCommandType.MoveUp:
+                    FocusPrev();
+                    return;
+                case InputCommandType.MoveDown:
+                    FocusNext();
+                    return;
+                case InputCommandType.MoveLeft:
+                    AdjustFocusedField(-1);
+                    return;
+                case InputCommandType.MoveRight:
+                    AdjustFocusedField(+1);
+                    return;
+                case InputCommandType.Activate:
+                    HandleEnter();
+                    return;
+                case InputCommandType.Back:
+                    Cancel();
+                    return;
+            }
+        }
+
         private void HandleEnter()
         {
             switch (_focusedField)
@@ -258,6 +296,59 @@ namespace DTXMania.Game.Lib.Song.Components
             if (currentIdx < 0) currentIdx = 0;
             int next = (currentIdx + dir + allowed.Length) % allowed.Length;
             return allowed[next];
+        }
+
+        /// <summary>
+        /// Handle a mouse click at the given position (screen coordinates).
+        /// Detects clicks on the Reset/Apply buttons and focuses fields.
+        /// Returns true if the click was inside the modal.
+        /// </summary>
+        public bool HandleClick(Microsoft.Xna.Framework.Point position)
+        {
+            if (!_isOpen) return false;
+
+            var modalBounds = SearchFilterModal.Bounds;
+            if (!modalBounds.Contains(position))
+                return false;
+
+            // Check buttons first (they sit on top of other content)
+            var resetRect = new Microsoft.Xna.Framework.Rectangle(
+                modalBounds.X + SearchFilterModal.ResetButtonX, modalBounds.Y + SearchFilterModal.ButtonRowY,
+                SearchFilterModal.ButtonWidth, SearchFilterModal.ButtonHeight);
+            var applyRect = new Microsoft.Xna.Framework.Rectangle(
+                modalBounds.X + SearchFilterModal.ApplyButtonX, modalBounds.Y + SearchFilterModal.ButtonRowY,
+                SearchFilterModal.ButtonWidth, SearchFilterModal.ButtonHeight);
+
+            if (resetRect.Contains(position))
+            {
+                _focusedField = Field.ResetButton;
+                Reset();
+                return true;
+            }
+            if (applyRect.Contains(position))
+            {
+                _focusedField = Field.ApplyButton;
+                Apply();
+                return true;
+            }
+
+            // Determine focused field from vertical position
+            int relY = position.Y - modalBounds.Y;
+            _focusedField = FieldFromRelY(relY);
+            return true;
+        }
+
+        private Field FieldFromRelY(int relY)
+        {
+            if (relY < SearchFilterModal.FirstRowY + SearchFilterModal.SearchBoxHeight)
+                return Field.SearchBox;
+            if (relY < SearchFilterModal.LevelRowY + SearchFilterModal.LevelInputHeight)
+                return Field.MinLevel;
+            if (relY < SearchFilterModal.PlayedRowY + 30)
+                return Field.PlayedStatus;
+            if (relY < SearchFilterModal.SortRowY + 30)
+                return Field.SortBy;
+            return Field.SortDirection;
         }
 
         public Texture2D? WhitePixel { get; set; }
