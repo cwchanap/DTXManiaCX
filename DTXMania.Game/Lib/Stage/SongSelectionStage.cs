@@ -1110,19 +1110,28 @@ namespace DTXMania.Game.Lib.Stage
                 OpenSearchFilterModal();
         }
 
-        // Text-editing keys that are NOT represented in InputCommandType.
-        // These must be polled as raw keys alongside the command-based navigation.
+        // Keys polled as raw input alongside the command-based navigation.
+        // Tab and Back are text-editing keys not in the InputCommandType system.
+        // Enter and Escape are polled here so they work even when Activate/Back
+        // commands are suppressed (e.g. when SearchBox is focused and the bound
+        // key produces text characters that would conflict with text entry).
         private static readonly Microsoft.Xna.Framework.Input.Keys[] ModalRawKeys = new[]
         {
             Microsoft.Xna.Framework.Input.Keys.Tab,
-            Microsoft.Xna.Framework.Input.Keys.Back
+            Microsoft.Xna.Framework.Input.Keys.Back,
+            Microsoft.Xna.Framework.Input.Keys.Enter,
+            Microsoft.Xna.Framework.Input.Keys.Escape
         };
 
         private void ProcessModalKeys()
         {
             if (_inputManager == null) return;
 
-            // 1. Command-based navigation (respects remapped key bindings)
+            // 1. Command-based navigation (respects remapped key bindings).
+            //    Activate and Back are suppressed when the SearchBox is focused to
+            //    prevent a remapped text-producing key (e.g. Space → Activate) from
+            //    closing the modal while the TextInput event simultaneously inserts a
+            //    character.  Enter and Escape still reach HandleKey via ModalRawKeys.
             var commandTypes = new[]
             {
                 InputCommandType.MoveUp,
@@ -1132,8 +1141,11 @@ namespace DTXMania.Game.Lib.Stage
                 InputCommandType.Activate,
                 InputCommandType.Back
             };
+            bool searchBoxFocused = _searchFilterModal.FocusedField == SongSearchFilterModal.Field.SearchBox;
             foreach (var cmd in commandTypes)
             {
+                if (searchBoxFocused && (cmd == InputCommandType.Activate || cmd == InputCommandType.Back))
+                    continue;
                 if (_inputManager.IsCommandPressed(cmd))
                     _searchFilterModal.HandleCommand(cmd);
             }
@@ -1147,9 +1159,11 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // 3. Mouse click routing for modal buttons
+            //    Treat a null previous state as "all buttons released" so that the
+            //    very first click after the modal opens is not silently swallowed.
             var mouseState = Microsoft.Xna.Framework.Input.Mouse.GetState();
-            if (_previousMouseState != null &&
-                _previousMouseState.Value.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Released &&
+            if ((_previousMouseState == null ||
+                 _previousMouseState.Value.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Released) &&
                 mouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed)
             {
                 _searchFilterModal.HandleClick(new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y));
