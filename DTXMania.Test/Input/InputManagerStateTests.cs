@@ -149,6 +149,10 @@ public class InputManagerStateTests
         SetKeyboardStates(manager, new KeyboardState(Keys.Up), new KeyboardState(Keys.Up));
         SetCurrentTime(manager, 0.5);
 
+        // Edge case: the stored KeyRepeatState says the key is NOT pressed and is suppressed,
+        // but the physical keyboard state (SetKeyboardStates with Keys.Up) shows the key is
+        // still held. This simulates a previously-suppressed/reset repeat state while the user
+        // keeps holding the key — the system should NOT generate repeat commands.
         GetRepeatStates(manager)[Keys.Up] = new KeyRepeatState
         {
             IsPressed = false,
