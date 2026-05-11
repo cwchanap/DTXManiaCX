@@ -1183,14 +1183,17 @@ namespace DTXMania.Game.Lib.Stage
             while (commands.Count > 0)
             {
                 var command = commands.Dequeue();
-                ExecuteInputCommand(command);
+                if (!ExecuteInputCommand(command))
+                    break;
             }
         }
 
         /// <summary>
-        /// Execute a specific input command
+        /// Execute a specific input command.
+        /// Returns false when remaining queued commands should be discarded
+        /// (e.g. after a state-changing action like filter reset).
         /// </summary>
-        private void ExecuteInputCommand(InputCommand command)
+        private bool ExecuteInputCommand(InputCommand command)
         {
             switch (command.Type)
             {
@@ -1258,8 +1261,11 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     else if (_filteredView != null)
                     {
-                        // Clear active filter so subsequent Back presses navigate normally
+                        // Clear active filter so subsequent Back presses navigate normally.
+                        // Drain remaining queued commands to prevent a stale second Back
+                        // from navigating away or exiting the stage in the same frame.
                         OnFilterReset(this, System.EventArgs.Empty);
+                        return false;
                     }
                     else if (_navigationStack.Count > 0)
                     {
@@ -1290,12 +1296,18 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
             }
+
+            return true;
         }
 
         private void OpenSearchFilterModal()
         {
             if (_searchFilterModal == null) return;
             _isInStatusPanel = false;
+            // Reset mouse edge-detection state so the first click after the modal
+            // opens is not swallowed (e.g. if the previous modal session ended
+            // with a button press that left _previousMouseState as Pressed).
+            _previousMouseState = null;
             // Synchronous-init path: when SongManager was already initialized at Activate
             // time, _songInitializationTask is null and _songInitializationProcessed never
             // flips to true — but _currentSongList is set. Treat that as ready.

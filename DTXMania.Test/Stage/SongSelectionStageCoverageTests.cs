@@ -1862,5 +1862,105 @@ namespace DTXMania.Test.Stage
         }
 
         #endregion
+
+        #region ExecuteInputCommand – filter reset drains remaining commands (P2 fix)
+
+        [Fact]
+        public void ExecuteInputCommand_BackWithActiveFilter_ShouldReturnFalse()
+        {
+            // When Back clears an active filter, ExecuteInputCommand returns false
+            // so ProcessInputCommands stops iterating the stale snapshot.
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "folder") };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_isInStatusPanel", false);
+            SetPrivateField(stage, "_filteredView", filteredView);
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            Assert.False(result);
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_BackWithoutActiveFilter_ShouldReturnTrue()
+        {
+            // Normal Back (no filter) should return true to continue processing.
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A")]
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+
+            var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ProcessInputCommands_BackAfterFilterReset_ShouldDrainRemainingCommands()
+        {
+            // Two Back commands queued: first clears the filter, second should NOT
+            // navigate away or exit the stage because remaining commands are drained.
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var filteredView = new List<FilteredSongResult> { new(CreateScoreNode("S"), "folder") };
+            var inputManager = new QueuedInputManager();
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_isInStatusPanel", false);
+            SetPrivateField(stage, "_filteredView", filteredView);
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+
+            InvokePrivateMethod(stage, "ProcessInputCommands");
+
+            // Filter should be cleared
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            // Navigation stack should still be empty (second Back was drained)
+            var stack = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
+            Assert.Empty(stack);
+        }
+
+        #endregion
+
+        #region OpenSearchFilterModal – mouse state reset on reopen (P3 fix)
+
+        [Fact]
+        public void OpenSearchFilterModal_ShouldResetPreviousMouseState()
+        {
+            // If _previousMouseState was left as Pressed from a prior modal session,
+            // reopening the modal should reset it to null so the first click registers.
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", null);
+
+            // Simulate stale mouse state from a previous modal session
+            SetPrivateField(stage, "_previousMouseState", new Microsoft.Xna.Framework.Input.MouseState(
+                0, 0, 0,
+                Microsoft.Xna.Framework.Input.ButtonState.Pressed,
+                Microsoft.Xna.Framework.Input.ButtonState.Released,
+                Microsoft.Xna.Framework.Input.ButtonState.Released,
+                Microsoft.Xna.Framework.Input.ButtonState.Released,
+                Microsoft.Xna.Framework.Input.ButtonState.Released));
+
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            Assert.Null(GetPrivateField<Microsoft.Xna.Framework.Input.MouseState?>(stage, "_previousMouseState"));
+        }
+
+        #endregion
     }
 }
