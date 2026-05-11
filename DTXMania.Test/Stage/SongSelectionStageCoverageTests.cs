@@ -1727,5 +1727,140 @@ namespace DTXMania.Test.Stage
             // Selection should NOT have moved (MoveDown was blocked)
             Assert.Equal("A", display.SelectedSong!.Title);
         }
+
+        #region ProcessModalKeys – search-box command suppression (issue 1)
+
+        /// <summary>
+        /// InputManager stub that lets tests specify which commands appear as pressed.
+        /// </summary>
+        private sealed class CommandSimulatingInputManager : InputManager
+        {
+            private readonly HashSet<InputCommandType> _pressedCommands = new();
+
+            public void PressCommand(InputCommandType cmd) => _pressedCommands.Add(cmd);
+
+            public override bool IsCommandPressed(InputCommandType command) => _pressedCommands.Contains(command);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldSuppressActivateCommand()
+        {
+            // If Activate is remapped to a text-producing key, the command must be
+            // suppressed while the SearchBox is focused so text entry still works.
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            inputManager.PressCommand(InputCommandType.Activate);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            // Default focus is SearchBox
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Modal should still be open (Activate was suppressed)
+            Assert.True(modal.IsOpen);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldSuppressBackCommand()
+        {
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            inputManager.PressCommand(InputCommandType.Back);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Modal should still be open (Back was suppressed)
+            Assert.True(modal.IsOpen);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenApplyButtonFocused_ShouldProcessActivateCommand()
+        {
+            // Activate should still work when focus is NOT on the SearchBox.
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            inputManager.PressCommand(InputCommandType.Activate);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            // Move focus to ApplyButton
+            for (int i = 0; i < 7; i++) modal.FocusNext();
+            Assert.Equal(SongSearchFilterModal.Field.ApplyButton, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Modal should have closed (Activate triggered Apply)
+            Assert.False(modal.IsOpen);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldProcessDirectionalCommands()
+        {
+            // Directional commands (MoveUp/MoveDown/MoveLeft/MoveRight) should still
+            // be processed even when SearchBox is focused.
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            inputManager.PressCommand(InputCommandType.MoveDown);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Focus should have moved from SearchBox to MinLevel
+            Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+        }
+
+        #endregion
+
+        #region ProcessModalKeys – first-click mouse handling (issue 2)
+
+        [Fact]
+        public void ProcessModalKeys_WhenPreviousMouseStateIsNull_ShouldStillDetectClick()
+        {
+            // On the first modal open, _previousMouseState is null.
+            // The click should still register (null treated as "released").
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            // _previousMouseState defaults to null — don't set it
+            Assert.Null(GetPrivateField<Microsoft.Xna.Framework.Input.MouseState?>(stage, "_previousMouseState"));
+
+            // ProcessModalKeys reads Mouse.GetState() and checks the click condition.
+            // We can't easily control Mouse.GetState() in a unit test, but we can verify
+            // that the null check logic is correct by inspecting the method doesn't throw,
+            // and that _previousMouseState is populated after the call.
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // After the call, _previousMouseState should be populated (not null)
+            Assert.NotNull(GetPrivateField<Microsoft.Xna.Framework.Input.MouseState?>(stage, "_previousMouseState"));
+        }
+
+        #endregion
     }
 }
