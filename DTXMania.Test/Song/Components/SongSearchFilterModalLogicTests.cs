@@ -876,6 +876,78 @@ namespace DTXMania.Test.Song.Components
 
         #endregion
 
+        #region HandleInput override tests (modal input blocking)
+
+        [Fact]
+        public void HandleInput_WhenOpen_ShouldConsumeAllInput()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            // HandleInput should return true (consume) even with a null input state,
+            // because the modal is open and should block all background interaction.
+            Assert.True(modal.HandleInput(null!));
+        }
+
+        [Fact]
+        public void HandleInput_WhenClosed_ShouldNotConsumeInput()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            // Modal starts closed — HandleInput must return false so the
+            // invisible element doesn't swallow clicks.
+            Assert.False(modal.HandleInput(null!));
+        }
+
+        [Fact]
+        public void HandleInput_AfterClose_ShouldNotConsumeInput()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.Cancel();
+
+            // After closing, the modal must not consume input.
+            Assert.False(modal.HandleInput(null!));
+        }
+
+        [Fact]
+        public void HandleInput_AfterApply_ShouldNotConsumeInput()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.Apply();
+
+            Assert.False(modal.HandleInput(null!));
+        }
+
+        [Fact]
+        public void Enabled_WhenConstructed_ShouldBeFalse()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+
+            Assert.False(modal.Enabled);
+        }
+
+        [Fact]
+        public void Enabled_WhenOpened_ShouldBeTrue()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+
+            Assert.True(modal.Enabled);
+        }
+
+        [Fact]
+        public void Enabled_AfterClose_ShouldBeFalse()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            modal.Cancel();
+
+            Assert.False(modal.Enabled);
+        }
+
+        #endregion
+
         #region Position/Size sync on Open
 
         [Fact]
