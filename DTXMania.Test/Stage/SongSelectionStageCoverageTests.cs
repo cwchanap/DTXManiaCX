@@ -1689,7 +1689,11 @@ namespace DTXMania.Test.Stage
             public override bool IsKeyPressed(int keyCode)
             {
                 if (keyCode == (int)Microsoft.Xna.Framework.Input.Keys.Back && _backspacePressed)
+                {
+                    // Edge-triggered: consume the flag on first check to model a one-frame key press
+                    _backspacePressed = false;
                     return true;
+                }
                 return base.IsKeyPressed(keyCode);
             }
         }

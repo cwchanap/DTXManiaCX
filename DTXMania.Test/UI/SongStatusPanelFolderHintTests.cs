@@ -39,7 +39,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void UpdateSongInfo_WithNodeAndDifficulty_ShouldSetValues()
+        public void UpdateSongInfo_WithNodeAndDifficulty_ShouldNotThrow()
         {
             var panel = new SongStatusPanel();
             var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
@@ -47,7 +47,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Dispose_WhenCalled_ShouldReleaseResources()
+        public void Dispose_WhenCalled_ShouldNotThrow()
         {
             var panel = new SongStatusPanel();
             panel.Dispose();

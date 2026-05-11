@@ -27,11 +27,14 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void DifficultyGrid_GetCellPosition_ShouldReturnValidVector()
+        public void DifficultyGrid_GetCellPosition_ShouldMatchComputedFormula()
         {
+            // GetCellPosition uses: X = BaseX + PanelBodyWidth + CellWidth*(instrument-3), Y = BaseY + ((4-difficultyLevel)*CellHeight) - 2
             var pos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(0, 0);
-            Assert.True(pos.X > 0);
-            Assert.True(pos.Y > 0);
+            var expectedX = SongSelectionUILayout.DifficultyGrid.BaseX + SongSelectionUILayout.DifficultyGrid.PanelBodyWidth
+                            + SongSelectionUILayout.DifficultyGrid.CellWidth * (0 - 3);
+            var expectedY = SongSelectionUILayout.DifficultyGrid.BaseY + ((4 - 0) * SongSelectionUILayout.DifficultyGrid.CellHeight) - 2;
+            Assert.Equal(new Vector2(expectedX, expectedY), pos);
         }
 
         [Fact]
@@ -57,10 +60,10 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void GraphPanel_BasePosition_ShouldBeValid()
+        public void GraphPanel_BasePosition_ShouldMatchConstants()
         {
-            Assert.True(SongSelectionUILayout.GraphPanel.BasePosition.X > 0);
-            Assert.True(SongSelectionUILayout.GraphPanel.BasePosition.Y > 0);
+            Assert.Equal(new Vector2(SongSelectionUILayout.GraphPanel.BaseX, SongSelectionUILayout.GraphPanel.BaseY),
+                SongSelectionUILayout.GraphPanel.BasePosition);
         }
 
         [Fact]
