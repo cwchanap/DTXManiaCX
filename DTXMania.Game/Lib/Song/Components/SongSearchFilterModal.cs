@@ -37,6 +37,7 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             _textSource = textSource ?? throw new ArgumentNullException(nameof(textSource));
             Visible = false;
+            Enabled = false;
         }
 
         public event EventHandler<SongFilterCriteria>? FilterApplied;
@@ -57,6 +58,7 @@ namespace DTXMania.Game.Lib.Song.Components
             _focusedField = Field.SearchBox;
             _isOpen = true;
             Visible = true;
+            Enabled = true;
             // Sync UIElement bounds to the layout constants so HitTest/click routing works
             var layout = SearchFilterModal.Bounds;
             Position = new Microsoft.Xna.Framework.Vector2(layout.X, layout.Y);
@@ -81,6 +83,7 @@ namespace DTXMania.Game.Lib.Song.Components
             UnsubscribeText();
             _isOpen = false;
             Visible = false;
+            Enabled = false;
         }
 
         private void SubscribeText()
@@ -353,6 +356,17 @@ namespace DTXMania.Game.Lib.Song.Components
 
         public Texture2D? WhitePixel { get; set; }
         public SpriteFont? Font { get; set; }
+
+        /// <summary>
+        /// When the modal is open, consume ALL UI input so that clicks outside
+        /// the modal bounds cannot reach background elements (song list, etc.).
+        /// When closed, never consume input so the invisible element cannot
+        /// create a dead zone.
+        /// </summary>
+        public override bool HandleInput(IInputState inputState)
+        {
+            return _isOpen;
+        }
 
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
