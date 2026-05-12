@@ -853,6 +853,54 @@ namespace DTXMania.Test.Song.Components
         }
 
         [Fact]
+        public void HandleClick_WhenClickMinLevel_ShouldFocusMinLevel()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // MinLevel: modal X=340 + LevelMinX=130 = 470, modal Y=180 + LevelRowY=100 + 10 = 290
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(470, 290));
+
+            Assert.True(clicked);
+            Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickMaxLevel_ShouldFocusMaxLevel()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // MaxLevel: modal X=340 + LevelMaxX=310 = 650, modal Y=180 + LevelRowY=100 + 10 = 290
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(650, 290));
+
+            Assert.True(clicked);
+            Assert.Equal(SongSearchFilterModal.Field.MaxLevel, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickSortBy_ShouldFocusSortBy()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // SortBy: modal X=340 + FieldX=130 = 470, modal Y=180 + SortRowY=188 + 10 = 378
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(470, 378));
+
+            Assert.True(clicked);
+            Assert.Equal(SongSearchFilterModal.Field.SortBy, modal.FocusedField);
+        }
+
+        [Fact]
+        public void HandleClick_WhenClickSortDirection_ShouldFocusSortDirection()
+        {
+            var modal = new SongSearchFilterModal(new FakeSource());
+            modal.Open(SongFilterCriteria.Default);
+            // SortDirection: modal X=340 + FieldX+180=310 = 650, modal Y=180 + SortRowY=188 + 10 = 378
+            var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(650, 378));
+
+            Assert.True(clicked);
+            Assert.Equal(SongSearchFilterModal.Field.SortDirection, modal.FocusedField);
+        }
+
+        [Fact]
         public void HandleClick_WhenClickOutsideModal_ShouldReturnFalse()
         {
             var modal = new SongSearchFilterModal(new FakeSource());

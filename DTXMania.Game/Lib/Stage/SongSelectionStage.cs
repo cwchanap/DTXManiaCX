@@ -55,6 +55,15 @@ namespace DTXMania.Game.Lib.Stage
             get => s_persistedFilterCriteria;
             set => s_persistedFilterCriteria = value;
         }
+
+        /// <summary>
+        /// Resets the process-wide persisted filter to its default state.
+        /// Call this between test runs to prevent static state leaking across tests.
+        /// </summary>
+        public static void ResetPersistedFilter()
+        {
+            s_persistedFilterCriteria = SongFilterCriteria.Default;
+        }
         private System.Collections.Generic.IReadOnlyList<FilteredSongResult>? _filteredView;
         private readonly ISongListFilterService _filterService = new SongListFilterService();
         private bool _showEmptyFilterMessage;

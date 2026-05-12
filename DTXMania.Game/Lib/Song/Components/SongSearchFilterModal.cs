@@ -335,22 +335,30 @@ namespace DTXMania.Game.Lib.Song.Components
                 return true;
             }
 
-            // Determine focused field from vertical position
+            // Determine focused field from click position (both axes)
             int relY = position.Y - modalBounds.Y;
-            _focusedField = FieldFromRelY(relY);
+            int relX = position.X - modalBounds.X;
+            _focusedField = FieldFromPosition(relX, relY);
             return true;
         }
 
-        private Field FieldFromRelY(int relY)
+        private Field FieldFromPosition(int relX, int relY)
         {
             if (relY < SearchFilterModal.FirstRowY + SearchFilterModal.SearchBoxHeight)
                 return Field.SearchBox;
             if (relY < SearchFilterModal.LevelRowY + SearchFilterModal.LevelInputHeight)
-                return Field.MinLevel;
+            {
+                // Level row has MinLevel and MaxLevel side by side
+                return relX >= SearchFilterModal.LevelMaxX ? Field.MaxLevel : Field.MinLevel;
+            }
             if (relY < SearchFilterModal.PlayedRowY + 30)
                 return Field.PlayedStatus;
             if (relY < SearchFilterModal.SortRowY + 30)
-                return Field.SortBy;
+            {
+                // Sort row has SortBy and SortDirection side by side
+                int sortDirectionX = SearchFilterModal.FieldX + 180;
+                return relX >= sortDirectionX ? Field.SortDirection : Field.SortBy;
+            }
             return Field.SortDirection;
         }
 
