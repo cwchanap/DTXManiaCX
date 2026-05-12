@@ -1954,7 +1954,7 @@ namespace DTXMania.Game.Lib.Stage
             string? sortPart = FormatSort(c.SortBy, c.SortDescending);
             if (sortPart != null) parts.Add(sortPart);
 
-            return "Filtered: " + string.Join(" · ", parts);
+            return "Filtered: " + string.Join(" | ", parts);
         }
 
         private static string? FormatLevel(int? min, int? max)
@@ -1968,14 +1968,14 @@ namespace DTXMania.Game.Lib.Stage
                 return $"Lv {lo}-{hi}";
             }
             if (min is not null) return $"Lv {min}+";
-            return $"Lv ≤{max}";
+            return $"Lv <={max}";
         }
 
         private static string? FormatSort(SongSortCriteria by, bool desc)
         {
             // Default sort (Title ascending) is omitted from the summary
             if (by == SongSortCriteria.Title && !desc) return null;
-            char arrow = desc ? '↓' : '↑';
+            char arrow = desc ? 'v' : '^';
             return $"{by}{arrow}";
         }
 
