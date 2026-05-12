@@ -1146,6 +1146,26 @@ namespace DTXMania.Game.Lib.Stage
                         _searchFilterModal.HandleCommand(cmd);
                 }
             }
+            else
+            {
+                // When SearchBox is focused, command-based navigation is suppressed to
+                // prevent text-producing remapped keys (e.g. W→MoveUp) from stealing
+                // focus during text entry.  However, physical arrow keys do not produce
+                // text, so we poll them as raw input so keyboard users can navigate
+                // away from the search box without needing Tab.
+                var arrowKeys = new[]
+                {
+                    Microsoft.Xna.Framework.Input.Keys.Up,
+                    Microsoft.Xna.Framework.Input.Keys.Down,
+                    Microsoft.Xna.Framework.Input.Keys.Left,
+                    Microsoft.Xna.Framework.Input.Keys.Right
+                };
+                foreach (var key in arrowKeys)
+                {
+                    if (_inputManager.IsKeyPressed((int)key))
+                        _searchFilterModal.HandleKey(key);
+                }
+            }
 
             // 2. Raw keys for text editing (Tab = cycle focus, Back = backspace)
             //    These are not in the InputCommandType system.
