@@ -999,12 +999,12 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display: display);
             SetPrivateField(stage, "_isInStatusPanel", false);
             SetPrivateField(stage, "_filteredView", filteredView);
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
 
             Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
-            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var prop = typeof(SongSelectionStage).GetField("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             Assert.True(((SongFilterCriteria)prop!.GetValue(stage)!).IsEmpty);
         }
 
@@ -1108,7 +1108,7 @@ namespace DTXMania.Test.Stage
             var breadcrumb = new UILabel("");
             AttachCoreUi(stage, breadcrumb: breadcrumb);
             SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder");
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("hello", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria("hello", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
 
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
@@ -1123,7 +1123,7 @@ namespace DTXMania.Test.Stage
             var breadcrumb = new UILabel("");
             AttachCoreUi(stage, breadcrumb: breadcrumb);
             SetPrivateField(stage, "_currentBreadcrumb", "");
-            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
 
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
@@ -1137,7 +1137,7 @@ namespace DTXMania.Test.Stage
             var breadcrumb = new UILabel("");
             AttachCoreUi(stage, breadcrumb: breadcrumb);
             SetPrivateField(stage, "_currentBreadcrumb", "Root > Folder > Sub");
-            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
 
             InvokePrivateMethod(stage, "UpdateBreadcrumb");
 
@@ -1145,18 +1145,15 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ResetPersistedFilter_ShouldClearStaticFilterState()
+        public void FilterCriteria_ShouldBeInstanceScopedAndNotLeakAcrossInstances()
         {
-            // Set a non-default filter via a stage instance
-            var stage = CreateStage();
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("leaked", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            // Set a non-default filter on one stage instance
+            var stage1 = CreateStage();
+            SetPrivateField(stage1, "_filterCriteria", new SongFilterCriteria("leaked", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
 
-            // Reset the static state
-            SongSelectionStage.ResetPersistedFilter();
-
-            // A new stage should see the default (empty) filter
+            // A new stage instance should start with the default (empty) filter
             var stage2 = CreateStage();
-            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var prop = typeof(SongSelectionStage).GetField("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var filter = (SongFilterCriteria)prop!.GetValue(stage2)!;
             Assert.True(filter.IsEmpty);
         }
@@ -1238,7 +1235,7 @@ namespace DTXMania.Test.Stage
         public void RebuildFilteredView_WhenFilterEmpty_ShouldClearFilteredView()
         {
             var stage = CreateStage();
-            SetProperty(stage, "_filterCriteria", SongFilterCriteria.Default);
+            SetPrivateField(stage, "_filterCriteria", SongFilterCriteria.Default);
             SetPrivateField(stage, "_filteredView", new List<FilteredSongResult>());
 
             InvokePrivateMethod(stage, "RebuildFilteredView");
@@ -1468,13 +1465,13 @@ namespace DTXMania.Test.Stage
             var stage = CreateStage();
             var display = new SongListDisplay();
             AttachCoreUi(stage, display: display);
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
             SetPrivateField(stage, "_filteredView", new List<FilteredSongResult>());
             SetPrivateField(stage, "_showEmptyFilterMessage", true);
 
             InvokePrivateMethod(stage, "OnFilterReset", stage, EventArgs.Empty);
 
-            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var prop = typeof(SongSelectionStage).GetField("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
             Assert.True(applied.IsEmpty);
             Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
@@ -1486,11 +1483,11 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var criteria = new SongFilterCriteria("kept", null, null, PlayedStatus.All, SongSortCriteria.Title, false);
-            SetProperty(stage, "_filterCriteria", criteria);
+            SetPrivateField(stage, "_filterCriteria", criteria);
 
             InvokePrivateMethod(stage, "OnFilterCancelled", stage, EventArgs.Empty);
 
-            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var prop = typeof(SongSelectionStage).GetField("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
             Assert.Equal("kept", applied.SearchQuery);
         }
@@ -1583,7 +1580,7 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "OnFilterApplied", stage, criteria);
 
-            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var prop = typeof(SongSelectionStage).GetField("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var applied = (SongFilterCriteria)prop!.GetValue(stage)!;
             Assert.Equal(10, applied.MinLevel);
             Assert.Equal(50, applied.MaxLevel);
@@ -1604,8 +1601,6 @@ namespace DTXMania.Test.Stage
 
         private static SongSelectionStage CreateStage(BaseGame? game = null)
         {
-            // Reset process-wide static filter state so tests cannot leak into each other
-            SongSelectionStage.ResetPersistedFilter();
             return new SongSelectionStage(game ?? CreateGame());
         }
 
@@ -1828,10 +1823,11 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldProcessDirectionalCommands()
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldSuppressDirectionalCommands()
         {
-            // Directional commands (MoveUp/MoveDown/MoveLeft/MoveRight) should still
-            // be processed even when SearchBox is focused.
+            // Directional commands (MoveUp/MoveDown/MoveLeft/MoveRight) should be
+            // suppressed when the SearchBox is focused so that remapped text-producing
+            // keys (e.g. W→MoveUp, S→MoveDown) don't steal focus mid-typing.
             var stage = CreateStage();
             var inputManager = new CommandSimulatingInputManager();
             inputManager.PressCommand(InputCommandType.MoveDown);
@@ -1845,8 +1841,31 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "ProcessModalKeys");
 
-            // Focus should have moved from SearchBox to MinLevel
+            // Focus should NOT have moved — MoveDown was suppressed
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenNotSearchBoxFocused_ShouldProcessDirectionalCommands()
+        {
+            // Directional commands should still work when focus is on a non-text field.
+            var stage = CreateStage();
+            var inputManager = new CommandSimulatingInputManager();
+            inputManager.PressCommand(InputCommandType.MoveDown);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            // Move focus to MinLevel (not SearchBox)
+            modal.FocusNext();
             Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Focus should have moved (MoveDown was processed)
+            Assert.NotEqual(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
         }
 
         #endregion
@@ -1896,7 +1915,7 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display: display);
             SetPrivateField(stage, "_isInStatusPanel", false);
             SetPrivateField(stage, "_filteredView", filteredView);
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
 
             var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
 
@@ -1936,7 +1955,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_inputManager", inputManager);
             SetPrivateField(stage, "_isInStatusPanel", false);
             SetPrivateField(stage, "_filteredView", filteredView);
-            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filterCriteria", new SongFilterCriteria("test", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
 
             inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
             inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
