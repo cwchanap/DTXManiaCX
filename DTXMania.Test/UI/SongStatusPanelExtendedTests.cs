@@ -29,7 +29,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void Font_WhenSet_ShouldReturnValue()
+        public void Font_WhenSetNull_ShouldBeNull()
         {
             var panel = new SongStatusPanel();
             panel.Font = null;
@@ -44,7 +44,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void SmallFont_WhenSet_ShouldReturnValue()
+        public void SmallFont_WhenSetNull_ShouldBeNull()
         {
             var panel = new SongStatusPanel();
             panel.SmallFont = null;
@@ -77,7 +77,7 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void WhitePixel_WhenSet_ShouldReturnValue()
+        public void WhitePixel_WhenSetNull_ShouldBeNull()
         {
             var panel = new SongStatusPanel();
             panel.WhitePixel = null;
