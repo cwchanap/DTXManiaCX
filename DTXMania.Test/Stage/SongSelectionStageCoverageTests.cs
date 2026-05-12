@@ -1145,6 +1145,23 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ResetPersistedFilter_ShouldClearStaticFilterState()
+        {
+            // Set a non-default filter via a stage instance
+            var stage = CreateStage();
+            SetProperty(stage, "_filterCriteria", new SongFilterCriteria("leaked", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            // Reset the static state
+            SongSelectionStage.ResetPersistedFilter();
+
+            // A new stage should see the default (empty) filter
+            var stage2 = CreateStage();
+            var prop = typeof(SongSelectionStage).GetProperty("_filterCriteria", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var filter = (SongFilterCriteria)prop!.GetValue(stage2)!;
+            Assert.True(filter.IsEmpty);
+        }
+
+        [Fact]
         public void UpdateStatusPanelFolderHint_WhenStatusPanelNull_ShouldNotThrow()
         {
             var stage = CreateStage();
@@ -1587,6 +1604,8 @@ namespace DTXMania.Test.Stage
 
         private static SongSelectionStage CreateStage(BaseGame? game = null)
         {
+            // Reset process-wide static filter state so tests cannot leak into each other
+            SongSelectionStage.ResetPersistedFilter();
             return new SongSelectionStage(game ?? CreateGame());
         }
 
