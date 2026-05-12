@@ -1,6 +1,8 @@
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
 using Xunit;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Song.Filtering
 {
@@ -66,6 +68,62 @@ namespace DTXMania.Test.Song.Filtering
             var a = SongFilterCriteria.Default with { SearchQuery = "x" };
             var b = SongFilterCriteria.Default with { SearchQuery = "x" };
             Assert.Equal(a, b);
+        }
+
+        [Fact]
+        public void Cleared_PlayCountAndClearCountGreaterThanZero_ShouldMatch()
+        {
+            var service = new SongListFilterService();
+            var node = new SongListNode();
+            node.Scores[0] = new SongScore
+            {
+                PlayCount = 5,
+                ClearCount = 3,
+                BestRank = 70
+            };
+
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+            var result = service.Apply(new[] { node }, criteria);
+
+            Assert.Single(result);
+            Assert.Same(node, result[0].Node);
+        }
+
+        [Fact]
+        public void Cleared_ClearCountZeroButRankIndicatesClear_ShouldMatch()
+        {
+            var service = new SongListFilterService();
+            var node = new SongListNode();
+            node.Scores[0] = new SongScore
+            {
+                PlayCount = 2,
+                ClearCount = 0,
+                BestRank = 60
+            };
+
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+            var result = service.Apply(new[] { node }, criteria);
+
+            Assert.Single(result);
+            Assert.Same(node, result[0].Node);
+        }
+
+        [Fact]
+        public void Cleared_PlayCountButNoClear_ShouldNotMatch()
+        {
+            var service = new SongListFilterService();
+            var node = new SongListNode();
+            node.Scores[0] = new SongScore
+            {
+                PlayCount = 4,
+                ClearCount = 0,
+                BestRank = 0
+            };
+
+            var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
+            var result = service.Apply(new[] { node }, criteria);
+
+            Assert.Empty(result);
         }
     }
 }
