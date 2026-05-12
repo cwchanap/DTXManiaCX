@@ -430,7 +430,7 @@ namespace DTXMania.Test.Song.Components
         }
 
         [Fact]
-        public void CycleSort_WhenBackwardFromGenreViaHandleCommand_ShouldResetToArtist()
+        public void CycleSort_WhenBackwardFromGenreViaHandleCommand_ShouldResetToLevel()
         {
             var modal = new SongSearchFilterModal(new FakeSource());
             modal.Open(SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre });
