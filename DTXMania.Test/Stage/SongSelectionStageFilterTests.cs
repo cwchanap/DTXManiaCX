@@ -53,7 +53,7 @@ namespace DTXMania.Test.Stage
         {
             var c = SongFilterCriteria.Default with { MaxLevel = 60 };
             var result = SongSelectionStage.SummarizeFilter(c);
-            Assert.Contains("Lv ≤60", result);
+            Assert.Contains("Lv <=60", result);
         }
 
         [Fact]
@@ -77,7 +77,7 @@ namespace DTXMania.Test.Stage
         {
             var c = SongFilterCriteria.Default with { SortDescending = true };
             var result = SongSelectionStage.SummarizeFilter(c);
-            Assert.Contains("Title↓", result);
+            Assert.Contains("Titlev", result);
         }
 
         [Fact]
@@ -85,7 +85,7 @@ namespace DTXMania.Test.Stage
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Artist };
             var result = SongSelectionStage.SummarizeFilter(c);
-            Assert.Contains("Artist↑", result);
+            Assert.Contains("Artist^", result);
         }
 
         [Fact]
@@ -93,7 +93,7 @@ namespace DTXMania.Test.Stage
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Level, SortDescending = true };
             var result = SongSelectionStage.SummarizeFilter(c);
-            Assert.Contains("Level↓", result);
+            Assert.Contains("Levelv", result);
         }
 
         [Fact]
@@ -101,7 +101,7 @@ namespace DTXMania.Test.Stage
         {
             var c = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre };
             var result = SongSelectionStage.SummarizeFilter(c);
-            Assert.Contains("Genre↑", result);
+            Assert.Contains("Genre^", result);
         }
 
         [Fact]

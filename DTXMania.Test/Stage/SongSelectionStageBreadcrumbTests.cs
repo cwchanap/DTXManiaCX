@@ -47,7 +47,7 @@ namespace DTXMania.Test.Stage
         public void LevelMaxOnly_ShouldShowMaxLevel()
         {
             var c = SongFilterCriteria.Default with { MinLevel = null, MaxLevel = 85 };
-            Assert.Equal("Filtered: Lv ≤85", SongSelectionStage.SummarizeFilter(c));
+            Assert.Equal("Filtered: Lv <=85", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
@@ -65,7 +65,7 @@ namespace DTXMania.Test.Stage
                 SortBy = SongSortCriteria.Artist,
                 SortDescending = false
             };
-            Assert.Equal("Filtered: Artist↑", SongSelectionStage.SummarizeFilter(c));
+            Assert.Equal("Filtered: Artist^", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
@@ -76,11 +76,11 @@ namespace DTXMania.Test.Stage
                 SortBy = SongSortCriteria.Title,
                 SortDescending = true
             };
-            Assert.Equal("Filtered: Title↓", SongSelectionStage.SummarizeFilter(c));
+            Assert.Equal("Filtered: Titlev", SongSelectionStage.SummarizeFilter(c));
         }
 
         [Fact]
-        public void AllFacets_ShouldBeJoinedWithDot()
+        public void AllFacets_ShouldBeJoinedWithPipe()
         {
             var c = new SongFilterCriteria(
                 SearchQuery: "beatles",
@@ -88,7 +88,7 @@ namespace DTXMania.Test.Stage
                 PlayedStatus: PlayedStatus.Unplayed,
                 SortBy: SongSortCriteria.Title,
                 SortDescending: false);
-            Assert.Equal("Filtered: \"beatles\" · Lv 50-85 · Unplayed",
+            Assert.Equal("Filtered: \"beatles\" | Lv 50-85 | Unplayed",
                 SongSelectionStage.SummarizeFilter(c));
         }
     }
