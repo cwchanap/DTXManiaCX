@@ -1756,6 +1756,18 @@ namespace DTXMania.Test.Stage
             public override bool IsCommandPressed(InputCommandType command) => _pressedCommands.Contains(command);
         }
 
+        /// <summary>
+        /// InputManager stub that lets tests specify which raw keys appear as pressed.
+        /// </summary>
+        private sealed class KeySimulatingInputManager : InputManager
+        {
+            private readonly HashSet<int> _pressedKeys = new();
+
+            public void PressRawKey(Microsoft.Xna.Framework.Input.Keys key) => _pressedKeys.Add((int)key);
+
+            public override bool IsKeyPressed(int keyCode) => _pressedKeys.Contains(keyCode);
+        }
+
         [Fact]
         public void ProcessModalKeys_WhenSearchBoxFocused_ShouldSuppressActivateCommand()
         {
@@ -1866,6 +1878,50 @@ namespace DTXMania.Test.Stage
 
             // Focus should have moved (MoveDown was processed)
             Assert.NotEqual(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldNavigateWithRawArrowKeys()
+        {
+            // Physical arrow keys do not produce text, so they should still work as
+            // raw input even when SearchBox is focused (commands are suppressed but
+            // raw arrow keys bypass the command system).
+            var stage = CreateStage();
+            var inputManager = new KeySimulatingInputManager();
+            inputManager.PressRawKey(Microsoft.Xna.Framework.Input.Keys.Down);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Focus should have moved to the next field via raw Down arrow
+            Assert.NotEqual(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenSearchBoxFocused_ShouldNavigateUpWithRawArrowKey()
+        {
+            // Up arrow should wrap focus backward from SearchBox.
+            var stage = CreateStage();
+            var inputManager = new KeySimulatingInputManager();
+            inputManager.PressRawKey(Microsoft.Xna.Framework.Input.Keys.Up);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            // Focus should have moved (Up wraps to the last field)
+            Assert.NotEqual(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
         }
 
         #endregion
