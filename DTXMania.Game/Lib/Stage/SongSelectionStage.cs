@@ -44,26 +44,12 @@ namespace DTXMania.Game.Lib.Stage
         private int _selectedIndex = 0;
         private int _currentDifficulty = 0;
 
-        // Session-scoped search/filter/sort state
-        // Static so the filter survives stage re-entry within an app session.
-        // StageManager creates a fresh SongSelectionStage on every entry, so an
-        // instance field would reset on every Title→SongSelect bounce.
-        private static SongFilterCriteria s_persistedFilterCriteria = SongFilterCriteria.Default;
+        // Instance-scoped search/filter/sort state.
+        // StageManager caches one SongSelectionStage per game instance in its
+        // _stages dictionary, so this field survives Title→SongSelect re-entry
+        // without leaking across separate game/test instances.
+        private SongFilterCriteria _filterCriteria = SongFilterCriteria.Default;
 
-        private SongFilterCriteria _filterCriteria
-        {
-            get => s_persistedFilterCriteria;
-            set => s_persistedFilterCriteria = value;
-        }
-
-        /// <summary>
-        /// Resets the process-wide persisted filter to its default state.
-        /// Call this between test runs to prevent static state leaking across tests.
-        /// </summary>
-        public static void ResetPersistedFilter()
-        {
-            s_persistedFilterCriteria = SongFilterCriteria.Default;
-        }
         private System.Collections.Generic.IReadOnlyList<FilteredSongResult>? _filteredView;
         private readonly ISongListFilterService _filterService = new SongListFilterService();
         private bool _showEmptyFilterMessage;
@@ -1137,26 +1123,28 @@ namespace DTXMania.Game.Lib.Stage
             if (_inputManager == null) return;
 
             // 1. Command-based navigation (respects remapped key bindings).
-            //    Activate and Back are suppressed when the SearchBox is focused to
-            //    prevent a remapped text-producing key (e.g. Space → Activate) from
-            //    closing the modal while the TextInput event simultaneously inserts a
-            //    character.  Enter and Escape still reach HandleKey via ModalRawKeys.
-            var commandTypes = new[]
-            {
-                InputCommandType.MoveUp,
-                InputCommandType.MoveDown,
-                InputCommandType.MoveLeft,
-                InputCommandType.MoveRight,
-                InputCommandType.Activate,
-                InputCommandType.Back
-            };
+            //    ALL commands are suppressed when the SearchBox is focused to
+            //    prevent a remapped text-producing key (e.g. W → MoveUp, S → MoveDown,
+            //    Space → Activate) from stealing focus or closing the modal while the
+            //    TextInput event simultaneously inserts a character.
+            //    Enter and Escape still reach HandleKey via ModalRawKeys.
             bool searchBoxFocused = _searchFilterModal.FocusedField == SongSearchFilterModal.Field.SearchBox;
-            foreach (var cmd in commandTypes)
+            if (!searchBoxFocused)
             {
-                if (searchBoxFocused && (cmd == InputCommandType.Activate || cmd == InputCommandType.Back))
-                    continue;
-                if (_inputManager.IsCommandPressed(cmd))
-                    _searchFilterModal.HandleCommand(cmd);
+                var commandTypes = new[]
+                {
+                    InputCommandType.MoveUp,
+                    InputCommandType.MoveDown,
+                    InputCommandType.MoveLeft,
+                    InputCommandType.MoveRight,
+                    InputCommandType.Activate,
+                    InputCommandType.Back
+                };
+                foreach (var cmd in commandTypes)
+                {
+                    if (_inputManager.IsCommandPressed(cmd))
+                        _searchFilterModal.HandleCommand(cmd);
+                }
             }
 
             // 2. Raw keys for text editing (Tab = cycle focus, Back = backspace)
