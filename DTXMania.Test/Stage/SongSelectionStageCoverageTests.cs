@@ -1276,6 +1276,39 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ReapplyPersistedFilterIfActive_WhenFilterActive_ShouldRebuildListState()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var breadcrumb = new UILabel("");
+            AttachCoreUi(stage, display: display, breadcrumb: breadcrumb);
+            SetPrivateField(stage, "_filterCriteria",
+                new SongFilterCriteria("missing", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+
+            InvokePrivateMethod(stage, "ReapplyPersistedFilterIfActive");
+
+            Assert.Empty(display.CurrentList);
+            Assert.True(GetPrivateField<bool>(stage, "_showEmptyFilterMessage"));
+        }
+
+        [Fact]
+        public void RebuildFilteredView_WhenFilterServiceThrows_ShouldResetFilterState()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_filterCriteria",
+                new SongFilterCriteria("boom", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_filteredView", new List<FilteredSongResult> { new(CreateScoreNode("Old"), "Old") });
+            SetPrivateField(stage, "_showEmptyFilterMessage", true);
+            SetPrivateField(stage, "_filterService", new ThrowingFilterService());
+
+            InvokePrivateMethod(stage, "RebuildFilteredView");
+
+            Assert.True(GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria").IsEmpty);
+            Assert.Null(GetPrivateField<System.Collections.Generic.IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            Assert.False(GetPrivateField<bool>(stage, "_showEmptyFilterMessage"));
+        }
+
+        [Fact]
         public void PopulateFilteredSongList_WithItems_ShouldPopulateDisplay()
         {
             var stage = CreateStage();
@@ -1617,6 +1650,28 @@ namespace DTXMania.Test.Stage
             Assert.Equal(50, applied.MaxLevel);
         }
 
+        [Fact]
+        public void CheckSongInitializationCompletion_WhenModalIsOpen_ShouldMarkLibraryReady()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var modal = new SongSearchFilterModal(new Mock<ITextInputSource>().Object)
+            {
+                IsLibraryReady = false
+            };
+            modal.Open(SongFilterCriteria.Default);
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_songInitializationTask",
+                Task.FromResult(new List<SongListNode> { CreateScoreNode("Loaded") }));
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.True(modal.IsLibraryReady);
+            Assert.Null(GetPrivateField<Task<List<SongListNode>>?>(stage, "_songInitializationTask"));
+        }
+
         private static void AttachCoreUi(
             SongSelectionStage stage,
             SongListDisplay? display = null,
@@ -1710,6 +1765,14 @@ namespace DTXMania.Test.Stage
             {
                 EnqueueCommand(command);
             }
+        }
+
+        private sealed class ThrowingFilterService : ISongListFilterService
+        {
+            public IReadOnlyList<FilteredSongResult> Apply(
+                IEnumerable<SongListNode> roots,
+                SongFilterCriteria criteria) =>
+                throw new InvalidOperationException("filter failed");
         }
 
         /// <summary>
@@ -1953,6 +2016,23 @@ namespace DTXMania.Test.Stage
 
             // Focus should have moved (Up wraps to the last field)
             Assert.NotEqual(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
+        }
+
+        [Fact]
+        public void ProcessModalKeys_WhenTabPressed_ShouldMoveFocus()
+        {
+            var stage = CreateStage();
+            var inputManager = new KeySimulatingInputManager();
+            inputManager.PressRawKey(Microsoft.Xna.Framework.Input.Keys.Tab);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            var modal = new SongSearchFilterModal(new Mock<ITextInputSource>().Object);
+            modal.Open(SongFilterCriteria.Default);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
         }
 
         #endregion

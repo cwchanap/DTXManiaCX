@@ -52,6 +52,17 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void TextInput_WithNoSubscribers_ShouldNotThrow()
+        {
+            var window = new StubGameWindow();
+            _ = new WindowTextInputSource(window);
+
+            var exception = Record.Exception(() => window.RaiseTextInput('x'));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void Dispose_UnsubscribesFromWindow()
         {
             var window = new StubGameWindow();

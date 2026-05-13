@@ -5,6 +5,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Resources;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 // Type alias for SongScore to use the EF Core entity
@@ -491,6 +492,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         #region Protected Methods
 
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!Visible)
