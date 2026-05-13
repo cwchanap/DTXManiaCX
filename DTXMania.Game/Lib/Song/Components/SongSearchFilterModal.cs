@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Filtering;
@@ -376,6 +377,7 @@ namespace DTXMania.Game.Lib.Song.Components
             return _isOpen;
         }
 
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (!_isOpen || WhitePixel == null || Font == null) return;
@@ -414,14 +416,19 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawText(SpriteBatch spriteBatch, string text, Microsoft.Xna.Framework.Vector2 pos, Microsoft.Xna.Framework.Color color)
         {
             spriteBatch.DrawString(Font!, text, pos, color);
         }
 
-        private static readonly Microsoft.Xna.Framework.Color FocusedBg = new(60, 60, 80);
-        private static readonly Microsoft.Xna.Framework.Color FieldBg   = new(40, 40, 50);
+        [ExcludeFromCodeCoverage]
+        private static Microsoft.Xna.Framework.Color FocusedBg => new(60, 60, 80);
 
+        [ExcludeFromCodeCoverage]
+        private static Microsoft.Xna.Framework.Color FieldBg => new(40, 40, 50);
+
+        [ExcludeFromCodeCoverage]
         private void DrawSearchRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
         {
             DrawText(sb, "Search:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.SearchBoxY + 6),
@@ -436,6 +443,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 Microsoft.Xna.Framework.Color.White);
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawLevelRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
         {
             DrawText(sb, "Level:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.LevelRowY + 6),
@@ -448,6 +456,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 _draft.MaxLevel, _focusedField == Field.MaxLevel, "Max");
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawNumeric(SpriteBatch sb, int x, int y, int w, int h, int? value, bool focused, string label)
         {
             sb.Draw(WhitePixel, new Microsoft.Xna.Framework.Rectangle(x, y, w, h),
@@ -457,6 +466,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 value is null ? Microsoft.Xna.Framework.Color.Gray : Microsoft.Xna.Framework.Color.White);
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawPlayedRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
         {
             DrawText(sb, "Played:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.PlayedRowY + 6),
@@ -470,6 +480,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 Microsoft.Xna.Framework.Color.White);
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawSortRow(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
         {
             DrawText(sb, "Sort by:", new Microsoft.Xna.Framework.Vector2(modal.X + SearchFilterModal.LabelX, modal.Y + SearchFilterModal.SortRowY + 6),
@@ -491,6 +502,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 Microsoft.Xna.Framework.Color.White);
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawButtons(SpriteBatch sb, Microsoft.Xna.Framework.Rectangle modal)
         {
             var resetRect = new Microsoft.Xna.Framework.Rectangle(

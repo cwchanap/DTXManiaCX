@@ -131,6 +131,17 @@ public class InputManagerTests
 
     [Trait("Category", "Unit")]
     [Fact]
+    public void TryGetKeyRepeatState_WhenStateMissing_ShouldReturnNull()
+    {
+        var manager = new TestableInputManager();
+
+        var state = manager.GetKeyRepeatState(Keys.Escape);
+
+        Assert.Null(state);
+    }
+
+    [Trait("Category", "Unit")]
+    [Fact]
     public void SetKeyMapping_WhenSettingNewKeyForSameCommand_ShouldEvictPreviousKey()
     {
         var manager = new InputManager();

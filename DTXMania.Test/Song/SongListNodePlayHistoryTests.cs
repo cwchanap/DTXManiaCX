@@ -97,6 +97,52 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void PopulatePlayHistoryFromCharts_WhenSomeChartsHaveNullScores_ShouldSkipThem()
+        {
+            var node = new SongListNode();
+            node.Scores[0] = new SongScore
+            {
+                ChartId = 42,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 50
+            };
+            node.Scores[1] = new SongScore
+            {
+                ChartId = 0,
+                Instrument = EInstrumentPart.GUITAR,
+                DifficultyLevel = 40
+            };
+
+            var chartWithoutScores = new SongChart { Id = 1, Scores = null };
+            var chartWithMatches = new SongChart
+            {
+                Id = 2,
+                Scores = new List<SongScore>
+                {
+                    new()
+                    {
+                        ChartId = 42,
+                        Instrument = EInstrumentPart.DRUMS,
+                        DifficultyLevel = 50,
+                        PlayCount = 8
+                    },
+                    new()
+                    {
+                        ChartId = 0,
+                        Instrument = EInstrumentPart.GUITAR,
+                        DifficultyLevel = 40,
+                        PlayCount = 6
+                    }
+                }
+            };
+
+            node.PopulatePlayHistoryFromCharts(new[] { chartWithoutScores, chartWithMatches });
+
+            Assert.Equal(8, node.Scores[0].PlayCount);
+            Assert.Equal(6, node.Scores[1].PlayCount);
+        }
+
+        [Fact]
         public void PopulatePlayHistoryFromCharts_NoPersistedMatch_ShouldNotModifyScore()
         {
             var node = new SongListNode();

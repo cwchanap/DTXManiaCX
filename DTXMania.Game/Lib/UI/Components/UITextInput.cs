@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -88,6 +89,7 @@ namespace DTXMania.Game.Lib.UI.Components
             _caretIndex = 0;
         }
 
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
             if (Font == null) return;

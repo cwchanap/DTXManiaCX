@@ -630,5 +630,72 @@ namespace DTXMania.Test.Song.Filtering
             Assert.Single(result);
             Assert.Equal("RootFolder / SubFolder", result[0].FolderPath);
         }
+
+        [Fact]
+        public void PlayedStatus_WhenUnknownValue_ShouldReturnAllSongs()
+        {
+            var roots = new List<SongListNode>
+            {
+                ScoreWith("Played", playCount: 1, bestRank: 80),
+                ScoreWith("Unplayed", playCount: 0, bestRank: 0)
+            };
+            var criteria = SongFilterCriteria.Default with
+            {
+                PlayedStatus = (PlayedStatus)99
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Played", "Unplayed" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void SortBy_WhenUnknownValue_ShouldFallBackToTitle()
+        {
+            var roots = new List<SongListNode>
+            {
+                Score("Zulu"),
+                Score("Alpha")
+            };
+            var criteria = SongFilterCriteria.Default with
+            {
+                SortBy = (SongSortCriteria)99
+            };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "Alpha", "Zulu" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void SortByArtist_WhenEitherArtistIsNull_ShouldSortUsingEmptyString()
+        {
+            var withArtist = Score("WithArtist", "Bravo");
+            var withoutArtist = Score("WithoutArtist");
+            var roots = new List<SongListNode> { withArtist, withoutArtist };
+            var criteria = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Artist };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "WithoutArtist", "WithArtist" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void SortByGenre_WhenEitherGenreIsNull_ShouldSortUsingEmptyString()
+        {
+            var withGenre = Score("WithGenre");
+            withGenre.Genre = "Rock";
+            var withoutGenre = Score("WithoutGenre");
+            var roots = new List<SongListNode> { withGenre, withoutGenre };
+            var criteria = SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre };
+
+            var result = _svc.Apply(roots, criteria);
+
+            Assert.Equal(new[] { "WithoutGenre", "WithGenre" },
+                result.Select(r => r.Node.DisplayTitle));
+        }
     }
 }
