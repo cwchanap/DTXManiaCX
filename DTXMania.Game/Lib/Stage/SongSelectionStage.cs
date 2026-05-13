@@ -1310,7 +1310,11 @@ namespace DTXMania.Game.Lib.Stage
 
                 case InputCommandType.OpenSearch:
                     OpenSearchFilterModal();
-                    break;
+                    // Stop draining remaining queued commands so that a queued
+                    // Activate/Back does not fire against the song list behind
+                    // the modal on the same frame (matches the raw-Backspace
+                    // guard at lines 1094-1095).
+                    return false;
 
             }
 

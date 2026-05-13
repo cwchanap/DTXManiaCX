@@ -406,6 +406,37 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExecuteInputCommand_OpenSearch_WhenModalIsNull_ShouldReturnFalse()
+        {
+            // OpenSearch returns false even when modal is null so that
+            // remaining queued commands are drained (same guard as filter-reset Back).
+            var stage = CreateStage();
+            SetPrivateField(stage, "_searchFilterModal", null);
+
+            var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.OpenSearch, 0.0));
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_OpenSearch_WithModal_ShouldReturnFalse()
+        {
+            // When the modal exists and is opened, OpenSearch must return false
+            // to stop draining queued commands that would fire against the song list
+            // behind the modal.
+            var stage = CreateStage();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", null);
+
+            var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.OpenSearch, 0.0));
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public void HandleActivateInput_InStatusPanelWithScore_ShouldSelectSong()
         {
             var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
@@ -2023,6 +2054,41 @@ namespace DTXMania.Test.Stage
             // Navigation stack should still be empty (second Back was drained)
             var stack = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
             Assert.Empty(stack);
+        }
+
+        #endregion
+
+        #region ExecuteInputCommand – OpenSearch drains remaining commands (P2 fix)
+
+        [Fact]
+        public void ProcessInputCommands_OpenSearch_ShouldDrainRemainingCommands()
+        {
+            // OpenSearch + Activate queued: OpenSearch opens the modal and returns false,
+            // so the queued Activate should NOT execute (it would select a song behind the modal).
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            var inputManager = new QueuedInputManager();
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_songInitializationTask", null);
+            SetPrivateField(stage, "_inputManager", inputManager);
+
+            inputManager.Enqueue(new InputCommand(InputCommandType.OpenSearch, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.Activate, 0.0));
+
+            InvokePrivateMethod(stage, "ProcessInputCommands");
+
+            // Modal should be open
+            Assert.True(modal.IsOpen);
+            // The Activate command should have been drained and NOT executed —
+            // no stage transition should have been requested.
+            // (If Activate had run, it would have set _selectedSong and attempted
+            // a stage change. We verify the command queue is empty instead.)
+            Assert.Empty(inputManager.GetInputCommands());
         }
 
         #endregion
