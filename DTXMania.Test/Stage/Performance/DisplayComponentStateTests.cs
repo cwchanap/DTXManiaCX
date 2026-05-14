@@ -17,6 +17,7 @@ namespace DTXMania.Test.Stage.Performance
     /// These tests use FormatterServices to bypass the graphics-requiring constructors
     /// and test the pure state/logic portions of these components.
     /// </summary>
+    [Collection("ManagedFont")]
     [Trait("Category", "Performance")]
     public class DisplayComponentStateTests
     {
