@@ -742,7 +742,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Draw simple BPM background fallback
+        /// Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         private void DrawSimpleBPMBackground(SpriteBatch spriteBatch, Vector2 position, Vector2 size)
         {
             if (_whitePixel != null)
@@ -804,7 +806,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Draw fallback graph panel background when authentic texture is unavailable
+        /// Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         private void DrawFallbackGraphPanelBackground(SpriteBatch spriteBatch, Vector2 position, Vector2 size)
         {
             if (_whitePixel != null)
