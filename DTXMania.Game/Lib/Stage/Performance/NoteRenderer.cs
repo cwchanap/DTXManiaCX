@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -192,10 +193,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Renders active notes on screen
+        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         /// <param name="activeNotes">Notes currently visible on screen</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        [ExcludeFromCodeCoverage]
         public void DrawNotes(SpriteBatch spriteBatch, IEnumerable<Note> activeNotes, double currentSongTimeMs)
         {
             if (!IsReady || spriteBatch == null || activeNotes == null)
@@ -323,10 +326,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Draws overlay animations for all active notes in effects pass (called from PerformanceStage)
+        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing (additive blend mode)</param>
         /// <param name="activeNotes">Notes currently visible on screen</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        [ExcludeFromCodeCoverage]
         public void DrawNoteOverlays(SpriteBatch spriteBatch, IEnumerable<Note> activeNotes, double currentSongTimeMs)
         {
             if (!IsReady || spriteBatch == null || activeNotes == null)

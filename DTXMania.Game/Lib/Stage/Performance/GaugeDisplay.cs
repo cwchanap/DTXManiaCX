@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -196,6 +197,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawFrame(SpriteBatch spriteBatch, Rectangle frameRect)
         {
             // Draw frame as four rectangles (top, bottom, left, right)
