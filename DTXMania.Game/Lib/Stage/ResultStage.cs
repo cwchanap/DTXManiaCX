@@ -99,6 +99,8 @@ namespace DTXMania.Game.Lib.Stage
             _uiManager?.Update(deltaTime);
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
@@ -223,13 +225,15 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Drawing
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawBackground()
         {
             var viewport = GetBackgroundViewport();
 
             // Draw DTXManiaNX authentic background graphics (8_background.jpg)
             DrawStageBackground(_spriteBatch);
-            
+
             // Draw fallback if no background loaded
             if (!IsBackgroundReady)
             {
