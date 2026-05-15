@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Content;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -385,6 +386,8 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         public void DrawStringWithOutline(SpriteBatch spriteBatch, string text, Vector2 position,
                                          XnaColor textColor, XnaColor outlineColor, int outlineThickness = 1)
         {
@@ -429,6 +432,8 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         public void DrawStringWithShadow(SpriteBatch spriteBatch, string text, Vector2 position,
                                         XnaColor textColor, XnaColor shadowColor, Vector2 shadowOffset)
         {
