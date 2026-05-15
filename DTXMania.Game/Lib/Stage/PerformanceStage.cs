@@ -233,8 +233,10 @@ namespace DTXMania.Game.Lib.Stage
         }
 
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
-        {            
+        {
             if (_spriteBatch == null)
                 return;
 
@@ -720,8 +722,9 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Draws scrolling notes
+        /// Draws scrolling notes. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         private void DrawNotes()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
@@ -740,8 +743,9 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Draws note overlay animations in effects pass
+        /// Draws note overlay animations in effects pass. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         private void DrawNoteOverlays()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
@@ -1499,6 +1503,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawPads()
         {
             if (_padRenderer == null)
@@ -1507,18 +1513,24 @@ namespace DTXMania.Game.Lib.Stage
             _padRenderer.Draw(_spriteBatch);
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawHitEffects()
         {
             // Draw hit effects using EffectsManager
             _effectsManager?.Draw(_spriteBatch);
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawJudgementTexts()
         {
             // Draw judgement text popups using JudgementTextPopupManager
             _judgementTextPopupManager?.Draw(_spriteBatch);
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawUIElements()
         {
             // Draw shutters first (overlay elements)

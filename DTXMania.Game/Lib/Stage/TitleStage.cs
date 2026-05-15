@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.UI;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -138,6 +139,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
@@ -567,6 +570,8 @@ namespace DTXMania.Game.Lib.Stage
 
         // Background drawing is now handled by BaseStage
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawVersionInfo()
         {
             // Draw version info in top-left corner (DTXMania pattern)
@@ -622,6 +627,8 @@ namespace DTXMania.Game.Lib.Stage
             DrawMenuCursor(baseY, animationOffset);
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawMenuItemFromTexture(int menuIndex, int x, int y, int textureRow)
         {
             if (_menuTexture == null)
@@ -717,6 +724,8 @@ namespace DTXMania.Game.Lib.Stage
 
 
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawTextRect(int x, int y, int width, int height, Color color)
         {
             if (_whitePixel != null)

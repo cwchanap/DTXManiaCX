@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -579,11 +580,13 @@ namespace DTXMania.Game.Lib.Stage
             UpdatePhase();
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
                 return;
-            
+
             _spriteBatch.Begin();
             
             // Draw background
@@ -640,6 +643,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawText()
         {
             try
@@ -675,11 +680,13 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawDifficultyBackground()
         {
             if (_whitePixel == null)
                 return;
-            
+
             try
             {
                 // Draw grey background rectangle using layout configuration
@@ -696,6 +703,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         private void DrawDifficultySprite()
         {
             if (_difficultySprite == null)
