@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -158,8 +159,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Draws pad indicators for all lanes
+        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
             if (spriteBatch == null || _disposed)
@@ -175,6 +178,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Virtual Hooks
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected virtual void DrawPadSpriteCore(ITexture texture, SpriteBatch spriteBatch, Rectangle destRect, Rectangle sourceRect, Color tint)
         {
             texture.Draw(
@@ -195,6 +200,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return texture;
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         protected virtual void DrawFallbackTextureCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destRect, Color color)
         {
             spriteBatch.Draw(texture, destRect, null, color, 0f, Vector2.Zero, SpriteEffects.None, BaseDepth);

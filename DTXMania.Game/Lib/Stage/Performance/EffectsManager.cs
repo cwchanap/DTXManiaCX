@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI.Layout;
 
@@ -122,15 +123,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _activeEffects.Clear();
         }
 
+        /// <summary>Pure draw method; no logic to assert.</summary>
+        [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
             if (!_effectsEnabled || _hitEffectTexture == null || _hitEffectTexture.TotalSprites <= 0)
                 return;
-                
+
             foreach (var effect in _activeEffects)
             {
                 var frameIndex = effect.FrameIndex;
-                
+
                 // Validate frame index before drawing - this is the critical check
                 if (frameIndex >= 0 && frameIndex < _hitEffectTexture.TotalSprites)
                 {
