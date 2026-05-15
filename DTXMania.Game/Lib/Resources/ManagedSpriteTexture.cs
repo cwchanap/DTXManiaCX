@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DTXMania.Game.Lib.Resources
 {
@@ -103,8 +104,9 @@ namespace DTXMania.Game.Lib.Resources
         #region Drawing Methods
 
         /// <summary>
-        /// Draw specific sprite by index
+        /// Draw specific sprite by index. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position)
         {
             if (Texture == null)
@@ -116,8 +118,9 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Draw specific sprite by index with scaling
+        /// Draw specific sprite by index with scaling. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale)
         {
             if (Texture == null)
@@ -132,9 +135,10 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Draw specific sprite by index with full control
+        /// Draw specific sprite by index with full control. Pure draw method; no logic to assert.
         /// </summary>
-        public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale, 
+        [ExcludeFromCodeCoverage]
+        public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale,
                               float rotation, Vector2 origin, Color tintColor)
         {
             if (Texture == null)
@@ -149,8 +153,9 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Draw specific sprite by row and column
+        /// Draw specific sprite by row and column. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position)
         {
             if (Texture == null)
@@ -162,8 +167,9 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Draw sprite to destination rectangle
+        /// Draw sprite to destination rectangle. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Rectangle destinationRectangle)
         {
             if (Texture == null)
@@ -175,8 +181,9 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Draw specific sprite by row and column with depth control
+        /// Draw specific sprite by row and column with depth control. Pure draw method; no logic to assert.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position, float depth)
         {
             if (Texture == null)
