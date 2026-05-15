@@ -118,6 +118,69 @@ public class AppPathsTests
     }
 
     [Fact]
+    public void GetAppDataRoot_ShouldReturnRootedPathEndingInAppName()
+    {
+        var root = AppPaths.GetAppDataRoot();
+
+        Assert.False(string.IsNullOrWhiteSpace(root));
+        Assert.True(Path.IsPathRooted(root));
+        Assert.Equal("DTXManiaCX", Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)));
+    }
+
+    [Fact]
+    public void GetAppDataRoot_OnRepeatedCalls_ShouldBeIdempotent()
+    {
+        var a = AppPaths.GetAppDataRoot();
+        var b = AppPaths.GetAppDataRoot();
+
+        Assert.Equal(a, b);
+    }
+
+    [Fact]
+    public void GetHomeDirectoryInternal_ShouldResolveNonEmptyHomeDirectory()
+    {
+        var method = typeof(AppPaths).GetMethod("GetHomeDirectory", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var home = (string)method!.Invoke(null, null)!;
+
+        Assert.False(string.IsNullOrWhiteSpace(home));
+        Assert.True(Path.IsPathRooted(home));
+    }
+
+    [Fact]
+    public void ExpandHomePath_WhenHomeDirectoryUnavailable_ShouldReturnOriginalPath()
+    {
+        var method = typeof(AppPaths).GetMethod("ExpandHomePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var savedHome = Environment.GetEnvironmentVariable("HOME");
+        var savedUserProfile = Environment.GetEnvironmentVariable("USERPROFILE");
+        try
+        {
+            Environment.SetEnvironmentVariable("HOME", "");
+            Environment.SetEnvironmentVariable("USERPROFILE", "");
+
+            // When UserProfile + Personal + HOME all yield an empty string the helper
+            // bails out and returns the original tilde-prefixed path unchanged.
+            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var personal = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            if (!string.IsNullOrWhiteSpace(profile) || !string.IsNullOrWhiteSpace(personal))
+            {
+                return; // Cannot force the null-home branch on this OS; skip without failing.
+            }
+
+            var expanded = (string)method!.Invoke(null, new object[] { "~/Songs" })!;
+            Assert.Equal("~/Songs", expanded);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HOME", savedHome);
+            Environment.SetEnvironmentVariable("USERPROFILE", savedUserProfile);
+        }
+    }
+
+    [Fact]
     public void EnsureDirectory_ShouldCreateDirectoryAndIgnoreBlankPath()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-app-path-tests", Guid.NewGuid().ToString("N"));
