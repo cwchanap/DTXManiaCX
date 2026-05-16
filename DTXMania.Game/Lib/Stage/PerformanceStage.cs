@@ -723,7 +723,6 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Draws scrolling notes.
         /// </summary>
-        [ExcludeFromCodeCoverage]
         private void DrawNotes()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
@@ -744,7 +743,6 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Draws note overlay animations in effects pass.
         /// </summary>
-        [ExcludeFromCodeCoverage]
         private void DrawNoteOverlays()
         {
             if (_noteRenderer == null || _chartManager == null || _songTimer == null || _currentGameTime == null)
