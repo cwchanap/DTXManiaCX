@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Utilities;
 
+[Trait("Category", "Unit")]
 public class AppPathsTests
 {
     [Fact]
@@ -240,6 +241,7 @@ public class AppPathsTests
     }
 }
 
+[Trait("Category", "Unit")]
 [Collection("AppPaths")]
 public class AppPathsEnvironmentTests
 {

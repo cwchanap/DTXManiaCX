@@ -123,7 +123,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _activeEffects.Clear();
         }
 
-        [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
             if (!_effectsEnabled || _hitEffectTexture == null || _hitEffectTexture.TotalSprites <= 0)
