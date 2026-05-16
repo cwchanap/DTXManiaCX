@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Utilities;
 
+[Collection("AppPaths")]
 public class AppPathsTests
 {
     [Fact]
