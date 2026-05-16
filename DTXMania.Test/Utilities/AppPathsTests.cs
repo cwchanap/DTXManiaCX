@@ -6,7 +6,6 @@ using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Utilities;
 
-[Collection("AppPaths")]
 public class AppPathsTests
 {
     [Fact]
@@ -150,38 +149,6 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void ExpandHomePath_WhenHomeDirectoryUnavailable_ShouldReturnOriginalPath()
-    {
-        var method = typeof(AppPaths).GetMethod("ExpandHomePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var savedHome = Environment.GetEnvironmentVariable("HOME");
-        var savedUserProfile = Environment.GetEnvironmentVariable("USERPROFILE");
-        try
-        {
-            Environment.SetEnvironmentVariable("HOME", "");
-            Environment.SetEnvironmentVariable("USERPROFILE", "");
-
-            // When UserProfile + Personal + HOME all yield an empty string the helper
-            // bails out and returns the original tilde-prefixed path unchanged.
-            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var personal = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            if (!string.IsNullOrWhiteSpace(profile) || !string.IsNullOrWhiteSpace(personal))
-            {
-                return; // Cannot force the null-home branch on this OS; skip without failing.
-            }
-
-            var expanded = (string)method!.Invoke(null, new object[] { "~/Songs" })!;
-            Assert.Equal("~/Songs", expanded);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("HOME", savedHome);
-            Environment.SetEnvironmentVariable("USERPROFILE", savedUserProfile);
-        }
-    }
-
-    [Fact]
     public void EnsureDirectory_ShouldCreateDirectoryAndIgnoreBlankPath()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-app-path-tests", Guid.NewGuid().ToString("N"));
@@ -270,5 +237,55 @@ public class AppPathsTests
         }
 
         return home;
+    }
+}
+
+[Collection("AppPaths")]
+public class AppPathsEnvironmentTests
+{
+    /// <summary>
+    /// After clearing HOME/USERPROFILE env vars, checks whether the null-home fallback
+    /// branch can be exercised. On most CI runners, SpecialFolder.UserProfile/Personal
+    /// still resolve, so the fallback cannot be forced. The test asserts the actual
+    /// behavior observed: if SpecialFolders resolve, expansion succeeds; if they don't,
+    /// the original tilde path is returned unchanged.
+    /// </summary>
+    [Fact]
+    public void ExpandHomePath_WhenHomeDirectoryUnavailable_ShouldReturnOriginalPath()
+    {
+        var method = typeof(AppPaths).GetMethod("ExpandHomePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var savedHome = Environment.GetEnvironmentVariable("HOME");
+        var savedUserProfile = Environment.GetEnvironmentVariable("USERPROFILE");
+        try
+        {
+            Environment.SetEnvironmentVariable("HOME", "");
+            Environment.SetEnvironmentVariable("USERPROFILE", "");
+
+            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var personal = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+
+            if (string.IsNullOrWhiteSpace(profile) && string.IsNullOrWhiteSpace(personal))
+            {
+                // Null-home branch can be exercised: expansion should return original path
+                var expanded = (string)method!.Invoke(null, new object[] { "~/Songs" })!;
+                Assert.Equal("~/Songs", expanded);
+            }
+            else
+            {
+                // SpecialFolders still resolve on this platform — the null-home fallback
+                // cannot be forced. Verify that expansion uses the resolved home instead.
+                var home = profile;
+                if (string.IsNullOrWhiteSpace(home)) home = personal;
+                var expanded = (string)method!.Invoke(null, new object[] { "~/Songs" })!;
+                Assert.Equal(Path.Combine(home, "Songs"), expanded);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HOME", savedHome);
+            Environment.SetEnvironmentVariable("USERPROFILE", savedUserProfile);
+        }
     }
 }

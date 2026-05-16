@@ -197,7 +197,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawFrame(SpriteBatch spriteBatch, Rectangle frameRect)
         {

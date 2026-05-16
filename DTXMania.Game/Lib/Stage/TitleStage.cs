@@ -139,7 +139,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
@@ -570,7 +569,6 @@ namespace DTXMania.Game.Lib.Stage
 
         // Background drawing is now handled by BaseStage
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawVersionInfo()
         {
@@ -627,7 +625,6 @@ namespace DTXMania.Game.Lib.Stage
             DrawMenuCursor(baseY, animationOffset);
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawMenuItemFromTexture(int menuIndex, int x, int y, int textureRow)
         {
@@ -724,7 +721,6 @@ namespace DTXMania.Game.Lib.Stage
 
 
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawTextRect(int x, int y, int width, int height, Color color)
         {

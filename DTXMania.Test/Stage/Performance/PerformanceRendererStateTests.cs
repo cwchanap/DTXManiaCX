@@ -525,6 +525,21 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(exception);
         }
 
+        [Theory]
+        [InlineData(-1, 4, false)]
+        [InlineData(0, 4, true)]
+        [InlineData(3, 4, true)]
+        [InlineData(4, 4, false)]
+        [InlineData(100, 4, false)]
+        [InlineData(0, 0, false)]
+        [InlineData(0, 1, true)]
+        public void IsValidFrameIndex_ShouldValidateBounds(int frameIndex, int totalSprites, bool expected)
+        {
+            var result = EffectsManager.IsValidFrameIndex(frameIndex, totalSprites);
+
+            Assert.Equal(expected, result);
+        }
+
         [Fact]
         public void Dispose_ShouldDisposeHitTextureAndClearActiveEffects()
         {
