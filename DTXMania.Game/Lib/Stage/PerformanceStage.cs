@@ -233,7 +233,6 @@ namespace DTXMania.Game.Lib.Stage
         }
 
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
@@ -722,7 +721,7 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Draws scrolling notes. Pure draw method; no logic to assert.
+        /// Draws scrolling notes.
         /// </summary>
         [ExcludeFromCodeCoverage]
         private void DrawNotes()
@@ -743,7 +742,7 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Draws note overlay animations in effects pass. Pure draw method; no logic to assert.
+        /// Draws note overlay animations in effects pass.
         /// </summary>
         [ExcludeFromCodeCoverage]
         private void DrawNoteOverlays()
@@ -1503,7 +1502,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawPads()
         {
@@ -1513,7 +1511,6 @@ namespace DTXMania.Game.Lib.Stage
             _padRenderer.Draw(_spriteBatch);
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawHitEffects()
         {
@@ -1521,7 +1518,6 @@ namespace DTXMania.Game.Lib.Stage
             _effectsManager?.Draw(_spriteBatch);
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawJudgementTexts()
         {
@@ -1529,7 +1525,6 @@ namespace DTXMania.Game.Lib.Stage
             _judgementTextPopupManager?.Draw(_spriteBatch);
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawUIElements()
         {

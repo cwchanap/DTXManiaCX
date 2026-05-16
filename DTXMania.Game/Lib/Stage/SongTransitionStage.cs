@@ -580,7 +580,6 @@ namespace DTXMania.Game.Lib.Stage
             UpdatePhase();
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
@@ -643,7 +642,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawText()
         {
@@ -680,7 +678,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawDifficultyBackground()
         {
@@ -703,7 +700,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
         
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawDifficultySprite()
         {

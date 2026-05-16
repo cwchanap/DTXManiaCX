@@ -159,7 +159,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Draws pad indicators for all lanes
-        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         [ExcludeFromCodeCoverage]
@@ -178,7 +177,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Virtual Hooks
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected virtual void DrawPadSpriteCore(ITexture texture, SpriteBatch spriteBatch, Rectangle destRect, Rectangle sourceRect, Color tint)
         {
@@ -200,7 +198,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return texture;
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected virtual void DrawFallbackTextureCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destRect, Color color)
         {

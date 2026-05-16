@@ -103,9 +103,6 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Drawing Methods
 
-        /// <summary>
-        /// Draw specific sprite by index. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position)
         {
@@ -117,9 +114,6 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, position, sourceRect, color);
         }
 
-        /// <summary>
-        /// Draw specific sprite by index with scaling. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale)
         {
@@ -134,9 +128,6 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, position, sourceRect, color, rotation, Vector2.Zero, finalScale, SpriteEffects.None, 0f);
         }
 
-        /// <summary>
-        /// Draw specific sprite by index with full control. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Vector2 position, Vector2 scale,
                               float rotation, Vector2 origin, Color tintColor)
@@ -152,9 +143,6 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, position, sourceRect, finalColor, finalRotation, origin, finalScale, SpriteEffects.None, 0f);
         }
 
-        /// <summary>
-        /// Draw specific sprite by row and column. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position)
         {
@@ -166,9 +154,6 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, position, sourceRect, color);
         }
 
-        /// <summary>
-        /// Draw sprite to destination rectangle. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int spriteIndex, Rectangle destinationRectangle)
         {
@@ -180,9 +165,6 @@ namespace DTXMania.Game.Lib.Resources
             spriteBatch.Draw(Texture, destinationRectangle, sourceRect, color);
         }
 
-        /// <summary>
-        /// Draw specific sprite by row and column with depth control. Pure draw method; no logic to assert.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         public void DrawSprite(SpriteBatch spriteBatch, int row, int col, Vector2 position, float depth)
         {

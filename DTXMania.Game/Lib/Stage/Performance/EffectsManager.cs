@@ -123,7 +123,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _activeEffects.Clear();
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
@@ -134,13 +133,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 var frameIndex = effect.FrameIndex;
 
-                // Validate frame index before drawing - this is the critical check
-                if (frameIndex >= 0 && frameIndex < _hitEffectTexture.TotalSprites)
+                if (IsValidFrameIndex(frameIndex, _hitEffectTexture.TotalSprites))
                 {
                     _hitEffectTexture.DrawSprite(spriteBatch, frameIndex, effect.Position);
                 }
-                // Don't log errors here to avoid spam, just silently skip invalid frames
             }
+        }
+
+        internal static bool IsValidFrameIndex(int frameIndex, int totalSprites)
+        {
+            return frameIndex >= 0 && frameIndex < totalSprites;
         }
 
         private class EffectInstance

@@ -99,7 +99,6 @@ namespace DTXMania.Game.Lib.Stage
             _uiManager?.Update(deltaTime);
         }
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
@@ -225,7 +224,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Drawing
 
-        /// <summary>Pure draw method; no logic to assert.</summary>
         [ExcludeFromCodeCoverage]
         private void DrawBackground()
         {

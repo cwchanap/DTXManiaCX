@@ -193,7 +193,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Renders active notes on screen
-        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         /// <param name="activeNotes">Notes currently visible on screen</param>
@@ -326,7 +325,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Draws overlay animations for all active notes in effects pass (called from PerformanceStage)
-        /// Pure draw method; no logic to assert.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing (additive blend mode)</param>
         /// <param name="activeNotes">Notes currently visible on screen</param>
