@@ -260,7 +260,10 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
         
         /// <summary>
-        /// Calculates skill value based on score and difficulty
+        /// Recomputes SongSkill using the DTXManiaNX Game Skill formula.
+        /// Note: this only knows DifficultyLevel (whole part), so it is a coarser
+        /// approximation than the persistence path, which receives the precise
+        /// chart level + levelDec via PerformanceSummary. Kept for legacy/manual triggers.
         /// </summary>
         public void CalculateSkill()
         {
@@ -269,15 +272,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                 SongSkill = 0;
                 return;
             }
-            
-            // DTXMania skill calculation formula
-            // Skill = (Score / 1000000) * DifficultyLevel * Multiplier
-            var scoreRatio = (double)BestScore / 1000000.0;
-            var difficultyMultiplier = DifficultyLevel / 100.0;
-            var rankMultiplier = GetRankMultiplier();
-            
-            SongSkill = scoreRatio * difficultyMultiplier * rankMultiplier * 100.0;
-            
+
+            double playing = CalculatePlayingSkill(TotalNotes, BestPerfect, BestGreat, MaxCombo);
+            SongSkill = CalculateGameSkill(playing, DifficultyLevel, 0);
+
             if (SongSkill > HighSkill)
                 HighSkill = SongSkill;
         }
