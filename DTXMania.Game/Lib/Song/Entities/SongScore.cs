@@ -274,7 +274,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
 
             double playing = CalculatePlayingSkill(TotalNotes, BestPerfect, BestGreat, MaxCombo);
-            SongSkill = CalculateGameSkill(playing, DifficultyLevel, 0);
+            // levelDec is unknown here; passing 0 loses sub-tenths granularity.
+            // The persistence path uses the precise value via PerformanceSummary.
+            SongSkill = CalculateGameSkill(playing, DifficultyLevel, levelDec: 0);
 
             if (SongSkill > HighSkill)
                 HighSkill = SongSkill;
