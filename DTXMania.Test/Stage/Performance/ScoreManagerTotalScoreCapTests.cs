@@ -23,7 +23,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             // Arrange
             var scoreManager = new ScoreManager(1); // Single note chart
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
 
             // Act
             scoreManager.ProcessJudgement(justEvent);
@@ -42,7 +42,7 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Process more than enough Just hits to theoretically exceed max score
             for (int i = 0; i < 150; i++) // More hits than notes in chart
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(justEvent);
             }
 
@@ -65,7 +65,7 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Process perfect play (all Just hits)
             for (int i = 0; i < totalNotes; i++)
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(justEvent);
             }
 
@@ -81,14 +81,14 @@ namespace DTXMania.Test.Stage.Performance
             var scoreManager = new ScoreManager(1); // Single note gives 1,000,000 points
             
             // Act - Try to add more score after already at max
-            var firstJustEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var firstJustEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             scoreManager.ProcessJudgement(firstJustEvent);
             
             // Verify we're at max
             Assert.Equal(ScoreManager.MaxScore, scoreManager.CurrentScore);
             
             // Try to add more (this should be clamped)
-            var secondJustEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Just);
+            var secondJustEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Perfect);
             scoreManager.ProcessJudgement(secondJustEvent);
 
             // Assert
@@ -104,7 +104,7 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Mix of all judgement types, heavily weighted toward Just
             for (int i = 0; i < 1500; i++)
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(justEvent);
             }
             
@@ -161,7 +161,7 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Process some hits
             for (int i = 0; i < 1000; i++)
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(justEvent);
             }
 
@@ -182,7 +182,7 @@ namespace DTXMania.Test.Stage.Performance
             ScoreChangedEventArgs? lastEventArgs = null;
             scoreManager.ScoreChanged += (sender, e) => lastEventArgs = e;
             
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
 
             // Act
             scoreManager.ProcessJudgement(justEvent);
@@ -200,8 +200,8 @@ namespace DTXMania.Test.Stage.Performance
             var scoreManager = new ScoreManager(2);
             
             // Build up to max score
-            var firstJustEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
-            var secondJustEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Just);
+            var firstJustEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
+            var secondJustEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Perfect);
             
             scoreManager.ProcessJudgement(firstJustEvent);
             scoreManager.ProcessJudgement(secondJustEvent);
@@ -220,7 +220,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, 1.0)]
+        [InlineData(JudgementType.Perfect, 1.0)]
         [InlineData(JudgementType.Great, 0.9)]
         [InlineData(JudgementType.Good, 0.5)]
         [InlineData(JudgementType.Poor, 0.0)]
@@ -252,7 +252,7 @@ namespace DTXMania.Test.Stage.Performance
             // Process perfect play
             for (int i = 0; i < 100; i++)
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(justEvent);
             }
 

@@ -65,7 +65,7 @@ namespace DTXMania.Test.Stage.Performance
 
             // Assert
             Assert.NotNull(captured);
-            Assert.Equal(JudgementType.Just, captured.Type);
+            Assert.Equal(JudgementType.Perfect, captured.Type);
         }
 
         [Fact]
@@ -160,7 +160,7 @@ namespace DTXMania.Test.Stage.Performance
             var stats = judgementManager.GetStatistics();
 
             // Assert
-            Assert.Equal(1, stats.JustCount);
+            Assert.Equal(1, stats.PerfectCount);
             Assert.Equal(1, stats.GreatCount);
             Assert.Equal(0, stats.GoodCount);
             Assert.Equal(0, stats.PoorCount);
@@ -330,7 +330,7 @@ namespace DTXMania.Test.Stage.Performance
 
             Assert.True(result);
             Assert.NotNull(captured);
-            Assert.Equal(JudgementType.Just, captured.Type);
+            Assert.Equal(JudgementType.Perfect, captured.Type);
             Assert.Equal(0.0, captured.DeltaMs);
             Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(noteId)!.Status);
         }

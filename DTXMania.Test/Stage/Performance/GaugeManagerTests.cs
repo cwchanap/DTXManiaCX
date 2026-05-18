@@ -50,7 +50,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var manager = new GaugeManager(50.0f);
             var initial = manager.CurrentLife;
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.True(manager.CurrentLife > initial);
         }
 
@@ -103,7 +103,7 @@ namespace DTXMania.Test.Stage.Performance
         public void ProcessJudgement_LifeExceedsMax_ShouldClampToMax()
         {
             var manager = new GaugeManager(99.9f);
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(GaugeManager.MaxLife, manager.CurrentLife);
         }
 
@@ -125,7 +125,7 @@ namespace DTXMania.Test.Stage.Performance
             var lifeAfterFail = manager.CurrentLife;
 
             // Second judgement should be ignored
-            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(lifeAfterFail, manager.CurrentLife);
         }
 
@@ -134,7 +134,7 @@ namespace DTXMania.Test.Stage.Performance
         #region GetLifeAdjustment Tests
 
         [Theory]
-        [InlineData(JudgementType.Just, 2.0f)]
+        [InlineData(JudgementType.Perfect, 2.0f)]
         [InlineData(JudgementType.Great, 1.5f)]
         [InlineData(JudgementType.Good, 1.0f)]
         [InlineData(JudgementType.Poor, -1.5f)]
@@ -163,10 +163,10 @@ namespace DTXMania.Test.Stage.Performance
             GaugeChangedEventArgs received = null;
             manager.GaugeChanged += (s, e) => received = e;
 
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
             Assert.NotNull(received);
-            Assert.Equal(JudgementType.Just, received.JudgementType);
+            Assert.Equal(JudgementType.Perfect, received.JudgementType);
             Assert.False(received.JustFailed);
         }
 
@@ -386,7 +386,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new GaugeManager(50.0f);
             manager.Dispose();
             var lifeBeforeDisposed = manager.CurrentLife;
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(lifeBeforeDisposed, manager.CurrentLife);
         }
 

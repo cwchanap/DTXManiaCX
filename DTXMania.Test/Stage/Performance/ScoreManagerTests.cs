@@ -42,7 +42,7 @@ namespace DTXMania.Test.Stage.Performance
         public void ProcessJudgement_Just_ShouldAddFullBaseScore()
         {
             var manager = new ScoreManager(100);
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(manager.BaseScore, manager.CurrentScore);
         }
 
@@ -93,7 +93,7 @@ namespace DTXMania.Test.Stage.Performance
             ScoreChangedEventArgs receivedArgs = null;
             manager.ScoreChanged += (s, e) => receivedArgs = e;
 
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
             Assert.NotNull(receivedArgs);
             Assert.Equal(0, receivedArgs.PreviousScore);
@@ -105,7 +105,7 @@ namespace DTXMania.Test.Stage.Performance
         #region GetScoreMultiplier Tests
 
         [Theory]
-        [InlineData(JudgementType.Just, 1.0)]
+        [InlineData(JudgementType.Perfect, 1.0)]
         [InlineData(JudgementType.Great, 0.9)]
         [InlineData(JudgementType.Good, 0.5)]
         [InlineData(JudgementType.Poor, 0.0)]
@@ -117,7 +117,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, 1.0)]
+        [InlineData(JudgementType.Perfect, 1.0)]
         [InlineData(JudgementType.Great, 0.9)]
         [InlineData(JudgementType.Miss, 0.0)]
         public void GetScoreMultiplierStatic_ShouldReturnCorrectMultiplier(JudgementType type, double expected)
@@ -133,7 +133,7 @@ namespace DTXMania.Test.Stage.Performance
         public void CalculateScoreForJudgement_Just_ShouldEqualBaseScore()
         {
             var manager = new ScoreManager(100);
-            Assert.Equal(manager.BaseScore, manager.CalculateScoreForJudgement(JudgementType.Just));
+            Assert.Equal(manager.BaseScore, manager.CalculateScoreForJudgement(JudgementType.Perfect));
         }
 
         [Fact]
@@ -151,8 +151,8 @@ namespace DTXMania.Test.Stage.Performance
         public void GetStatistics_ShouldReturnCurrentState()
         {
             var manager = new ScoreManager(100);
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
-            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
 
             var stats = manager.GetStatistics();
 
@@ -188,7 +188,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Reset_ShouldSetScoreToZero()
         {
             var manager = new ScoreManager(100);
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.True(manager.CurrentScore > 0);
 
             manager.Reset();
@@ -200,7 +200,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Reset_ShouldRaiseScoreChangedEvent()
         {
             var manager = new ScoreManager(100);
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
             ScoreChangedEventArgs receivedArgs = null;
             manager.ScoreChanged += (s, e) => receivedArgs = e;
@@ -234,7 +234,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var manager = new ScoreManager(100);
             manager.Dispose();
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(0, manager.CurrentScore);
         }
 

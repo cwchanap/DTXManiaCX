@@ -40,14 +40,14 @@ namespace DTXMania.Test.Song
         public void DeltaConstructor_PerfectTiming_ShouldCalculateJustType()
         {
             var evt = new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 0.0);
-            Assert.Equal(JudgementType.Just, evt.Type);
+            Assert.Equal(JudgementType.Perfect, evt.Type);
         }
 
         [Fact]
         public void DeltaConstructor_25MsDelta_ShouldCalculateJustType()
         {
             var evt = new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 25.0);
-            Assert.Equal(JudgementType.Just, evt.Type);
+            Assert.Equal(JudgementType.Perfect, evt.Type);
         }
 
         [Fact]
@@ -76,7 +76,7 @@ namespace DTXMania.Test.Song
         #region JudgementEvent Method Tests
 
         [Theory]
-        [InlineData(JudgementType.Just, 1000)]
+        [InlineData(JudgementType.Perfect, 1000)]
         [InlineData(JudgementType.Great, 700)]
         [InlineData(JudgementType.Good, 400)]
         [InlineData(JudgementType.Poor, 100)]
@@ -88,7 +88,7 @@ namespace DTXMania.Test.Song
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, true)]
+        [InlineData(JudgementType.Perfect, true)]
         [InlineData(JudgementType.Great, true)]
         [InlineData(JudgementType.Good, true)]
         [InlineData(JudgementType.Poor, true)]
@@ -102,7 +102,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void IsEarly_WithNegativeDelta_ShouldReturnTrue()
         {
-            var evt = new JudgementEvent(1, 0, -15.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 0, -15.0, JudgementType.Perfect);
             Assert.True(evt.IsEarly());
             Assert.False(evt.IsLate());
         }
@@ -110,7 +110,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void IsLate_WithPositiveDelta_ShouldReturnTrue()
         {
-            var evt = new JudgementEvent(1, 0, 15.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 0, 15.0, JudgementType.Perfect);
             Assert.True(evt.IsLate());
             Assert.False(evt.IsEarly());
         }
@@ -118,7 +118,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void IsEarly_IsLate_WithZeroDelta_ShouldBothReturnFalse()
         {
-            var evt = new JudgementEvent(1, 0, 0.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 0, 0.0, JudgementType.Perfect);
             Assert.False(evt.IsEarly());
             Assert.False(evt.IsLate());
         }
@@ -140,10 +140,10 @@ namespace DTXMania.Test.Song
         [Fact]
         public void ToString_WithHitEvent_ShouldContainTypeAndScore()
         {
-            var evt = new JudgementEvent(1, 4, -10.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 4, -10.0, JudgementType.Perfect);
             var result = evt.ToString();
 
-            Assert.Contains("Just", result);
+            Assert.Contains("Perfect", result);
             Assert.Contains("1000", result);
         }
 
@@ -160,7 +160,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void ToString_WithEarlyHit_ShouldContainEarly()
         {
-            var evt = new JudgementEvent(1, 5, -20.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 5, -20.0, JudgementType.Perfect);
             var result = evt.ToString();
             Assert.Contains("early", result);
         }
@@ -168,7 +168,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void ToString_WithLateHit_ShouldContainLate()
         {
-            var evt = new JudgementEvent(1, 5, 20.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 5, 20.0, JudgementType.Perfect);
             var result = evt.ToString();
             Assert.Contains("late", result);
         }
@@ -176,7 +176,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void ToString_WithPerfectTiming_ShouldContainPerfect()
         {
-            var evt = new JudgementEvent(1, 5, 0.0, JudgementType.Just);
+            var evt = new JudgementEvent(1, 5, 0.0, JudgementType.Perfect);
             var result = evt.ToString();
             Assert.Contains("perfect", result);
         }
@@ -196,7 +196,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void TimingConstants_WindowValues_ShouldBeCorrect()
         {
-            Assert.Equal(25.0, TimingConstants.JustWindowMs);
+            Assert.Equal(25.0, TimingConstants.PerfectWindowMs);
             Assert.Equal(50.0, TimingConstants.GreatWindowMs);
             Assert.Equal(100.0, TimingConstants.GoodWindowMs);
             Assert.Equal(150.0, TimingConstants.PoorWindowMs);
@@ -206,7 +206,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void TimingConstants_ScoreValues_ShouldBeCorrect()
         {
-            Assert.Equal(1000, TimingConstants.JustScore);
+            Assert.Equal(1000, TimingConstants.PerfectScore);
             Assert.Equal(700, TimingConstants.GreatScore);
             Assert.Equal(400, TimingConstants.GoodScore);
             Assert.Equal(100, TimingConstants.PoorScore);
@@ -214,9 +214,9 @@ namespace DTXMania.Test.Song
         }
 
         [Theory]
-        [InlineData(0.0, JudgementType.Just)]
-        [InlineData(25.0, JudgementType.Just)]
-        [InlineData(-25.0, JudgementType.Just)]
+        [InlineData(0.0, JudgementType.Perfect)]
+        [InlineData(25.0, JudgementType.Perfect)]
+        [InlineData(-25.0, JudgementType.Perfect)]
         [InlineData(25.1, JudgementType.Great)]
         [InlineData(50.0, JudgementType.Great)]
         [InlineData(-50.0, JudgementType.Great)]
@@ -233,7 +233,7 @@ namespace DTXMania.Test.Song
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, 1000)]
+        [InlineData(JudgementType.Perfect, 1000)]
         [InlineData(JudgementType.Great, 700)]
         [InlineData(JudgementType.Good, 400)]
         [InlineData(JudgementType.Poor, 100)]

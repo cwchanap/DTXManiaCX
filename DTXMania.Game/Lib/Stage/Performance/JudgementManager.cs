@@ -135,7 +135,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         {
                             switch (data.JudgementEvent.Type)
                             {
-                                case JudgementType.Just: stats.JustCount++; break;
+                                case JudgementType.Perfect: stats.PerfectCount++; break;
                                 case JudgementType.Great: stats.GreatCount++; break;
                                 case JudgementType.Good: stats.GoodCount++; break;
                                 case JudgementType.Poor: stats.PoorCount++; break;
@@ -230,7 +230,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 noteData.NoteId,
                 noteData.Note.LaneIndex,
                 0.0, // Perfect timing — autoplay hits at exact note time
-                JudgementType.Just
+                JudgementType.Perfect
             );
 
             noteData.Status = NoteStatus.Hit;
@@ -610,7 +610,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// </summary>
     public class JudgementStatistics
     {
-        public int JustCount { get; set; }
+        public int PerfectCount { get; set; }
         public int GreatCount { get; set; }
         public int GoodCount { get; set; }
         public int PoorCount { get; set; }
@@ -619,12 +619,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Total number of notes processed
         /// </summary>
-        public int TotalNotes => JustCount + GreatCount + GoodCount + PoorCount + MissCount;
+        public int TotalNotes => PerfectCount + GreatCount + GoodCount + PoorCount + MissCount;
 
         /// <summary>
         /// Total number of hits (non-misses)
         /// </summary>
-        public int TotalHits => JustCount + GreatCount + GoodCount + PoorCount;
+        public int TotalHits => PerfectCount + GreatCount + GoodCount + PoorCount;
 
         /// <summary>
         /// Accuracy percentage

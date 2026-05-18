@@ -629,7 +629,7 @@ public class PerformanceStageDeterministicTests
 
         // Verify it got Perfect (Just) timing
         var noteData = judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!;
-        Assert.Equal(JudgementType.Just, noteData.JudgementEvent!.Type);
+        Assert.Equal(JudgementType.Perfect, noteData.JudgementEvent!.Type);
         Assert.Equal(0.0, noteData.JudgementEvent.DeltaMs);
     }
 

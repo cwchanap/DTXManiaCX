@@ -29,7 +29,7 @@ namespace DTXMania.Test.Stage.Performance
         public void ProcessJudgement_Just_ShouldIncrementCombo()
         {
             var manager = new ComboManager();
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(1, manager.CurrentCombo);
             Assert.True(manager.HasCombo);
         }
@@ -72,7 +72,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ComboManager();
             for (int i = 0; i < 5; i++)
             {
-                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Just));
+                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Perfect));
             }
             Assert.Equal(5, manager.CurrentCombo);
         }
@@ -83,7 +83,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ComboManager();
             for (int i = 0; i < 10; i++)
             {
-                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Just));
+                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Perfect));
             }
             Assert.Equal(10, manager.MaxCombo);
 
@@ -100,7 +100,7 @@ namespace DTXMania.Test.Stage.Performance
             ComboChangedEventArgs receivedArgs = null;
             manager.ComboChanged += (s, e) => receivedArgs = e;
 
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
             Assert.NotNull(receivedArgs);
             Assert.Equal(0, receivedArgs.PreviousCombo);
@@ -112,8 +112,8 @@ namespace DTXMania.Test.Stage.Performance
         public void ProcessJudgement_Miss_RaisesComboChangedWithWasReset()
         {
             var manager = new ComboManager();
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
-            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
 
             ComboChangedEventArgs receivedArgs = null;
             manager.ComboChanged += (s, e) => receivedArgs = e;
@@ -132,7 +132,7 @@ namespace DTXMania.Test.Stage.Performance
             MaxComboChangedEventArgs receivedArgs = null;
             manager.MaxComboChanged += (s, e) => receivedArgs = e;
 
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
             Assert.NotNull(receivedArgs);
             Assert.Equal(0, receivedArgs.PreviousMaxCombo);
@@ -161,7 +161,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ComboManager();
             for (int i = 0; i < 5; i++)
             {
-                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Just));
+                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Perfect));
             }
             Assert.Equal(5, manager.MaxCombo);
 
@@ -175,8 +175,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Reset_WithNonZeroCombo_RaisesComboChangedEvent()
         {
             var manager = new ComboManager();
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
-            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+            manager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
 
             ComboChangedEventArgs receivedArgs = null;
             manager.ComboChanged += (s, e) => receivedArgs = e;
@@ -193,7 +193,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ComboManager();
             for (int i = 0; i < 3; i++)
             {
-                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Just));
+                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Perfect));
             }
 
             MaxComboChangedEventArgs receivedArgs = null;
@@ -228,7 +228,7 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ComboManager();
             for (int i = 0; i < 5; i++)
             {
-                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Just));
+                manager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Perfect));
             }
 
             var stats = manager.GetStatistics();
@@ -259,7 +259,7 @@ namespace DTXMania.Test.Stage.Performance
             manager.Dispose();
 
             // After dispose, ProcessJudgement should do nothing
-            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Just));
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
             Assert.Equal(0, eventCount);
         }
 

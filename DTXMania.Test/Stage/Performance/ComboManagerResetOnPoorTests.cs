@@ -18,7 +18,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build up a combo first
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             var greatEvent = new JudgementEvent(1, 0, 40.0, JudgementType.Great);
             var goodEvent = new JudgementEvent(2, 0, 80.0, JudgementType.Good);
             
@@ -44,7 +44,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build up a combo first
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             var greatEvent = new JudgementEvent(1, 0, 40.0, JudgementType.Great);
             
             comboManager.ProcessJudgement(justEvent);
@@ -62,7 +62,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, true)]      // Should increment combo
+        [InlineData(JudgementType.Perfect, true)]      // Should increment combo
         [InlineData(JudgementType.Great, true)]    // Should increment combo
         [InlineData(JudgementType.Good, true)]     // Should increment combo
         [InlineData(JudgementType.Poor, false)]    // Should reset combo
@@ -73,7 +73,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build up initial combo
-            var initialEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var initialEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(initialEvent);
             Assert.Equal(1, comboManager.CurrentCombo);
 
@@ -103,7 +103,7 @@ namespace DTXMania.Test.Stage.Performance
             // Build up a long combo (50 hits)
             for (int i = 0; i < 50; i++)
             {
-                var event1 = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var event1 = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 comboManager.ProcessJudgement(event1);
             }
             
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Stage.Performance
             comboManager.ComboChanged += (sender, e) => capturedEventArgs = e;
             
             // Build up combo
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(justEvent);
             
             // Reset captured event
@@ -155,7 +155,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build up combo
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(justEvent);
             Assert.Equal(1, comboManager.CurrentCombo);
 
@@ -180,7 +180,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build up combo
-            var justEvent1 = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent1 = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             var greatEvent = new JudgementEvent(1, 0, 40.0, JudgementType.Great);
             comboManager.ProcessJudgement(justEvent1);
             comboManager.ProcessJudgement(greatEvent);
@@ -192,8 +192,8 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, comboManager.CurrentCombo);
 
             // Act - Rebuild combo
-            var justEvent2 = new JudgementEvent(3, 0, 0.0, JudgementType.Just);
-            var justEvent3 = new JudgementEvent(4, 0, 0.0, JudgementType.Just);
+            var justEvent2 = new JudgementEvent(3, 0, 0.0, JudgementType.Perfect);
+            var justEvent3 = new JudgementEvent(4, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(justEvent2);
             comboManager.ProcessJudgement(justEvent3);
 
@@ -211,7 +211,7 @@ namespace DTXMania.Test.Stage.Performance
             // Build up to high combo
             for (int i = 0; i < 25; i++)
             {
-                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Just);
+                var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
                 comboManager.ProcessJudgement(justEvent);
             }
             
@@ -259,10 +259,10 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build combo, reset with Poor, build again
-            var justEvent1 = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
-            var justEvent2 = new JudgementEvent(1, 0, 0.0, JudgementType.Just);
+            var justEvent1 = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
+            var justEvent2 = new JudgementEvent(1, 0, 0.0, JudgementType.Perfect);
             var poorEvent = new JudgementEvent(2, 0, 120.0, JudgementType.Poor);
-            var justEvent3 = new JudgementEvent(3, 0, 0.0, JudgementType.Just);
+            var justEvent3 = new JudgementEvent(3, 0, 0.0, JudgementType.Perfect);
             
             comboManager.ProcessJudgement(justEvent1);
             comboManager.ProcessJudgement(justEvent2);
@@ -285,7 +285,7 @@ namespace DTXMania.Test.Stage.Performance
             var comboManager = new ComboManager();
             
             // Build combo
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(justEvent);
             Assert.True(comboManager.HasCombo);
 
@@ -308,7 +308,7 @@ namespace DTXMania.Test.Stage.Performance
             comboManager.MaxComboChanged += (sender, e) => maxComboChangedFired = true;
             
             // Build combo to establish max
-            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Just);
+            var justEvent = new JudgementEvent(0, 0, 0.0, JudgementType.Perfect);
             comboManager.ProcessJudgement(justEvent);
             
             // Reset flag after initial max combo established

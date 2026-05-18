@@ -107,7 +107,7 @@ public class JudgementTextPopupLogicTests
     public void SpawnPopup_WhenManagerIsDisposedOrEventIsNull_ShouldIgnoreRequest()
     {
         var disposedManager = CreateManager(disposed: true);
-        disposedManager.SpawnPopup(new JudgementEvent(0, 1, 0.0, JudgementType.Just));
+        disposedManager.SpawnPopup(new JudgementEvent(0, 1, 0.0, JudgementType.Perfect));
 
         var manager = CreateManager();
         manager.SpawnPopup(null!);

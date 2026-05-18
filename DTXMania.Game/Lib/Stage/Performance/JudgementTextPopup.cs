@@ -110,7 +110,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // Text colors for different judgement types
         private static readonly Dictionary<JudgementType, Color> JudgementColors = new Dictionary<JudgementType, Color>
         {
-            { JudgementType.Just, Color.Yellow },
+            { JudgementType.Perfect, Color.Yellow },
             { JudgementType.Great, Color.LightGreen },
             { JudgementType.Good, Color.LightBlue },
             { JudgementType.Poor, Color.Orange },
@@ -120,7 +120,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // Text display strings for judgement types
         private static readonly Dictionary<JudgementType, string> JudgementTexts = new Dictionary<JudgementType, string>
         {
-            { JudgementType.Just, "Perfect" },
+            { JudgementType.Perfect, "Perfect" },
             { JudgementType.Great, "Great" },
             { JudgementType.Good, "Good" },
             { JudgementType.Poor, "OK" },

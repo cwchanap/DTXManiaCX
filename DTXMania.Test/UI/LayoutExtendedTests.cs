@@ -129,7 +129,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GaugeSettings_LifeAdjustment_JustShouldBePositive()
         {
-            Assert.True(PerformanceUILayout.GaugeSettings.LifeAdjustment.Just > 0f);
+            Assert.True(PerformanceUILayout.GaugeSettings.LifeAdjustment.Perfect > 0f);
         }
 
         [Fact]
@@ -141,7 +141,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void GaugeSettings_LifeAdjustment_JustGreaterThanGreat()
         {
-            Assert.True(PerformanceUILayout.GaugeSettings.LifeAdjustment.Just > PerformanceUILayout.GaugeSettings.LifeAdjustment.Great);
+            Assert.True(PerformanceUILayout.GaugeSettings.LifeAdjustment.Perfect > PerformanceUILayout.GaugeSettings.LifeAdjustment.Great);
         }
 
         #endregion

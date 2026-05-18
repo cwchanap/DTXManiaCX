@@ -288,7 +288,7 @@ namespace DTXMania.Game.Lib.Stage
             currentY += ResultUILayout.ResultDisplay.ExtraSpacing; // Extra space
 
             DrawResultLine("JUDGEMENT BREAKDOWN", centerX, ref currentY, ResultUILayout.ResultDisplay.SectionHeaderColor, lineHeight);
-            DrawResultLine($"Just: {_performanceSummary.JustCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
+            DrawResultLine($"Perfect: {_performanceSummary.PerfectCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
             DrawResultLine($"Great: {_performanceSummary.GreatCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
             DrawResultLine($"Good: {_performanceSummary.GoodCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
             DrawResultLine($"Poor: {_performanceSummary.PoorCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);

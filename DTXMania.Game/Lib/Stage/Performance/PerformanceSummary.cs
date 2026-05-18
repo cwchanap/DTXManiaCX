@@ -27,9 +27,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public bool ClearFlag { get; set; }
 
         /// <summary>
-        /// Count of Just judgements
+        /// Count of Perfect judgements
         /// </summary>
-        public int JustCount { get; set; }
+        public int PerfectCount { get; set; }
 
         /// <summary>
         /// Count of Great judgements
@@ -73,7 +73,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Total number of judgements made
         /// </summary>
-        public int TotalJudgements => JustCount + GreatCount + GoodCount + PoorCount + MissCount;
+        public int TotalJudgements => PerfectCount + GreatCount + GoodCount + PoorCount + MissCount;
 
         /// <summary>
         /// Accuracy percentage (0.0 to 100.0)
@@ -86,7 +86,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (TotalNotes <= 0) return 0.0;
 
                 // Weight judgements similar to scoring system
-                double weightedHits = (JustCount * 1.0) + (GreatCount * 0.9) + (GoodCount * 0.5);
+                double weightedHits = (PerfectCount * 1.0) + (GreatCount * 0.9) + (GoodCount * 0.5);
                 double maxPossibleWeight = TotalNotes * 1.0;
 
                 return maxPossibleWeight > 0 ? (weightedHits / maxPossibleWeight) * 100.0 : 0.0;
@@ -101,7 +101,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             get
             {
                 if (TotalNotes <= 0) return 0.0;
-                int successfulHits = JustCount + GreatCount + GoodCount;
+                int successfulHits = PerfectCount + GreatCount + GoodCount;
                 return ((double)successfulHits / TotalNotes) * 100.0;
             }
         }
@@ -118,7 +118,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Score = 0;
             MaxCombo = 0;
             ClearFlag = false;
-            JustCount = 0;
+            PerfectCount = 0;
             GreatCount = 0;
             GoodCount = 0;
             PoorCount = 0;
@@ -140,8 +140,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             switch (judgementType)
             {
-                case JudgementType.Just:
-                    JustCount++;
+                case JudgementType.Perfect:
+                    PerfectCount++;
                     break;
                 case JudgementType.Great:
                     GreatCount++;
@@ -167,7 +167,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return judgementType switch
             {
-                JudgementType.Just => JustCount,
+                JudgementType.Perfect => PerfectCount,
                 JudgementType.Great => GreatCount,
                 JudgementType.Good => GoodCount,
                 JudgementType.Poor => PoorCount,
@@ -183,7 +183,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return $"Score: {Score:N0}, Max Combo: {MaxCombo}, " +
                    $"Accuracy: {Accuracy:F1}%, Clear: {ClearFlag}, " +
-                   $"J/G/G/P/M: {JustCount}/{GreatCount}/{GoodCount}/{PoorCount}/{MissCount}";
+                   $"J/G/G/P/M: {PerfectCount}/{GreatCount}/{GoodCount}/{PoorCount}/{MissCount}";
         }
 
         #endregion

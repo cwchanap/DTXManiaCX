@@ -18,9 +18,9 @@ namespace DTXMania.Test.Stage.Performance
     public class JudgementManagerHitWindowTests
     {
         [Theory]
-        [InlineData(0.0, JudgementType.Just)]           // Perfect timing
-        [InlineData(25.0, JudgementType.Just)]          // Just boundary (±25ms)
-        [InlineData(-25.0, JudgementType.Just)]         // Just boundary early
+        [InlineData(0.0, JudgementType.Perfect)]           // Perfect timing
+        [InlineData(25.0, JudgementType.Perfect)]          // Just boundary (±25ms)
+        [InlineData(-25.0, JudgementType.Perfect)]         // Just boundary early
         [InlineData(25.1, JudgementType.Great)]         // Just over Just boundary
         [InlineData(-25.1, JudgementType.Great)]        // Just over Just boundary early
         [InlineData(50.0, JudgementType.Great)]         // Great boundary (±50ms)
@@ -79,7 +79,7 @@ namespace DTXMania.Test.Stage.Performance
 
             // Assert
             Assert.NotNull(capturedEvent);
-            Assert.Equal(JudgementType.Just, capturedEvent.Type);
+            Assert.Equal(JudgementType.Perfect, capturedEvent.Type);
             Assert.Equal(25.0, capturedEvent.DeltaMs, 0.1);
         }
 
@@ -163,7 +163,7 @@ namespace DTXMania.Test.Stage.Performance
             // Assert - Should hit the first note (at 1000ms) since it's closer
             Assert.NotNull(capturedEvent);
             Assert.Equal(25.0, capturedEvent.DeltaMs, 0.1);
-            Assert.Equal(JudgementType.Just, capturedEvent.Type);
+            Assert.Equal(JudgementType.Perfect, capturedEvent.Type);
         }
 
         [Fact]
@@ -188,7 +188,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(24.9, JudgementType.Just)]          // Just under Just boundary
+        [InlineData(24.9, JudgementType.Perfect)]          // Just under Just boundary
         [InlineData(25.1, JudgementType.Great)]         // Just over Just boundary
         [InlineData(49.9, JudgementType.Great)]         // Just under Great boundary
         [InlineData(50.1, JudgementType.Good)]          // Just over Great boundary

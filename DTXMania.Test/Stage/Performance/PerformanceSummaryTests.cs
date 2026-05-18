@@ -20,7 +20,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, summary.Score);
             Assert.Equal(0, summary.MaxCombo);
             Assert.False(summary.ClearFlag);
-            Assert.Equal(0, summary.JustCount);
+            Assert.Equal(0, summary.PerfectCount);
             Assert.Equal(0, summary.GreatCount);
             Assert.Equal(0, summary.GoodCount);
             Assert.Equal(0, summary.PoorCount);
@@ -46,7 +46,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var summary = new PerformanceSummary
             {
-                JustCount = 10,
+                PerfectCount = 10,
                 GreatCount = 20,
                 GoodCount = 5,
                 PoorCount = 3,
@@ -57,9 +57,9 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void TotalJudgements_AllJust_ShouldReturnJustCount()
+        public void TotalJudgements_AllJust_ShouldReturnPerfectCount()
         {
-            var summary = new PerformanceSummary { JustCount = 100 };
+            var summary = new PerformanceSummary { PerfectCount = 100 };
             Assert.Equal(100, summary.TotalJudgements);
         }
 
@@ -80,7 +80,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 100,
+                PerfectCount = 100,
                 GreatCount = 0,
                 GoodCount = 0,
                 PoorCount = 0,
@@ -96,7 +96,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 0,
+                PerfectCount = 0,
                 GreatCount = 0,
                 GoodCount = 0,
                 PoorCount = 0,
@@ -114,7 +114,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 50,
+                PerfectCount = 50,
                 GreatCount = 50,
                 GoodCount = 0,
                 PoorCount = 0,
@@ -131,7 +131,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 0,
+                PerfectCount = 0,
                 GreatCount = 0,
                 GoodCount = 100,
                 PoorCount = 0,
@@ -159,7 +159,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 50,
-                JustCount = 20,
+                PerfectCount = 20,
                 GreatCount = 20,
                 GoodCount = 10,
                 MissCount = 0
@@ -174,7 +174,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 50,
+                PerfectCount = 50,
                 GreatCount = 0,
                 GoodCount = 0,
                 PoorCount = 0,
@@ -191,7 +191,7 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,
-                JustCount = 0,
+                PerfectCount = 0,
                 GreatCount = 0,
                 GoodCount = 0,
                 PoorCount = 100,
@@ -206,7 +206,7 @@ namespace DTXMania.Test.Stage.Performance
         #region IncrementJudgement Tests
 
         [Theory]
-        [InlineData(JudgementType.Just)]
+        [InlineData(JudgementType.Perfect)]
         [InlineData(JudgementType.Great)]
         [InlineData(JudgementType.Good)]
         [InlineData(JudgementType.Poor)]
@@ -226,11 +226,11 @@ namespace DTXMania.Test.Stage.Performance
             var summary = new PerformanceSummary();
 
             for (int i = 0; i < 5; i++)
-                summary.IncrementJudgement(JudgementType.Just);
+                summary.IncrementJudgement(JudgementType.Perfect);
             for (int i = 0; i < 3; i++)
                 summary.IncrementJudgement(JudgementType.Great);
 
-            Assert.Equal(5, summary.JustCount);
+            Assert.Equal(5, summary.PerfectCount);
             Assert.Equal(3, summary.GreatCount);
             Assert.Equal(8, summary.TotalJudgements);
         }
@@ -239,7 +239,7 @@ namespace DTXMania.Test.Stage.Performance
         public void IncrementJudgement_ShouldNotAffectOtherCounters()
         {
             var summary = new PerformanceSummary();
-            summary.IncrementJudgement(JudgementType.Just);
+            summary.IncrementJudgement(JudgementType.Perfect);
 
             Assert.Equal(0, summary.GreatCount);
             Assert.Equal(0, summary.GoodCount);
@@ -258,7 +258,7 @@ namespace DTXMania.Test.Stage.Performance
 
             summary.IncrementJudgement(invalid);
 
-            Assert.Equal(0, summary.JustCount);
+            Assert.Equal(0, summary.PerfectCount);
             Assert.Equal(0, summary.GreatCount);
             Assert.Equal(0, summary.GoodCount);
             Assert.Equal(0, summary.PoorCount);
@@ -271,7 +271,7 @@ namespace DTXMania.Test.Stage.Performance
         #region GetJudgementCount Tests
 
         [Theory]
-        [InlineData(JudgementType.Just, 10)]
+        [InlineData(JudgementType.Perfect, 10)]
         [InlineData(JudgementType.Great, 20)]
         [InlineData(JudgementType.Good, 15)]
         [InlineData(JudgementType.Poor, 5)]
@@ -280,7 +280,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var summary = new PerformanceSummary
             {
-                JustCount = 10,
+                PerfectCount = 10,
                 GreatCount = 20,
                 GoodCount = 15,
                 PoorCount = 5,
@@ -293,7 +293,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void GetJudgementCount_InvalidType_ShouldReturnZero()
         {
-            var summary = new PerformanceSummary { JustCount = 50 };
+            var summary = new PerformanceSummary { PerfectCount = 50 };
             Assert.Equal(0, summary.GetJudgementCount((JudgementType)999));
         }
 

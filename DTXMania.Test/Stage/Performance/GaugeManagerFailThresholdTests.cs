@@ -184,7 +184,7 @@ namespace DTXMania.Test.Stage.Performance
             float lifeAfterFailure = gaugeManager.CurrentLife;
 
             // Act - Try to process more judgements after failure
-            var justEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Just); // Should normally add +2% life
+            var justEvent = new JudgementEvent(1, 0, 0.0, JudgementType.Perfect); // Should normally add +2% life
             gaugeManager.ProcessJudgement(justEvent);
 
             // Assert - Life should not change after failure
@@ -263,7 +263,7 @@ namespace DTXMania.Test.Stage.Performance
             var gaugeManager = new GaugeManager(50.0f);
 
             // Test each judgement type's life adjustment
-            Assert.Equal(2.0f, gaugeManager.GetLifeAdjustment(JudgementType.Just));
+            Assert.Equal(2.0f, gaugeManager.GetLifeAdjustment(JudgementType.Perfect));
             Assert.Equal(1.5f, gaugeManager.GetLifeAdjustment(JudgementType.Great));
             Assert.Equal(1.0f, gaugeManager.GetLifeAdjustment(JudgementType.Good));
             Assert.Equal(-1.5f, gaugeManager.GetLifeAdjustment(JudgementType.Poor));
