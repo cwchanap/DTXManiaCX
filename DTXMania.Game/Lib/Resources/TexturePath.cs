@@ -457,6 +457,8 @@ namespace DTXMania.Game.Lib.Resources
                 ProgressFrame,
                 ProgressFill,
                 SkillPanel,
+                PerfGraphMain,
+                PerfGraphGauge,
                 PanelIcons,
                 LevelNumbers,
                 RateNumbersLarge,
