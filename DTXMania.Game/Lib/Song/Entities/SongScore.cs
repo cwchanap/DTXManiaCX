@@ -351,6 +351,8 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// DTXManiaNX-faithful Playing Skill: Perfect%·0.85 + Great%·0.35 + Combo%·0.15.
         /// Returns 0 when totalNotes is zero or negative.
+        /// Drums-only scope: omits the auto-lane revision multiplier that the full
+        /// NX formula applies for mixed-instrument autoplay configurations.
         /// Reference: DTXManiaNX CScoreIni.tCalculatePlayingSkill (Score,Song/CScoreIni.cs:1641).
         /// </summary>
         public static double CalculatePlayingSkill(int totalNotes, int perfect, int great, int maxCombo)
