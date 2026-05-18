@@ -39,7 +39,7 @@ namespace DTXMania.Test.Stage.Performance
         #region ProcessJudgement Tests
 
         [Fact]
-        public void ProcessJudgement_Just_ShouldAddFullBaseScore()
+        public void ProcessJudgement_Perfect_ShouldAddFullBaseScore()
         {
             var manager = new ScoreManager(100);
             manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Stage.Performance
         #region CalculateScoreForJudgement Tests
 
         [Fact]
-        public void CalculateScoreForJudgement_Just_ShouldEqualBaseScore()
+        public void CalculateScoreForJudgement_Perfect_ShouldEqualBaseScore()
         {
             var manager = new ScoreManager(100);
             Assert.Equal(manager.BaseScore, manager.CalculateScoreForJudgement(JudgementType.Perfect));

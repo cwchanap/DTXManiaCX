@@ -46,7 +46,7 @@ namespace DTXMania.Test.Stage.Performance
         #region ProcessJudgement Tests
 
         [Fact]
-        public void ProcessJudgement_Just_ShouldIncreaseLife()
+        public void ProcessJudgement_Perfect_ShouldIncreaseLife()
         {
             var manager = new GaugeManager(50.0f);
             var initial = manager.CurrentLife;

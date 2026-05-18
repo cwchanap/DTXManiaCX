@@ -26,7 +26,7 @@ namespace DTXMania.Test.Stage.Performance
         #region ProcessJudgement Tests
 
         [Fact]
-        public void ProcessJudgement_Just_ShouldIncrementCombo()
+        public void ProcessJudgement_Perfect_ShouldIncrementCombo()
         {
             var manager = new ComboManager();
             manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));

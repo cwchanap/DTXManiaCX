@@ -271,7 +271,7 @@ namespace DTXMania.Test.Stage.Performance
 
             // Variance-specific expectations
             var scorePercentage = scoreManager.GetStatistics().ScorePercentage;
-            if (maxVarianceMs <= 25.0) // Within Just window
+            if (maxVarianceMs <= 25.0) // Within Perfect window
             {
                 Assert.True(scorePercentage >= 70.0, $"Small variance should yield good scores: {scorePercentage:F1}%");
             }
