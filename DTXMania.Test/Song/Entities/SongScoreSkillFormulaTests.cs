@@ -65,5 +65,40 @@ namespace DTXMania.Test.Song.Entities
         }
 
         #endregion
+
+        #region CalculateGameSkill
+
+        [Fact]
+        public void CalculateGameSkill_PlayingSkill100_Level850_ShouldReturn170()
+        {
+            // level >= 100 branch: actualLevel = 850/100 = 8.5; 100 * 8.5 * 0.2 = 170
+            double result = SongScore.CalculateGameSkill(playingSkill: 100.0, level: 850, levelDec: 0);
+            Assert.Equal(170.0, result, 6);
+        }
+
+        [Fact]
+        public void CalculateGameSkill_PlayingSkill60_Level78Dec33_ShouldReturn97_56()
+        {
+            // level < 100 branch: actualLevel = 78/10.0 + 33/100.0 = 7.8 + 0.33 = 8.13; 60 * 8.13 * 0.2 = 97.56
+            double result = SongScore.CalculateGameSkill(playingSkill: 60.0, level: 78, levelDec: 33);
+            Assert.Equal(97.56, result, 6);
+        }
+
+        [Fact]
+        public void CalculateGameSkill_ZeroPlayingSkill_ShouldReturnZero()
+        {
+            double result = SongScore.CalculateGameSkill(playingSkill: 0.0, level: 78, levelDec: 33);
+            Assert.Equal(0.0, result, 6);
+        }
+
+        [Fact]
+        public void CalculateGameSkill_PlayingSkill100_Level50Dec0_ShouldReturn100()
+        {
+            // level < 100 branch: actualLevel = 50/10 + 0/100 = 5.0; 100 * 5.0 * 0.2 = 100
+            double result = SongScore.CalculateGameSkill(playingSkill: 100.0, level: 50, levelDec: 0);
+            Assert.Equal(100.0, result, 6);
+        }
+
+        #endregion
     }
 }
