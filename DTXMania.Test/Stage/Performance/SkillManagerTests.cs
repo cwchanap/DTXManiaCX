@@ -78,7 +78,7 @@ namespace DTXMania.Test.Stage.Performance
         public void ProcessJudgement_NullEvent_ShouldBeIgnored()
         {
             var sm = new SkillManager(10, new ComboManager());
-            sm.ProcessJudgement(null!);
+            sm.ProcessJudgement((JudgementEvent?)null);
             Assert.Equal(0, sm.PerfectCount);
         }
 
@@ -190,6 +190,38 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0.0, sm.CurrentSkill);
             Assert.NotNull(captured);
             Assert.Equal(0.0, captured!.CurrentSkill);
+        }
+
+        #endregion
+
+        #region Dispose
+
+        [Fact]
+        public void ProcessJudgement_AfterDispose_ShouldBeNoOp()
+        {
+            var combo = new ComboManager();
+            var sm = new SkillManager(100, combo);
+            sm.Dispose();
+            sm.ProcessJudgement(new JudgementEvent(noteRef: 0, lane: 0, deltaMs: 0.0, type: JudgementType.Perfect));
+            Assert.Equal(0, sm.PerfectCount);
+            Assert.Equal(0.0, sm.CurrentSkill);
+        }
+
+        [Fact]
+        public void Reset_AfterDispose_ShouldBeNoOp()
+        {
+            var combo = new ComboManager();
+            var sm = new SkillManager(100, combo);
+            combo.ProcessJudgement(new JudgementEvent(noteRef: 0, lane: 0, deltaMs: 0.0, type: JudgementType.Perfect));
+            sm.ProcessJudgement(new JudgementEvent(noteRef: 0, lane: 0, deltaMs: 0.0, type: JudgementType.Perfect));
+            sm.Dispose();
+
+            SkillChangedEventArgs? captured = null;
+            sm.SkillChanged += (s, e) => captured = e;  // Note: after Dispose, SkillChanged was nulled; this re-subscribes
+            sm.Reset();
+            // Counts should remain frozen (Reset returns early on _disposed)
+            Assert.Equal(1, sm.PerfectCount);
+            Assert.Null(captured);
         }
 
         #endregion
