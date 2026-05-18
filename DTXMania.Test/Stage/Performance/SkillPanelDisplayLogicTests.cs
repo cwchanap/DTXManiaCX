@@ -4,8 +4,7 @@ using Xunit;
 namespace DTXMania.Test.Stage.Performance
 {
     /// <summary>
-    /// Logic tests for SkillPanelDisplay formatting helpers.
-    /// Mac-excluded because the type lives alongside graphics resources.
+    /// Pure logic tests for SkillPanelDisplay formatting helpers — runs on all platforms.
     /// </summary>
     [Trait("Category", "Unit")]
     public class SkillPanelDisplayLogicTests
@@ -20,6 +19,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(50,  0, "5.00")]
         [InlineData(850, 0, "8.50")]
         [InlineData( 0,  0, "--")]
+        [InlineData(-1,  0, "--")]
         public void FormatLevelText_ReturnsExpected(int level, int levelDec, string expected)
         {
             Assert.Equal(expected, SkillPanelDisplay.FormatLevelText(level, levelDec));
