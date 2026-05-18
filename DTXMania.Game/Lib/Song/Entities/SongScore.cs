@@ -348,6 +348,20 @@ namespace DTXMania.Game.Lib.Song.Entities
             };
         }
 
+        /// <summary>
+        /// DTXManiaNX-faithful Playing Skill: Perfect%·0.85 + Great%·0.35 + Combo%·0.15.
+        /// Returns 0 when totalNotes is zero or negative.
+        /// Reference: DTXManiaNX CScoreIni.tCalculatePlayingSkill (Score,Song/CScoreIni.cs:1641).
+        /// </summary>
+        public static double CalculatePlayingSkill(int totalNotes, int perfect, int great, int maxCombo)
+        {
+            if (totalNotes <= 0) return 0.0;
+            double perfectRate = 100.0 * perfect  / totalNotes;
+            double greatRate   = 100.0 * great    / totalNotes;
+            double comboRate   = 100.0 * maxCombo / totalNotes;
+            return perfectRate * 0.85 + greatRate * 0.35 + comboRate * 0.15;
+        }
+
         private static bool IsLegacyOrdinal(int rankValue)
         {
             return rankValue >= 1 && rankValue <= 7;
