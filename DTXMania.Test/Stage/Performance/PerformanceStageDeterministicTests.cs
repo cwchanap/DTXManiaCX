@@ -627,7 +627,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
 
-        // Verify it got Perfect (Just) timing
+        // Verify it got Perfect timing
         var noteData = judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!;
         Assert.Equal(JudgementType.Perfect, noteData.JudgementEvent!.Type);
         Assert.Equal(0.0, noteData.JudgementEvent.DeltaMs);

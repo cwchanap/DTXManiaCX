@@ -34,12 +34,12 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void ScoreManager_MultipleJustHits_NeverExceedsMaxScore()
+        public void ScoreManager_MultiplePerfectHits_NeverExceedsMaxScore()
         {
             // Arrange
             var scoreManager = new ScoreManager(100); // 100 note chart
-            
-            // Act - Process more than enough Just hits to theoretically exceed max score
+
+            // Act - Process more than enough Perfect hits to theoretically exceed max score
             for (int i = 0; i < 150; i++) // More hits than notes in chart
             {
                 var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
@@ -62,7 +62,7 @@ namespace DTXMania.Test.Stage.Performance
             // Arrange
             var scoreManager = new ScoreManager(totalNotes);
             
-            // Act - Process perfect play (all Just hits)
+            // Act - Process perfect play (all Perfect hits)
             for (int i = 0; i < totalNotes; i++)
             {
                 var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
@@ -101,7 +101,7 @@ namespace DTXMania.Test.Stage.Performance
             // Arrange
             var scoreManager = new ScoreManager(2000); // High note count
             
-            // Act - Mix of all judgement types, heavily weighted toward Just
+            // Act - Mix of all judgement types, heavily weighted toward Perfect
             for (int i = 0; i < 1500; i++)
             {
                 var justEvent = new JudgementEvent(i, 0, 0.0, JudgementType.Perfect);
