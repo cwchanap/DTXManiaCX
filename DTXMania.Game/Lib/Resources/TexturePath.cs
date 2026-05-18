@@ -271,7 +271,17 @@ namespace DTXMania.Game.Lib.Resources
         /// Skill panel texture
         /// </summary>
         public const string SkillPanel = "Graphics/7_SkillPanel.png";
-        
+
+        /// <summary>
+        /// Performance skill meter background graph (right-side vertical gauge frame)
+        /// </summary>
+        public const string PerfGraphMain = "Graphics/7_Graph_main.png";
+
+        /// <summary>
+        /// Performance skill meter filling bar (right-side vertical gauge bar)
+        /// </summary>
+        public const string PerfGraphGauge = "Graphics/7_Graph_Gauge.png";
+
         /// <summary>
         /// Panel icons texture sheet
         /// </summary>
