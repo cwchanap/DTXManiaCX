@@ -57,7 +57,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void TotalJudgements_AllJust_ShouldReturnPerfectCount()
+        public void TotalJudgements_AllPerfect_ShouldReturnPerfectCount()
         {
             var summary = new PerformanceSummary { PerfectCount = 100 };
             Assert.Equal(100, summary.TotalJudgements);
