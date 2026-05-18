@@ -157,7 +157,7 @@ Layout:
 
 | Element | Position constant | Format |
 |---|---|---|
-| Difficulty level number | `SkillPanel.LevelNumber.StartPosition = (40, 540)` | `$"{level/10}.{levelDec:D2}"` e.g. `"7.83"` |
+| Difficulty level number | `SkillPanel.LevelNumber.StartPosition = (40, 540)` | `(level/10 + levelDec/100).ToString("0.00")` e.g. `(78, 33)` → `"8.13"` |
 | Skill percentage | `SkillPanel.SkillPercent.NumbersPosition = (80, 527)` | `string.Format("{0,5:##0.00}", skill)` → `" 87.42"` |
 | Percent symbol | `SkillPanel.SkillPercent.PercentPosition = (239, 537)` | `"%"` |
 | MAX badge | `SkillPanel.SkillPercent.MaxBadgePosition = (149, 527)` | sprite from `7_skill max.png`; drawn only when `ShowMax` |
@@ -237,7 +237,7 @@ public static double CalculateGameSkill(double playingSkill, int level, int leve
 {
     double actualLevel = level >= 100
         ? level / 100.0                          // already-scaled 850 → 8.50
-        : (level / 10.0) + (levelDec / 100.0);   // 78 + 33 → 7.83
+        : (level / 10.0) + (levelDec / 100.0);   // 78 + 33 → 8.13 (7.8 + 0.33)
     return playingSkill * actualLevel * 0.2;
 }
 ```
@@ -354,7 +354,7 @@ Game Skill fixtures (`PlayingSkill × Level × 0.2`):
 | PlayingSkill | Level | LevelDec | GameSkill |
 |---|---|---|---|
 | 100.0 | 850 | 0 | `100 × 8.5 × 0.2` = 170.0 |
-| 60.0 | 78 | 33 | `60 × 7.83 × 0.2` = 93.96 |
+| 60.0 | 78 | 33 | `60 × 8.13 × 0.2` = 97.56 |
 | 0.0 | 50 | 0 | 0.0 |
 
 ## Acceptance criteria
