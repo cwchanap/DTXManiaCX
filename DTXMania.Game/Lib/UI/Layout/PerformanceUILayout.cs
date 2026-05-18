@@ -397,9 +397,50 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public const int MaxDigits = 4;
             }
         }
-        
+
         #endregion
-        
+
+        #region Skill Meter (right-side vertical gauge — 7_Graph_main.png, 7_Graph_Gauge.png)
+
+        /// <summary>
+        /// Right-side vertical skill gauge meter.
+        /// Geometry mirrors DTXManiaNX CActPerfSkillMeter drums layout (Code/Stage/07.Performance/CActPerfSkillMeter.cs).
+        /// </summary>
+        public static class SkillMeter
+        {
+            /// <summary>Top-left of the gauge frame on screen.</summary>
+            public static readonly Vector2 BackgroundPosition = new Vector2(900, 50);
+
+            /// <summary>Source rect in 7_Graph_main.png for the background frame.</summary>
+            public static readonly Rectangle BackgroundSourceRect = new Rectangle(2, 2, 251, 584);
+
+            /// <summary>Offset of the filling bar relative to BackgroundPosition.</summary>
+            public static readonly Vector2 GaugeOffset = new Vector2(45, 0);
+
+            /// <summary>Width of the filling bar in pixels.</summary>
+            public const int GaugeWidth = 30;
+
+            /// <summary>Source X/Y of the filling bar in 7_Graph_Gauge.png (height is dynamic).</summary>
+            public static readonly Vector2 GaugeSourceXY = new Vector2(2, 2);
+
+            /// <summary>Bar height in pixels when Skill == 100.</summary>
+            public const int GaugeMaxHeight = 434;
+
+            /// <summary>Y of the bar bottom (= BackgroundPosition.Y + 477).</summary>
+            public const int GaugeBaselineY = 527;
+
+            /// <summary>Numeric label is drawn this many pixels above the bar top.</summary>
+            public const int NumberOffsetFromTopOfBar = -10;
+
+            /// <summary>"Current" label sprite source rect in 7_Graph_main.png.</summary>
+            public static readonly Rectangle LabelSourceRect = new Rectangle(260, 2, 30, 120);
+
+            /// <summary>Where the "current" label is drawn on screen.</summary>
+            public static readonly Vector2 LabelPosition = new Vector2(945, 407);
+        }
+
+        #endregion
+
         #region Background Configuration
 
         /// <summary>
