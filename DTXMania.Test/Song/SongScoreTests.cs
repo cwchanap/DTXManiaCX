@@ -453,22 +453,6 @@ namespace DTXMania.Test.Song
             Assert.Equal("A", score.RankName);
         }
 
-        private int GetRankPercentageFromMultiplier(double multiplier)
-        {
-            return multiplier switch
-            {
-                1.0 => 95,  // SS
-                0.95 => 90, // S
-                0.9 => 80,  // A
-                0.85 => 70, // B
-                0.8 => 60,  // C
-                0.75 => 50, // D
-                0.7 => 40,  // E
-                0.65 => 0,  // F
-                _ => 0
-            };
-        }
-
         #endregion
 
         #region HasBeenPlayed Tests
