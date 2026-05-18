@@ -17,15 +17,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private readonly SongChart? _chart;
         private ManagedFont? _font;
         private ITexture? _maxBadgeTexture;
         private bool _disposed;
-
-        private static readonly Color ShadowColor = new Color(0, 0, 0, 128);
-        private static readonly Vector2 ShadowOffset = new Vector2(2, 2);
 
         #endregion
 
@@ -47,13 +43,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public SkillPanelDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice, SongChart? chart)
         {
-            _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
+            if (resourceManager == null) throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice  = graphicsDevice  ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart           = chart;
 
-            _font = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 24, FontStyle.Bold);
-            try { _maxBadgeTexture = _resourceManager.LoadTexture(TexturePath.SkillMax); }
-            catch { _maxBadgeTexture = null; }
+            try
+            {
+                _font = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 24, FontStyle.Bold);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to create font: {ex.Message}");
+                _font = null;
+            }
+
+            try
+            {
+                _maxBadgeTexture = resourceManager.LoadTexture(TexturePath.SkillMax);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to load MAX badge: {ex.Message}");
+                _maxBadgeTexture = null;
+            }
         }
 
         #endregion
@@ -80,16 +92,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             string levelText = FormatLevelText(level, levelDec);
             _font.DrawStringWithShadow(spriteBatch, levelText,
                 PerformanceUILayout.SkillPanel.LevelNumber.StartPosition,
-                Color.White, ShadowColor, ShadowOffset);
+                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
 
             string skillText = FormatSkillText(Skill);
             _font.DrawStringWithShadow(spriteBatch, skillText,
                 PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition,
-                Color.White, ShadowColor, ShadowOffset);
+                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
 
             _font.DrawStringWithShadow(spriteBatch, "%",
                 PerformanceUILayout.SkillPanel.SkillPercent.PercentPosition,
-                Color.White, ShadowColor, ShadowOffset);
+                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
 
             if (ShowMax && _maxBadgeTexture != null)
             {
