@@ -117,5 +117,60 @@ namespace DTXMania.Test.Song.Entities
         }
 
         #endregion
+
+        #region CalculateSkill (instance)
+
+        [Fact]
+        public void CalculateSkill_UsesPlayingTimesGameFormula()
+        {
+            // PlayingSkill from (50 Perfect, 0 Great, 50 MaxCombo, 100 Total) = 50.0
+            // GameSkill with DifficultyLevel=78, levelDec=0 → actualLevel=7.8 → 50 * 7.8 * 0.2 = 78.0
+            var score = new SongScore
+            {
+                BestScore = 500000,
+                DifficultyLevel = 78,
+                TotalNotes = 100,
+                BestPerfect = 50,
+                BestGreat = 0,
+                MaxCombo = 50
+            };
+            score.CalculateSkill();
+            Assert.Equal(78.0, score.SongSkill, 6);
+            Assert.Equal(78.0, score.HighSkill, 6);
+        }
+
+        [Fact]
+        public void CalculateSkill_ZeroBestScore_ShouldZeroSongSkill()
+        {
+            var score = new SongScore { BestScore = 0, DifficultyLevel = 78, TotalNotes = 100, BestPerfect = 100, MaxCombo = 100 };
+            score.CalculateSkill();
+            Assert.Equal(0.0, score.SongSkill);
+        }
+
+        [Fact]
+        public void CalculateSkill_ZeroDifficulty_ShouldZeroSongSkill()
+        {
+            var score = new SongScore { BestScore = 500000, DifficultyLevel = 0, TotalNotes = 100, BestPerfect = 100, MaxCombo = 100 };
+            score.CalculateSkill();
+            Assert.Equal(0.0, score.SongSkill);
+        }
+
+        [Fact]
+        public void CalculateSkill_PreservesExistingHigherHighSkill()
+        {
+            var score = new SongScore
+            {
+                BestScore = 500000,
+                DifficultyLevel = 78,
+                TotalNotes = 100,
+                BestPerfect = 50, BestGreat = 0, MaxCombo = 50,
+                HighSkill = 90.0
+            };
+            score.CalculateSkill();
+            Assert.Equal(78.0, score.SongSkill, 6);
+            Assert.Equal(90.0, score.HighSkill, 6);
+        }
+
+        #endregion
     }
 }

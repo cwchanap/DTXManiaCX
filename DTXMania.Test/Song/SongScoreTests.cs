@@ -358,19 +358,24 @@ namespace DTXMania.Test.Song
         }
 
         [Theory]
-        [InlineData(1000000, 85, 1.0, 85.0)] // Perfect score, SS rank
-        [InlineData(950000, 85, 0.95, 76.71)] // S rank
-        [InlineData(900000, 85, 0.9, 68.85)] // A rank
-        [InlineData(0, 85, 0.5, 0.0)] // No score
-        [InlineData(1000000, 0, 1.0, 0.0)] // No difficulty
-        public void CalculateSkill_ShouldComputeCorrectValue(int bestScore, int difficultyLevel, double rankMultiplier, double expectedSkill)
+        // DTXManiaNX formula: SongSkill = PlayingSkill * actualLevel * 0.2
+        // For DifficultyLevel < 100 → actualLevel = DifficultyLevel / 10.0
+        // PlayingSkill = Perfect%*0.85 + Great%*0.35 + Combo%*0.15
+        [InlineData(1000000, 85, 100, 100, 0, 100, 170.0)] // All perfect FC: PS=100, actualLevel=8.5 → 100*8.5*0.2=170
+        [InlineData(950000, 85, 100, 50, 50, 100, 127.5)] // PS=50*0.85+50*0.35+100*0.15=75, actualLevel=8.5 → 75*8.5*0.2=127.5
+        [InlineData(0, 85, 100, 100, 0, 100, 0.0)] // No score → 0
+        [InlineData(1000000, 0, 100, 100, 0, 100, 0.0)] // No difficulty → 0
+        public void CalculateSkill_ShouldComputeCorrectValue(int bestScore, int difficultyLevel, int totalNotes, int bestPerfect, int bestGreat, int maxCombo, double expectedSkill)
         {
             // Arrange
             var score = new SongScore
             {
                 BestScore = bestScore,
                 DifficultyLevel = difficultyLevel,
-                BestRank = GetRankPercentageFromMultiplier(rankMultiplier)
+                TotalNotes = totalNotes,
+                BestPerfect = bestPerfect,
+                BestGreat = bestGreat,
+                MaxCombo = maxCombo
             };
 
             // Act
@@ -378,7 +383,7 @@ namespace DTXMania.Test.Song
 
             // Assert
             Assert.Equal(expectedSkill, score.SongSkill, 2); // 2 decimal places precision
-            
+
             if (expectedSkill > score.HighSkill)
             {
                 Assert.Equal(expectedSkill, score.HighSkill, 2);
