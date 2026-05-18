@@ -48,7 +48,7 @@ namespace DTXMania.Test.Stage.Performance
         public void JudgementTextPopup_Constructor_SetsInitialValues()
         {
             // Arrange
-            var text = "JUST";
+            var text = "PERFECT";
             var position = new Vector2(100, 200);
 
             // Act
@@ -219,7 +219,7 @@ namespace DTXMania.Test.Stage.Performance
         public void JudgementTextPopup_Integration_FullAnimationCycle()
         {
             // Arrange
-            var popup = new JudgementTextPopup("JUST", new Vector2(640, 500));
+            var popup = new JudgementTextPopup("PERFECT", new Vector2(640, 500));
             var totalTime = 0.0;
             var timeStep = 0.016; // ~60 FPS
 
