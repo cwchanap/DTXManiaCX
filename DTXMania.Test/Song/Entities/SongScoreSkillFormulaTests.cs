@@ -99,6 +99,23 @@ namespace DTXMania.Test.Song.Entities
             Assert.Equal(100.0, result, 6);
         }
 
+        [Fact]
+        public void CalculateGameSkill_Level100Boundary_TakesHighBranch()
+        {
+            // Branch boundary: level == 100 should use level/100 (=1.0), not level/10 (=10.0).
+            // 100 * 1.0 * 0.2 = 20.0 (not 200.0)
+            double result = SongScore.CalculateGameSkill(playingSkill: 100.0, level: 100, levelDec: 0);
+            Assert.Equal(20.0, result, 6);
+        }
+
+        [Fact]
+        public void CalculateGameSkill_LevelDec_IgnoredWhenLevelAtLeast100()
+        {
+            // High branch should ignore levelDec entirely.
+            double result = SongScore.CalculateGameSkill(playingSkill: 100.0, level: 850, levelDec: 99);
+            Assert.Equal(170.0, result, 6);  // same as levelDec=0
+        }
+
         #endregion
     }
 }
