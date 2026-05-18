@@ -148,9 +148,9 @@ namespace DTXMania.Test.Stage.Performance
             var chartManager = CreateTestChartManager();
             var judgementManager = new JudgementManager(compat, chartManager);
 
-            // Simulate lane hit for lane 0 (Just hit)
+            // Simulate lane hit for lane 0 (Perfect hit)
             compat.TriggerLaneHit(0);
-            judgementManager.Update(1000.0); // Just hit
+            judgementManager.Update(1000.0); // Perfect hit
 
             // Simulate lane hit for lane 1 (Great hit, 40ms late)
             compat.TriggerLaneHit(1);

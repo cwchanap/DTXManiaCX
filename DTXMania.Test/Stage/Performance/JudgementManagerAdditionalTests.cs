@@ -99,7 +99,7 @@ namespace DTXMania.Test.Stage.Performance
             var chartManager = CreateTestChart(1000.0);
             var manager = new JudgementManager(input, chartManager);
 
-            // Just hit at exactly 1000ms
+            // Perfect hit at exactly 1000ms
             manager.EnqueueLaneHit(0);
             manager.Update(1000.0);
 
