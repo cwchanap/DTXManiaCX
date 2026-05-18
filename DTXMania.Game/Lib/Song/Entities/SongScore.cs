@@ -364,6 +364,21 @@ namespace DTXMania.Game.Lib.Song.Entities
             return perfectRate * 0.85 + greatRate * 0.35 + comboRate * 0.15;
         }
 
+        /// <summary>
+        /// DTXManiaNX-faithful Game Skill: PlayingSkill · actualLevel · 0.2.
+        /// actualLevel encodes the chart's difficulty value with its decimal:
+        ///   level &gt;= 100  → actualLevel = level / 100        (e.g. 850 → 8.50)
+        ///   level &lt;  100  → actualLevel = level / 10 + levelDec / 100  (e.g. 78 + 33 → 7.8 + 0.33 = 8.13)
+        /// Reference: DTXManiaNX CScoreIni.tCalculateGameSkillFromPlayingSkill (Score,Song/CScoreIni.cs:1623).
+        /// </summary>
+        public static double CalculateGameSkill(double playingSkill, int level, int levelDec)
+        {
+            double actualLevel = level >= 100
+                ? level / 100.0
+                : (level / 10.0) + (levelDec / 100.0);
+            return playingSkill * actualLevel * 0.2;
+        }
+
         private static bool IsLegacyOrdinal(int rankValue)
         {
             return rankValue >= 1 && rankValue <= 7;
