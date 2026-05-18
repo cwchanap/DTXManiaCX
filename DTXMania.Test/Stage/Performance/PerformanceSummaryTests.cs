@@ -109,8 +109,8 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Accuracy_MixedJudgements_ShouldCalculateWeightedAccuracy()
         {
-            // 100 Just (weight 1.0) + 0 others = 100 weighted / 100 total = 100%
-            // 50 Just (weight 1.0) + 50 Great (weight 0.9) = 95 weighted / 100 total = 95%
+            // 100 Perfect (weight 1.0) + 0 others = 100 weighted / 100 total = 100%
+            // 50 Perfect (weight 1.0) + 50 Great (weight 0.9) = 95 weighted / 100 total = 95%
             var summary = new PerformanceSummary
             {
                 TotalNotes = 100,

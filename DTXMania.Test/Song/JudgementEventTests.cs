@@ -37,14 +37,14 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void DeltaConstructor_PerfectTiming_ShouldCalculateJustType()
+        public void DeltaConstructor_PerfectTiming_ShouldCalculatePerfectType()
         {
             var evt = new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 0.0);
             Assert.Equal(JudgementType.Perfect, evt.Type);
         }
 
         [Fact]
-        public void DeltaConstructor_25MsDelta_ShouldCalculateJustType()
+        public void DeltaConstructor_25MsDelta_ShouldCalculatePerfectType()
         {
             var evt = new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 25.0);
             Assert.Equal(JudgementType.Perfect, evt.Type);

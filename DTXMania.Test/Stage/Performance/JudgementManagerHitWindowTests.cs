@@ -19,10 +19,10 @@ namespace DTXMania.Test.Stage.Performance
     {
         [Theory]
         [InlineData(0.0, JudgementType.Perfect)]           // Perfect timing
-        [InlineData(25.0, JudgementType.Perfect)]          // Just boundary (±25ms)
-        [InlineData(-25.0, JudgementType.Perfect)]         // Just boundary early
-        [InlineData(25.1, JudgementType.Great)]         // Just over Just boundary
-        [InlineData(-25.1, JudgementType.Great)]        // Just over Just boundary early
+        [InlineData(25.0, JudgementType.Perfect)]          // Perfect boundary (±25ms)
+        [InlineData(-25.0, JudgementType.Perfect)]         // Perfect boundary early
+        [InlineData(25.1, JudgementType.Great)]         // Just over Perfect boundary
+        [InlineData(-25.1, JudgementType.Great)]        // Just over Perfect boundary early
         [InlineData(50.0, JudgementType.Great)]         // Great boundary (±50ms)
         [InlineData(-50.0, JudgementType.Great)]        // Great boundary early
         [InlineData(50.1, JudgementType.Good)]          // Just over Great boundary
@@ -63,7 +63,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void HitWindowBoundaries_ExactlyAtJustWindow_ReturnsJust()
+        public void HitWindowBoundaries_ExactlyAtPerfectWindow_ReturnsPerfect()
         {
             // Arrange
             var mockInputManager = new MockInputManagerCompat();
@@ -73,7 +73,7 @@ namespace DTXMania.Test.Stage.Performance
             JudgementEvent? capturedEvent = null;
             judgementManager.JudgementMade += (sender, e) => capturedEvent = e;
 
-            // Act - Hit exactly at Just window boundary (25ms)
+            // Act - Hit exactly at Perfect window boundary (25ms)
             judgementManager.EnqueueLaneHit(0); // Direct test trigger for lane 0
             judgementManager.Update(1025.0);
 
@@ -188,8 +188,8 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(24.9, JudgementType.Perfect)]          // Just under Just boundary
-        [InlineData(25.1, JudgementType.Great)]         // Just over Just boundary
+        [InlineData(24.9, JudgementType.Perfect)]          // Just under Perfect boundary
+        [InlineData(25.1, JudgementType.Great)]         // Just over Perfect boundary
         [InlineData(49.9, JudgementType.Great)]         // Just under Great boundary
         [InlineData(50.1, JudgementType.Good)]          // Just over Great boundary
         [InlineData(99.9, JudgementType.Good)]          // Just under Good boundary

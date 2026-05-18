@@ -493,7 +493,7 @@ namespace DTXMania.Test.Helpers
     public static class TestDataPatterns
     {
         /// <summary>
-        /// Creates a perfect play sequence (all Just hits)
+        /// Creates a perfect play sequence (all Perfect hits)
         /// </summary>
         public static List<JudgementEvent> CreatePerfectPlay(int noteCount)
         {
@@ -556,8 +556,8 @@ namespace DTXMania.Test.Helpers
             return new List<(double, JudgementType)>
             {
                 (0.0, JudgementType.Perfect),      // Perfect
-                (25.0, JudgementType.Perfect),     // Just boundary
-                (25.1, JudgementType.Great),    // Just over Just
+                (25.0, JudgementType.Perfect),     // Perfect boundary
+                (25.1, JudgementType.Great),    // Just over Perfect
                 (50.0, JudgementType.Great),    // Great boundary
                 (50.1, JudgementType.Good),     // Just over Great
                 (100.0, JudgementType.Good),    // Good boundary
@@ -565,7 +565,7 @@ namespace DTXMania.Test.Helpers
                 (150.0, JudgementType.Poor),    // Poor boundary
                 (150.1, JudgementType.Miss),    // Just over Poor
                 (200.0, JudgementType.Miss),    // Miss threshold
-                (-25.0, JudgementType.Perfect),    // Early Just
+                (-25.0, JudgementType.Perfect),    // Early Perfect
                 (-50.0, JudgementType.Great),   // Early Great
                 (-100.0, JudgementType.Good),   // Early Good
                 (-150.0, JudgementType.Poor),   // Early Poor
