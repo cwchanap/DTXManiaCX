@@ -11,7 +11,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Perfect timing hit (highest accuracy)
         /// </summary>
-        Just,
+        Perfect,
         
         /// <summary>
         /// Excellent timing hit (very good accuracy)
@@ -58,7 +58,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         public double DeltaMs { get; set; }
         
         /// <summary>
-        /// Type of the judgement (Just/Great/Good/Poor/Miss)
+        /// Type of the judgement (Perfect/Great/Good/Poor/Miss)
         /// </summary>
         public JudgementType Type { get; set; }
         
@@ -182,9 +182,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         #region Judgement Windows (in milliseconds)
         
         /// <summary>
-        /// Perfect timing window for "Just" judgement (±25ms)
+        /// Perfect timing window for "Perfect" judgement (±25ms)
         /// </summary>
-        public const double JustWindowMs = 25.0;
+        public const double PerfectWindowMs = 25.0;
         
         /// <summary>
         /// Great timing window for "Great" judgement (±50ms)
@@ -211,9 +211,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         #region Score Values
         
         /// <summary>
-        /// Score points awarded for a "Just" hit
+        /// Score points awarded for a "Perfect" hit
         /// </summary>
-        public const int JustScore = 1000;
+        public const int PerfectScore = 1000;
         
         /// <summary>
         /// Score points awarded for a "Great" hit
@@ -248,7 +248,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             double absDelta = Math.Abs(deltaMs);
             
-            if (absDelta <= JustWindowMs) return JudgementType.Just;
+            if (absDelta <= PerfectWindowMs) return JudgementType.Perfect;
             if (absDelta <= GreatWindowMs) return JudgementType.Great;
             if (absDelta <= GoodWindowMs) return JudgementType.Good;
             if (absDelta <= PoorWindowMs) return JudgementType.Poor;
@@ -265,7 +265,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         {
             return judgementType switch
             {
-                JudgementType.Just => JustScore,
+                JudgementType.Perfect => PerfectScore,
                 JudgementType.Great => GreatScore,
                 JudgementType.Good => GoodScore,
                 JudgementType.Poor => PoorScore,

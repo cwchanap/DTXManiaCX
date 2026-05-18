@@ -570,7 +570,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             
             public static class LifeAdjustment
             {
-                public const float Just = 2.0f;
+                public const float Perfect = 2.0f;
                 public const float Great = 1.5f;
                 public const float Good = 1.0f;
                 public const float Poor = -1.5f;

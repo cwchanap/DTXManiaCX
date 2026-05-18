@@ -88,7 +88,7 @@ namespace DTXMania.Test.Stage.Performance
             var chartManager = CreateTestChart();
             var manager = new JudgementManager(input, chartManager);
 
-            Assert.Equal(0, manager.GetJudgementCount(JudgementType.Just));
+            Assert.Equal(0, manager.GetJudgementCount(JudgementType.Perfect));
             Assert.Equal(0, manager.GetJudgementCount(JudgementType.Miss));
         }
 
@@ -103,7 +103,7 @@ namespace DTXMania.Test.Stage.Performance
             manager.EnqueueLaneHit(0);
             manager.Update(1000.0);
 
-            Assert.Equal(1, manager.GetJudgementCount(JudgementType.Just));
+            Assert.Equal(1, manager.GetJudgementCount(JudgementType.Perfect));
         }
 
         [Fact]
@@ -256,7 +256,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var stats = new JudgementStatistics
             {
-                JustCount = 10,
+                PerfectCount = 10,
                 GreatCount = 0,
                 GoodCount = 0,
                 PoorCount = 0,
@@ -270,7 +270,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var stats = new JudgementStatistics
             {
-                JustCount = 5,
+                PerfectCount = 5,
                 MissCount = 5
             };
             Assert.Equal(50.0, stats.Accuracy);
@@ -281,7 +281,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var stats = new JudgementStatistics
             {
-                JustCount = 1,
+                PerfectCount = 1,
                 GreatCount = 2,
                 GoodCount = 3,
                 PoorCount = 4,
@@ -295,7 +295,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var stats = new JudgementStatistics
             {
-                JustCount = 1,
+                PerfectCount = 1,
                 GreatCount = 2,
                 GoodCount = 3,
                 PoorCount = 4,

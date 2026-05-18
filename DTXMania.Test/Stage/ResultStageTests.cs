@@ -165,7 +165,7 @@ namespace DTXMania.Test.Stage
 
             var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
             Assert.NotNull(summary);
-            Assert.Equal(0, summary!.JustCount);
+            Assert.Equal(0, summary!.PerfectCount);
             Assert.Equal(0, summary.GreatCount);
             Assert.Equal(0, summary.GoodCount);
             Assert.Equal(0, summary.PoorCount);
@@ -182,7 +182,7 @@ namespace DTXMania.Test.Stage
             var expectedSummary = new PerformanceSummary
             {
                 Score = 500000,
-                JustCount = 100,
+                PerfectCount = 100,
                 GreatCount = 50,
                 GoodCount = 20,
                 PoorCount = 5,
@@ -201,7 +201,7 @@ namespace DTXMania.Test.Stage
 
             var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
             Assert.NotNull(summary);
-            Assert.Equal(100, summary!.JustCount);
+            Assert.Equal(100, summary!.PerfectCount);
             Assert.Equal(50, summary.GreatCount);
             Assert.Equal(20, summary.GoodCount);
             Assert.Equal(5, summary.PoorCount);

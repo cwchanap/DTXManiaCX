@@ -82,7 +82,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             switch (judgementEvent.Type)
             {
-                case JudgementType.Just:
+                case JudgementType.Perfect:
                 case JudgementType.Great:
                 case JudgementType.Good:
                     // Increment combo on successful hits

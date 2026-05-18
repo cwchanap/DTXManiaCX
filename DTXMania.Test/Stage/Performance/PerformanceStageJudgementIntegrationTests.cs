@@ -93,7 +93,7 @@ namespace DTXMania.Test.Stage.Performance
 
             // Assert - Input should be processed, creating a hit judgement
             Assert.NotNull(hitEvent);
-            Assert.Equal(JudgementType.Just, hitEvent.Type); // Perfect timing
+            Assert.Equal(JudgementType.Perfect, hitEvent.Type); // Perfect timing
             Assert.Equal(0, hitEvent.NoteRef);
             Assert.Equal(0, hitEvent.Lane);
         }

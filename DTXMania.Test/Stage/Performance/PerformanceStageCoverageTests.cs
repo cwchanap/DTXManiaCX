@@ -584,7 +584,7 @@ public class PerformanceStageCoverageTests
         Assert.NotNull(summary);
         Assert.Equal(0, summary.Score);
         Assert.Equal(0, summary.MaxCombo);
-        Assert.Equal(0, summary.JustCount);
+        Assert.Equal(0, summary.PerfectCount);
         Assert.Equal(0, summary.GreatCount);
         Assert.Equal(0, summary.GoodCount);
         Assert.Equal(0, summary.PoorCount);

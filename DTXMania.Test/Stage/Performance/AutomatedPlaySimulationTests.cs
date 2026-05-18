@@ -48,7 +48,7 @@ namespace DTXMania.Test.Stage.Performance
                     noteRef: note.Id,
                     lane: note.LaneIndex,
                     deltaMs: 0.0, // Perfect timing
-                    type: JudgementType.Just
+                    type: JudgementType.Perfect
                 );
 
                 // Process judgement in both managers
@@ -56,7 +56,7 @@ namespace DTXMania.Test.Stage.Performance
                 gaugeManager.ProcessJudgement(judgementEvent);
 
                 // Track results
-                simulationResults.JudgementCounts[JudgementType.Just]++;
+                simulationResults.JudgementCounts[JudgementType.Perfect]++;
                 simulationResults.TotalScore = scoreManager.CurrentScore;
                 simulationResults.FinalLife = gaugeManager.CurrentLife;
                 simulationResults.ProcessedNotes++;
@@ -72,14 +72,14 @@ namespace DTXMania.Test.Stage.Performance
 
             _output.WriteLine("\n=== PERFECT PLAY SIMULATION RESULTS ===");
             _output.WriteLine($"Total Notes Processed: {simulationResults.ProcessedNotes}");
-            _output.WriteLine($"Just Hits: {simulationResults.JudgementCounts[JudgementType.Just]}");
+            _output.WriteLine($"Just Hits: {simulationResults.JudgementCounts[JudgementType.Perfect]}");
             _output.WriteLine($"Final Score: {simulationResults.TotalScore:N0}");
             _output.WriteLine($"Score Percentage: {scoreStats.ScorePercentage:F2}%");
             _output.WriteLine($"Final Life: {simulationResults.FinalLife:F1}%");
             _output.WriteLine($"Player Failed: {gaugeStats.HasFailed}");
 
             // Verify all notes were hit with Just timing
-            Assert.Equal(testChart.Count, simulationResults.JudgementCounts[JudgementType.Just]);
+            Assert.Equal(testChart.Count, simulationResults.JudgementCounts[JudgementType.Perfect]);
             Assert.Equal(0, simulationResults.JudgementCounts[JudgementType.Great]);
             Assert.Equal(0, simulationResults.JudgementCounts[JudgementType.Good]);
             Assert.Equal(0, simulationResults.JudgementCounts[JudgementType.Poor]);
@@ -117,7 +117,7 @@ namespace DTXMania.Test.Stage.Performance
             // Act - Perfect play simulation
             foreach (var note in testChart.OrderBy(n => n.TimeMs))
             {
-                var judgementEvent = new JudgementEvent(note.Id, note.LaneIndex, 0.0, JudgementType.Just);
+                var judgementEvent = new JudgementEvent(note.Id, note.LaneIndex, 0.0, JudgementType.Perfect);
                 scoreManager.ProcessJudgement(judgementEvent);
                 gaugeManager.ProcessJudgement(judgementEvent);
             }
@@ -201,7 +201,7 @@ namespace DTXMania.Test.Stage.Performance
             _output.WriteLine($"Notes Processed: {simulationResults.ProcessedNotes}");
             _output.WriteLine($"Average Timing Deviation: ±{simulationResults.AverageTimingDeviation:F1}ms");
             _output.WriteLine($"Judgement Distribution:");
-            _output.WriteLine($"  Just:  {simulationResults.JudgementCounts[JudgementType.Just]} ({(double)simulationResults.JudgementCounts[JudgementType.Just]/simulationResults.ProcessedNotes*100:F1}%)");
+            _output.WriteLine($"  Just:  {simulationResults.JudgementCounts[JudgementType.Perfect]} ({(double)simulationResults.JudgementCounts[JudgementType.Perfect]/simulationResults.ProcessedNotes*100:F1}%)");
             _output.WriteLine($"  Great: {simulationResults.JudgementCounts[JudgementType.Great]} ({(double)simulationResults.JudgementCounts[JudgementType.Great]/simulationResults.ProcessedNotes*100:F1}%)");
             _output.WriteLine($"  Good:  {simulationResults.JudgementCounts[JudgementType.Good]} ({(double)simulationResults.JudgementCounts[JudgementType.Good]/simulationResults.ProcessedNotes*100:F1}%)");
             _output.WriteLine($"  Poor:  {simulationResults.JudgementCounts[JudgementType.Poor]} ({(double)simulationResults.JudgementCounts[JudgementType.Poor]/simulationResults.ProcessedNotes*100:F1}%)");
@@ -335,7 +335,7 @@ namespace DTXMania.Test.Stage.Performance
 
                 // Weighted distribution: some perfect, some good, some poor
                 if (roll < 0.2) // 20% perfect timing
-                    timingDelta = (random.NextDouble() - 0.5) * 2.0 * TimingConstants.JustWindowMs;
+                    timingDelta = (random.NextDouble() - 0.5) * 2.0 * TimingConstants.PerfectWindowMs;
                 else if (roll < 0.5) // 30% great timing
                     timingDelta = (random.NextDouble() - 0.5) * 2.0 * TimingConstants.GreatWindowMs;
                 else if (roll < 0.8) // 30% good timing
@@ -354,7 +354,7 @@ namespace DTXMania.Test.Stage.Performance
             _output.WriteLine($"Mixed timing results: Score={scoreStats.ScorePercentage:F1}%, Life={gaugeManager.CurrentLife:F1}%");
             
             // Should see reasonable distribution across all judgement types
-            Assert.True(results.JudgementCounts[JudgementType.Just] > 0, "Should have some Just hits");
+            Assert.True(results.JudgementCounts[JudgementType.Perfect] > 0, "Should have some Just hits");
             Assert.True(results.JudgementCounts.Count(kvp => kvp.Value > 0) >= 4, "Should have variety in judgements");
             Assert.True(scoreStats.ScorePercentage >= 30.0 && scoreStats.ScorePercentage <= 80.0, 
                 $"Mixed play should yield 30-80% score: {scoreStats.ScorePercentage:F1}%");
@@ -400,7 +400,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             public Dictionary<JudgementType, int> JudgementCounts { get; } = new()
             {
-                { JudgementType.Just, 0 },
+                { JudgementType.Perfect, 0 },
                 { JudgementType.Great, 0 },
                 { JudgementType.Good, 0 },
                 { JudgementType.Poor, 0 },

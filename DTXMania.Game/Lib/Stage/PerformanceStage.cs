@@ -1735,7 +1735,7 @@ namespace DTXMania.Game.Lib.Stage
                 Score = _scoreManager?.CurrentScore ?? 0,
                 MaxCombo = _comboManager?.MaxCombo ?? 0,
                 ClearFlag = reason != CompletionReason.PlayerFailed,
-                JustCount = _judgementManager?.GetJudgementCount(JudgementType.Just) ?? 0,
+                PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0,
                 GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0,
                 GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0,
                 PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0,

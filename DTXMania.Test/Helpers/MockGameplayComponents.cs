@@ -500,7 +500,7 @@ namespace DTXMania.Test.Helpers
             var events = new List<JudgementEvent>();
             for (int i = 0; i < noteCount; i++)
             {
-                events.Add(new JudgementEvent(i, i % 9, 0.0, JudgementType.Just));
+                events.Add(new JudgementEvent(i, i % 9, 0.0, JudgementType.Perfect));
             }
             return events;
         }
@@ -511,14 +511,14 @@ namespace DTXMania.Test.Helpers
         public static List<JudgementEvent> CreateMixedPlay(int noteCount)
         {
             var events = new List<JudgementEvent>();
-            var judgements = new[] { JudgementType.Just, JudgementType.Great, JudgementType.Good, JudgementType.Poor, JudgementType.Miss };
+            var judgements = new[] { JudgementType.Perfect, JudgementType.Great, JudgementType.Good, JudgementType.Poor, JudgementType.Miss };
             
             for (int i = 0; i < noteCount; i++)
             {
                 var judgement = judgements[i % judgements.Length];
                 var delta = judgement switch
                 {
-                    JudgementType.Just => 0.0,
+                    JudgementType.Perfect => 0.0,
                     JudgementType.Great => 30.0,
                     JudgementType.Good => 70.0,
                     JudgementType.Poor => 120.0,
@@ -555,8 +555,8 @@ namespace DTXMania.Test.Helpers
         {
             return new List<(double, JudgementType)>
             {
-                (0.0, JudgementType.Just),      // Perfect
-                (25.0, JudgementType.Just),     // Just boundary
+                (0.0, JudgementType.Perfect),      // Perfect
+                (25.0, JudgementType.Perfect),     // Just boundary
                 (25.1, JudgementType.Great),    // Just over Just
                 (50.0, JudgementType.Great),    // Great boundary
                 (50.1, JudgementType.Good),     // Just over Great
@@ -565,7 +565,7 @@ namespace DTXMania.Test.Helpers
                 (150.0, JudgementType.Poor),    // Poor boundary
                 (150.1, JudgementType.Miss),    // Just over Poor
                 (200.0, JudgementType.Miss),    // Miss threshold
-                (-25.0, JudgementType.Just),    // Early Just
+                (-25.0, JudgementType.Perfect),    // Early Just
                 (-50.0, JudgementType.Great),   // Early Great
                 (-100.0, JudgementType.Good),   // Early Good
                 (-150.0, JudgementType.Poor),   // Early Poor

@@ -157,7 +157,7 @@ namespace DTXMania.Test.Stage.Performance
         public void JudgementTextPopupManager_SpawnPopup_CreatesPopupForValidJudgement()
         {
             var manager = CreateManager();
-            var judgementEvent = new JudgementEvent(1, 3, 10.0, JudgementType.Just);
+            var judgementEvent = new JudgementEvent(1, 3, 10.0, JudgementType.Perfect);
 
             manager.SpawnPopup(judgementEvent);
 
@@ -177,7 +177,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Theory]
-        [InlineData(JudgementType.Just, "Perfect")]
+        [InlineData(JudgementType.Perfect, "Perfect")]
         [InlineData(JudgementType.Great, "Great")]
         [InlineData(JudgementType.Good, "Good")]
         [InlineData(JudgementType.Poor, "OK")]
@@ -266,7 +266,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var manager = CreateManager();
 
-            manager.SpawnPopup(new JudgementEvent(1, 0, 0.0, JudgementType.Just));
+            manager.SpawnPopup(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
             manager.SpawnPopup(new JudgementEvent(1, 4, 0.0, JudgementType.Great));
             manager.SpawnPopup(new JudgementEvent(1, 8, 0.0, JudgementType.Miss));
 
@@ -297,7 +297,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var manager = CreateManager(disposed: true);
 
-            manager.SpawnPopup(new JudgementEvent(1, 1, 0.0, JudgementType.Just));
+            manager.SpawnPopup(new JudgementEvent(1, 1, 0.0, JudgementType.Perfect));
 
             Assert.Empty(GetActivePopups(manager));
         }

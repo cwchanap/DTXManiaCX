@@ -154,7 +154,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return judgementType switch
             {
-                JudgementType.Just => +2.0f,   // Just: +2%
+                JudgementType.Perfect => +2.0f,   // Perfect: +2%
                 JudgementType.Great => +1.5f,  // Great: +1.5%
                 JudgementType.Good => +1.0f,   // Good: +1%
                 JudgementType.Poor => -1.5f,   // Poor: -1.5%
