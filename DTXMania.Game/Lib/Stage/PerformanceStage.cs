@@ -72,6 +72,9 @@ namespace DTXMania.Game.Lib.Stage
         private ScoreManager _scoreManager = null!;
         private ComboManager _comboManager = null!;
         private GaugeManager _gaugeManager = null!;
+        private SkillManager _skillManager = null!;
+        private SkillPanelDisplay _skillPanelDisplay = null!;
+        private SkillMeterDisplay _skillMeterDisplay = null!;
         private EffectsManager _effectsManager = null!;
         private JudgementTextPopupManager _judgementTextPopupManager = null!;
         private PadRenderer _padRenderer = null!;
@@ -358,6 +361,11 @@ namespace DTXMania.Game.Lib.Stage
             _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
             _comboDisplay = new ComboDisplay(_resourceManager, graphicsDevice);
 
+            // Skill displays (SkillManager itself is constructed in InitializeGameplayManagers
+            // because it needs ComboManager + ChartManager.TotalNotes which arrive later)
+            var skillChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
+            _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart);
+            _skillMeterDisplay = new SkillMeterDisplay(_resourceManager, graphicsDevice);
 
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
@@ -405,6 +413,10 @@ namespace DTXMania.Game.Lib.Stage
             _scoreDisplay = null;
             _comboDisplay?.Dispose();
             _comboDisplay = null;
+            _skillPanelDisplay?.Dispose();
+            _skillPanelDisplay = null;
+            _skillMeterDisplay?.Dispose();
+            _skillMeterDisplay = null;
 
 
             // Cleanup Phase 2 components
@@ -1069,7 +1081,8 @@ namespace DTXMania.Game.Lib.Stage
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
             _gaugeManager = new GaugeManager();
-            
+            _skillManager = new SkillManager(_chartManager.TotalNotes, _comboManager);
+
             // Initialize UI state values
             _currentGaugeValue = PerformanceUILayout.GaugeSettings.StartingLife / 100.0f;
             _currentProgressValue = 0.0f;
@@ -1099,6 +1112,7 @@ namespace DTXMania.Game.Lib.Stage
             _comboManager.ComboChanged += OnComboChanged;
             _gaugeManager.GaugeChanged += OnGaugeChanged;
             _gaugeManager.Failed += OnPlayerFailed;
+            _skillManager.SkillChanged += OnSkillChanged;
         }
 
         /// <summary>
@@ -1147,6 +1161,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
             _gaugeManager?.ProcessJudgement(e);
+            _skillManager?.ProcessJudgement(e);
 
             // Spawn hit effect for successful hits (non-Miss)
             if (e.IsHit())
@@ -1195,12 +1210,28 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Update gauge display
             // Legacy gauge display removed - now using asset-based gauge in DrawGaugeElements()
-            
+
             // Update our internal gauge value for asset rendering
             _currentGaugeValue = e.CurrentLife / 100.0f;
-            
+
             // Update danger state based on gauge level
             _isDanger = _currentGaugeValue < PerformanceUILayout.GaugeSettings.DangerThreshold / 100.0f;
+        }
+
+        /// <summary>
+        /// Handles skill changes and updates both display components.
+        /// </summary>
+        private void OnSkillChanged(object? sender, SkillChangedEventArgs e)
+        {
+            if (_skillPanelDisplay != null)
+            {
+                _skillPanelDisplay.Skill = e.CurrentSkill;
+                _skillPanelDisplay.ShowMax = e.IsMax;
+            }
+            if (_skillMeterDisplay != null)
+            {
+                _skillMeterDisplay.Skill = e.CurrentSkill;
+            }
         }
 
         /// <summary>
@@ -1381,6 +1412,9 @@ namespace DTXMania.Game.Lib.Stage
                 _gaugeManager.Failed -= OnPlayerFailed;
             }
 
+            if (_skillManager != null)
+                _skillManager.SkillChanged -= OnSkillChanged;
+
             // Unsubscribe from input events
             if (_inputManager?.ModularInputManager != null)
             {
@@ -1396,6 +1430,8 @@ namespace DTXMania.Game.Lib.Stage
             _comboManager = null;
             _gaugeManager?.Dispose();
             _gaugeManager = null;
+            _skillManager?.Dispose();
+            _skillManager = null;
 
             _chipSoundCache?.Dispose();
             _chipSoundCache = null!;
@@ -1417,6 +1453,8 @@ namespace DTXMania.Game.Lib.Stage
             // Update score and combo displays
             _scoreDisplay?.Update(deltaTime);
             _comboDisplay?.Update(deltaTime);
+            _skillPanelDisplay?.Update(deltaTime);
+            _skillMeterDisplay?.Update(deltaTime);
 
             // Update gauge display
         }
@@ -1543,6 +1581,8 @@ namespace DTXMania.Game.Lib.Stage
             
             _scoreDisplay?.Draw(_spriteBatch);
             _comboDisplay?.Draw(_spriteBatch);
+            _skillPanelDisplay?.Draw(_spriteBatch);
+            _skillMeterDisplay?.Draw(_spriteBatch);
             
             _uiManager?.Draw(_spriteBatch, 0);
             
