@@ -144,10 +144,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             GoodCount = 0;
             PoorCount = 0;
             MissCount = 0;
-            PlayingSkill   = 0.0;
-            GameSkill      = 0.0;
-            ChartLevel     = 0;
-            ChartLevelDec  = 0;
+            PlayingSkill = 0.0;
+            GameSkill = 0.0;
+            ChartLevel = 0;
+            ChartLevelDec = 0;
             TotalNotes = 0;
             FinalLife = 0.0f;
             CompletionReason = CompletionReason.Unknown;
