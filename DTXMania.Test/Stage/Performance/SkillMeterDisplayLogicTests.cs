@@ -15,6 +15,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(100.0, 434)]
         [InlineData(150.0, 434)]   // clamped
         [InlineData( -5.0,   0)]   // clamped low
+        [InlineData( 33.33, 144)]  // 434 * 33.33 / 100 = 144.6522 -> truncates to 144
         public void ComputeGaugeHeight_ReturnsExpected(double skill, int expected)
         {
             Assert.Equal(expected, SkillMeterDisplay.ComputeGaugeHeight(skill));
