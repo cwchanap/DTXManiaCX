@@ -1558,6 +1558,26 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        /// <summary>
+        /// Persists a complete PerformanceSummary (score + skill + judgement counts) for a
+        /// specific chart and instrument. Forwards to SongDatabaseService.
+        /// </summary>
+        public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
+        {
+            if (_databaseService == null) return false;
+
+            try
+            {
+                await _databaseService.UpdateScoreAsync(chartId, instrument, summary);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error updating score (summary): {ex.Message}");
+                return false;
+            }
+        }
+
         #endregion
 
         #region Helper Methods
