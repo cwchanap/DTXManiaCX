@@ -30,6 +30,16 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(CompletionReason.Unknown, summary.CompletionReason);
         }
 
+        [Fact]
+        public void Constructor_ShouldInitializeSkillFieldsToZero()
+        {
+            var summary = new PerformanceSummary();
+            Assert.Equal(0.0, summary.PlayingSkill);
+            Assert.Equal(0.0, summary.GameSkill);
+            Assert.Equal(0, summary.ChartLevel);
+            Assert.Equal(0, summary.ChartLevelDec);
+        }
+
         #endregion
 
         #region TotalJudgements Tests
