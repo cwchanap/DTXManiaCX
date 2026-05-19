@@ -856,7 +856,7 @@ namespace DTXMania.Game.Lib.Song.Components
             float skillTextX = SongSelectionUILayout.SkillPointSection.X + SongSelectionUILayout.SkillPointSection.DarkBoxLeft + 8f;
             float skillTextY = SongSelectionUILayout.SkillPointSection.Y + SongSelectionUILayout.SkillPointSection.DarkBoxTop
                                + (SongSelectionUILayout.SkillPointSection.DarkBoxHeight - skillLineH) / 2f;
-            var skillValue = score.HighSkill > 0 ? score.HighSkill.ToString("F2") : "0.00";
+            var skillValue = score.HasBeenPlayed ? score.HighSkill.ToString("F2") : "---";
             DrawTextWithShadow(spriteBatch, skillFont, skillValue, new Vector2(skillTextX, skillTextY), Color.Yellow);
         }
 
