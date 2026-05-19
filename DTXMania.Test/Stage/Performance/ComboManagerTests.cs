@@ -67,7 +67,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void ProcessJudgement_MultipleJust_ShouldIncrementEachTime()
+        public void ProcessJudgement_MultiplePerfects_ShouldIncrementEachTime()
         {
             var manager = new ComboManager();
             for (int i = 0; i < 5; i++)

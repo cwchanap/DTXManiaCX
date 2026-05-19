@@ -120,13 +120,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _currentSkill = SongScore.CalculatePlayingSkill(
                 _totalNotes, _perfect, _great, _comboManager.MaxCombo);
 
-            SkillChanged?.Invoke(this, new SkillChangedEventArgs
+            if (previous != _currentSkill)
             {
-                PreviousSkill = previous,
-                CurrentSkill = _currentSkill,
-                IsMax = IsMax,
-                JudgementType = judgementEvent.Type
-            });
+                SkillChanged?.Invoke(this, new SkillChangedEventArgs
+                {
+                    PreviousSkill = previous,
+                    CurrentSkill = _currentSkill,
+                    IsMax = IsMax,
+                    JudgementType = judgementEvent.Type
+                });
+            }
         }
 
         /// <summary>

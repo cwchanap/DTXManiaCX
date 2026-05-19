@@ -93,7 +93,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GetJudgementCount_AfterJustHit_ShouldReturnOne()
+        public void GetJudgementCount_AfterPerfectHit_ShouldReturnOne()
         {
             var input = CreateMockInput();
             var chartManager = CreateTestChart(1000.0);
@@ -252,7 +252,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementStatistics_Accuracy_AllJust_ShouldReturn100()
+        public void JudgementStatistics_Accuracy_AllPerfect_ShouldReturn100()
         {
             var stats = new JudgementStatistics
             {
