@@ -58,7 +58,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         internal SongDatabaseService(DbContextOptions<SongDbContext> options)
         {
-            _options = options ?? throw new System.ArgumentNullException(nameof(options));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
             _databasePath = string.Empty;
             // Tests provide a pre-created schema; mark the service as initialized so
             // CreateContext() does not throw the "must initialize first" guard.
@@ -481,12 +481,16 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public async Task UpdateScoreAsync(int chartId, EInstrumentPart instrument, PerformanceSummary summary)
         {
-            if (summary == null) return;
+            if (summary == null) throw new ArgumentNullException(nameof(summary));
 
             using var context = CreateContext();
             var score = await context.SongScores
                 .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
-            if (score == null) return;
+            if (score == null)
+            {
+                score = new SongScoreEntity { ChartId = chartId, Instrument = instrument };
+                context.SongScores.Add(score);
+            }
 
             if (summary.Score > score.BestScore)
             {
@@ -509,7 +513,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             score.LastScore = summary.Score;
             score.LastSkillPoint = summary.GameSkill;
-            score.LastPlayedAt = System.DateTime.UtcNow;
+            score.LastPlayedAt = DateTime.UtcNow;
             score.PlayCount++;
             if (summary.ClearFlag) score.ClearCount++;
 
