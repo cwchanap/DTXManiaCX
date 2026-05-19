@@ -13,7 +13,7 @@ namespace DTXMania.Test.Stage
     public class PerformanceStageSkillIntegrationTests
     {
         [Fact]
-        public void SkillFields_AllPerfectInputs_MatchExpectedFormula()
+        public void SkillFields_AllPerfectInputs_ShouldMatchExpectedFormula()
         {
             int totalNotes = 100;
             int perfect = 100;

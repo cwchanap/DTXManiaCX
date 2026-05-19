@@ -20,7 +20,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(850, 0, "8.50")]
         [InlineData( 0,  0, "--")]
         [InlineData(-1,  0, "--")]
-        public void FormatLevelText_ReturnsExpected(int level, int levelDec, string expected)
+        public void FormatLevelText_WithVariousInputs_ShouldReturnExpected(int level, int levelDec, string expected)
         {
             Assert.Equal(expected, SkillPanelDisplay.FormatLevelText(level, levelDec));
         }
@@ -30,7 +30,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData( 87.42, " 87.42")]
         [InlineData(100.0, "100.00")]
         [InlineData( 50.5,  " 50.50")]
-        public void FormatSkillText_ReturnsExpected(double skill, string expected)
+        public void FormatSkillText_WithVariousInputs_ShouldReturnExpected(double skill, string expected)
         {
             Assert.Equal(expected, SkillPanelDisplay.FormatSkillText(skill));
         }

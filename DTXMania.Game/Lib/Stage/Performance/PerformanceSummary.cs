@@ -208,7 +208,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             return $"Score: {Score:N0}, Max Combo: {MaxCombo}, " +
                    $"Accuracy: {Accuracy:F1}%, Clear: {ClearFlag}, " +
-                   $"J/G/G/P/M: {PerfectCount}/{GreatCount}/{GoodCount}/{PoorCount}/{MissCount}";
+                   $"P/Gr/Go/Po/M: {PerfectCount}/{GreatCount}/{GoodCount}/{PoorCount}/{MissCount}";
         }
 
         #endregion
