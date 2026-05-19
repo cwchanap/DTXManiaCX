@@ -1772,6 +1772,13 @@ namespace DTXMania.Game.Lib.Stage
             _songTimer?.Stop();
 
             // Build the performance summary
+            var summaryChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
+            int summaryLevel = summaryChart?.DrumLevel ?? 0;
+            int summaryLevelDec = summaryChart?.DrumLevelDec ?? 0;
+            double summaryPlayingSkill = _skillManager?.CurrentSkill ?? 0.0;
+            double summaryGameSkill = SongScore.CalculateGameSkill(
+                summaryPlayingSkill, summaryLevel, summaryLevelDec);
+
             _performanceSummary = new PerformanceSummary
             {
                 Score = _scoreManager?.CurrentScore ?? 0,
@@ -1784,7 +1791,11 @@ namespace DTXMania.Game.Lib.Stage
                 MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0,
                 TotalNotes = _chartManager?.TotalNotes ?? 0,
                 FinalLife = _gaugeManager?.CurrentLife ?? 0.0f,
-                CompletionReason = reason
+                CompletionReason = reason,
+                PlayingSkill = summaryPlayingSkill,
+                GameSkill = summaryGameSkill,
+                ChartLevel = summaryLevel,
+                ChartLevelDec = summaryLevelDec
             };
 
 
