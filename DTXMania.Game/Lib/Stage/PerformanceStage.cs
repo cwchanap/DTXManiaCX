@@ -1814,6 +1814,12 @@ namespace DTXMania.Game.Lib.Stage
                 { "performanceSummary", _performanceSummary }
             };
 
+            if (_selectedSong != null)
+            {
+                sharedData["selectedSong"] = _selectedSong;
+            }
+            sharedData["selectedDifficulty"] = _selectedDifficulty;
+
             StageManager?.ChangeStage(StageType.Result, new InstantTransition(), sharedData);
         }
 
