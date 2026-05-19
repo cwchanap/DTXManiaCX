@@ -5,35 +5,34 @@ using Xunit;
 namespace DTXMania.Test.Stage
 {
     /// <summary>
-    /// Verifies PerformanceSummary skill fields are populated correctly when
-    /// PerformanceStage builds it at completion. Done as a unit-level check by
-    /// constructing the summary the same way PerformanceStage does, rather than
-    /// running the full stage (which needs a graphics device).
+    /// Verifies the contract that PerformanceStage.FinalizePerformance must honor when
+    /// populating skill fields on PerformanceSummary: the formula compositions of
+    /// CalculatePlayingSkill + CalculateGameSkill, given the same chart and judgement inputs.
     /// </summary>
-    [Trait("Category", "Integration")]
+    [Trait("Category", "Unit")]
     public class PerformanceStageSkillIntegrationTests
     {
         [Fact]
-        public void BuildSummary_AllPerfect_ShouldPopulateMaxPlayingSkill()
+        public void SkillFields_AllPerfectInputs_MatchExpectedFormula()
         {
             int totalNotes = 100;
-            int perfect    = 100;
-            int great      = 0;
-            int maxCombo   = 100;
-            int level      = 78;
-            int levelDec   = 33;
+            int perfect = 100;
+            int great = 0;
+            int maxCombo = 100;
+            int level = 78;
+            int levelDec = 33;
 
             double playing = SongScore.CalculatePlayingSkill(totalNotes, perfect, great, maxCombo);
-            double game    = SongScore.CalculateGameSkill(playing, level, levelDec);
+            double game = SongScore.CalculateGameSkill(playing, level, levelDec);
 
             var summary = new PerformanceSummary
             {
-                TotalNotes    = totalNotes,
-                PerfectCount  = perfect,
-                MaxCombo      = maxCombo,
-                PlayingSkill  = playing,
-                GameSkill     = game,
-                ChartLevel    = level,
+                TotalNotes = totalNotes,
+                PerfectCount = perfect,
+                MaxCombo = maxCombo,
+                PlayingSkill = playing,
+                GameSkill = game,
+                ChartLevel = level,
                 ChartLevelDec = levelDec
             };
 
@@ -45,16 +44,16 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void BuildSummary_NoHits_ShouldZeroSkill()
+        public void SkillFields_NoHits_ShouldBeZero()
         {
             var summary = new PerformanceSummary
             {
-                TotalNotes    = 100,
-                PerfectCount  = 0,
-                MaxCombo      = 0,
-                PlayingSkill  = SongScore.CalculatePlayingSkill(100, 0, 0, 0),
-                GameSkill     = SongScore.CalculateGameSkill(0.0, 78, 33),
-                ChartLevel    = 78,
+                TotalNotes = 100,
+                PerfectCount = 0,
+                MaxCombo = 0,
+                PlayingSkill = SongScore.CalculatePlayingSkill(100, 0, 0, 0),
+                GameSkill = SongScore.CalculateGameSkill(0.0, 78, 33),
+                ChartLevel = 78,
                 ChartLevelDec = 33
             };
 
