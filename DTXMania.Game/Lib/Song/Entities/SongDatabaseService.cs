@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -47,6 +48,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                 options.CommandTimeout(30);
             });
             _options = optionsBuilder.Options;
+        }
+
+        /// <summary>
+        /// Test-friendly constructor that accepts pre-built DbContext options.
+        /// Lets unit tests inject an in-memory SQLite connection without going through
+        /// the file-path-based config path. The caller is responsible for ensuring the
+        /// schema is created (e.g., via SongDbContext.Database.EnsureCreated()).
+        /// </summary>
+        internal SongDatabaseService(DbContextOptions<SongDbContext> options)
+        {
+            _options = options ?? throw new System.ArgumentNullException(nameof(options));
+            _databasePath = string.Empty;
+            // Tests provide a pre-created schema; mark the service as initialized so
+            // CreateContext() does not throw the "must initialize first" guard.
+            _isInitialized = true;
         }
 
 
@@ -456,6 +472,50 @@ namespace DTXMania.Game.Lib.Song.Entities
                 await context.SaveChangesAsync();
             }
         }
+
+        /// <summary>
+        /// Persists a complete PerformanceSummary into the SongScore for the given chart+instrument.
+        /// Updates best fields only when the new score exceeds the existing best. Always updates the
+        /// "last play" fields and increments PlayCount. The pre-computed summary.GameSkill is assigned
+        /// directly (not re-derived via score.CalculateSkill()), preserving level-decimal precision.
+        /// </summary>
+        public async Task UpdateScoreAsync(int chartId, EInstrumentPart instrument, PerformanceSummary summary)
+        {
+            if (summary == null) return;
+
+            using var context = CreateContext();
+            var score = await context.SongScores
+                .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
+            if (score == null) return;
+
+            if (summary.Score > score.BestScore)
+            {
+                score.BestScore = summary.Score;
+                score.BestPerfect = summary.PerfectCount;
+                score.BestGreat = summary.GreatCount;
+                score.BestGood = summary.GoodCount;
+                score.BestPoor = summary.PoorCount;
+                score.BestMiss = summary.MissCount;
+                score.MaxCombo = summary.MaxCombo;
+                score.FullCombo = summary.ClearFlag && summary.MissCount == 0 && summary.PoorCount == 0;
+                score.TotalNotes = summary.TotalNotes;
+            }
+
+            if (summary.GameSkill > score.HighSkill)
+            {
+                score.HighSkill = summary.GameSkill;
+            }
+            score.SongSkill = summary.GameSkill;
+
+            score.LastScore = summary.Score;
+            score.LastSkillPoint = summary.GameSkill;
+            score.LastPlayedAt = System.DateTime.UtcNow;
+            score.PlayCount++;
+            if (summary.ClearFlag) score.ClearCount++;
+
+            await context.SaveChangesAsync();
+        }
+
         /// Get top scores for a specific instrument
         public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
         {
