@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -23,11 +22,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private ITexture? _gaugeTexture;
         private ManagedFont? _font;
         private bool _disposed;
-
-        /// <summary>
-        /// Shadow color reused from the central visual palette.
-        /// </summary>
-        private static readonly Color MeterShadowColor = PerformanceUILayout.Visual.StandardShadowColor;
 
         /// <summary>
         /// 1px shadow offset — intentionally tighter than the (2,2) StandardShadowOffset
@@ -59,7 +53,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SkillMeterDisplay: Failed to load background texture: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to load background texture: {ex.Message}");
                 _backgroundTexture = null;
             }
 
@@ -69,7 +63,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SkillMeterDisplay: Failed to load gauge texture: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to load gauge texture: {ex.Message}");
                 _gaugeTexture = null;
             }
 
@@ -79,7 +73,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SkillMeterDisplay: Failed to create font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to create font: {ex.Message}");
                 _font = null;
             }
         }
@@ -144,7 +138,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     bgPos.X + PerformanceUILayout.SkillMeter.GaugeOffset.X - 1,
                     barTopY + PerformanceUILayout.SkillMeter.NumberOffsetFromTopOfBar);
                 _font.DrawStringWithShadow(spriteBatch, text, textPos,
-                    Color.White, MeterShadowColor, MeterShadowOffset);
+                    Color.White, PerformanceUILayout.Visual.StandardShadowColor, MeterShadowOffset);
             }
         }
 
@@ -188,8 +182,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _font?.Dispose();
                 _font = null;
-                _backgroundTexture = null;  // not owned — IResourceManager handles refcount
-                _gaugeTexture = null;       // not owned — IResourceManager handles refcount
+                _backgroundTexture?.RemoveReference();
+                _backgroundTexture = null;
+                _gaugeTexture?.RemoveReference();
+                _gaugeTexture = null;
             }
             _disposed = true;
         }

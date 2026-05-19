@@ -150,7 +150,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _font?.Dispose();
                 _font = null;
-                _maxBadgeTexture = null;  // not owned — IResourceManager handles refcount
+                _maxBadgeTexture?.RemoveReference();
+                _maxBadgeTexture = null;
             }
             _disposed = true;
         }
