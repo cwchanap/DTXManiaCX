@@ -14,7 +14,7 @@ namespace DTXMania.Test.Song
     /// Shared SqliteConnection lifecycle pattern mirrors SongDbContextTests
     /// (which has notes on coverlet "using var" quirks for EF disposables).
     /// </summary>
-    [Trait("Category", "Integration")]
+    [Trait("Category", "Unit")]
     public class SongDatabaseServiceSkillSaveTests : System.IDisposable
     {
         private readonly SqliteConnection _connection;
@@ -132,6 +132,80 @@ namespace DTXMania.Test.Song
             Assert.Equal(500000, saved.LastScore);
             Assert.Equal(78.0, saved.LastSkillPoint, 4);
             Assert.Equal(6, saved.PlayCount);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_FirstPlay_CreatesScoreRow()
+        {
+            var chart = await SeedChartAsync();
+            // Note: do NOT seed a score row — verifies create-on-miss behavior
+
+            var summary = new PerformanceSummary
+            {
+                Score = 600000, MaxCombo = 80, ClearFlag = true, TotalNotes = 100,
+                PerfectCount = 80, GreatCount = 20,
+                PlayingSkill = 87.0, GameSkill = 141.31,
+                ChartLevel = 78, ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(600000, saved.BestScore);
+            Assert.Equal(80, saved.MaxCombo);
+            Assert.Equal(141.31, saved.HighSkill, 4);
+            Assert.Equal(1, saved.PlayCount);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_NullSummary_ShouldThrow()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id);
+
+            await Assert.ThrowsAsync<System.ArgumentNullException>(
+                () => _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, null!));
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_ClearFlagFalse_DoesNotIncrementClearCount()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore { ClearCount = 3 });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 100000, MaxCombo = 10, ClearFlag = false, TotalNotes = 100,
+                PerfectCount = 5, MissCount = 95,
+                PlayingSkill = 5.75, GameSkill = 9.35,
+                ChartLevel = 78, ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(3, saved.ClearCount); // unchanged
+            Assert.Equal(1, saved.PlayCount);  // incremented
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_ClearedWithMisses_FullComboIsFalse()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id);
+
+            var summary = new PerformanceSummary
+            {
+                Score = 700000, MaxCombo = 90, ClearFlag = true, TotalNotes = 100,
+                PerfectCount = 80, GreatCount = 15, MissCount = 5,
+                PlayingSkill = 80.0, GameSkill = 130.08,
+                ChartLevel = 78, ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.False(saved.FullCombo); // had misses, so not full combo despite clearing
         }
     }
 }
