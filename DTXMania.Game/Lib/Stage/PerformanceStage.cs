@@ -1413,7 +1413,9 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             if (_skillManager != null)
+            {
                 _skillManager.SkillChanged -= OnSkillChanged;
+            }
 
             // Unsubscribe from input events
             if (_inputManager?.ModularInputManager != null)
