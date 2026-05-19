@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Performance;
 
 namespace DTXMania.Game.Lib.Stage
@@ -28,6 +29,8 @@ namespace DTXMania.Game.Lib.Stage
 
         // Result data
         private PerformanceSummary _performanceSummary;
+        private DTXMania.Game.Lib.Song.SongListNode? _selectedSong;
+        private int _selectedDifficulty;
 
         // UI components
         private BitmapFont _resultFont;
@@ -66,6 +69,19 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Extract performance summary from shared data
             ExtractSharedData();
+
+            // Persist this play's score + skill values (fire-and-forget).
+            if (_selectedSong != null && _performanceSummary != null)
+            {
+                var savedChart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
+                if (savedChart != null && savedChart.Id > 0)
+                {
+                    _ = DTXMania.Game.Lib.Song.SongManager.Instance.UpdateScoreAsync(
+                        savedChart.Id,
+                        DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
+                        _performanceSummary);
+                }
+            }
 
             // Initialize UI components
             InitializeComponents();
@@ -137,6 +153,19 @@ namespace DTXMania.Game.Lib.Stage
                     CompletionReason = CompletionReason.Unknown
                 };
                 System.Diagnostics.Debug.WriteLine("ResultStage: No performance summary provided, using default");
+            }
+
+            if (_sharedData != null
+                && _sharedData.TryGetValue("selectedSong", out var songObj)
+                && songObj is DTXMania.Game.Lib.Song.SongListNode song)
+            {
+                _selectedSong = song;
+            }
+            if (_sharedData != null
+                && _sharedData.TryGetValue("selectedDifficulty", out var difficultyObj)
+                && difficultyObj is int difficulty)
+            {
+                _selectedDifficulty = difficulty;
             }
         }
 
