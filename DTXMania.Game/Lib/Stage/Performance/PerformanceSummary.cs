@@ -52,6 +52,27 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int MissCount { get; set; }
 
         /// <summary>
+        /// Playing Skill computed at end of song (0.0-100.0). DTXManiaNX formula.
+        /// </summary>
+        public double PlayingSkill { get; set; }
+
+        /// <summary>
+        /// Game Skill computed at end of song (PlayingSkill · actualLevel · 0.2).
+        /// </summary>
+        public double GameSkill { get; set; }
+
+        /// <summary>
+        /// Raw chart level (e.g. 78 means 7.8). Carried through so the precise level
+        /// reaches the persistence layer without rounding.
+        /// </summary>
+        public int ChartLevel { get; set; }
+
+        /// <summary>
+        /// Chart level decimal part (e.g. 33 means an extra 0.033). Combined with ChartLevel.
+        /// </summary>
+        public int ChartLevelDec { get; set; }
+
+        /// <summary>
         /// Total number of notes in the chart
         /// </summary>
         public int TotalNotes { get; set; }
@@ -123,6 +144,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             GoodCount = 0;
             PoorCount = 0;
             MissCount = 0;
+            PlayingSkill   = 0.0;
+            GameSkill      = 0.0;
+            ChartLevel     = 0;
+            ChartLevelDec  = 0;
             TotalNotes = 0;
             FinalLife = 0.0f;
             CompletionReason = CompletionReason.Unknown;
