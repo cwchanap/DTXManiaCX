@@ -91,45 +91,32 @@ namespace DTXMania.Game.Lib.Resources
                 if (_contentManager == null)
                     throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
-                // Select the best SpriteFont based on requested size
-                var spriteFont = GetBestSizeSpriteFont(size);
-                
+                var spriteFont = GetBestSizeSpriteFont(size, style);
                 return new ManagedFont(spriteFont, fontPath, size, style);
             }
         }
 
         /// <summary>
-        /// Get the best SpriteFont for the requested size
+        /// Get the best SpriteFont for the requested size and style.
+        /// Prefers a Bold-variant asset when style=Bold and one exists at that size.
+        /// Falls back to the closest Regular-size asset otherwise.
         /// </summary>
-        private static SpriteFont GetBestSizeSpriteFont(int requestedSize)
+        private static SpriteFont GetBestSizeSpriteFont(int requestedSize, FontStyle style)
         {
-            // Define available font sizes and their corresponding asset names
-            var availableSizes = new[]
-            {
-                (size: 14, assetName: "NotoSerifJP"),
-                (size: 24, assetName: "NotoSerifJP-24"), 
-                (size: 48, assetName: "NotoSerifJP-48")
-            };
+            var assetName = GetBestSpriteFontAssetName(requestedSize, style);
 
-            // Find the closest size match
-            var bestMatch = availableSizes
-                .OrderBy(x => Math.Abs(x.size - requestedSize))
-                .First();
-
-            // Load the font if not already cached
-            if (!_loadedFonts.TryGetValue(bestMatch.assetName, out var spriteFont))
+            if (!_loadedFonts.TryGetValue(assetName, out var spriteFont))
             {
                 try
                 {
-                    spriteFont = _contentManager.Load<SpriteFont>(bestMatch.assetName);
-                    _loadedFonts[bestMatch.assetName] = spriteFont;
-                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Loaded {bestMatch.assetName} for requested size {requestedSize}");
+                    spriteFont = _contentManager.Load<SpriteFont>(assetName);
+                    _loadedFonts[assetName] = spriteFont;
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Loaded {assetName} for requested size {requestedSize} style {style}");
                 }
                 catch (Exception ex)
                 {
-                    // Fallback to default font if specific size fails
-                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Failed to load {bestMatch.assetName}, falling back to default. Error: {ex.Message}");
-                    
+                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Failed to load {assetName}, falling back to default. Error: {ex.Message}");
+
                     if (_defaultFont == null)
                     {
                         try
@@ -140,7 +127,7 @@ namespace DTXMania.Game.Lib.Resources
                         catch (Exception defaultEx)
                         {
                             throw new NotSupportedException(
-                                $"Cannot create font - failed to load any SpriteFont. " +
+                                "Cannot create font - failed to load any SpriteFont. " +
                                 "Please ensure NotoSerifJP.spritefont is built in your Content project. Error: " + defaultEx.Message);
                         }
                     }
@@ -149,6 +136,49 @@ namespace DTXMania.Game.Lib.Resources
             }
 
             return spriteFont;
+        }
+
+        /// <summary>
+        /// Pick the closest available SpriteFont asset for the requested (size, style).
+        /// Bold variant is only available at size 14; for other sizes Bold falls back to Regular.
+        /// </summary>
+        private static string GetBestSpriteFontAssetName(int requestedSize, FontStyle style)
+        {
+            var availableRegular = new[]
+            {
+                (size: 14, assetName: "NotoSerifJP"),
+                (size: 24, assetName: "NotoSerifJP-24"),
+                (size: 48, assetName: "NotoSerifJP-48")
+            };
+
+            if (style == FontStyle.Bold)
+            {
+                var boldVariants = new[]
+                {
+                    (size: 14, assetName: "NotoSerifJP-Bold")
+                };
+
+                var closestBold = boldVariants
+                    .OrderBy(x => Math.Abs(x.size - requestedSize))
+                    .First();
+
+                var closestRegular = availableRegular
+                    .OrderBy(x => Math.Abs(x.size - requestedSize))
+                    .First();
+
+                // Use Bold only if its size is closer than the closest Regular asset.
+                // Otherwise prefer the right-sized Regular over the wrong-sized Bold.
+                if (Math.Abs(closestBold.size - requestedSize) <= Math.Abs(closestRegular.size - requestedSize))
+                {
+                    return closestBold.assetName;
+                }
+                return closestRegular.assetName;
+            }
+
+            return availableRegular
+                .OrderBy(x => Math.Abs(x.size - requestedSize))
+                .First()
+                .assetName;
         }
 
         /// <summary>
