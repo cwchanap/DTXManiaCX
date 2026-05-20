@@ -27,7 +27,7 @@ namespace DTXMania.Test.Stage.Performance
         #region Perfect Play Simulation Tests
 
         [Fact]
-        public async Task AutomatedPlay_PerfectTiming_AllNotesJust_ExpectFullScoreAndLife100()
+        public async Task AutomatedPlay_PerfectTiming_AllNotesPerfect_ExpectFullScoreAndLife100()
         {
             // Arrange - Create a test chart with multiple notes across all lanes
             var testChart = CreateTestChart(totalNotes: 100);

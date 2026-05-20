@@ -85,7 +85,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Accuracy_AllJust_ShouldReturn100()
+        public void Accuracy_AllPerfect_ShouldReturn100()
         {
             var summary = new PerformanceSummary
             {

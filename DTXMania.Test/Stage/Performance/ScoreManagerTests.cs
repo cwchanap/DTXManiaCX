@@ -23,9 +23,14 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Constructor_ZeroTotalNotes_ShouldThrow()
+        public void Constructor_ZeroTotalNotes_ShouldInitializeZeroScoring()
         {
-            Assert.Throws<ArgumentException>(() => new ScoreManager(0));
+            var manager = new ScoreManager(0);
+
+            Assert.Equal(0, manager.CurrentScore);
+            Assert.Equal(0, manager.TotalNotes);
+            Assert.Equal(0, manager.BaseScore);
+            Assert.Equal(0, manager.TheoreticalMaxScore);
         }
 
         [Fact]
@@ -84,6 +89,18 @@ namespace DTXMania.Test.Stage.Performance
             var manager = new ScoreManager(100);
             manager.ProcessJudgement(null);
             Assert.Equal(0, manager.CurrentScore);
+        }
+
+        [Fact]
+        public void ProcessJudgement_ZeroTotalNotes_ShouldKeepScoreAtZero()
+        {
+            var manager = new ScoreManager(0);
+
+            manager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+
+            Assert.Equal(0, manager.CurrentScore);
+            Assert.Equal(0, manager.CalculateScoreForJudgement(JudgementType.Perfect));
+            Assert.Equal(0.0, manager.GetStatistics().ScorePercentage);
         }
 
         [Fact]
