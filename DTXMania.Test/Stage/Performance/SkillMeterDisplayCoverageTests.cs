@@ -105,10 +105,12 @@ namespace DTXMania.Test.Stage.Performance
             var rm = new Mock<IResourceManager>();
             rm.Setup(x => x.LoadTexture(It.IsAny<string>())).Throws(new Exception("load failed"));
 
-            var display = CreateUninitializedDisplay();
+            var display = WithManagedFontUnavailable(() =>
+                new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
 
             Assert.Null(GetPrivateField<ITexture>(display, "_backgroundTexture"));
             Assert.Null(GetPrivateField<ITexture>(display, "_gaugeTexture"));
+            display.Dispose();
         }
 
         [Fact]
@@ -126,9 +128,11 @@ namespace DTXMania.Test.Stage.Performance
                   return gaugeTexture;
               });
 
-            var display = CreateUninitializedDisplay();
+            var display = WithManagedFontUnavailable(() =>
+                new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
 
             Assert.Null(GetPrivateField<ITexture>(display, "_backgroundTexture"));
+            display.Dispose();
         }
 
         #endregion
@@ -373,16 +377,17 @@ namespace DTXMania.Test.Stage.Performance
             var factoryLock = managedFontType
                 .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
                 .GetValue(null)!;
-            var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var originalContentManager = contentManagerField.GetValue(null);
-
-            var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
-            var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
-            loadedFonts.CopyTo(originalEntries, 0);
 
             lock (factoryLock)
             {
+                var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var originalContentManager = contentManagerField.GetValue(null);
+
+                var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
+                var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
+                loadedFonts.CopyTo(originalEntries, 0);
+
                 try
                 {
                     contentManagerField.SetValue(null, null);

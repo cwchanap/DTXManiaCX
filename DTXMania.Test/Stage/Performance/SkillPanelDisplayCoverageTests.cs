@@ -193,16 +193,17 @@ namespace DTXMania.Test.Stage.Performance
             var factoryLock = managedFontType
                 .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
                 .GetValue(null)!;
-            var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var originalContentManager = contentManagerField.GetValue(null);
-
-            var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
-            var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
-            loadedFonts.CopyTo(originalEntries, 0);
 
             lock (factoryLock)
             {
+                var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var originalContentManager = contentManagerField.GetValue(null);
+
+                var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
+                var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
+                loadedFonts.CopyTo(originalEntries, 0);
+
                 try
                 {
                     contentManagerField.SetValue(null, null);
