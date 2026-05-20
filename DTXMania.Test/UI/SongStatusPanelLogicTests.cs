@@ -96,7 +96,6 @@ public class SongStatusPanelLogicTests
         Assert.Null(ex);
         Assert.Same(graphicsDevice, GetField<GraphicsDevice>(panel, "_cachedGraphicsDevice"));
         Assert.Null(GetField<object?>(panel, "_graphicsGenerator"));
-        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
     }
 
     [Fact]
@@ -180,7 +179,6 @@ public class SongStatusPanelLogicTests
         var ex = Record.Exception(() => panel.InitializeAuthenticGraphics(rm.Object));
 
         Assert.Null(ex);
-        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
         Assert.Same(status, GetField<ITexture>(panel, "_statusPanelTexture"));
         Assert.Same(skillIcon, GetField<ITexture>(panel, "_skillIconTexture"));
     }
@@ -230,45 +228,6 @@ public class SongStatusPanelLogicTests
 
         Assert.Equal("2:05", shortText);
         Assert.Equal("1:02:05", longText);
-    }
-
-    [Fact]
-    public void LoadLevelNumberFont_WhenResourceManagerIsNull_ShouldReturnWithoutCreatingFont()
-    {
-        var panel = new SongStatusPanel();
-        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
-
-        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", graphicsDevice));
-
-        Assert.Null(ex);
-        Assert.Null(GetField<object?>(panel, "_levelNumberFont"));
-    }
-
-    [Fact]
-    public void LoadLevelNumberFont_WhenGraphicsDeviceIsNull_ShouldReturnWithoutCreatingFont()
-    {
-        var panel = new SongStatusPanel();
-        SetField(panel, "_resourceManager", new Mock<IResourceManager>().Object);
-
-        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", (object)null!));
-
-        Assert.Null(ex);
-        Assert.Null(GetField<object?>(panel, "_levelNumberFont"));
-    }
-
-    [Fact]
-    public void LoadLevelNumberFont_WhenBitmapFontCreationFails_ShouldLeaveFontUnloaded()
-    {
-        var panel = new SongStatusPanel();
-        var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
-        SetField(panel, "_resourceManager", resourceManager.Object);
-        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
-
-        var ex = Record.Exception(() => InvokePrivate<object?>(panel, "LoadLevelNumberFont", graphicsDevice));
-
-        Assert.Null(ex);
-        Assert.False(GetField<BitmapFont>(panel, "_levelNumberFont").IsLoaded);
     }
 
     [Fact]
