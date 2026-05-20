@@ -50,7 +50,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_WhenLaneHitEventQueued_ProcessesPerfectHit()
+        public void Update_WhenLaneHitEventQueued_ShouldProcessPerfectHit()
         {
             // Arrange
             var compat = CreateMockInputManagerWithEvents();
