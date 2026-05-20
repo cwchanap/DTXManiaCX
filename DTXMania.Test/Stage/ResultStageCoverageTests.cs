@@ -21,6 +21,7 @@ namespace DTXMania.Test.Stage
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
             var whitePixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
 #pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(whitePixel);
             SetPrivateField(stage, "_whitePixel", whitePixel);
 
             var rect = new Rectangle(0, 0, 800, 600);
@@ -145,6 +146,10 @@ namespace DTXMania.Test.Stage
             var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
             var graphicsDevice = (GraphicsDevice)FormatterServices.GetUninitializedObject(typeof(GraphicsDevice));
 #pragma warning restore SYSLIB0050
+            // Suppress finalization — these objects were never properly constructed and their
+            // GraphicsResource finalizer would crash trying to access uninitialized state.
+            GC.SuppressFinalize(spriteBatch);
+            GC.SuppressFinalize(graphicsDevice);
             SetPrivateField(spriteBatch, "graphicsDevice", graphicsDevice);
             SetPrivateField(graphicsDevice, "_viewport", new Viewport(0, 0, width, height));
             return spriteBatch;
