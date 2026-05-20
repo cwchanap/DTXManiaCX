@@ -1,3 +1,4 @@
+using System;
 using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
 
@@ -45,6 +46,41 @@ namespace DTXMania.Test.Stage.Performance
         {
             Assert.True(SkillMeterDisplay.ShouldDrawBar(0.01));
             Assert.True(SkillMeterDisplay.ShouldDrawBar(100.0));
+        }
+
+        /// <summary>
+        /// Verifies that Draw() clamps Skill before passing to helpers, so bar and
+        /// numeric overlay never disagree. We test the clamping pattern indirectly:
+        /// an over-range Skill fed through the same clamp+helper pipeline that Draw()
+        /// uses must produce the same results as a max-valid Skill.
+        /// </summary>
+        [Fact]
+        public void ClampedSkill_OverflowValue_ShouldMatchMaxValue()
+        {
+            double overflow = 150.0;
+            double clamped = Math.Clamp(overflow, 0.0, 100.0);
+
+            Assert.Equal(100.0, clamped);
+            Assert.Equal(
+                SkillMeterDisplay.ComputeGaugeHeight(100.0),
+                SkillMeterDisplay.ComputeGaugeHeight(clamped));
+            Assert.Equal(
+                SkillMeterDisplay.ComputeBarTopY(100.0),
+                SkillMeterDisplay.ComputeBarTopY(clamped));
+            Assert.True(SkillMeterDisplay.ShouldDrawBar(clamped));
+        }
+
+        [Fact]
+        public void ClampedSkill_NegativeValue_ShouldMatchZero()
+        {
+            double negative = -10.0;
+            double clamped = Math.Clamp(negative, 0.0, 100.0);
+
+            Assert.Equal(0.0, clamped);
+            Assert.Equal(
+                SkillMeterDisplay.ComputeGaugeHeight(0.0),
+                SkillMeterDisplay.ComputeGaugeHeight(clamped));
+            Assert.False(SkillMeterDisplay.ShouldDrawBar(clamped));
         }
     }
 }

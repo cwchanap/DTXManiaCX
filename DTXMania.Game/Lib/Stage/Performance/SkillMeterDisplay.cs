@@ -96,6 +96,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (_disposed || spriteBatch == null) return;
 
+            // Clamp once so bar height, draw decision, and numeric overlay are consistent.
+            double clampedSkill = Math.Clamp(Skill, 0.0, 100.0);
+
             var bgPos = PerformanceUILayout.SkillMeter.BackgroundPosition;
 
             // 1. Background frame
@@ -106,9 +109,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
 
             // 2-4. Filling bar
-            int gaugeHeight = ComputeGaugeHeight(Skill);
-            int barTopY     = ComputeBarTopY(Skill);
-            if (ShouldDrawBar(Skill) && _gaugeTexture != null)
+            int gaugeHeight = ComputeGaugeHeight(clampedSkill);
+            int barTopY     = ComputeBarTopY(clampedSkill);
+            if (ShouldDrawBar(clampedSkill) && _gaugeTexture != null)
             {
                 var barPos = new Vector2(
                     bgPos.X + PerformanceUILayout.SkillMeter.GaugeOffset.X,
@@ -133,7 +136,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_font != null)
             {
                 string text = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "{0,5:##0.00}", Skill);
+                    "{0,5:##0.00}", clampedSkill);
                 var textPos = new Vector2(
                     bgPos.X + PerformanceUILayout.SkillMeter.GaugeOffset.X - 1,
                     barTopY + PerformanceUILayout.SkillMeter.NumberOffsetFromTopOfBar);
