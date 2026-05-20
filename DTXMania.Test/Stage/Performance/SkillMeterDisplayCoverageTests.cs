@@ -50,6 +50,56 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Constructor_WithTexturesAvailable_ShouldStoreTexturesAndIgnoreUnavailableFont()
+        {
+            var rm = new Mock<IResourceManager>();
+            var backgroundTexture = new Mock<ITexture>().Object;
+            var gaugeTexture = new Mock<ITexture>().Object;
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Returns(backgroundTexture);
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Returns(gaugeTexture);
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
+
+            Assert.Same(backgroundTexture, GetPrivateField<ITexture?>(display, "_backgroundTexture"));
+            Assert.Same(gaugeTexture, GetPrivateField<ITexture?>(display, "_gaugeTexture"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_font"));
+            display.Dispose();
+        }
+
+        [Fact]
+        public void Constructor_WhenBackgroundLoadFails_ShouldStillLoadGaugeTexture()
+        {
+            var rm = new Mock<IResourceManager>();
+            var gaugeTexture = new Mock<ITexture>().Object;
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Throws(new Exception("background failed"));
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Returns(gaugeTexture);
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
+
+            Assert.Null(GetPrivateField<ITexture?>(display, "_backgroundTexture"));
+            Assert.Same(gaugeTexture, GetPrivateField<ITexture?>(display, "_gaugeTexture"));
+            display.Dispose();
+        }
+
+        [Fact]
+        public void Constructor_WhenGaugeLoadFails_ShouldKeepGaugeTextureNull()
+        {
+            var rm = new Mock<IResourceManager>();
+            var backgroundTexture = new Mock<ITexture>().Object;
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphMain)).Returns(backgroundTexture);
+            rm.Setup(x => x.LoadTexture(TexturePath.PerfGraphGauge)).Throws(new Exception("gauge failed"));
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
+
+            Assert.Same(backgroundTexture, GetPrivateField<ITexture?>(display, "_backgroundTexture"));
+            Assert.Null(GetPrivateField<ITexture?>(display, "_gaugeTexture"));
+            display.Dispose();
+        }
+
+        [Fact]
         public void Constructor_TextureLoadFails_ShouldSetBackgroundTextureNull()
         {
             var rm = new Mock<IResourceManager>();
@@ -316,5 +366,39 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         #endregion
+
+        private static T WithManagedFontUnavailable<T>(Func<T> action)
+        {
+            var managedFontType = typeof(ManagedFont);
+            var factoryLock = managedFontType
+                .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var originalContentManager = contentManagerField.GetValue(null);
+
+            var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
+            var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
+            loadedFonts.CopyTo(originalEntries, 0);
+
+            lock (factoryLock)
+            {
+                try
+                {
+                    contentManagerField.SetValue(null, null);
+                    loadedFonts.Clear();
+                    return action();
+                }
+                finally
+                {
+                    loadedFonts.Clear();
+                    foreach (System.Collections.DictionaryEntry entry in originalEntries)
+                    {
+                        loadedFonts[entry.Key] = entry.Value;
+                    }
+                    contentManagerField.SetValue(null, originalContentManager);
+                }
+            }
+        }
     }
 }

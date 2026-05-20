@@ -55,6 +55,22 @@ namespace DTXMania.Test.Stage.Performance
             display.Dispose();
         }
 
+        [Fact]
+        public void Constructor_TextureLoadSucceeds_ShouldStoreMaxBadgeTexture()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var maxBadgeTexture = new Mock<ITexture>().Object;
+            resourceManager
+                .Setup(rm => rm.LoadTexture(TexturePath.SkillMax))
+                .Returns(maxBadgeTexture);
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), null));
+
+            Assert.Same(maxBadgeTexture, GetPrivateField<ITexture?>(display, "_maxBadgeTexture"));
+            display.Dispose();
+        }
+
         #endregion
 
         #region Update Tests

@@ -72,9 +72,9 @@ namespace DTXMania.Game.Lib.Stage
         private ScoreManager _scoreManager = null!;
         private ComboManager _comboManager = null!;
         private GaugeManager _gaugeManager = null!;
-        private SkillManager _skillManager = null!;
-        private SkillPanelDisplay _skillPanelDisplay = null!;
-        private SkillMeterDisplay _skillMeterDisplay = null!;
+        private SkillManager? _skillManager;
+        private SkillPanelDisplay? _skillPanelDisplay;
+        private SkillMeterDisplay? _skillMeterDisplay;
         private EffectsManager _effectsManager = null!;
         private JudgementTextPopupManager _judgementTextPopupManager = null!;
         private PadRenderer _padRenderer = null!;

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song;
@@ -120,6 +121,16 @@ public class SongManagerUpdateScoreTests : IDisposable
     [Fact]
     public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldReturnFalse()
     {
+        var result = await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary());
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummaryWhenDatabaseServiceThrows_ShouldReturnFalse()
+    {
+        SetPrivateField(_manager, "_databaseService", new SongDatabaseService(_testDbPath));
+
         var result = await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary());
 
         Assert.False(result);
