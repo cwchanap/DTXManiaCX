@@ -83,12 +83,11 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
-    public void InitializeGraphicsGenerator_WhenResourceManagerAlreadyAvailable_ShouldAttemptLevelFontLoadAndKeepGeneratorDisabled()
+    public void InitializeGraphicsGenerator_WhenResourceManagerAlreadyAvailable_ShouldNotThrowAndLeaveGeneratorDisabled()
     {
         var panel = new SongStatusPanel();
         var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
         SetField(panel, "_resourceManager", resourceManager.Object);
 
         var ex = Record.Exception(() => panel.InitializeGraphicsGenerator(graphicsDevice, null!));
@@ -150,7 +149,7 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
-    public void InitializeAuthenticGraphics_WhenCachedGraphicsDeviceIsPresent_ShouldContinueAfterLevelFontFailure()
+    public void InitializeAuthenticGraphics_WhenCachedGraphicsDeviceIsPresent_ShouldAssignLoadedTextures()
     {
         var panel = new SongStatusPanel();
         var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
@@ -165,7 +164,6 @@ public class SongStatusPanelLogicTests
         var skillPointPanel = new Mock<ITexture>().Object;
         var skillIcon = new Mock<ITexture>().Object;
 
-        rm.Setup(x => x.LoadTexture(TexturePath.LevelNumberFont)).Throws(new Exception("font-failed"));
         rm.Setup(x => x.LoadTexture(TexturePath.SongStatusPanel)).Returns(status);
         rm.Setup(x => x.LoadTexture(TexturePath.BpmBackground)).Returns(bpm);
         rm.Setup(x => x.LoadTexture(TexturePath.DifficultyPanel)).Returns(difficultyPanel);
