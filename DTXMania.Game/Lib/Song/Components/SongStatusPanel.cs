@@ -22,8 +22,6 @@ namespace DTXMania.Game.Lib.Song.Components
     {
         #region Constants
 
-        // Set to false to use bitmap font for level numbers, true to use sprite font
-        private const bool USE_SPRITE_FONT = false;
         private static readonly Vector2 StandaloneBpmOrigin = new(490, 385);
 
         #endregion
@@ -69,9 +67,6 @@ namespace DTXMania.Game.Lib.Song.Components
         private const int RankIconOffsetX = 7; // NX: rank icon anchor = nBoxX + 7
         private const int FCBadgeOffsetX = 42; // NX: FC badge anchor = nBoxX + 42
         private const int RankIconOffsetY = 15; // NX: GetCellContentPosition uses cellTop + 20; icon anchor is cellTop + 5
-
-        // Level number bitmap font for difficulty level display
-        private BitmapFont _levelNumberFont;
 
         // Performance optimization: Cache generated background texture
         private ITexture _cachedBackgroundTexture;
@@ -186,17 +181,6 @@ namespace DTXMania.Game.Lib.Song.Components
                     (int)SongSelectionUILayout.BPMSection.Size.X,
                     (int)SongSelectionUILayout.BPMSection.Size.Y, true);
             }
-
-            // Try to load level number font if ResourceManager is already available
-            if (graphicsDevice != null && _resourceManager != null)
-            {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loading level number font (ResourceManager already available)");
-                LoadLevelNumberFont(graphicsDevice);
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Deferring font loading - GraphicsDevice: {graphicsDevice != null}, ResourceManager: {_resourceManager != null}");
-            }
         }
 
         /// <summary>
@@ -207,18 +191,7 @@ namespace DTXMania.Game.Lib.Song.Components
             System.Diagnostics.Debug.WriteLine($"SongStatusPanel: InitializeAuthenticGraphics called. ResourceManager: {resourceManager != null}");
             
             _resourceManager = resourceManager;
-            
-            // Load level number font now that ResourceManager is available
-            if (_cachedGraphicsDevice != null && _resourceManager != null)
-            {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Loading level number font with ResourceManager now available");
-                LoadLevelNumberFont(_cachedGraphicsDevice);
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Cannot load font yet - GraphicsDevice: {_cachedGraphicsDevice != null}, ResourceManager: {_resourceManager != null}");
-            }
-            
+
             LoadStatusPanelGraphics();
             LoadBPMBackgroundTexture();
             LoadDifficultyPanelTexture();
@@ -386,52 +359,6 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        /// <summary>
-        /// Load the level number bitmap font for difficulty level display
-        /// </summary>
-        private void LoadLevelNumberFont(GraphicsDevice graphicsDevice)
-        {
-            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: LoadLevelNumberFont called. ResourceManager: {_resourceManager != null}, GraphicsDevice: {graphicsDevice != null}");
-            
-            if (_resourceManager == null)
-            {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot load level number font - ResourceManager is null");
-                return;
-            }
-            
-            if (graphicsDevice == null)
-            {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot load level number font - GraphicsDevice is null");
-                return;
-            }
-
-            try
-            {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Creating BitmapFont instance for level numbers...");
-                var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
-                _levelNumberFont = new BitmapFont(graphicsDevice, _resourceManager, levelNumberConfig);
-                
-                if (_levelNumberFont != null && _levelNumberFont.IsLoaded)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font loaded successfully and is ready");
-                }
-                else if (_levelNumberFont != null)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font created but not loaded properly");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("SongStatusPanel: Level number bitmap font creation returned null");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load level number bitmap font: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Exception type: {ex.GetType().Name}");
-                _levelNumberFont = null;
-            }
-        }
-
         #endregion
 
         #region Constructor
@@ -481,9 +408,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _graphPanelGuitarBassTexture);
                 ReleaseManagedTexture(ref _skillPointPanelTexture);
                 ReleaseManagedTexture(ref _skillIconTexture);
-                // Dispose level number font
-                _levelNumberFont?.Dispose();
-                _levelNumberFont = null;
             }
             base.Dispose(disposing);
         }
@@ -1027,32 +951,18 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
-        /// Helper method to draw difficulty text using either bitmap font or sprite font with consolidated fallback logic
+        /// Helper method to draw difficulty text using the SpriteFont path.
         /// </summary>
         private void DrawDifficultyText(SpriteBatch spriteBatch, string text, int x, int y, int cellWidth, int cellHeight, Color color)
         {
-            // NX-authentic position: nX = cellLeft + nPanelW - 77 (= cellLeft + 110),
-            // nY = cellTop + nPanelH - 35 (≈ cellTop + 23).
-            // x,y are GetCellContentPosition coords = (cellLeft, cellTop+20), so:
-            //   textY = y + 3  →  cellTop + 23  (matches NX)
-            //   textX = x + cellWidth - 77  →  cellLeft + 110
-            const int nxTopOffset = 3;    // contentPos is cellTop+20, NX text is cellTop+23
-            const int rightPadding = 10;  // match NX-style positioning from the right edge
+            const int nxTopOffset = 3;
+            const int rightPadding = 10;
 
-            bool useBitmapFont = !USE_SPRITE_FONT && _levelNumberFont != null && _levelNumberFont.IsLoaded;
+            var font = _smallFont ?? _font;
+            if (font == null) return;
 
-            if (useBitmapFont)
-            {
-                // Right-justify within the cell: end rightPadding px from the right edge
-                var textSize = _levelNumberFont.MeasureText(text);
-                int drawX = x + cellWidth - rightPadding - (int)textSize.X;
-                _levelNumberFont.DrawText(spriteBatch, text, drawX, y + nxTopOffset, color);
-            }
-            else
-            {
-                var textWidth = (_smallFont ?? _font)?.MeasureString(text).X ?? 0;
-                DrawTextWithShadow(spriteBatch, _smallFont ?? _font, text, new Vector2(x + cellWidth - textWidth - rightPadding, y + nxTopOffset), color);
-            }
+            var textWidth = font.MeasureString(text).X;
+            DrawTextWithShadow(spriteBatch, font, text, new Vector2(x + cellWidth - textWidth - rightPadding, y + nxTopOffset), color);
         }
 
         private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
