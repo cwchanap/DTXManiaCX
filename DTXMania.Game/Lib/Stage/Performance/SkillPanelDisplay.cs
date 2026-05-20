@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -82,6 +83,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Draw the skill panel contents.
         /// </summary>
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
             if (_disposed || spriteBatch == null || _font == null) return;

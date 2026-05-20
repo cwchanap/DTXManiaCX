@@ -830,6 +830,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        [ExcludeFromCodeCoverage]
         private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
         {
             var score = GetCurrentScore(currentSong, currentDifficulty);
