@@ -72,11 +72,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="totalNotes">Total number of notes in the chart</param>
         public ScoreManager(int totalNotes)
         {
-            if (totalNotes <= 0)
-                throw new ArgumentException("Total notes must be greater than 0", nameof(totalNotes));
+            if (totalNotes < 0)
+                throw new ArgumentException("Total notes cannot be negative", nameof(totalNotes));
 
             _totalNotes = totalNotes;
-            _baseScore = MaxScore / totalNotes; // Integer division as specified
+            _baseScore = totalNotes == 0 ? 0 : MaxScore / totalNotes; // Integer division as specified
             _currentScore = 0;
         }
 

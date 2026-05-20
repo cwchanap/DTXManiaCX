@@ -85,12 +85,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Creates a new SkillManager bound to a ComboManager for MaxCombo access
         /// </summary>
-        /// <param name="totalNotes">Total notes in the chart (must be greater than 0)</param>
+        /// <param name="totalNotes">Total notes in the chart</param>
         /// <param name="comboManager">Combo manager providing MaxCombo state</param>
         public SkillManager(int totalNotes, ComboManager comboManager)
         {
-            if (totalNotes <= 0)
-                throw new ArgumentException("Total notes must be greater than 0", nameof(totalNotes));
+            if (totalNotes < 0)
+                throw new ArgumentException("Total notes cannot be negative", nameof(totalNotes));
             _totalNotes = totalNotes;
             _comboManager = comboManager ?? throw new ArgumentNullException(nameof(comboManager));
         }

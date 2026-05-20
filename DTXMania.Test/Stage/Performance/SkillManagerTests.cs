@@ -28,9 +28,13 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Constructor_ZeroTotalNotes_ShouldThrow()
+        public void Constructor_ZeroTotalNotes_ShouldInitializeZeroSkill()
         {
-            Assert.Throws<ArgumentException>(() => new SkillManager(0, new ComboManager()));
+            var sm = new SkillManager(0, new ComboManager());
+
+            Assert.Equal(0, sm.TotalNotes);
+            Assert.Equal(0.0, sm.CurrentSkill);
+            Assert.False(sm.IsMax);
         }
 
         [Fact]
@@ -149,6 +153,20 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0.0, sm.CurrentSkill);
         }
 
+        [Fact]
+        public void CurrentSkill_ZeroTotalNotes_ShouldStayZero()
+        {
+            var combo = new ComboManager();
+            var sm = new SkillManager(0, combo);
+
+            combo.ProcessJudgement(JudgEvent(JudgementType.Perfect));
+            sm.ProcessJudgement(JudgEvent(JudgementType.Perfect));
+
+            Assert.Equal(1, sm.PerfectCount);
+            Assert.Equal(0.0, sm.CurrentSkill);
+            Assert.False(sm.IsMax);
+        }
+
         #endregion
 
         #region SkillChanged event
@@ -214,14 +232,13 @@ namespace DTXMania.Test.Stage.Performance
             var sm = new SkillManager(100, combo);
             combo.ProcessJudgement(new JudgementEvent(noteRef: 0, lane: 0, deltaMs: 0.0, type: JudgementType.Perfect));
             sm.ProcessJudgement(new JudgementEvent(noteRef: 0, lane: 0, deltaMs: 0.0, type: JudgementType.Perfect));
+            var skillBeforeDispose = sm.CurrentSkill;
             sm.Dispose();
 
-            SkillChangedEventArgs? captured = null;
-            sm.SkillChanged += (s, e) => captured = e;  // Note: after Dispose, SkillChanged was nulled; this re-subscribes
             sm.Reset();
-            // Counts should remain frozen (Reset returns early on _disposed)
+
             Assert.Equal(1, sm.PerfectCount);
-            Assert.Null(captured);
+            Assert.Equal(skillBeforeDispose, sm.CurrentSkill);
         }
 
         #endregion
