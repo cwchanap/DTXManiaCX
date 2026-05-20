@@ -33,7 +33,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private SpriteBatch _spriteBatch;
         private IResourceManager _resourceManager;
-        private BitmapFont _bitmapFont;
+        private IFont _font;
         private Texture2D _whitePixel;
 
         // DTXManiaNX Background Graphics (Phase 3) - Main background now handled by BaseStage
@@ -168,18 +168,6 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
 
-            // Load fonts
-            try
-            {
-                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-                _bitmapFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, consoleFontConfig);
-            }
-            catch (Exception ex)
-            {
-                // Only log critical errors
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load BitmapFont: {ex.Message}");
-            }
-
             // Try to load a SpriteFont for UI components
             IFont uiFont = null;
             try
@@ -209,6 +197,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize stage RenderTargets for shared use
             InitializeStageRenderTargets();
+
+            // Retain the loaded font for direct draw paths (scroll-speed label, empty-filter message)
+            _font = uiFont;
 
             // Initialize UI
             InitializeUI(uiFont);
@@ -1024,24 +1015,22 @@ namespace DTXMania.Game.Lib.Stage
             _uiManager?.Draw(_spriteBatch, deltaTime);
 
             // Draw current scroll-speed value as a small label
-            if (_bitmapFont != null && _configManager != null)
+            if (_font != null && _configManager != null)
             {
                 var label = "Scroll " + ScrollSpeedRange.Format(_configManager.Config.ScrollSpeed);
-                _bitmapFont.DrawText(_spriteBatch, label,
-                    SongSelectionUILayout.ScrollSpeedLabelX,
-                    SongSelectionUILayout.ScrollSpeedLabelY,
+                _font.DrawString(_spriteBatch, label,
+                    new Vector2(SongSelectionUILayout.ScrollSpeedLabelX, SongSelectionUILayout.ScrollSpeedLabelY),
                     Microsoft.Xna.Framework.Color.White);
             }
 
             // Draw empty-state message when the active filter returns no results
             // Skip when the search modal is open to avoid overlaying the modal contents
-            if (_showEmptyFilterMessage && _bitmapFont != null
+            if (_showEmptyFilterMessage && _font != null
                 && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 string msg = "No songs match this filter";
-                _bitmapFont.DrawText(_spriteBatch, msg,
-                    SongSelectionUILayout.SongBars.UnselectedBarX + 100,
-                    SongSelectionUILayout.SongBars.SelectedBarY,
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
                     Microsoft.Xna.Framework.Color.LightGray);
             }
 
