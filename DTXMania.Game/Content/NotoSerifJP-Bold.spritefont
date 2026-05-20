@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<XnaContent xmlns:Graphics="Microsoft.Xna.Framework.Content.Pipeline.Graphics">
+  <Asset Type="Graphics:FontDescription">
+    <FontName>NotoSerifJP-Bold</FontName>
+    <Size>14</Size>
+    <Spacing>0</Spacing>
+    <UseKerning>true</UseKerning>
+    <Style>Bold</Style>
+    <DefaultCharacter>*</DefaultCharacter>
+    <CharacterRegions>
+      <CharacterRegion>
+        <Start>&#32;</Start>
+        <End>&#126;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#12352;</Start>
+        <End>&#12447;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#12448;</Start>
+        <End>&#12543;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#12289;</Start>
+        <End>&#12351;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#19968;</Start>
+        <End>&#40959;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#63744;</Start>
+        <End>&#64255;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#65280;</Start>
+        <End>&#65519;</End>
+      </CharacterRegion>
+    </CharacterRegions>
+  </Asset>
+</XnaContent>
