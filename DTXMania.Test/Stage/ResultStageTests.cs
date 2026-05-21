@@ -500,7 +500,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "CleanupComponents");
 
             Assert.True(whitePixel.WasDisposed);
-            fontMock.Verify(f => f.Dispose(), Times.Once);
+            fontMock.Verify(f => f.RemoveReference(), Times.Once);
             Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
         }
@@ -526,7 +526,7 @@ namespace DTXMania.Test.Stage
 
             Assert.True(spriteBatch.WasDisposed);
             Assert.True(whitePixel.WasDisposed);
-            fontMock.Verify(f => f.Dispose(), Times.Once);
+            fontMock.Verify(f => f.RemoveReference(), Times.Once);
         }
 
         #endregion

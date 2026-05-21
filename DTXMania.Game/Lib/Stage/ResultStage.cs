@@ -205,7 +205,7 @@ namespace DTXMania.Game.Lib.Stage
             // Cleanup resources
             _whitePixel?.Dispose();
             _whitePixel = null;
-            _resultFont?.Dispose();
+            _resultFont?.RemoveReference();
             _resultFont = null;
         }
 
