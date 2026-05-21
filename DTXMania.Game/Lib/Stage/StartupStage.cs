@@ -43,7 +43,8 @@ namespace DTXMania.Game.Lib.Stage
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private IResourceManager _resourceManager;
-        private BitmapFont _bitmapFont;
+        private IFont _font;
+        private IFont _boldFont;
 
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
@@ -132,9 +133,9 @@ namespace DTXMania.Game.Lib.Stage
             return whitePixel;
         }
 
-        protected virtual BitmapFont CreateBitmapFontCore(GraphicsDevice graphicsDevice, IResourceManager resourceManager, BitmapFont.BitmapFontConfig config)
+        protected virtual IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
         {
-            return new BitmapFont(graphicsDevice, resourceManager, config);
+            return resourceManager.LoadFont("NotoSerifJP", size, style);
         }
 
         protected virtual void BeginSpriteBatchCore(SpriteBatch spriteBatch)
@@ -168,9 +169,8 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
 
-            // Initialize bitmap font for text rendering
-            var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-            _bitmapFont = CreateBitmapFontCore(graphicsDevice, _resourceManager, consoleFontConfig);
+            _font = CreateFontCore(_resourceManager, 14, FontStyle.Regular);
+            _boldFont = CreateFontCore(_resourceManager, 14, FontStyle.Bold);
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
 
@@ -297,11 +297,13 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource = null;
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
-                _bitmapFont?.Dispose();
+                _font?.RemoveReference();
+                _boldFont?.RemoveReference();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
 
-                _bitmapFont = null;
+                _font = null;
+                _boldFont = null;
                 _whitePixel = null;
                 _spriteBatch = null;
                 _resourceManager = null;
@@ -741,19 +743,16 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Private Methods - Drawing
 
-        /// <summary>
-        /// Draws text using bitmap font if available, otherwise falls back to colored rectangle
-        /// </summary>
-        private void DrawTextWithFallback(string text, int x, int y, BitmapFont.FontType fontType = BitmapFont.FontType.Normal, Color? fallbackColor = null)
+        private void DrawTextWithFallback(string text, int x, int y, bool bold = false, Color? fallbackColor = null)
         {
-            if (_bitmapFont?.IsLoaded == true)
+            var font = bold ? _boldFont : _font;
+            if (font != null)
             {
-                _bitmapFont.DrawText(_spriteBatch, text, x, y, Color.White, fontType);
+                font.DrawString(_spriteBatch, text, new Vector2(x, y), Color.White);
             }
             else
             {
-                // Calculate fallback dimensions based on font type
-                int fallbackHeight = fontType == BitmapFont.FontType.Thin ? FALLBACK_SMALL_FONT_HEIGHT : FALLBACK_FONT_HEIGHT;
+                int fallbackHeight = bold ? FALLBACK_SMALL_FONT_HEIGHT : FALLBACK_FONT_HEIGHT;
                 Color color = fallbackColor ?? Color.White;
                 DrawTextRect(x, y, text.Length * FALLBACK_CHAR_WIDTH, fallbackHeight, color);
             }
@@ -767,18 +766,16 @@ namespace DTXMania.Game.Lib.Stage
             const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
             var viewport = GetViewportCore();
 
-            if (_bitmapFont?.IsLoaded == true)
+            if (_font != null)
             {
-                // Calculate position for top-right alignment
-                var textSize = _bitmapFont.MeasureText(versionText);
+                var textSize = _font.MeasureString(versionText);
                 int x = viewport.Width - (int)textSize.X - MARGIN_EDGE;
                 int y = MARGIN_TOP;
 
-                _bitmapFont.DrawText(_spriteBatch, versionText, x, y, Color.White, BitmapFont.FontType.Normal);
+                _font.DrawString(_spriteBatch, versionText, new Vector2(x, y), Color.White);
             }
             else
             {
-                // Fallback to rectangle in top-right corner
                 int x = viewport.Width - (versionText.Length * FALLBACK_CHAR_WIDTH) - MARGIN_EDGE;
                 int y = MARGIN_TOP;
                 DrawTextRect(x, y, versionText.Length * FALLBACK_CHAR_WIDTH, FALLBACK_FONT_HEIGHT, Color.White);
@@ -802,7 +799,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw current progress message in different color/style
                 if (!string.IsNullOrEmpty(_currentProgressMessage))
                 {
-                    DrawTextWithFallback(_currentProgressMessage, x, y, BitmapFont.FontType.Thin, Color.Yellow);
+                    DrawTextWithFallback(_currentProgressMessage, x, y, bold: true, fallbackColor: Color.Yellow);
                 }
             }
         }
