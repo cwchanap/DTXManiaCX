@@ -2444,7 +2444,7 @@ public class PerformanceStageDeterministicTests
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "InitializeReadyFont"));
 
         Assert.Null(exception);
-        Assert.Null(ReflectionHelpers.GetPrivateField<BitmapFont>(stage, "_readyFont"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_readyFont"));
     }
 
     [Fact]
