@@ -55,7 +55,7 @@ namespace DTXMania.Game.Lib.Stage
         private ManagedSpriteTexture _difficultySprite;
         
         // Level number bitmap font for difficulty level display
-        private BitmapFont _levelNumberFont;
+        private IFont _levelNumberFont;
         
         // Background and styling
         private Texture2D _whitePixel;
@@ -194,11 +194,8 @@ namespace DTXMania.Game.Lib.Stage
             }
             
             // Clean up level number font
-            if (_levelNumberFont != null)
-            {
-                _levelNumberFont?.Dispose();
-                _levelNumberFont = null;
-            }
+            _levelNumberFont?.RemoveReference();
+            _levelNumberFont = null;
             
             // Clean up fonts
             if (_titleFont != null)
@@ -483,18 +480,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Clean up existing level number font first
-                if (_levelNumberFont != null)
-                {
-                    _levelNumberFont.Dispose();
-                    _levelNumberFont = null;
-                }
-                
-                // Load level number bitmap font using the same configuration as SongStatusPanel
-                var levelNumberConfig = BitmapFont.CreateLevelNumberFontConfig();
-                _levelNumberFont = new BitmapFont(_game.GraphicsDevice, _resourceManager, levelNumberConfig);
-                
-                // Font loaded or creation failed
+                _levelNumberFont?.RemoveReference();
+                _levelNumberFont = _resourceManager.LoadFont("NotoSerifJP", 24);
             }
             catch (Exception)
             {
@@ -723,7 +710,7 @@ namespace DTXMania.Game.Lib.Stage
         
         private void DrawDifficultyLevelNumber()
         {
-            if (_levelNumberFont == null || !_levelNumberFont.IsLoaded)
+            if (_levelNumberFont == null)
                 return;
             
             try
@@ -741,7 +728,7 @@ namespace DTXMania.Game.Lib.Stage
                 var textColor = SongTransitionUILayout.DifficultyLevelNumber.TextColor;
                 
                 // Draw the level number using bitmap font
-                _levelNumberFont.DrawText(_spriteBatch, levelText, (int)position.X, (int)position.Y, textColor);
+                _levelNumberFont.DrawString(_spriteBatch, levelText, position, textColor);
             }
             catch (Exception)
             {
