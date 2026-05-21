@@ -18,8 +18,8 @@ namespace DTXMania.Test.Stage.Performance
 
         /// <summary>
         /// ScrollSpeedIndicator is created with null font (font init can fail at runtime).
-        /// All logic tests work without a real BitmapFont because Show/Update/ComputeAlpha
-        /// do not touch the font — only Draw does. Draw tests use CreateTestBitmapFont
+        /// All logic tests work without a real font because Show/Update/ComputeAlpha
+        /// do not touch the font — only Draw does. Draw tests use a Mock<IFont>
         /// for full coverage, while logic tests rely on the null-font fast path.
         /// </summary>
         private static ScrollSpeedIndicator CreateIndicator()
@@ -263,7 +263,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Draw_WithFontAndVisible_ShouldExecuteDrawPath()
         {
-            var font = CreateTestBitmapFont();
+            var font = CreateTestFont();
             var indicator = new ScrollSpeedIndicator(font);
             indicator.Show(100);
             var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
@@ -277,7 +277,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Draw_WithFontDuringFade_ShouldExecuteDrawPathWithFadedAlpha()
         {
-            var font = CreateTestBitmapFont();
+            var font = CreateTestFont();
             var indicator = new ScrollSpeedIndicator(font);
             indicator.Show(100);
 
@@ -294,7 +294,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Draw_WithFontAtFullAlpha_DoesNotThrow()
         {
-            var font = CreateTestBitmapFont();
+            var font = CreateTestFont();
             var indicator = new ScrollSpeedIndicator(font);
             indicator.Show(200);
 
@@ -306,7 +306,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Draw_AfterReShow_ShouldUseNewText()
         {
-            var font = CreateTestBitmapFont();
+            var font = CreateTestFont();
             var indicator = new ScrollSpeedIndicator(font);
             indicator.Show(100);
 
@@ -320,20 +320,9 @@ namespace DTXMania.Test.Stage.Performance
             indicator.Draw(spriteBatch);
         }
 
-        private static BitmapFont CreateTestBitmapFont()
+        private static IFont CreateTestFont()
         {
-            var font = ReflectionHelpers.CreateUninitialized<BitmapFont>();
-
-            var config = BitmapFont.CreateConsoleFontConfig();
-            ReflectionHelpers.SetPrivateField(font, "_config", config);
-
-            var mockTexture = new Mock<ITexture>().Object;
-            ReflectionHelpers.SetPrivateField(font, "_fontTextures", new ITexture[] { mockTexture });
-
-            ReflectionHelpers.SetPrivateField(font, "_characterRectangles",
-                new Rectangle[config.DisplayableCharacters.Length]);
-
-            return font;
+            return new Mock<IFont>().Object;
         }
 
         #endregion
