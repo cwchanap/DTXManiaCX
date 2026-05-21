@@ -169,8 +169,19 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
 
-            _font = CreateFontCore(_resourceManager, 14, FontStyle.Regular);
-            _boldFont = CreateFontCore(_resourceManager, 14, FontStyle.Bold);
+            try
+            {
+                _font = CreateFontCore(_resourceManager, 14, FontStyle.Regular);
+                _boldFont = CreateFontCore(_resourceManager, 14, FontStyle.Bold);
+            }
+            catch
+            {
+                _font?.RemoveReference();
+                _font = null;
+                _boldFont?.RemoveReference();
+                _boldFont = null;
+                throw;
+            }
 
             // Load background texture (DTXManiaNX uses 1_background.jpg)
 
@@ -784,7 +795,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawProgressMessages()
         {
-            // Draw progress messages using bitmap font (DTXMania pattern)
             int x = MARGIN_EDGE;
             int y = MARGIN_EDGE;
 
