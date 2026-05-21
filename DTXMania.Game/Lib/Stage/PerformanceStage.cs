@@ -812,7 +812,10 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Font initialization failed, fallback will be used
                 System.Diagnostics.Trace.WriteLine($"[PerformanceStage] InitializeReadyFont failed: {ex.Message}");
+                _readyFont?.RemoveReference();
                 _readyFont = null;
+                _scrollSpeedFont?.RemoveReference();
+                _scrollSpeedFont = null;
                 _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
             }
         }
