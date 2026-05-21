@@ -449,7 +449,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "InitializeComponents");
 
             Assert.Same(stage.WhitePixelToReturn, GetPrivateField<Texture2D>(stage, "_whitePixel"));
-            Assert.Null(GetPrivateField<BitmapFont>(stage, "_resultFont"));
+            Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
         }
 
         [Fact]
@@ -491,18 +491,18 @@ namespace DTXMania.Test.Stage
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
             var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
-            var font = (TrackingBitmapFont)FormatterServices.GetUninitializedObject(typeof(TrackingBitmapFont));
 #pragma warning restore SYSLIB0050
+            var fontMock = new Mock<IFont>();
 
             SetPrivateField(stage, "_whitePixel", whitePixel);
-            SetPrivateField(stage, "_resultFont", font);
+            SetPrivateField(stage, "_resultFont", fontMock.Object);
 
             InvokePrivateMethod(stage, "CleanupComponents");
 
             Assert.True(whitePixel.WasDisposed);
-            Assert.True(font.WasDisposed);
+            fontMock.Verify(f => f.Dispose(), Times.Once);
             Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
-            Assert.Null(GetPrivateField<BitmapFont>(stage, "_resultFont"));
+            Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
         }
 
         [Fact]
@@ -512,21 +512,21 @@ namespace DTXMania.Test.Stage
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
             var spriteBatch = (TrackingSpriteBatch)FormatterServices.GetUninitializedObject(typeof(TrackingSpriteBatch));
             var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
-            var font = (TrackingBitmapFont)FormatterServices.GetUninitializedObject(typeof(TrackingBitmapFont));
 #pragma warning restore SYSLIB0050
+            var fontMock = new Mock<IFont>();
 
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
             SetPrivateField(stage, "_spriteBatch", spriteBatch);
             SetPrivateField(stage, "_uiManager", new UIManager());
             SetPrivateField(stage, "_whitePixel", whitePixel);
-            SetPrivateField(stage, "_resultFont", font);
+            SetPrivateField(stage, "_resultFont", fontMock.Object);
             SetPrivateField(stage, "_disposed", false);
 
             InvokeDispose(stage, true);
 
             Assert.True(spriteBatch.WasDisposed);
             Assert.True(whitePixel.WasDisposed);
-            Assert.True(font.WasDisposed);
+            fontMock.Verify(f => f.Dispose(), Times.Once);
         }
 
         #endregion
@@ -621,20 +621,6 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        private sealed class TrackingBitmapFont : BitmapFont
-        {
-            public TrackingBitmapFont() : base((IResourceManager)null!, new BitmapFont.BitmapFontConfig(), allowNullGraphicsDevice: true)
-            {
-            }
-
-            public bool WasDisposed { get; private set; }
-
-            protected override void Dispose(bool disposing)
-            {
-                WasDisposed = true;
-            }
-        }
-
         private sealed class InspectableResultStage : ResultStage
         {
             public InspectableResultStage(BaseGame game)
@@ -659,7 +645,7 @@ namespace DTXMania.Test.Stage
                 return WhitePixelToReturn!;
             }
 
-            internal override BitmapFont CreateResultFont()
+            internal override IFont CreateResultFont()
             {
                 throw FontExceptionToThrow ?? new InvalidOperationException("No font exception configured.");
             }

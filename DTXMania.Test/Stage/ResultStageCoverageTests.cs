@@ -229,7 +229,7 @@ namespace DTXMania.Test.Stage
                 return null!;
             }
 
-            internal override BitmapFont CreateResultFont()
+            internal override IFont CreateResultFont()
             {
                 ResultFontRequested = true;
                 return null!;
