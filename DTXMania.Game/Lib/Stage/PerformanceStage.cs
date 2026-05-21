@@ -87,7 +87,7 @@ namespace DTXMania.Game.Lib.Stage
         private ChipSoundCache _chipSoundCache = null!;
 
         // UX components
-        private BitmapFont _readyFont = null!;
+        private IFont _readyFont = null!;
         private ScrollSpeedIndicator? _scrollSpeedIndicator;
         private IConfigManager? _subscribedConfigManager;
 
@@ -434,7 +434,7 @@ namespace DTXMania.Game.Lib.Stage
             _padRenderer = null;
 
             // Cleanup UX components
-            _readyFont?.Dispose();
+            _readyFont?.RemoveReference();
             _readyFont = null;
             
             // Cleanup performance UI assets
@@ -801,10 +801,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Create bitmap font for ready text display
-                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-                _readyFont = new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(_readyFont);
+                _readyFont = _resourceManager.LoadFont("NotoSerifJP", 24);
+                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
             }
             catch (Exception ex)
             {
@@ -955,16 +953,15 @@ namespace DTXMania.Game.Lib.Stage
             // Calculate center position
             var screenCenter = new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.ScreenHeight / 2);
 
-            // Try to use BitmapFont for actual text rendering
-            if (_readyFont != null && _readyFont.IsLoaded)
+            if (_readyFont != null)
             {
-                // Measure text to center it properly
-                var textSize = _readyFont.MeasureText(text);
+                var textSize = _readyFont.MeasureString(text);
                 var textX = (int)(screenCenter.X - textSize.X / 2);
                 var textY = (int)(screenCenter.Y - textSize.Y / 2);
 
-                // Draw text at gameplay state depth (0.1f = front layer for UI pass)
-                _readyFont.DrawText(_spriteBatch, text, textX, textY, color, BitmapFont.FontType.Normal, 0.1f);
+                _readyFont.DrawString(_spriteBatch, text, new Vector2(textX, textY), color,
+                    rotation: 0f, origin: Vector2.Zero, scale: Vector2.One,
+                    effects: SpriteEffects.None, layerDepth: 0.1f);
             }
             else
             {
