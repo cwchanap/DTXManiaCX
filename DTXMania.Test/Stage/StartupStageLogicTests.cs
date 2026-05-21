@@ -599,7 +599,7 @@ namespace DTXMania.Test.Stage
             Assert.Same(stage.SpriteBatchStub, ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.Same(stage.WhitePixelStub, ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Same(resourceManager.Object, ReflectionHelpers.GetPrivateField<IResourceManager>(stage, "_resourceManager"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<BitmapFont>(stage, "_bitmapFont"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
             Assert.Equal(StartupPhase.SystemSounds, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_elapsedTime"));
             Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_phaseStartTime"));
@@ -628,7 +628,8 @@ namespace DTXMania.Test.Stage
             var stage = new GraphicsControlledStartupStage(ReflectionHelpers.CreateGame());
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
             ReflectionHelpers.SetPrivateField(stage, "_whitePixel", stage.WhitePixelStub);
-            ReflectionHelpers.SetPrivateField(stage, "_bitmapFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_font", null);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
             ReflectionHelpers.SetPrivateField(stage, "_progressMessages", new List<string> { "message one", "message two" });
             ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", "current");
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.LoadScoreFiles);
@@ -917,7 +918,7 @@ namespace DTXMania.Test.Stage
                 return WhitePixelStub;
             }
 
-            protected override BitmapFont CreateBitmapFontCore(GraphicsDevice graphicsDevice, IResourceManager resourceManager, BitmapFont.BitmapFontConfig config)
+            protected override IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
             {
                 return null!;
             }
