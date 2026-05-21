@@ -88,6 +88,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // UX components
         private IFont _readyFont = null!;
+        private IFont? _scrollSpeedFont;
         private ScrollSpeedIndicator? _scrollSpeedIndicator;
         private IConfigManager? _subscribedConfigManager;
 
@@ -436,7 +437,9 @@ namespace DTXMania.Game.Lib.Stage
             // Cleanup UX components
             _readyFont?.RemoveReference();
             _readyFont = null;
-            
+            _scrollSpeedFont?.RemoveReference();
+            _scrollSpeedFont = null;
+
             // Cleanup performance UI assets
             CleanupPerformanceUIAssets();
 
@@ -802,7 +805,8 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 _readyFont = _resourceManager.LoadFont("NotoSerifJP", 24);
-                _scrollSpeedIndicator = new ScrollSpeedIndicator(null);
+                _scrollSpeedFont = _resourceManager.LoadFont("NotoSerifJP", 14);
+                _scrollSpeedIndicator = new ScrollSpeedIndicator(_scrollSpeedFont);
             }
             catch (Exception ex)
             {

@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// </summary>
     public class ScrollSpeedIndicator
     {
-        private readonly BitmapFont? _font;
+        private readonly IFont? _font;
         private string _text = string.Empty;
         private float _remainingSeconds;
         private bool _hasShown;
@@ -30,7 +30,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>Current alpha value (0..1) used for fade-out near expiry.</summary>
         internal float Alpha => (!_hasShown || _remainingSeconds <= 0f) ? 0f : ComputeAlpha();
 
-        public ScrollSpeedIndicator(BitmapFont? font)
+        public ScrollSpeedIndicator(IFont? font)
         {
             _font = font;
         }
@@ -58,10 +58,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             var alpha = ComputeAlpha();
             var color = Color.White * alpha;
-            _font.DrawText(spriteBatch, _text,
-                PerformanceUILayout.ScrollSpeedIndicatorX,
-                PerformanceUILayout.ScrollSpeedIndicatorY,
-                color, BitmapFont.FontType.Normal, 0.0f);
+            _font.DrawString(spriteBatch, _text,
+                new Vector2(PerformanceUILayout.ScrollSpeedIndicatorX,
+                            PerformanceUILayout.ScrollSpeedIndicatorY),
+                color);
         }
 
         private float ComputeAlpha()
