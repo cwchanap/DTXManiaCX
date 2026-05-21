@@ -33,7 +33,7 @@ namespace DTXMania.Game.Lib.Stage
         private int _selectedDifficulty;
 
         // UI components
-        private BitmapFont _resultFont;
+        private IFont _resultFont;
         private Texture2D _whitePixel;
 
 
@@ -195,10 +195,9 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         [ExcludeFromCodeCoverage]
-        internal virtual BitmapFont CreateResultFont()
+        internal virtual IFont CreateResultFont()
         {
-            var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-            return new BitmapFont(_spriteBatch.GraphicsDevice, _resourceManager, consoleFontConfig);
+            return _resourceManager.LoadFont("NotoSerifJP", 14);
         }
 
         private void CleanupComponents()
@@ -333,12 +332,11 @@ namespace DTXMania.Game.Lib.Stage
             if (string.IsNullOrEmpty(text))
                 return;
 
-            if (_resultFont?.IsLoaded == true)
+            if (_resultFont != null)
             {
-                // Use bitmap font if available
-                var textSize = _resultFont.MeasureText(text);
+                var textSize = _resultFont.MeasureString(text);
                 var textPosition = new Vector2(centerX - textSize.X / 2, currentY);
-                _resultFont.DrawText(_spriteBatch, text, (int)textPosition.X, (int)textPosition.Y, color);
+                _resultFont.DrawString(_spriteBatch, text, textPosition, color);
             }
             else
             {
