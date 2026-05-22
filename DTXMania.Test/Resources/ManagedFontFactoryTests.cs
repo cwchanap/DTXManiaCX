@@ -29,6 +29,8 @@ namespace DTXMania.Test.Resources
                 "GetBestSpriteFontAssetName",
                 BindingFlags.NonPublic | BindingFlags.Static);
 
+            Assert.NotNull(method);
+
             var result = (string)method!.Invoke(null, new object[] { 14, FontStyle.Regular })!;
             Assert.Equal("NotoSerifJP", result);
         }
@@ -41,6 +43,8 @@ namespace DTXMania.Test.Resources
             var method = typeof(ManagedFont).GetMethod(
                 "GetBestSpriteFontAssetName",
                 BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
 
             var result = (string)method!.Invoke(null, new object[] { 24, FontStyle.Bold })!;
             Assert.Equal("NotoSerifJP-24", result);
