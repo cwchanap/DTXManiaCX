@@ -194,18 +194,22 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementTextPopupManager_LoadJudgementFont_WhenBitmapFontIsNotLoaded_ShouldReturnNull()
+        public void JudgementTextPopupManager_LoadJudgementFont_WhenResourceManagerThrows_ShouldReturnNull()
         {
             var loadMethod = typeof(JudgementTextPopupManager).GetMethod("LoadJudgementFont", BindingFlags.Static | BindingFlags.NonPublic);
 
             Assert.NotNull(loadMethod);
+
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>()))
+                .Throws(new InvalidOperationException("font load failed"));
 
             var result = loadMethod!.Invoke(
                 null,
                 new object[]
                 {
                     ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
-                    CreateMockResourceManager().Object
+                    resourceManager.Object
                 });
 
             Assert.Null(result);
@@ -315,11 +319,11 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementTextPopupManager_CreateForTesting_WhenDisposed_ShouldRunRealDisposeLogic()
         {
-            var trackingFont = ReflectionHelpers.CreateUninitialized<TrackingBitmapFont>();
-            var manager = CreateManager(font: trackingFont, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)], disposed: true);
+            var fontMock = new Mock<IFont>();
+            var manager = CreateManager(font: fontMock.Object, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)], disposed: true);
 
             Assert.Empty(GetActivePopups(manager));
-            Assert.Equal(1, trackingFont.DisposeCount);
+            fontMock.Verify(f => f.RemoveReference(), Times.Once);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
         }
 
@@ -365,20 +369,20 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementTextPopupManager_Dispose_ShouldClearPopupsDisposeFontAndMarkDisposed()
+        public void JudgementTextPopupManager_Dispose_ShouldClearPopupsReleaseFontAndMarkDisposed()
         {
-            var trackingFont = ReflectionHelpers.CreateUninitialized<TrackingBitmapFont>();
-            var manager = CreateManager(font: trackingFont, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)]);
+            var fontMock = new Mock<IFont>();
+            var manager = CreateManager(font: fontMock.Object, activePopups: [new JudgementTextPopup("Perfect", Vector2.Zero)]);
 
             manager.Dispose();
 
             Assert.Empty(GetActivePopups(manager));
-            Assert.Equal(1, trackingFont.DisposeCount);
+            fontMock.Verify(f => f.RemoveReference(), Times.Once);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_disposed"));
         }
 
         private static JudgementTextPopupManager CreateManager(
-            BitmapFont? font = null,
+            IFont? font = null,
             List<JudgementTextPopup>? activePopups = null,
             bool disposed = false)
         {
@@ -393,20 +397,6 @@ namespace DTXMania.Test.Stage.Performance
         private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)
         {
             return ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(manager, "_activePopups")!;
-        }
-
-        private sealed class TrackingBitmapFont : BitmapFont
-        {
-            public TrackingBitmapFont() : base(new Mock<IResourceManager>().Object, new BitmapFontConfig(), true)
-            {
-            }
-
-            public int DisposeCount { get; private set; }
-
-            protected override void Dispose(bool disposing)
-            {
-                DisposeCount++;
-            }
         }
 
         #endregion

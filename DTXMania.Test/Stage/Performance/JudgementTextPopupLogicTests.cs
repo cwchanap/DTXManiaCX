@@ -148,7 +148,7 @@ public class JudgementTextPopupLogicTests
     [Fact]
     public void Draw_WhenSpriteBatchIsNull_ShouldReturnWithoutTouchingPopups()
     {
-        using var font = CreateLoadedBitmapFont();
+        var font = new Mock<IFont>().Object;
         var drawCount = 0;
         var manager = CreateManager(font: font, drawText: (_, _, _, _, _, _) => drawCount++);
         GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
@@ -166,7 +166,7 @@ public class JudgementTextPopupLogicTests
         var managerWithoutFont = CreateManager();
         GetActivePopups(managerWithoutFont).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
 
-        using var fontForDisposedManager = CreateLoadedBitmapFont();
+        var fontForDisposedManager = new Mock<IFont>().Object;
         var disposedManager = CreateManager(font: fontForDisposedManager, drawText: (_, _, _, _, _, _) => drawCount++, disposed: true);
 
         var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
@@ -180,23 +180,9 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
-    public void Draw_WhenFontIsUnloaded_ShouldReturnWithoutDrawing()
-    {
-        using var font = CreateUnloadedBitmapFont();
-        var drawCount = 0;
-        var manager = CreateManager(font: font, drawText: (_, _, _, _, _, _) => drawCount++);
-        GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", Vector2.Zero));
-
-        manager.Draw(ReflectionHelpers.CreateUninitialized<SpriteBatch>());
-
-        Assert.Equal(1, manager.ActivePopupCount);
-        Assert.Equal(0, drawCount);
-    }
-
-    [Fact]
     public void Draw_WhenPopupIsActiveAndAnotherIsInactive_ShouldEvaluateDrawAndSkipBranches()
     {
-        using var font = CreateLoadedBitmapFont();
+        var font = new Mock<IFont>().Object;
         string? drawnText = null;
         int? drawnX = null;
         int? drawnY = null;
@@ -226,17 +212,19 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
-    public void Draw_WhenUsingDefaultDrawHelper_ShouldInvokeBitmapFontPath()
+    public void Draw_WhenUsingDefaultDrawHelper_ShouldInvokeFontDrawString()
     {
-        using var font = CreateLoadedBitmapFont();
-        var manager = CreateManager(font: font);
-        GetActivePopups(manager).Add(new JudgementTextPopup("★", new Vector2(100, 200)));
-        var drawText = ReflectionHelpers.GetPrivateField<Action<BitmapFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
+        var fontMock = new Mock<IFont>();
+        var manager = CreateManager(font: fontMock.Object);
+        GetActivePopups(manager).Add(new JudgementTextPopup("Perfect", new Vector2(100, 200)));
+        var drawText = ReflectionHelpers.GetPrivateField<Action<IFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
 
-        var exception = Record.Exception(() => manager.Draw(ReflectionHelpers.CreateUninitialized<SpriteBatch>()));
+        var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+        var exception = Record.Exception(() => manager.Draw(spriteBatch));
 
         Assert.Null(exception);
-        Assert.Equal("DrawTextWithBitmapFont", drawText!.Method.Name);
+        Assert.Equal("DrawTextWithFont", drawText!.Method.Name);
+        fontMock.Verify(f => f.DrawString(spriteBatch, "Perfect", new Vector2(100, 200), It.IsAny<Color>()), Times.Once);
         Assert.Equal(1, manager.ActivePopupCount);
     }
 
@@ -277,38 +265,52 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
-    public void LoadJudgementFont_WhenBitmapFontLoads_ShouldReturnFont()
+    public void LoadJudgementFont_WhenResourceManagerReturnsFont_ShouldReturnFont()
     {
         var loadMethod = GetLoadJudgementFontMethod();
+        var expectedFont = new Mock<IFont>().Object;
         var resourceManager = new Mock<IResourceManager>();
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Texture).Returns((Texture2D?)null);
-        texture.SetupGet(x => x.Width).Returns(8);
-        texture.SetupGet(x => x.Height).Returns(16);
-        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
+        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", 48)).Returns(expectedFont);
 
-        using var font = (BitmapFont?)loadMethod.Invoke(
+        var font = (IFont?)loadMethod.Invoke(
             null,
             [ReflectionHelpers.CreateUninitialized<GraphicsDevice>(), resourceManager.Object]);
 
-        Assert.NotNull(font);
-        Assert.True(font!.IsLoaded);
+        Assert.Same(expectedFont, font);
+    }
+
+    [Fact]
+    public void LoadJudgementFont_WhenResourceManagerThrows_ShouldReturnNull()
+    {
+        var loadMethod = GetLoadJudgementFontMethod();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadFont(It.IsAny<string>(), It.IsAny<int>()))
+            .Throws(new InvalidOperationException("font load failed"));
+
+        var font = (IFont?)loadMethod.Invoke(
+            null,
+            [ReflectionHelpers.CreateUninitialized<GraphicsDevice>(), resourceManager.Object]);
+
+        Assert.Null(font);
     }
 
     [Fact]
     public void Constructor_WithGraphicsDeviceAndResourceManager_ShouldLoadJudgementFont()
     {
+        var fontMock = new Mock<IFont>().Object;
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", 48)).Returns(fontMock);
+
         using var manager = new JudgementTextPopupManager(
             ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),
-            CreateBitmapFontResourceManager().Object);
+            resourceManager.Object);
 
-        var font = ReflectionHelpers.GetPrivateField<BitmapFont>(manager, "_font");
-        var drawText = ReflectionHelpers.GetPrivateField<Action<BitmapFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
+        var font = ReflectionHelpers.GetPrivateField<IFont>(manager, "_font");
+        var drawText = ReflectionHelpers.GetPrivateField<Action<IFont, SpriteBatch, string, int, int, Color>>(manager, "_drawText");
 
-        Assert.NotNull(font);
-        Assert.True(font!.IsLoaded);
+        Assert.Same(fontMock, font);
         Assert.NotNull(drawText);
-        Assert.Equal("DrawTextWithBitmapFont", drawText!.Method.Name);
+        Assert.Equal("DrawTextWithFont", drawText!.Method.Name);
     }
 
     [Fact]
@@ -365,8 +367,8 @@ public class JudgementTextPopupLogicTests
     }
 
     private static JudgementTextPopupManager CreateManager(
-        BitmapFont? font = null,
-        Action<BitmapFont, SpriteBatch, string, int, int, Color>? drawText = null,
+        IFont? font = null,
+        Action<IFont, SpriteBatch, string, int, int, Color>? drawText = null,
         bool disposed = false)
     {
         return JudgementTextPopupManager.CreateForTesting(
@@ -383,31 +385,8 @@ public class JudgementTextPopupLogicTests
         return typeof(JudgementTextPopupManager).GetMethod("LoadJudgementFont", BindingFlags.Static | BindingFlags.NonPublic)!;
     }
 
-    private static BitmapFont CreateLoadedBitmapFont()
-    {
-        return new BitmapFont(CreateBitmapFontResourceManager().Object, BitmapFont.CreateJudgementTextFontConfig(), true);
-    }
-
-    private static BitmapFont CreateUnloadedBitmapFont()
-    {
-        var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture?)null);
-        return new BitmapFont(resourceManager.Object, BitmapFont.CreateJudgementTextFontConfig(), true);
-    }
-
     private static List<JudgementTextPopup> GetActivePopups(JudgementTextPopupManager manager)
     {
         return ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(manager, "_activePopups")!;
-    }
-
-    private static Mock<IResourceManager> CreateBitmapFontResourceManager()
-    {
-        var resourceManager = new Mock<IResourceManager>();
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Texture).Returns((Texture2D?)null);
-        texture.SetupGet(x => x.Width).Returns(8);
-        texture.SetupGet(x => x.Height).Returns(16);
-        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
-        return resourceManager;
     }
 }

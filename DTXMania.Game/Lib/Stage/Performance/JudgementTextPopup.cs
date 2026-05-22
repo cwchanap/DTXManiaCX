@@ -101,10 +101,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Fields
 
         private readonly List<JudgementTextPopup> _activePopups;
-        private readonly BitmapFont? _font;
+        private readonly IFont? _font;
         private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
-        private readonly Action<BitmapFont, SpriteBatch, string, int, int, Color> _drawText;
+        private readonly Action<IFont, SpriteBatch, string, int, int, Color> _drawText;
         private bool _disposed = false;
 
         // Text colors for different judgement types
@@ -139,10 +139,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal static JudgementTextPopupManager CreateForTesting(
             GraphicsDevice graphicsDevice,
             IResourceManager resourceManager,
-            BitmapFont? font = null,
+            IFont? font = null,
             List<JudgementTextPopup>? activePopups = null,
             bool disposed = false,
-            Action<BitmapFont, SpriteBatch, string, int, int, Color>? drawText = null)
+            Action<IFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
             var manager = new JudgementTextPopupManager(graphicsDevice, resourceManager, font, activePopups, drawText);
             if (disposed)
@@ -156,15 +156,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private JudgementTextPopupManager(
             GraphicsDevice graphicsDevice,
             IResourceManager resourceManager,
-            BitmapFont? font,
+            IFont? font,
             List<JudgementTextPopup>? activePopups = null,
-            Action<BitmapFont, SpriteBatch, string, int, int, Color>? drawText = null)
+            Action<IFont, SpriteBatch, string, int, int, Color>? drawText = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _activePopups = activePopups ?? new List<JudgementTextPopup>();
             _font = font;
-            _drawText = drawText ?? DrawTextWithBitmapFont;
+            _drawText = drawText ?? DrawTextWithFont;
         }
 
         #endregion
@@ -220,7 +220,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         public void Draw(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _font == null || !_font.IsLoaded)
+            if (_disposed || spriteBatch == null || _font == null)
                 return;
 
             foreach (var popup in _activePopups)
@@ -297,26 +297,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             };
         }
 
-        /// <summary>
-        /// Create font configuration for judgement text
-        /// Based on NotoSerifJP Bold 28 specification
-        /// </summary>
-        private static BitmapFont? LoadJudgementFont(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
+        private static IFont? LoadJudgementFont(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
         {
             ArgumentNullException.ThrowIfNull(graphicsDevice);
             ArgumentNullException.ThrowIfNull(resourceManager);
 
             try
             {
-                var font = new BitmapFont(graphicsDevice, resourceManager, CreateJudgementTextFontConfig());
-                if (!font.IsLoaded)
-                {
-                    System.Diagnostics.Debug.WriteLine("JudgementTextPopupManager: Failed to load judgement text font");
-                    font.Dispose();
-                    return null;
-                }
-
-                return font;
+                return resourceManager.LoadFont("NotoSerifJP", 48);
             }
             catch (Exception ex)
             {
@@ -325,15 +313,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        private static BitmapFont.BitmapFontConfig CreateJudgementTextFontConfig()
+        private static void DrawTextWithFont(IFont font, SpriteBatch spriteBatch, string text, int x, int y, Color color)
         {
-            // Use the standardized judgement text font configuration
-            return BitmapFont.CreateJudgementTextFontConfig();
-        }
-
-        private static void DrawTextWithBitmapFont(BitmapFont bitmapFont, SpriteBatch spriteBatch, string text, int x, int y, Color color)
-        {
-            bitmapFont.DrawText(spriteBatch, text, x, y, color);
+            font.DrawString(spriteBatch, text, new Vector2(x, y), color);
         }
 
         #endregion
@@ -352,11 +334,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (disposing)
                 {
-                    // Clear all active popups
                     _activePopups.Clear();
-
-                    // Dispose font
-                    _font?.Dispose();
+                    _font?.RemoveReference();
                 }
 
                 _disposed = true;
