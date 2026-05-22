@@ -431,9 +431,6 @@ namespace DTXMania.Game.Lib.Resources
                 BarOtherSelected,
                 PreimagePanel,
                 Scrollbar,
-                ConsoleFont,
-                ConsoleFontSecondary,
-                LevelNumberFont,
                 DifficultySprite,
                 DefaultPreview,
                 PerformanceBackgroundVideo,
@@ -535,9 +532,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             return new[]
             {
-                ConsoleFont,
-                ConsoleFontSecondary,
-                LevelNumberFont,
                 DifficultySprite
             };
         }

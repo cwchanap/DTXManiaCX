@@ -253,7 +253,12 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnDeactivate()
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
-            // Startup stages typically don't get reactivated, so state reset is unnecessary
+
+            // Release font references (re-acquired on re-activation)
+            _font?.RemoveReference();
+            _font = null;
+            _boldFont?.RemoveReference();
+            _boldFont = null;
         }
 
         #endregion
@@ -312,6 +317,8 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource = null;
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
+                // Font refs are released in OnDeactivate (called by BaseStage.Dispose → Deactivate)
+                // but guard against disposal without deactivation
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
                 _whitePixel?.Dispose();

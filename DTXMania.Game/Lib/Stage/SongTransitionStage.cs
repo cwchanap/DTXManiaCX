@@ -239,9 +239,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Try to load a background texture using layout constants
                 _backgroundTexture = _resourceManager.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Continue without background - we'll use fallback
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load difficulty sprite: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -341,9 +341,10 @@ namespace DTXMania.Game.Lib.Stage
                 // Load title font using layout configuration
                 _titleFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Title font load failed, continue without it
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title font: {ex.GetType().Name}: {ex.Message}");
             }
             
             try
@@ -358,9 +359,10 @@ namespace DTXMania.Game.Lib.Stage
                 // Load artist font using layout configuration
                 _artistFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Artist font load failed, continue without it
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist font: {ex.GetType().Name}: {ex.Message}");
             }
         }
         
@@ -477,14 +479,22 @@ namespace DTXMania.Game.Lib.Stage
 
         private void LoadLevelNumberFont()
         {
+            var oldFont = _levelNumberFont;
+            _levelNumberFont = null;
             try
             {
-                _levelNumberFont?.RemoveReference();
                 _levelNumberFont = _resourceManager.LoadFont("NotoSerifJP", 24);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                _levelNumberFont = null;
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load level number font: {ex.GetType().Name}: {ex.Message}");
+                // Restore old font on failure
+                _levelNumberFont = oldFont;
+                oldFont = null; // prevent double-release in finally
+            }
+            finally
+            {
+                oldFont?.RemoveReference();
             }
         }
         
