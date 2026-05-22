@@ -235,9 +235,6 @@ namespace DTXMania.Test.Resources
         public void GetAllTexturePaths_ShouldContainFontTextures()
         {
             var paths = TexturePath.GetAllTexturePaths();
-            Assert.Contains(TexturePath.ConsoleFont, paths);
-            Assert.Contains(TexturePath.ConsoleFontSecondary, paths);
-            Assert.Contains(TexturePath.LevelNumberFont, paths);
             Assert.Contains(TexturePath.DifficultySprite, paths);
         }
 
@@ -318,19 +315,16 @@ namespace DTXMania.Test.Resources
         #region GetFontTextures
 
         [Fact]
-        public void GetFontTextures_ShouldReturnFourPaths()
+        public void GetFontTextures_ShouldReturnOnePath()
         {
             var paths = TexturePath.GetFontTextures();
-            Assert.Equal(4, paths.Length);
+            Assert.Single(paths);
         }
 
         [Fact]
-        public void GetFontTextures_ShouldContainAllFontPaths()
+        public void GetFontTextures_ShouldContainDifficultySprite()
         {
             var paths = TexturePath.GetFontTextures();
-            Assert.Contains(TexturePath.ConsoleFont, paths);
-            Assert.Contains(TexturePath.ConsoleFontSecondary, paths);
-            Assert.Contains(TexturePath.LevelNumberFont, paths);
             Assert.Contains(TexturePath.DifficultySprite, paths);
         }
 

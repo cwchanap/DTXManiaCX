@@ -137,6 +137,12 @@ namespace DTXMania.Game.Lib.Stage
             _activePanel?.Deactivate();
             _activePanel = null;
 
+            // Release font references (re-acquired in InitializeGraphics on re-activation)
+            _font?.RemoveReference();
+            _font = null;
+            _boldFont?.RemoveReference();
+            _boldFont = null;
+
             _previousKeyboardState = default;
             _currentKeyboardState = default;
         }
@@ -150,15 +156,16 @@ namespace DTXMania.Game.Lib.Stage
                 // Cleanup MonoGame resources
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
+
+                // Release font references if still held (e.g. stage disposed without deactivation)
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
-                _resourceManager?.Dispose();
 
                 _whitePixel = null;
                 _spriteBatch = null;
                 _font = null;
                 _boldFont = null;
-                _resourceManager = null;
+                _resourceManager = null; // Do NOT dispose — shared game-wide instance
             }
 
             base.Dispose(disposing);

@@ -155,7 +155,6 @@ namespace DTXMania.Game.Lib.Resources
     /// <summary>
     /// Font style enumeration
     /// </summary>
-    [Flags]
     public enum FontStyle
     {
         Regular = 0,

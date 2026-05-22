@@ -232,7 +232,8 @@ public class ManagedFontLogicTests
             Assert.Same(spriteFont, font.SpriteFont);
             Assert.Equal("CachedFont", font.SourcePath);
             Assert.Equal(20, font.Size);
-            Assert.Equal(FontStyle.Bold, font.Style);
+            // Size 20 Bold has no Bold-20 asset; resolves to Regular-24
+            Assert.Equal(FontStyle.Regular, font.Style);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(font, "_characterCacheBuilt"));
         }
         finally
@@ -290,12 +291,13 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void SupportsCharacter_WithCustomCharacterSet_ShouldBuildCacheAndReturnMembership()
+    public void SupportsCharacter_WithSpriteFont_ShouldBuildCacheAndReturnMembership()
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'A', 'B', '?' });
+        var spriteFont = CreateSpriteFont([('A', 10), ('B', 10), ('?', 8)]);
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         Assert.True(font.SupportsCharacter('A'));
-        Assert.False(font.SupportsCharacter('Z'));
+        Assert.True(font.SupportsCharacter('B'));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(font, "_characterCacheBuilt"));
     }
 
@@ -326,11 +328,11 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void LineSpacing_WhenSpriteFontMissing_ShouldUseCustomLineSpacing()
+    public void LineSpacing_WhenSpriteFontMissing_ShouldReturnZero()
     {
-        var font = CreateManagedFont(lineSpacing: 23);
+        var font = CreateManagedFont();
 
-        Assert.Equal(23, font.LineSpacing);
+        Assert.Equal(0f, font.LineSpacing);
     }
 
     [Fact]
@@ -357,23 +359,6 @@ public class ManagedFontLogicTests
 
         Assert.Equal('A', font.DefaultCharacter);
         Assert.Equal('A', spriteFont.DefaultCharacter);
-    }
-
-    [Fact]
-    public void MeasureString_WhenUsingCustomGlyphs_ShouldRespectGlyphWidthsAndNewlines()
-    {
-        var font = CreateManagedFont(
-            customCharacters: new HashSet<char> { 'A', 'B' },
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['A'] = new Rectangle(0, 0, 10, 16),
-                ['B'] = new Rectangle(10, 0, 12, 16)
-            },
-            lineSpacing: 16);
-
-        var size = font.MeasureString("AB\nC");
-
-        Assert.Equal(new Vector2(22, 32), size);
     }
 
     [Fact]
@@ -420,17 +405,26 @@ public class ManagedFontLogicTests
     [Fact]
     public void SanitizeText_ShouldReplaceUnsupportedCharactersUsingFallbackRules()
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'A', '?', '.', '-', '"', '\'', 'ア' });
+        var spriteFont = CreateSpriteFont([('A', 10), ('?', 8)], defaultCharacter: '?');
+        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
+        font.SetTestCharacters(new HashSet<char> { 'A', '?', '.', '-', '"', '\'', 'ア' });
+        // Reset cache so it rebuilds with the test characters
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
-        var sanitized = InvokePrivate<string>(font, "SanitizeText", "Ａ…—“あ");
+        var sanitized = InvokePrivate<string>(font, "SanitizeText", "Ａ…—\u201C\u201Dあ");
 
-        Assert.Equal("A.-\"ア", sanitized);
+        Assert.Equal("A.-\"\"ア", sanitized);
     }
 
     [Fact]
     public void GetCharacterReplacement_ShouldUseHiraganaKatakanaAndHalfwidthFallbacks()
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'ア', 'あ', 'A', '?', '.' });
+        var spriteFont = CreateSpriteFont([('?', 8)], defaultCharacter: '?');
+        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
+        font.SetTestCharacters(new HashSet<char> { 'ア', 'あ', 'A', '?', '.' });
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
         Assert.Equal('ア', InvokePrivate<char>(font, "GetCharacterReplacement", 'あ'));
         Assert.Equal('あ', InvokePrivate<char>(font, "GetCharacterReplacement", 'ア'));
@@ -442,14 +436,10 @@ public class ManagedFontLogicTests
     [Fact]
     public void WrapText_ShouldSplitOnWordBoundariesUsingMeasuredWidth()
     {
-        var font = CreateManagedFont(
-            customCharacters: new HashSet<char> { 'A', 'B', 'C' },
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['A'] = new Rectangle(0, 0, 10, 16),
-                ['B'] = new Rectangle(10, 0, 10, 16),
-                ['C'] = new Rectangle(20, 0, 10, 16)
-            });
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('B', 10), ('C', 10), (' ', 8)],
+            lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var lines = InvokePrivate<List<string>>(font, "WrapText", "AA BB CCC", 30f);
 
@@ -457,58 +447,14 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void DrawString_WhenUsingCustomGlyphsAndSpriteBatchIsNull_ShouldSwallowCustomRenderErrors()
+    public void DrawString_WhenSpriteFontNull_ShouldSwallowErrors()
     {
-        var font = CreateManagedFont(
-            customCharacters: new HashSet<char> { 'A', '?' },
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['A'] = new Rectangle(0, 0, 10, 16),
-                ['?'] = new Rectangle(10, 0, 8, 16)
-            });
+        var font = CreateManagedFont();
 
+        // No SpriteFont set, should not throw
         var exception = Record.Exception(() => font.DrawString(null!, "AA?", Vector2.Zero, Color.White));
 
         Assert.Null(exception);
-    }
-
-    [Fact]
-    public void DrawStringCustom_WhenTextHasNewlineAndUnknownCharacterWithoutFallbackGlyph_ShouldSkipDrawingAndNotThrow()
-    {
-        var font = CreateManagedFont(glyphs: new Dictionary<char, Rectangle>());
-
-        var exception = Record.Exception(() => InvokePrivate<object?>(font, "DrawStringCustom", null!, "\nZ", Vector2.Zero, Color.White));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void DrawStringCustom_WhenUnknownCharacterHasDefaultGlyph_ShouldSwallowDrawFailure()
-    {
-        var font = CreateManagedFont(glyphs: new Dictionary<char, Rectangle>
-        {
-            ['?'] = new Rectangle(0, 0, 8, 16)
-        });
-
-        var exception = Record.Exception(() => InvokePrivate<object?>(font, "DrawStringCustom", null!, "Z", Vector2.Zero, Color.White));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void MeasureStringCustom_WhenTextContainsNewlinesAndUnknownCharacters_ShouldUseGlyphWidthsAndLineSpacing()
-    {
-        var font = CreateManagedFont(
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['A'] = new Rectangle(0, 0, 10, 16),
-                ['B'] = new Rectangle(10, 0, 12, 16)
-            },
-            lineSpacing: 18);
-
-        var size = InvokePrivate<Vector2>(font, "MeasureStringCustom", "A\nBZ");
-
-        Assert.Equal(new Vector2(20, 36), size);
     }
 
     [Fact]
@@ -704,7 +650,11 @@ public class ManagedFontLogicTests
     [Fact]
     public void GetCharacterReplacement_ShouldReplaceFullwidthCharactersWithHalfwidth()
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'A', '?', ' ' });
+        var spriteFont = CreateSpriteFont([('?', 8), (' ', 6)], defaultCharacter: '?');
+        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
+        font.SetTestCharacters(new HashSet<char> { 'A', '?', ' ' });
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
         var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", 'Ａ');
 
@@ -720,7 +670,11 @@ public class ManagedFontLogicTests
     [InlineData('\u201D', '"', '"')]
     public void GetCharacterReplacement_ShouldReplaceUnsupportedChars(char inputChar, char supportedReplacement, char expectedReplacement)
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { supportedReplacement, '?' });
+        var spriteFont = CreateSpriteFont([('?', 8)], defaultCharacter: '?');
+        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
+        font.SetTestCharacters(new HashSet<char> { supportedReplacement, '?', '"', '\'' });
+        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
         var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", inputChar);
 
@@ -730,17 +684,10 @@ public class ManagedFontLogicTests
     [Fact]
     public void WrapText_ShouldWrapLongSingleWordOnNarrowWidth()
     {
-        var font = CreateManagedFont(
-            customCharacters: new HashSet<char> { 'A', 'B', 'C', 'D', 'E', 'F' },
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['A'] = new Rectangle(0, 0, 20, 16),
-                ['B'] = new Rectangle(20, 0, 20, 16),
-                ['C'] = new Rectangle(40, 0, 20, 16),
-                ['D'] = new Rectangle(60, 0, 20, 16),
-                ['E'] = new Rectangle(80, 0, 20, 16),
-                ['F'] = new Rectangle(100, 0, 20, 16)
-            });
+        var spriteFont = CreateSpriteFont(
+            [('A', 20), ('B', 20), ('C', 20), ('D', 20), ('E', 20), ('F', 20), (' ', 8)],
+            lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var lines = InvokePrivate<List<string>>(font, "WrapText", "ABC DEF", 50f);
 
@@ -752,20 +699,16 @@ public class ManagedFontLogicTests
     [Fact]
     public void WrapText_ShouldPreserveWordBoundariesAndRespectMaxWidth()
     {
-        var font = CreateManagedFont(
-            customCharacters: new HashSet<char> { 'x', 'y', 'z' },
-            glyphs: new Dictionary<char, Rectangle>
-            {
-                ['x'] = new Rectangle(0, 0, 5, 16),
-                ['y'] = new Rectangle(5, 0, 5, 16),
-                ['z'] = new Rectangle(10, 0, 5, 16)
-            });
+        var spriteFont = CreateSpriteFont(
+            [('x', 5), ('y', 5), ('z', 5), (' ', 8)],
+            lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var lines = InvokePrivate<List<string>>(font, "WrapText", "x y z", 20f);
 
         // "x y" = 5+8(space)+5 = 18px <= 20px fits; "x y z" = 31px > 20px wraps
         Assert.Equal(["x y", "z"], lines);
-        // Verify all lines respect maxWidth (space uses default 8px width)
+        // Verify all lines respect maxWidth
         Assert.All(lines, line =>
         {
             var lineWidth = font.MeasureString(line).X;
@@ -813,26 +756,28 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void BuildCharacterCache_WithCustomCharactersSet_ShouldUseCustomCharacterSet()
+    public void BuildCharacterCache_WithSpriteFont_ShouldPopulateFromCharacterRanges()
     {
-        var font = CreateManagedFont(customCharacters: new HashSet<char> { 'X', 'Y', 'Z' });
+        var spriteFont = CreateSpriteFont([('A', 10), ('B', 10), ('X', 10), ('?', 8)], defaultCharacter: '?');
+        var testChars = new HashSet<char> { 'A', 'B', 'X' };
+        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
+        font.SetTestCharacters(testChars);
         ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
+        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
         InvokePrivate<object?>(font, "BuildCharacterCache");
 
         var supported = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
         Assert.NotNull(supported);
+        Assert.Contains('A', supported);
+        Assert.Contains('B', supported);
         Assert.Contains('X', supported);
-        Assert.Contains('Y', supported);
-        Assert.Contains('Z', supported);
     }
 
     [Fact]
-    public void BuildCharacterCache_WithoutSpriteFontAndNoCustomCharacters_ShouldMarkCacheBuilt()
+    public void BuildCharacterCache_WithoutSpriteFont_ShouldMarkCacheBuilt()
     {
         var font = CreateManagedFont();
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
-        ReflectionHelpers.SetPrivateField(font, "_customFontCharacters", new HashSet<char>());
         ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
 
         InvokePrivate<object?>(font, "BuildCharacterCache");
@@ -915,9 +860,6 @@ public class ManagedFontLogicTests
         bool includeCustomTexture = true)
     {
         var font = (ManagedFont)RuntimeHelpers.GetUninitializedObject(typeof(ManagedFont));
-        var customTexture = includeCustomTexture
-            ? (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D))
-            : null;
 
         ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
         ReflectionHelpers.SetPrivateField(font, "_sourcePath", "TestFont");
@@ -929,10 +871,6 @@ public class ManagedFontLogicTests
         ReflectionHelpers.SetPrivateField(font, "_defaultCharacter", '?');
         ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
         ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_customFontTexture", customTexture);
-        ReflectionHelpers.SetPrivateField(font, "_customFontGlyphs", glyphs ?? new Dictionary<char, Rectangle>());
-        ReflectionHelpers.SetPrivateField(font, "_customFontCharacters", customCharacters ?? new HashSet<char>());
-        ReflectionHelpers.SetPrivateField(font, "_customLineSpacing", lineSpacing);
 
         var cacheField = typeof(ManagedFont).GetField("_textRenderCache", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(cacheField);

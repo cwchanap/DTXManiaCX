@@ -51,7 +51,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 
 ### Test Projects
 - `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
-- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/BitmapFontTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/JudgementTextPopupTests.cs`, `Stage/Performance/PooledEffectsManagerTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Helpers/MockPerformanceStage.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
+- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Stage/Performance/PooledEffectsManagerTests.cs`, `Helpers/MockPerformanceStage.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
 
 ## Architecture Overview
 
@@ -102,7 +102,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - Event-driven: JudgementManager raises events consumed by ScoreManager, ComboManager, GaugeManager
 
 **Resource Management** (`Lib/Resources/`): Reference-counted caching with statistics tracking
-- Interfaces: ITexture, ISound, IFont with managed wrappers (ManagedTexture, ManagedSpriteTexture, ManagedSound, ManagedFont, BitmapFont)
+- Interfaces: ITexture, ISound, IFont with managed wrappers (ManagedTexture, ManagedSpriteTexture, ManagedSound, ManagedFont)
 - TexturePath constants for all texture file paths (use these, not hardcoded strings)
 - SkinManager + SkinDiscoveryService: skin fallback chain (current skin -> fallback -> system)
 - AudioLoader: WAV (native), MP3 (FFMpegCore), OGG/Vorbis (NVorbis)

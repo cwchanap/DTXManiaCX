@@ -36,11 +36,7 @@ namespace DTXMania.Game.Lib.Resources
         protected readonly HashSet<char> _supportedCharacters = new HashSet<char>();
         protected bool _characterCacheBuilt = false;
 
-        // Custom font rendering data (when SpriteFont creation fails)
-        protected Texture2D _customFontTexture;
-        protected Dictionary<char, XnaRectangle> _customFontGlyphs;
-        protected HashSet<char> _customFontCharacters;
-        protected int _customLineSpacing;        // Text rendering cache for performance (similar to CPrivateFastFont)
+        // Text rendering cache for performance (similar to CPrivateFastFont)
         protected readonly CacheManager<string, CachedTextRender> _textRenderCache = new CacheManager<string, CachedTextRender>();
         protected const int MaxCacheSize = 128;
 
@@ -91,8 +87,9 @@ namespace DTXMania.Game.Lib.Resources
                 if (_contentManager == null)
                     throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
+                var (_, resolvedStyle) = GetBestSpriteFontAssetName(size, style);
                 var spriteFont = GetBestSizeSpriteFont(size, style);
-                return new ManagedFont(spriteFont, fontPath, size, style);
+                return new ManagedFont(spriteFont, fontPath, size, resolvedStyle);
             }
         }
 
@@ -103,7 +100,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         private static SpriteFont GetBestSizeSpriteFont(int requestedSize, FontStyle style)
         {
-            var assetName = GetBestSpriteFontAssetName(requestedSize, style);
+            var (assetName, _) = GetBestSpriteFontAssetName(requestedSize, style);
 
             if (!_loadedFonts.TryGetValue(assetName, out var spriteFont))
             {
@@ -141,8 +138,9 @@ namespace DTXMania.Game.Lib.Resources
         /// <summary>
         /// Pick the closest available SpriteFont asset for the requested (size, style).
         /// Bold variant is only available at size 14; for other sizes Bold falls back to Regular.
+        /// Returns a tuple of (assetName, resolvedStyle) so callers know the actual style.
         /// </summary>
-        private static string GetBestSpriteFontAssetName(int requestedSize, FontStyle style)
+        private static (string assetName, FontStyle resolvedStyle) GetBestSpriteFontAssetName(int requestedSize, FontStyle style)
         {
             var availableRegular = new[]
             {
@@ -170,15 +168,15 @@ namespace DTXMania.Game.Lib.Resources
                 // Otherwise prefer the right-sized Regular over the wrong-sized Bold.
                 if (Math.Abs(closestBold.size - requestedSize) <= Math.Abs(closestRegular.size - requestedSize))
                 {
-                    return closestBold.assetName;
+                    return (closestBold.assetName, FontStyle.Bold);
                 }
-                return closestRegular.assetName;
+                return (closestRegular.assetName, FontStyle.Regular);
             }
 
-            return availableRegular
+            return (availableRegular
                 .OrderBy(x => Math.Abs(x.size - requestedSize))
                 .First()
-                .assetName;
+                .assetName, FontStyle.Regular);
         }
 
         /// <summary>
@@ -242,7 +240,7 @@ namespace DTXMania.Game.Lib.Resources
         public FontStyle Style => _style;
         public bool IsDisposed => _disposed;
         public int ReferenceCount => _referenceCount;
-        public float LineSpacing => _spriteFont?.LineSpacing ?? _customLineSpacing;
+        public float LineSpacing => _spriteFont?.LineSpacing ?? 0f;
 
         public char DefaultCharacter
         {
@@ -303,12 +301,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (_disposed || string.IsNullOrEmpty(text))
                 return Vector2.Zero;
-
-            // Use custom font measurement if SpriteFont is not available
-            if (_spriteFont == null && _customFontTexture != null)
-            {
-                return MeasureStringCustom(text);
-            }
 
             if (_spriteFont != null)
             {
@@ -373,13 +365,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (_disposed || string.IsNullOrEmpty(text))
                 return;
-
-            // Use custom font rendering if SpriteFont is not available
-            if (_spriteFont == null && _customFontTexture != null)
-            {
-                DrawStringCustom(spriteBatch, text, position, color);
-                return;
-            }
 
             if (_spriteFont != null)
             {
@@ -553,32 +538,38 @@ namespace DTXMania.Game.Lib.Resources
             if (width <= 0 || height <= 0)
                 return null;            var spriteBatch = new SpriteBatch(graphicsDevice);
 
-            // Use the shared RenderTarget for rendering
-            graphicsDevice.Clear(XnaColor.Transparent);
+            try
+            {
+                // Use the shared RenderTarget for rendering
+                graphicsDevice.Clear(XnaColor.Transparent);
 
-            spriteBatch.Begin();
+                spriteBatch.Begin();
 
-            // Apply rendering options
-            if (options.EnableShadow)
-            {
-                DrawStringWithShadow(spriteBatch, text, Vector2.Zero, options.TextColor,
-                                   options.ShadowColor, options.ShadowOffset);
+                // Apply rendering options
+                if (options.EnableShadow)
+                {
+                    DrawStringWithShadow(spriteBatch, text, Vector2.Zero, options.TextColor,
+                                       options.ShadowColor, options.ShadowOffset);
+                }
+                else if (options.EnableOutline)
+                {
+                    DrawStringWithOutline(spriteBatch, text, Vector2.Zero, options.TextColor,
+                                        options.OutlineColor, options.OutlineThickness);
+                }
+                else if (options.EnableGradient)
+                {
+                    DrawStringWithGradient(spriteBatch, text, Vector2.Zero,
+                                         options.GradientTopColor, options.GradientBottomColor);
+                }
+                else
+                {
+                    DrawString(spriteBatch, text, Vector2.Zero, options.TextColor);
+                }            spriteBatch.End();
             }
-            else if (options.EnableOutline)
+            finally
             {
-                DrawStringWithOutline(spriteBatch, text, Vector2.Zero, options.TextColor,
-                                    options.OutlineColor, options.OutlineThickness);
+                spriteBatch.Dispose();
             }
-            else if (options.EnableGradient)
-            {
-                DrawStringWithGradient(spriteBatch, text, Vector2.Zero,
-                                     options.GradientTopColor, options.GradientBottomColor);
-            }
-            else
-            {
-                DrawString(spriteBatch, text, Vector2.Zero, options.TextColor);
-            }            spriteBatch.End();
-            spriteBatch.Dispose();
 
             // Create a texture from the rendered content
             return new ManagedTexture(graphicsDevice, sharedRenderTarget, $"TextTexture_{text.GetHashCode()}");
@@ -666,16 +657,7 @@ namespace DTXMania.Game.Lib.Resources
         {
             _supportedCharacters.Clear();
 
-            // For custom fonts, use the character set we have
-            if (_customFontCharacters != null)
-            {
-                foreach (var c in _customFontCharacters)
-                {
-                    _supportedCharacters.Add(c);
-                }
-                Debug.WriteLine($"ManagedFont: Character cache built with {_supportedCharacters.Count} custom font characters");
-            }
-            else if (_spriteFont != null)
+            if (_spriteFont != null)
             {
                 // Build cache of supported characters including Japanese ranges
                 BuildCharacterRangeCache();
@@ -945,95 +927,6 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"ManagedFont: Dispose leak detected for font: {_sourcePath}");
             }
             Dispose(false);
-        }
-
-        #endregion
-
-        #region Custom Font Rendering Methods
-
-        private void DrawStringCustom(SpriteBatch spriteBatch, string text, Vector2 position, XnaColor color)
-        {
-            if (_customFontTexture == null || _customFontGlyphs == null || string.IsNullOrEmpty(text))
-                return;
-
-            try
-            {
-                var currentPosition = position;
-
-                foreach (char c in text)
-                {
-                    if (c == '\n')
-                    {
-                        currentPosition.X = position.X;
-                        currentPosition.Y += _customLineSpacing;
-                        continue;
-                    }
-
-                    if (_customFontGlyphs.TryGetValue(c, out var glyph))
-                    {
-                        spriteBatch.Draw(_customFontTexture, currentPosition, glyph, color);
-                        currentPosition.X += glyph.Width;
-                    }
-                    else if (_customFontGlyphs.TryGetValue(_defaultCharacter, out var defaultGlyph))
-                    {
-                        spriteBatch.Draw(_customFontTexture, currentPosition, defaultGlyph, color);
-                        currentPosition.X += defaultGlyph.Width;
-                    }
-                    else
-                    {
-                        // Skip unknown characters
-                        currentPosition.X += 8; // Default character width
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"DrawStringCustom error: {ex.Message}");
-            }
-        }
-
-        private Vector2 MeasureStringCustom(string text)
-        {
-            if (_customFontGlyphs == null || string.IsNullOrEmpty(text))
-                return Vector2.Zero;
-
-            try
-            {
-                float width = 0;
-                float height = _customLineSpacing;
-                float currentLineWidth = 0;
-                int lineCount = 1;
-
-                foreach (char c in text)
-                {
-                    if (c == '\n')
-                    {
-                        width = Math.Max(width, currentLineWidth);
-                        currentLineWidth = 0;
-                        lineCount++;
-                        continue;
-                    }
-
-                    if (_customFontGlyphs.TryGetValue(c, out var glyph))
-                    {
-                        currentLineWidth += glyph.Width;
-                    }
-                    else
-                    {
-                        currentLineWidth += 8; // Default character width
-                    }
-                }
-
-                width = Math.Max(width, currentLineWidth);
-                height = lineCount * _customLineSpacing;
-
-                return new Vector2(width, height);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"MeasureStringCustom error: {ex.Message}");
-                return Vector2.Zero;
-            }
         }
 
         #endregion

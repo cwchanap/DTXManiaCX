@@ -8,32 +8,34 @@ namespace DTXMania.Test.Resources
     [Trait("Category", "Unit")]
     public class ManagedFontFactoryTests
     {
-        [Fact]
-        public void GetBestSizeSpriteFont_WhenBoldRequestedAtSize14_PrefersBoldAssetName()
+        private static (string assetName, FontStyle resolvedStyle) InvokeGetBestSpriteFontAssetName(int size, FontStyle style)
         {
-            // Use reflection because the method is private static and we want to
-            // test asset-name selection without requiring a real ContentManager.
             var method = typeof(ManagedFont).GetMethod(
                 "GetBestSpriteFontAssetName",
                 BindingFlags.NonPublic | BindingFlags.Static);
 
             Assert.NotNull(method);
 
-            var result = (string)method!.Invoke(null, new object[] { 14, FontStyle.Bold })!;
-            Assert.Equal("NotoSerifJP-Bold", result);
+            var result = method!.Invoke(null, new object[] { size, style });
+            // The method returns a ValueTuple<string, FontStyle> which boxes to ValueTuple<string, FontStyle>
+            var tuple = ((string, FontStyle))result!;
+            return tuple;
+        }
+
+        [Fact]
+        public void GetBestSizeSpriteFont_WhenBoldRequestedAtSize14_PrefersBoldAssetName()
+        {
+            var (assetName, resolvedStyle) = InvokeGetBestSpriteFontAssetName(14, FontStyle.Bold);
+            Assert.Equal("NotoSerifJP-Bold", assetName);
+            Assert.Equal(FontStyle.Bold, resolvedStyle);
         }
 
         [Fact]
         public void GetBestSizeSpriteFont_WhenRegularRequestedAtSize14_PrefersRegularAssetName()
         {
-            var method = typeof(ManagedFont).GetMethod(
-                "GetBestSpriteFontAssetName",
-                BindingFlags.NonPublic | BindingFlags.Static);
-
-            Assert.NotNull(method);
-
-            var result = (string)method!.Invoke(null, new object[] { 14, FontStyle.Regular })!;
-            Assert.Equal("NotoSerifJP", result);
+            var (assetName, resolvedStyle) = InvokeGetBestSpriteFontAssetName(14, FontStyle.Regular);
+            Assert.Equal("NotoSerifJP", assetName);
+            Assert.Equal(FontStyle.Regular, resolvedStyle);
         }
 
         [Fact]
@@ -41,14 +43,34 @@ namespace DTXMania.Test.Resources
         {
             // No -24-Bold asset exists; the factory should fall back to the closest
             // size in Regular rather than picking 14-Bold (which is the wrong size).
-            var method = typeof(ManagedFont).GetMethod(
-                "GetBestSpriteFontAssetName",
-                BindingFlags.NonPublic | BindingFlags.Static);
+            var (assetName, resolvedStyle) = InvokeGetBestSpriteFontAssetName(24, FontStyle.Bold);
+            Assert.Equal("NotoSerifJP-24", assetName);
+            Assert.Equal(FontStyle.Regular, resolvedStyle); // Style reflects the actual resolved asset
+        }
 
-            Assert.NotNull(method);
+        [Fact]
+        public void GetBestSizeSpriteFont_WhenBoldRequestedAtSize48_FallsBackToRegular48()
+        {
+            // No -48-Bold asset exists; should fall back to Regular-48
+            var (assetName, resolvedStyle) = InvokeGetBestSpriteFontAssetName(48, FontStyle.Bold);
+            Assert.Equal("NotoSerifJP-48", assetName);
+            Assert.Equal(FontStyle.Regular, resolvedStyle);
+        }
 
-            var result = (string)method!.Invoke(null, new object[] { 24, FontStyle.Bold })!;
-            Assert.Equal("NotoSerifJP-24", result);
+        [Fact]
+        public void GetBestSizeSpriteFont_WhenBoldRequestedAtSize14_ResolvedStyleIsBold()
+        {
+            // Size 14 Bold exists, so resolved style should match requested
+            var (_, resolvedStyle) = InvokeGetBestSpriteFontAssetName(14, FontStyle.Bold);
+            Assert.Equal(FontStyle.Bold, resolvedStyle);
+        }
+
+        [Fact]
+        public void GetBestSizeSpriteFont_WhenBoldRequestedAtSize24_ResolvedStyleIsRegular()
+        {
+            // Size 24 Bold doesn't exist, resolved style should be Regular
+            var (_, resolvedStyle) = InvokeGetBestSpriteFontAssetName(24, FontStyle.Bold);
+            Assert.Equal(FontStyle.Regular, resolvedStyle);
         }
     }
 }

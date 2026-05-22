@@ -196,7 +196,18 @@ namespace DTXMania.Game.Lib.Stage
             LoadNavigationSound();
 
             // Initialize stage RenderTargets for shared use
-            InitializeStageRenderTargets();
+            try
+            {
+                InitializeStageRenderTargets();
+            }
+            catch (Exception ex)
+            {
+                // RT init failed (device-lost, OOM) — release the font we acquired above
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: RT init failed: {ex.Message}");
+                uiFont?.RemoveReference();
+                uiFont = null;
+                throw;
+            }
 
             // Retain the loaded font for direct draw paths (scroll-speed label, empty-filter message)
             _font = uiFont;
