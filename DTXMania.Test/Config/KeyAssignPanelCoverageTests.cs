@@ -114,7 +114,7 @@ public class KeyAssignPanelCoverageTests
         ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"));
         ReflectionHelpers.InvokePrivateMethod(panel, "ShowConflict", "System conflict");
 
-        var drawException = Record.Exception(() => panel.Draw(null!, null, null, 1280, 720));
+        var drawException = Record.Exception(() => panel.Draw(null!, null, null, null, 1280, 720));
         panel.Update(2.1, new KeyboardState(), new KeyboardState());
 
         Assert.Null(drawException);
@@ -220,7 +220,7 @@ public class KeyAssignPanelCoverageTests
         ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", GetStaticIntField(typeof(DrumKeyAssignPanel), "FooterCancel"));
         ReflectionHelpers.InvokePrivateMethod(panel, "ShowConflict", "Drum conflict");
 
-        var drawException = Record.Exception(() => panel.Draw(null!, null, null, 1280, 720));
+        var drawException = Record.Exception(() => panel.Draw(null!, null, null, null, 1280, 720));
         panel.Update(2.1, new KeyboardState(), new KeyboardState());
 
         Assert.Null(drawException);
