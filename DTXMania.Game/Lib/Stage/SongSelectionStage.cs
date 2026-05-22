@@ -274,6 +274,10 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager = null;
             _ownsInputManager = false;
 
+            // Release font reference loaded in Activate for direct-draw paths
+            _font?.RemoveReference();
+            _font = null;
+
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
             _headerPanelTexture?.RemoveReference();
             _footerPanelTexture?.RemoveReference();
