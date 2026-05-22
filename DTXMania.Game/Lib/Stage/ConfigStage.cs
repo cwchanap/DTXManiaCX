@@ -190,6 +190,10 @@ namespace DTXMania.Game.Lib.Stage
                 _font = null;
                 _boldFont?.RemoveReference();
                 _boldFont = null;
+                _whitePixel?.Dispose();
+                _whitePixel = null;
+                _spriteBatch?.Dispose();
+                _spriteBatch = null;
                 throw;
             }
         }

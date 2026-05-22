@@ -5,6 +5,7 @@ using Xunit;
 
 namespace DTXMania.Test.Resources
 {
+    [Trait("Category", "Unit")]
     public class ManagedFontFactoryTests
     {
         [Fact]
