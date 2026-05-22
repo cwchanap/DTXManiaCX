@@ -273,7 +273,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             return cancelBindingLabel.Length == 0 ? "BACK" : cancelBindingLabel;
         }
 
-        public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel,
+        public void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel,
                          int viewportWidth, int viewportHeight)
         {
             if (!IsActive || spriteBatch == null) return;
@@ -287,7 +287,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             int y = 50;
             const int rowH = 36;
 
-            DrawText(spriteBatch, bitmapFont, "DRUM KEY MAPPING", panelX, y, Color.White, false);
+            DrawText(spriteBatch, font, boldFont, "DRUM KEY MAPPING", panelX, y, Color.White, false);
             y += rowH + 8;
 
             for (int i = 0; i < LaneCount; i++)
@@ -300,25 +300,25 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                     : _workingBindings.GetLaneDescription(i);
 
                 string rowText = $"{i + 1,2}. {KeyBindings.GetLaneName(i),-30}  {keyLabel}";
-                DrawText(spriteBatch, bitmapFont, rowText, panelX, y + 6, sel ? Color.Yellow : Color.White, sel);
+                DrawText(spriteBatch, font, boldFont, rowText, panelX, y + 6, sel ? Color.Yellow : Color.White, sel);
                 y += rowH;
             }
 
             y += 8;
 
             // Footer rows
-            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, "SAVE", _selectedIndex == FooterSave);
+            DrawFooterRow(spriteBatch, font, boldFont, whitePixel, panelX, y, rowH, "SAVE", _selectedIndex == FooterSave);
             y += rowH;
-            DrawFooterRow(spriteBatch, bitmapFont, whitePixel, panelX, y, rowH, GetFooterCancelLabel(), _selectedIndex == FooterCancel);
+            DrawFooterRow(spriteBatch, font, boldFont, whitePixel, panelX, y, rowH, GetFooterCancelLabel(), _selectedIndex == FooterCancel);
             y += rowH + 8;
 
             // Conflict message
             if (_conflictMessage != null)
-                DrawText(spriteBatch, bitmapFont, $"Conflict: {_conflictMessage}", panelX, y, Color.Red, false);
+                DrawText(spriteBatch, font, boldFont, $"Conflict: {_conflictMessage}", panelX, y, Color.Red, false);
 
             // Instructions
             int instrY = viewportHeight - 28;
-            DrawText(spriteBatch, bitmapFont, GetInstructionText(), panelX, instrY,
+            DrawText(spriteBatch, font, boldFont, GetInstructionText(), panelX, instrY,
                 new Color(180, 180, 180), false);
         }
 
@@ -328,20 +328,20 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 sb.Draw(wp, new Rectangle(x - 4, y, 860, h - 2), new Color(64, 64, 128, 150));
         }
 
-        private static void DrawFooterRow(SpriteBatch sb, BitmapFont? font, Texture2D? wp,
+        private static void DrawFooterRow(SpriteBatch sb, IFont? font, IFont? boldFont, Texture2D? wp,
             int x, int y, int h, string label, bool selected)
         {
             if (selected && wp != null)
                 sb.Draw(wp, new Rectangle(x - 4, y, 300, h - 2), new Color(64, 64, 128, 150));
-            DrawText(sb, font, label, x, y + 6, selected ? Color.Yellow : Color.White, selected);
+            DrawText(sb, font, boldFont, label, x, y + 6, selected ? Color.Yellow : Color.White, selected);
         }
 
-        private static void DrawText(SpriteBatch sb, BitmapFont? font, string text, int x, int y,
-            Color color, bool thin)
+        private static void DrawText(SpriteBatch sb, IFont? font, IFont? boldFont, string text, int x, int y,
+            Color color, bool bold)
         {
-            if (font?.IsLoaded == true)
-                font.DrawText(sb, text, x, y, color,
-                    thin ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal);
+            var picked = bold ? (boldFont ?? font) : font;
+            if (picked == null) return;
+            picked.DrawString(sb, text, new Vector2(x, y), color);
         }
 
         private static bool IsJustPressed(KeyboardState cur, KeyboardState prev, Keys key)

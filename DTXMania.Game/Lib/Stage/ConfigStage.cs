@@ -51,7 +51,8 @@ namespace DTXMania.Game.Lib.Stage
         // Graphics resources
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
-        private BitmapFont _bitmapFont;
+        private IFont _font;
+        private IFont _boldFont;
         private IResourceManager _resourceManager;
 
         // DTXMania-style constants
@@ -120,7 +121,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_activePanel?.IsActive == true)
             {
                 var vp = GetViewport();
-                _activePanel.Draw(_spriteBatch, _bitmapFont, _whitePixel, vp.Width, vp.Height);
+                _activePanel.Draw(_spriteBatch, _font, _boldFont, _whitePixel, vp.Width, vp.Height);
             }
 
             EndDrawFrame();
@@ -149,12 +150,14 @@ namespace DTXMania.Game.Lib.Stage
                 // Cleanup MonoGame resources
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
-                _bitmapFont?.Dispose();
+                _font?.RemoveReference();
+                _boldFont?.RemoveReference();
                 _resourceManager?.Dispose();
 
                 _whitePixel = null;
                 _spriteBatch = null;
-                _bitmapFont = null;
+                _font = null;
+                _boldFont = null;
                 _resourceManager = null;
             }
 
@@ -176,17 +179,18 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize ResourceManager
             _resourceManager = _game.ResourceManager;
 
-            // Initialize bitmap font for DTXMania-style text rendering
             try
             {
-                var consoleFontConfig = BitmapFont.CreateConsoleFontConfig();
-                _bitmapFont = new BitmapFont(graphicsDevice, _resourceManager, consoleFontConfig);
-                System.Diagnostics.Debug.WriteLine("Bitmap font loaded successfully");
+                _font = _resourceManager.LoadFont("NotoSerifJP", 14);
+                _boldFont = _resourceManager.LoadFont("NotoSerifJP", 14, FontStyle.Bold);
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load bitmap font: {ex.Message}");
-                // Font is optional - we'll use rectangles as fallback
+                _font?.RemoveReference();
+                _font = null;
+                _boldFont?.RemoveReference();
+                _boldFont = null;
+                throw;
             }
         }
 
@@ -586,12 +590,12 @@ namespace DTXMania.Game.Lib.Stage
             int x = MenuX;
             int y = 50;
 
-            if (_bitmapFont?.IsLoaded == true)
+            if (_font != null)
             {
                 // Center the title
-                var textSize = _bitmapFont.MeasureText(titleText);
+                var textSize = _font.MeasureString(titleText);
                 x = (1280 - (int)textSize.X) / 2; // Assume 1280 width for centering
-                _bitmapFont.DrawText(_spriteBatch, titleText, x, y, Color.White, BitmapFont.FontType.Normal);
+                _font.DrawString(_spriteBatch, titleText, new Vector2(x, y), Color.White);
             }
             else
             {
@@ -618,11 +622,11 @@ namespace DTXMania.Game.Lib.Stage
                 }
 
                 // Draw text
-                if (_bitmapFont?.IsLoaded == true)
+                if (_font != null)
                 {
                     var textColor = isSelected ? Color.Yellow : Color.White;
-                    var fontType = isSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                    _bitmapFont.DrawText(_spriteBatch, displayText, x, y + 10, textColor, fontType);
+                    var font = isSelected ? _boldFont : _font;
+                    font.DrawString(_spriteBatch, displayText, new Vector2(x, y + 10), textColor);
                 }
                 else
                 {
@@ -647,11 +651,11 @@ namespace DTXMania.Game.Lib.Stage
                 DrawTextRect(x - 5, y - 2, 100, 30, new Color(64, 64, 64, 150));
             }
 
-            if (_bitmapFont?.IsLoaded == true)
+            if (_font != null)
             {
                 var textColor = backSelected ? Color.Yellow : Color.White;
-                var fontType = backSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                _bitmapFont.DrawText(_spriteBatch, "BACK", x, y + 5, textColor, fontType);
+                var font = backSelected ? _boldFont : _font;
+                font.DrawString(_spriteBatch, "BACK", new Vector2(x, y + 5), textColor);
             }
             else
             {
@@ -667,11 +671,11 @@ namespace DTXMania.Game.Lib.Stage
                 DrawTextRect(x - 5, y - 2, 120, 30, new Color(64, 96, 64, 150));
             }
 
-            if (_bitmapFont?.IsLoaded == true)
+            if (_font != null)
             {
                 var textColor = saveSelected ? Color.Yellow : Color.White;
-                var fontType = saveSelected ? BitmapFont.FontType.Thin : BitmapFont.FontType.Normal;
-                _bitmapFont.DrawText(_spriteBatch, "SAVE & EXIT", x, y + 5, textColor, fontType);
+                var font = saveSelected ? _boldFont : _font;
+                font.DrawString(_spriteBatch, "SAVE & EXIT", new Vector2(x, y + 5), textColor);
             }
             else
             {
@@ -686,9 +690,9 @@ namespace DTXMania.Game.Lib.Stage
             int x = 10;
             int y = 720 - 30; // Bottom of screen
 
-            if (_bitmapFont?.IsLoaded == true)
+            if (_font != null)
             {
-                _bitmapFont.DrawText(_spriteBatch, instructions, x, y, Color.White, BitmapFont.FontType.Normal);
+                _font.DrawString(_spriteBatch, instructions, new Vector2(x, y), Color.White);
             }
             else
             {

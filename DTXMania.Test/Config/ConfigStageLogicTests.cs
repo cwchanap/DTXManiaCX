@@ -680,13 +680,14 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawTitle_WhenBitmapFontMissing_ShouldFallbackToRectangleDrawing()
+    public void DrawTitle_WhenFontMissing_ShouldFallbackToRectangleDrawing()
     {
         var (stage, inputManager) = CreateRenderSpyStage(new Viewport(0, 0, 1280, 720));
         using (inputManager)
         {
             stage.InitializeDrawingState();
-            ReflectionHelpers.SetPrivateField(stage, "_bitmapFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_font", null);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
 
             _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
 
@@ -871,7 +872,7 @@ public class ConfigStageLogicTests
             LastDeltaTime = deltaTime;
         }
 
-        public void Draw(SpriteBatch spriteBatch, BitmapFont? bitmapFont, Texture2D? whitePixel, int viewportWidth, int viewportHeight)
+        public void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel, int viewportWidth, int viewportHeight)
         {
             DrawCallCount++;
         }
@@ -893,7 +894,8 @@ public class ConfigStageLogicTests
             ReflectionHelpers.SetPrivateField(this, "_spriteBatch", spriteBatch);
             ReflectionHelpers.SetPrivateField(this, "_whitePixel", whitePixel);
             ReflectionHelpers.SetPrivateField(this, "_resourceManager", _game.ResourceManager);
-            ReflectionHelpers.SetPrivateField(this, "_bitmapFont", null);
+            ReflectionHelpers.SetPrivateField(this, "_font", null);
+            ReflectionHelpers.SetPrivateField(this, "_boldFont", null);
         }
     }
 
@@ -917,7 +919,8 @@ public class ConfigStageLogicTests
             GC.SuppressFinalize(whitePixel);
             ReflectionHelpers.SetPrivateField(this, "_spriteBatch", spriteBatch);
             ReflectionHelpers.SetPrivateField(this, "_whitePixel", whitePixel);
-            ReflectionHelpers.SetPrivateField(this, "_bitmapFont", null);
+            ReflectionHelpers.SetPrivateField(this, "_font", null);
+            ReflectionHelpers.SetPrivateField(this, "_boldFont", null);
         }
 
         protected override void BeginDrawFrame()
