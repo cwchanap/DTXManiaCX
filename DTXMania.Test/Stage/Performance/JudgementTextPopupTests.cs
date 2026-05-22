@@ -17,7 +17,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for JudgementText popup system
     /// Tests the popup animation, manager lifecycle, and integration with JudgementEvents
     /// </summary>
-    [Trait("Category", "Graphics")]
+    [Trait("Category", "Unit")]
     public class JudgementTextPopupTests
     {
         #region Test Helpers

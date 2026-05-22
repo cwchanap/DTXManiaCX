@@ -15,7 +15,7 @@ namespace DTXMania.Game.Lib.Resources
         #region Properties
 
         /// <summary>
-        /// Underlying MonoGame SpriteFont (may be null for bitmap fonts)
+        /// Underlying MonoGame SpriteFont
         /// </summary>
         SpriteFont SpriteFont { get; }
 

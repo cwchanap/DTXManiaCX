@@ -45,7 +45,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         #region Fallback Text Rendering
         
         /// <summary>
-        /// Fallback text rendering settings when bitmap font is unavailable
+        /// Fallback text rendering settings when the font fails to load
         /// </summary>
         public static class FallbackText
         {
