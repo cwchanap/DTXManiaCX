@@ -4,10 +4,14 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Utilities;
 using System.IO;
 using System.Linq;
 using System.Threading;
+
+[assembly: InternalsVisibleTo("DTXMania.Test")]
+[assembly: InternalsVisibleTo("DTXMania.Test.Mac")]
 
 namespace DTXMania.Game.Lib.Resources
 {
