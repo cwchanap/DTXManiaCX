@@ -117,7 +117,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
         
         /// <summary>
-        /// Difficulty level number configuration for 6_LevelNumber.png bitmap font
+        /// Difficulty level number display configuration
         /// </summary>
         public static class DifficultyLevelNumber
         {
