@@ -197,10 +197,18 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                // RT init failed (device-lost, OOM) — release the font we acquired above
+                // RT init failed (device-lost, OOM) — release all acquired resources
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: RT init failed: {ex.Message}");
                 uiFont?.RemoveReference();
                 uiFont = null;
+                _headerPanelTexture?.RemoveReference();
+                _headerPanelTexture = null;
+                _footerPanelTexture?.RemoveReference();
+                _footerPanelTexture = null;
+                _whitePixel?.Dispose();
+                _whitePixel = null;
+                _spriteBatch?.Dispose();
+                _spriteBatch = null;
                 throw;
             }
 
