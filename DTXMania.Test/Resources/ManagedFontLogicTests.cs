@@ -853,6 +853,145 @@ public class ManagedFontLogicTests
         Assert.Equal(21, characterData.AtlasHeight);
     }
 
+    [Fact]
+    public void CreateTextTextureInternal_WhenMeasureStringReturnsZeroSize_ShouldReturnNull()
+    {
+        var spriteFont = CreateSpriteFont([('A', 0)], lineSpacing: 0);
+        var font = new ManagedFont(spriteFont, "ZeroSizeFont", 16);
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var sharedRenderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        var options = new TextRenderOptions { TextColor = Color.White };
+
+        var result = InvokePrivate<ITexture?>(font, "CreateTextTextureInternal", graphicsDevice, "A", options, sharedRenderTarget);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CreateTextTexture_WhenCacheContainsEntry_ShouldReturnCachedTexture()
+    {
+        var spriteFont = CreateUninitializedSpriteFont();
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
+        var mockTexture = new Mock<ITexture>();
+        var options = new TextRenderOptions { TextColor = Color.Red };
+        var cacheKey = InvokePrivate<string>(font, "GenerateCacheKey", "cached", options);
+
+        InvokePrivate<object?>(font, "CacheTextTexture", cacheKey, "cached", mockTexture.Object, options);
+
+        var sharedRenderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        var result = font.CreateTextTexture(null!, "cached", options, sharedRenderTarget);
+
+        Assert.Same(mockTexture.Object, result);
+    }
+
+    [Fact]
+    public void CreateTextTexture_WhenDisposed_ShouldReturnNull()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+        var sharedRenderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+
+        var result = font.CreateTextTexture(null!, "text", new TextRenderOptions(), sharedRenderTarget);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void DrawStringWithGradient_WhenDisposed_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+
+        var exception = Record.Exception(() => font.DrawStringWithGradient(null!, "text", Vector2.Zero, Color.White, Color.Black));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringWithGradient_WhenSpriteFontNull_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+
+        var exception = Record.Exception(() => font.DrawStringWithGradient(null!, "text", Vector2.Zero, Color.White, Color.Black));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringWithGradient_WhenTextEmpty_ShouldReturnWithoutThrowing()
+    {
+        var spriteFont = CreateUninitializedSpriteFont();
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
+
+        var exception = Record.Exception(() => font.DrawStringWithGradient(null!, string.Empty, Vector2.Zero, Color.White, Color.Black));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawString_AdvancedOverload_WhenDisposed_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+
+        var exception = Record.Exception(() => font.DrawString(null!, "text", Vector2.Zero, Color.White, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0f));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawString_AdvancedOverload_WhenSpriteFontNull_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+
+        var exception = Record.Exception(() => font.DrawString(null!, "text", Vector2.Zero, Color.White, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0f));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawString_AdvancedOverload_WhenTextEmpty_ShouldReturnWithoutThrowing()
+    {
+        var spriteFont = CreateUninitializedSpriteFont();
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
+
+        var exception = Record.Exception(() => font.DrawString(null!, string.Empty, Vector2.Zero, Color.White, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0f));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringWrapped_WhenDisposed_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+
+        var exception = Record.Exception(() => font.DrawStringWrapped(null!, "text", Rectangle.Empty, Color.White));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringWrapped_WhenSpriteFontNull_ShouldReturnWithoutThrowing()
+    {
+        var font = CreateManagedFont();
+
+        var exception = Record.Exception(() => font.DrawStringWrapped(null!, "text", Rectangle.Empty, Color.White));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawStringWrapped_WhenTextEmpty_ShouldReturnWithoutThrowing()
+    {
+        var spriteFont = CreateUninitializedSpriteFont();
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
+
+        var exception = Record.Exception(() => font.DrawStringWrapped(null!, string.Empty, Rectangle.Empty, Color.White));
+
+        Assert.Null(exception);
+    }
+
     private static ManagedFont CreateManagedFont(
         HashSet<char>? customCharacters = null,
         Dictionary<char, Rectangle>? glyphs = null,

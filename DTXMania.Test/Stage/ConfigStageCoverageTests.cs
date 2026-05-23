@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
@@ -360,5 +361,114 @@ public class ConfigStageCoverageTests
                     It.Is<IStageTransition>(t => t is CrossfadeTransition)),
                 Times.Once);
         }
+    }
+
+    [Fact]
+    public void OnDeactivate_ShouldReleaseFontReferences()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            boldFont.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+        }
+    }
+
+    [Fact]
+    public void Dispose_WhenDisposing_ShouldReleaseFontReferences()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_disposed", false);
+
+            var method = typeof(ConfigStage).GetMethod(
+                "Dispose",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(bool) },
+                modifiers: null);
+            Assert.NotNull(method);
+            method!.Invoke(stage, new object[] { true });
+
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            boldFont.Verify(f => f.RemoveReference(), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void DrawTitle_WhenFontExists_ShouldUseMeasureStringAndDrawString()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(200, 20));
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle");
+
+            font.Verify(f => f.MeasureString("CONFIGURATION"), Times.Once);
+            font.Verify(f => f.DrawString(spriteBatch, "CONFIGURATION", new Vector2(540, 50), Color.White), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void DrawTitle_WhenFontNull_ShouldNotThrow()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_font", null);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
+
+            Assert.Null(exception);
+        }
+    }
+
+    [Fact]
+    public void DrawConfigItems_WhenSelected_ShouldUseBoldFont()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigItems");
+
+            boldFont.Verify(f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), Color.Yellow), Times.AtLeastOnce);
+        }
+    }
+
+    private static SpriteBatch CreateUninitializedSpriteBatch()
+    {
+#pragma warning disable SYSLIB0050
+        var sb = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
+#pragma warning restore SYSLIB0050
+        GC.SuppressFinalize(sb);
+        return sb;
     }
 }
