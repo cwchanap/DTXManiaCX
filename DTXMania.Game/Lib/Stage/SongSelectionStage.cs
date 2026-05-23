@@ -209,6 +209,8 @@ namespace DTXMania.Game.Lib.Stage
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
+                ReleaseManagedSound(ref _cursorMoveSound);
+                ReleaseManagedSound(ref _gameStartSound);
                 throw;
             }
 
