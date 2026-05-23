@@ -3,9 +3,13 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 
 namespace DTXMania.Test.Config;
 
@@ -102,6 +106,90 @@ public class KeyAssignPanelCoverageTests
         Assert.False(snapshot.ContainsKey(Keys.Up));
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
         Assert.Equal("Browsing", GetStateName(panel));
+    }
+
+    [Fact]
+    public void SystemPanel_Draw_WithFont_ShouldCallDrawString()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel.Activate();
+        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", 0);
+
+        var spriteBatch = FakeSpriteBatch.Create();
+        var fontMock = new Mock<IFont>();
+        var boldFontMock = new Mock<IFont>();
+
+        panel.Draw(spriteBatch, fontMock.Object, boldFontMock.Object, null, 1280, 720);
+
+        boldFontMock.Verify(
+            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.AtLeastOnce);
+        fontMock.Verify(
+            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void SystemPanel_Draw_WhenInactive_ShouldNotDraw()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel.Activate();
+        panel.Deactivate();
+
+        var fontMock = new Mock<IFont>();
+        var boldFontMock = new Mock<IFont>();
+
+        panel.Draw(null!, fontMock.Object, boldFontMock.Object, null, 1280, 720);
+
+        fontMock.Verify(
+            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Never);
+        boldFontMock.Verify(
+            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void DrumPanel_Draw_WithFont_ShouldCallDrawString()
+    {
+        var panel = CreateDrumPanel();
+        panel.Activate();
+        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", 0);
+
+        var spriteBatch = FakeSpriteBatch.Create();
+        var fontMock = new Mock<IFont>();
+        var boldFontMock = new Mock<IFont>();
+
+        panel.Draw(spriteBatch, fontMock.Object, boldFontMock.Object, null, 1280, 720);
+
+        boldFontMock.Verify(
+            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.AtLeastOnce);
+        fontMock.Verify(
+            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void DrumPanel_Draw_WhenInactive_ShouldNotDraw()
+    {
+        var panel = CreateDrumPanel();
+        panel.Activate();
+        panel.Deactivate();
+
+        var fontMock = new Mock<IFont>();
+        var boldFontMock = new Mock<IFont>();
+
+        panel.Draw(null!, fontMock.Object, boldFontMock.Object, null, 1280, 720);
+
+        fontMock.Verify(
+            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Never);
+        boldFontMock.Verify(
+            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+            Times.Never);
     }
 
     [Fact]
@@ -265,5 +353,17 @@ public class KeyAssignPanelCoverageTests
         Assert.NotNull(keyBindingsField);
         keyBindingsField!.SetValue(manager, liveBindings);
         return manager;
+    }
+
+    private sealed class FakeSpriteBatch
+    {
+        public static SpriteBatch Create()
+        {
+#pragma warning disable SYSLIB0050
+            var sb = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
+#pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(sb);
+            return sb;
+        }
     }
 }

@@ -161,12 +161,7 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Initialize graphics resources
-            _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
-            _resourceManager = _game.ResourceManager;
-
-            // Create white pixel for drawing
-            _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            InitializeGraphicsResources();
 
             // Try to load a SpriteFont for UI components
             IFont uiFont = null;
@@ -1444,9 +1439,23 @@ namespace DTXMania.Game.Lib.Stage
         private bool _isUnmanagedRenderTarget = false;
 
         /// <summary>
+        /// Initialize graphics resources needed by the stage.
+        /// Overridable for unit testing.
+        /// </summary>
+        protected virtual void InitializeGraphicsResources()
+        {
+            _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
+            _resourceManager = _game.ResourceManager;
+
+            // Create white pixel for drawing
+            _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
+            _whitePixel.SetData(new[] { Color.White });
+        }
+
+        /// <summary>
         /// Initialize stage-level RenderTarget for shared use by UI components
         /// </summary>
-        private void InitializeStageRenderTargets()
+        protected virtual void InitializeStageRenderTargets()
         {
             // Create a single RenderTarget for all stage operations using RenderTargetManager
             // Size should be large enough to accommodate all UI components

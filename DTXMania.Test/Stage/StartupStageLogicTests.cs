@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -649,6 +650,127 @@ namespace DTXMania.Test.Stage
             Assert.True(stage.DrawCalls.Count >= 6);
         }
 
+        [Fact]
+        public void OnActivate_WhenFontLoadSucceeds_ShouldSetFontFields()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var resourceManager = new Mock<IResourceManager>();
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            var regularFont = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            var stage = new FontControlledStartupStage(game)
+            {
+                RegularFont = regularFont.Object,
+                BoldFont = boldFont.Object
+            };
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            Assert.Same(regularFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            Assert.Same(boldFont.Object, ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+            regularFont.Verify(f => f.RemoveReference(), Times.Never);
+            boldFont.Verify(f => f.RemoveReference(), Times.Never);
+        }
+
+        [Fact]
+        public void OnActivate_WhenBoldFontLoadFails_ShouldReleaseRegularFontAndThrow()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var resourceManager = new Mock<IResourceManager>();
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            var regularFont = new Mock<IFont>();
+            var stage = new FontControlledStartupStage(game)
+            {
+                RegularFont = regularFont.Object,
+                ThrowOnBoldFont = true
+            };
+
+            var exception = Assert.Throws<TargetInvocationException>(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate"));
+
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+            regularFont.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.True(stage.SpriteBatchStub.IsDisposed);
+            Assert.True(stage.WhitePixelStub.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+        }
+
+        [Fact]
+        public void OnDeactivate_ShouldReleaseFontReferences()
+        {
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            boldFont.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+        }
+
+        [Fact]
+        public void Dispose_WhenNotDisposed_ShouldReleaseFontReferences()
+        {
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Inactive);
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+
+            InvokeDispose(stage, true);
+
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            boldFont.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+        }
+
+        [Fact]
+        public void DrawTextWithFallback_WhenBoldTrue_ShouldUseBoldFont()
+        {
+            var boldFont = new Mock<IFont>();
+            var stage = new GraphicsControlledStartupStage(ReflectionHelpers.CreateGame());
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawTextWithFallback", "test", 10, 20, true, null);
+
+            boldFont.Verify(f => f.DrawString(stage.SpriteBatchStub, "test", new Vector2(10, 20), Color.White), Times.Once);
+        }
+
+        [Fact]
+        public void DrawTextWithFallback_WhenNoFont_ShouldUseFallbackRect()
+        {
+            var stage = new GraphicsControlledStartupStage(ReflectionHelpers.CreateGame());
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", stage.WhitePixelStub);
+            ReflectionHelpers.SetPrivateField(stage, "_font", null);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawTextWithFallback", "test", 10, 20, false, null);
+
+            Assert.Contains(stage.DrawCalls, call => call.Destination == new Rectangle(10, 20, 32, 16) && call.Color == Color.White);
+        }
+
+        [Fact]
+        public void DrawVersionInfo_WhenFontExists_ShouldMeasureAndDraw()
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(200, 14));
+            var stage = new GraphicsControlledStartupStage(ReflectionHelpers.CreateGame());
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawVersionInfo");
+
+            font.Verify(f => f.MeasureString("DTXManiaCX v1.0.0 - MonoGame Edition"), Times.Once);
+            font.Verify(f => f.DrawString(stage.SpriteBatchStub, "DTXManiaCX v1.0.0 - MonoGame Edition", new Vector2(1070, 2), Color.White), Times.Once);
+        }
+
         private static StartupStage CreateStage(
             StartupPhase phase = StartupPhase.SystemSounds,
             double elapsedTime = 0.0,
@@ -878,7 +1000,7 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        private sealed class GraphicsControlledStartupStage : StartupStage
+        private class GraphicsControlledStartupStage : StartupStage
         {
             public GraphicsControlledStartupStage(BaseGame game) : base(game)
             {
@@ -936,6 +1058,29 @@ namespace DTXMania.Test.Stage
             protected override void DrawSolidRectCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, Color color)
             {
                 DrawCalls.Add(new DrawCall(destination, color));
+            }
+        }
+
+        private sealed class FontControlledStartupStage : GraphicsControlledStartupStage
+        {
+            public FontControlledStartupStage(BaseGame game) : base(game)
+            {
+            }
+
+            public IFont? RegularFont { get; set; }
+
+            public IFont? BoldFont { get; set; }
+
+            public bool ThrowOnBoldFont { get; set; }
+
+            protected override IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
+            {
+                if (style == FontStyle.Bold && ThrowOnBoldFont)
+                {
+                    throw new InvalidOperationException("Simulated bold font failure");
+                }
+
+                return style == FontStyle.Bold ? BoldFont! : RegularFont!;
             }
         }
     }
