@@ -11,8 +11,13 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -355,6 +360,194 @@ public class PerformanceStageAdditionalCoverageTests
         Assert.DoesNotContain("Stack trace:", output);
     }
 
+    [Fact]
+    public void HandleInput_WhenScrollSpeedIncreasePressed_ShouldAdjustScrollSpeed()
+    {
+        var configManager = new Mock<IConfigManager>();
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+        var inputManager = new ScrollSpeedInputCompat(InputCommandType.IncreaseScrollSpeed);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        configManager.Verify(x => x.AdjustScrollSpeed(It.IsAny<string>(), 1), Times.Once);
+    }
+
+    [Fact]
+    public void HandleInput_WhenScrollSpeedDecreasePressed_ShouldAdjustScrollSpeed()
+    {
+        var configManager = new Mock<IConfigManager>();
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+        var inputManager = new ScrollSpeedInputCompat(InputCommandType.DecreaseScrollSpeed);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        configManager.Verify(x => x.AdjustScrollSpeed(It.IsAny<string>(), -1), Times.Once);
+    }
+
+    [Fact]
+    public void ReturnToSongSelect_ShouldStopTimerAndDeactivateJudgement()
+    {
+        var stage = CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager)
+        {
+            IsActive = true
+        };
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
+
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
+        Assert.False(judgementManager.IsActive);
+        stageManager.Verify(
+            x => x.ChangeStage(StageType.SongSelect, It.Is<IStageTransition>(t => t is DTXManiaFadeTransition), null),
+            Times.Once);
+    }
+
+    [Fact]
+    public void ReturnToSongSelect_WhenSongTimerNull_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));
+
+        Assert.Null(exception);
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
+    }
+
+    [Fact]
+    public void ReturnToSongSelect_WhenJudgementManagerNull_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));
+
+        Assert.Null(exception);
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
+    }
+
+    [Fact]
+    public void ExtractSharedData_WithNullSharedData_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+
+        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void ExtractSharedData_WithParsedChart_ShouldSetParsedChart()
+    {
+        var stage = CreateStage();
+        var parsedChart = new ParsedChart("shared-test.dtx") { Bpm = 140.0 };
+        var sharedData = new Dictionary<string, object>
+        {
+            ["selectedSong"] = new SongListNode { Title = "Song" },
+            ["selectedDifficulty"] = 2,
+            ["songId"] = 42,
+            ["parsedChart"] = parsedChart
+        };
+        ReflectionHelpers.SetPrivateField(stage, "_sharedData", sharedData);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
+
+        Assert.Same(parsedChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
+        Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
+        Assert.Equal(42, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
+    }
+
+    [Fact]
+    public void InitializeAutoPlay_WhenConfigAutoPlayTrue_ShouldEnableAutoPlay()
+    {
+        var configData = new ConfigData { AutoPlay = true };
+        var configManager = new Mock<IConfigManager>();
+        configManager.SetupGet(x => x.Config).Returns(configData);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 5);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+    }
+
+    [Fact]
+    public void InitializeAutoPlay_WhenConfigAutoPlayFalse_ShouldDisableAutoPlay()
+    {
+        var configData = new ConfigData { AutoPlay = false };
+        var configManager = new Mock<IConfigManager>();
+        configManager.SetupGet(x => x.Config).Returns(configData);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+    }
+
+    [Fact]
+    public void OnScrollSpeedChanged_ShouldSetScrollSpeedAndShowIndicator()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        var indicator = new ScrollSpeedIndicator(null);
+        ReflectionHelpers.SetPrivateField(stage, "_scrollSpeedIndicator", indicator);
+
+        var args = new ScrollSpeedChangedEventArgs(50, 75);
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnScrollSpeedChanged", null, args);
+
+        Assert.Equal("Scroll Speed " + ScrollSpeedRange.Format(75), indicator.Text);
+    }
+
+    [Fact]
+    public void UpdateSongProgress_WithValidChart_ShouldClampProgress()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("progress.dtx") { DurationMs = 2000.0 };
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.0f);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSongProgress", 5000.0);
+
+        Assert.Equal(1.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
+    }
+
+    [Fact]
+    public void UpdateSongProgress_WithNegativeTime_ShouldClampToZero()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("progress-neg.dtx") { DurationMs = 2000.0 };
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_currentProgressValue", 0.5f);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSongProgress", -500.0);
+
+        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
+    }
+
     private static PerformanceStage CreateStage(BaseGame? game = null)
     {
         var stage = (PerformanceStage)FormatterServices.GetUninitializedObject(typeof(PerformanceStage));
@@ -388,6 +581,46 @@ public class PerformanceStageAdditionalCoverageTests
     private static SkillMeterDisplay CreateSkillMeterDisplay()
     {
         return (SkillMeterDisplay)FormatterServices.GetUninitializedObject(typeof(SkillMeterDisplay));
+    }
+
+    private static NoteRenderer CreateNoteRenderer()
+    {
+        var renderer = (NoteRenderer)FormatterServices.GetUninitializedObject(typeof(NoteRenderer));
+        var whiteTexture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+        var lanePositions = new Vector2[PerformanceUILayout.LaneCount];
+        for (var i = 0; i < lanePositions.Length; i++)
+        {
+            lanePositions[i] = new Vector2(PerformanceUILayout.GetLaneX(i) - 16f, 0f);
+        }
+
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", whiteTexture);
+        ReflectionHelpers.SetPrivateField(renderer, "_lanePositions", lanePositions);
+        ReflectionHelpers.SetPrivateField(renderer, "_laneColors", System.Linq.Enumerable.Repeat(Color.White, PerformanceUILayout.LaneCount).ToArray());
+        ReflectionHelpers.SetPrivateField(renderer, "_laneFlashAlpha", new float[10]);
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", 0.5);
+        ReflectionHelpers.SetPrivateField(renderer, "<EffectiveLookAheadMs>k__BackingField", 1200.0);
+        ReflectionHelpers.SetPrivateField(renderer, "_disposed", false);
+        return renderer;
+    }
+
+    private sealed class ScrollSpeedInputCompat : MockInputManagerCompat
+    {
+        private readonly InputCommandType _activeCommand;
+
+        public ScrollSpeedInputCompat(InputCommandType activeCommand)
+        {
+            _activeCommand = activeCommand;
+        }
+
+        public override bool IsCommandPressed(InputCommandType command)
+        {
+            return command == _activeCommand;
+        }
+
+        public override bool IsBackActionTriggered()
+        {
+            return false;
+        }
     }
 }
 
