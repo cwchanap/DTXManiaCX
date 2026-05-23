@@ -241,7 +241,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load difficulty sprite: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load background texture: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

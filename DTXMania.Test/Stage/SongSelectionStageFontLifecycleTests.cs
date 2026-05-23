@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System;
 using System.Runtime.Serialization;
@@ -43,6 +44,9 @@ namespace DTXMania.Test.Stage
             Assert.Equal("RT init failed", ex.Message);
             mockFont.Verify(x => x.RemoveReference(), Times.Once);
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            // Graphics resources should be null after cleanup in catch block
+            Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
         }
 
         private static SongSelectionStage CreateUninitializedStage()

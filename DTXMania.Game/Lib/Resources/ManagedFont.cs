@@ -537,6 +537,7 @@ namespace DTXMania.Game.Lib.Resources
 
             if (width <= 0 || height <= 0)
                 return null;            var spriteBatch = new SpriteBatch(graphicsDevice);
+            bool begun = false;
 
             try
             {
@@ -544,6 +545,7 @@ namespace DTXMania.Game.Lib.Resources
                 graphicsDevice.Clear(XnaColor.Transparent);
 
                 spriteBatch.Begin();
+                begun = true;
 
                 // Apply rendering options
                 if (options.EnableShadow)
@@ -564,10 +566,12 @@ namespace DTXMania.Game.Lib.Resources
                 else
                 {
                     DrawString(spriteBatch, text, Vector2.Zero, options.TextColor);
-                }            spriteBatch.End();
+                }
             }
             finally
             {
+                if (begun)
+                    spriteBatch.End();
                 spriteBatch.Dispose();
             }
 
