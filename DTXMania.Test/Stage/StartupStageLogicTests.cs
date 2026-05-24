@@ -726,6 +726,23 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CreateFontCore_BaseImplementation_ShouldCallResourceManagerLoadFont()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var resourceManager = new Mock<IResourceManager>();
+            var expectedFont = new Mock<IFont>();
+            resourceManager.Setup(r => r.LoadFont("NotoSerifJP", 14, FontStyle.Bold))
+                .Returns(expectedFont.Object);
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+
+            var stage = new StartupStage(game);
+            var result = ReflectionHelpers.InvokePrivateMethod(stage, "CreateFontCore", resourceManager.Object, 14, FontStyle.Bold);
+
+            Assert.Same(expectedFont.Object, result);
+            resourceManager.Verify(r => r.LoadFont("NotoSerifJP", 14, FontStyle.Bold), Times.Once);
+        }
+
+        [Fact]
         public void OnDeactivate_ShouldReleaseFontReferences()
         {
             var font = new Mock<IFont>();

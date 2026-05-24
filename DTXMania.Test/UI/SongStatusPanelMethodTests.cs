@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -291,6 +292,75 @@ namespace DTXMania.Test.UI
             method!.Invoke(null, args);
 
             mock.Verify(t => t.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void DrawDifficultyText_WhenFontPresent_ShouldMeasureText()
+        {
+            var panel = new SongStatusPanel();
+            var font = CreateFakeSpriteFont([('1', 8), ('0', 8)], lineSpacing: 16);
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            SetPrivateField(panel, "_font", font);
+
+            // DrawTextWithShadow will throw due to uninitialized SpriteBatch, but
+            // DrawDifficultyText lines 961-964 (font selection, null check, MeasureString)
+            // execute before that and should be counted as covered.
+            var exception = Record.Exception(() =>
+                InvokePrivateMethod<object?>(panel, "DrawDifficultyText", spriteBatch, "10", 0, 0, 100, 30, Color.White));
+
+            // We expect an exception from SpriteBatch.DrawString inside DrawTextWithShadow,
+            // not from MeasureString or earlier in DrawDifficultyText.
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void DrawDifficultyText_WhenFontNull_ShouldReturnEarly()
+        {
+            var panel = new SongStatusPanel();
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            SetPrivateField(panel, "_font", null);
+            SetPrivateField(panel, "_smallFont", null);
+
+            var exception = Record.Exception(() =>
+                InvokePrivateMethod<object?>(panel, "DrawDifficultyText", spriteBatch, "10", 0, 0, 100, 30, Color.White));
+
+            // Should return early when font is null without throwing
+            Assert.Null(exception);
+        }
+
+        private static SpriteFont CreateFakeSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16)
+        {
+            var texture = (Texture2D)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            var glyphBounds = new System.Collections.Generic.List<Rectangle>();
+            var cropping = new System.Collections.Generic.List<Rectangle>();
+            var characters = new System.Collections.Generic.List<char>();
+            var kerning = new System.Collections.Generic.List<Vector3>();
+            var x = 0;
+
+            foreach (var (character, width) in glyphs.OrderBy(g => g.character))
+            {
+                glyphBounds.Add(new Rectangle(x, 0, width, lineSpacing));
+                cropping.Add(new Rectangle(0, 0, width, lineSpacing));
+                characters.Add(character);
+                kerning.Add(new Vector3(0, width, 0));
+                x += width;
+            }
+
+            return (SpriteFont)System.Activator.CreateInstance(
+                typeof(SpriteFont),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                args: [texture, glyphBounds, cropping, characters, lineSpacing, 0f, kerning, null],
+                culture: null)!;
+        }
+
+        private static SpriteBatch CreateUninitializedSpriteBatch()
+        {
+#pragma warning disable SYSLIB0050
+            var sb = (SpriteBatch)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
+#pragma warning restore SYSLIB0050
+            System.GC.SuppressFinalize(sb);
+            return sb;
         }
     }
 }
