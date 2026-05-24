@@ -475,6 +475,36 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task CheckFilesystemChangesAsync_WhenNeedsEnumerationThrows_ShouldMarkEnumerationNeeded()
+        {
+            var stage = new ThrowingNeedsEnumerationStartupStage();
+            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", null);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "CheckFilesystemChangesAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_needsEnumeration"));
+        }
+
+        [Fact]
+        public async Task EnumerateSongsAsync_WhenProgressOmitsFileAndDirectory_ShouldShowProcessedSummary()
+        {
+            var stage = new PartialProgressStartupStage();
+            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
+
+            using var synchronizationContextScope = new SynchronizationContextScope(new ImmediateSynchronizationContext());
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
+            await task;
+
+            Assert.True(task.IsCompletedSuccessfully);
+            var message = ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage");
+            Assert.Contains("1 processed", message);
+            Assert.Contains("0 songs", message);
+        }
+
+        [Fact]
         public async Task BuildSongListsAsync_WhenSongOperationsSucceed_ShouldBuildFromDatabaseUsingCurrentSongPaths()
         {
             var songPaths = new[] { "SongsRoot" };
@@ -1081,6 +1111,45 @@ namespace DTXMania.Test.Stage
                 }
 
                 return style == FontStyle.Bold ? BoldFont! : RegularFont!;
+            }
+        }
+
+        private sealed class ThrowingNeedsEnumerationStartupStage : ControlledStartupStage
+        {
+            public ThrowingNeedsEnumerationStartupStage() : base(ReflectionHelpers.CreateGame())
+            {
+            }
+
+            protected override Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
+            {
+                throw new IOException("Simulated IO failure");
+            }
+        }
+
+        private sealed class PartialProgressStartupStage : ControlledStartupStage
+        {
+            public PartialProgressStartupStage() : base(ReflectionHelpers.CreateGame())
+            {
+            }
+
+            private int _callCount;
+
+            protected override Task<int> EnumerateSongsOnlyCoreAsync(
+                string[] songPaths,
+                IProgress<EnumerationProgress> progress,
+                CancellationToken cancellationToken)
+            {
+                _callCount++;
+                if (_callCount == 1)
+                {
+                    progress.Report(new EnumerationProgress { ProcessedCount = 1, DiscoveredSongs = 0 });
+                }
+                else if (_callCount == 2)
+                {
+                    progress.Report(new EnumerationProgress { CurrentFile = "song2.dtx", ProcessedCount = 2, DiscoveredSongs = 1 });
+                }
+
+                return Task.FromResult(1);
             }
         }
     }

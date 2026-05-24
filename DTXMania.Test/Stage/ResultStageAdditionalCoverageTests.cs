@@ -160,6 +160,25 @@ public class ResultStageAdditionalCoverageTests
         Assert.Equal(100, summary!.Score);
     }
 
+    [Fact]
+    public void OnActivate_WhenInputManagerIsNull_ShouldInitializeComponentsWithoutThrowing()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
+#pragma warning restore SYSLIB0050
+        SetPrivateField(stage, "_inputManager", null);
+        SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+        {
+            ["performanceSummary"] = new PerformanceSummary { Score = 123456 }
+        });
+
+        var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
+
+        Assert.Null(exception);
+        Assert.True(stage.WhitePixelRequested);
+        Assert.True(stage.ResultFontRequested);
+    }
+
     private static SpriteBatch CreateFakeSpriteBatch(int width, int height)
     {
 #pragma warning disable SYSLIB0050
@@ -171,5 +190,25 @@ public class ResultStageAdditionalCoverageTests
         SetPrivateField(spriteBatch, "graphicsDevice", graphicsDevice);
         SetPrivateField(graphicsDevice, "_viewport", new Viewport(0, 0, width, height));
         return spriteBatch;
+    }
+
+    private sealed class InspectableNullInputResultStage : ResultStage
+    {
+        public InspectableNullInputResultStage(BaseGame game) : base(game) { }
+
+        public bool WhitePixelRequested { get; private set; }
+        public bool ResultFontRequested { get; private set; }
+
+        internal override Texture2D CreateWhitePixel()
+        {
+            WhitePixelRequested = true;
+            return null!;
+        }
+
+        internal override IFont CreateResultFont()
+        {
+            ResultFontRequested = true;
+            return null!;
+        }
     }
 }

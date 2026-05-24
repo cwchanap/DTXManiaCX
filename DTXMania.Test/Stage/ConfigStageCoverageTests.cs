@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game;
@@ -29,6 +30,16 @@ public class ConfigStageCoverageTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         return (new ConfigStage(game), configManager, inputManager);
+    }
+
+    private static (RenderSpyConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateRenderSpyStage(ConfigManager? configManager = null)
+    {
+        configManager ??= new ConfigManager();
+        var inputManager = new InputManagerCompat(configManager);
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        return (new RenderSpyConfigStage(game), configManager, inputManager);
     }
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels)
@@ -463,6 +474,88 @@ public class ConfigStageCoverageTests
         }
     }
 
+    [Fact]
+    public void DrawConfigItems_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
+    {
+        var (stage, _, inputManager) = CreateRenderSpyStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            Assert.NotNull(configItems);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
+            SetFallbackDrawingState(stage);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigItems"));
+
+            Assert.Null(exception);
+            var expectedWidths = configItems
+                .ConvertAll(item => item.GetDisplayText().Length * 8)
+                .OrderBy(width => width)
+                .ToArray();
+            var actualWidths = stage.RectangleDrawCalls
+                .FindAll(call => call.Rectangle.Height == 16 && call.Color == Color.White)
+                .ConvertAll(call => call.Rectangle.Width)
+                .OrderBy(width => width)
+                .ToArray();
+            Assert.Equal(expectedWidths, actualWidths);
+        }
+    }
+
+    [Fact]
+    public void DrawButtons_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
+    {
+        var (stage, _, inputManager) = CreateRenderSpyStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+            SetFallbackDrawingState(stage);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons"));
+
+            Assert.Null(exception);
+            var actualButtonRects = stage.RectangleDrawCalls
+                .FindAll(call => call.Rectangle.Height == 16)
+                .ConvertAll(call => (Width: call.Rectangle.Width, call.Color))
+                .OrderBy(call => call.Width)
+                .ToArray();
+            var expectedButtonRects = new[]
+            {
+                (Width: "BACK".Length * 8, Color: Color.Gray),
+                (Width: "SAVE & EXIT".Length * 8, Color: Color.Green)
+            }
+            .OrderBy(call => call.Width)
+            .ToArray();
+            Assert.Equal(expectedButtonRects, actualButtonRects);
+        }
+    }
+
+    [Fact]
+    public void DrawInstructions_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
+    {
+        var (stage, _, inputManager) = CreateRenderSpyStage();
+        using (inputManager)
+        {
+            SetFallbackDrawingState(stage);
+
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions"));
+
+            Assert.Null(exception);
+            Assert.Contains(
+                stage.RectangleDrawCalls,
+                call => call.Rectangle.Height == 12 && call.Rectangle.Width > 0 && call.Color == Color.Gray);
+        }
+    }
+
+    private static void SetFallbackDrawingState(ConfigStage stage)
+    {
+        ReflectionHelpers.SetPrivateField(stage, "_font", null);
+        ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateUninitializedSpriteBatch());
+        ReflectionHelpers.SetPrivateField(stage, "_whitePixel", CreateUninitializedTexture());
+    }
+
     private static SpriteBatch CreateUninitializedSpriteBatch()
     {
 #pragma warning disable SYSLIB0050
@@ -470,5 +563,29 @@ public class ConfigStageCoverageTests
 #pragma warning restore SYSLIB0050
         GC.SuppressFinalize(sb);
         return sb;
+    }
+
+    private static Texture2D CreateUninitializedTexture()
+    {
+#pragma warning disable SYSLIB0050
+        var texture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+        GC.SuppressFinalize(texture);
+        return texture;
+    }
+
+    private sealed class RenderSpyConfigStage : ConfigStage
+    {
+        public RenderSpyConfigStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        public List<(Rectangle Rectangle, Color Color)> RectangleDrawCalls { get; } = [];
+
+        protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
+        {
+            RectangleDrawCalls.Add((destinationRectangle, color));
+        }
     }
 }

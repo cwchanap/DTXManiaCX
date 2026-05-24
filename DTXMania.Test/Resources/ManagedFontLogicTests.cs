@@ -403,6 +403,41 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
+    public void MeasureStringWrapped_WhenDisposed_ShouldReturnZero()
+    {
+        var spriteFont = CreateSpriteFont([('A', 10), (' ', 8)], lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "DisposedFont", 16);
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+
+        var result = font.MeasureStringWrapped("A A", 30f);
+
+        Assert.Equal(Vector2.Zero, result);
+    }
+
+    [Fact]
+    public void GetCharacterBounds_WhenDisposed_ShouldReturnEmptyArray()
+    {
+        var spriteFont = CreateSpriteFont([('A', 10)], lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "DisposedFont", 16);
+        ReflectionHelpers.SetPrivateField(font, "_disposed", true);
+
+        var bounds = font.GetCharacterBounds("AAA");
+
+        Assert.Empty(bounds);
+    }
+
+    [Fact]
+    public void MeasureString_WhenUnsupportedCharacterRequiresSanitization_ShouldUseFallbackCharacter()
+    {
+        var spriteFont = CreateSpriteFont([('A', 10), ('?', 8)], defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "SanitizeFont", 16);
+
+        var result = font.MeasureString("A\u2603");
+
+        Assert.Equal(new Vector2(18, 16), result);
+    }
+
+    [Fact]
     public void SanitizeText_ShouldReplaceUnsupportedCharactersUsingFallbackRules()
     {
         var spriteFont = CreateSpriteFont([('A', 10), ('?', 8)], defaultCharacter: '?');
@@ -807,6 +842,28 @@ public class ManagedFontLogicTests
         var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
 
         Assert.False(result);
+    }
+
+    [Fact]
+    public void TestCharacterSupport_WhenMeasureStringReturnsZeroSize_ForNonJapaneseCharacter_ShouldReturnFalse()
+    {
+        var spriteFont = CreateSpriteFont([('Z', 0)], lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "ZeroWidthFont", 16);
+
+        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'Z');
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void TestCharacterSupport_WhenMeasureStringReturnsZeroSize_ForJapaneseCharacter_ShouldReturnTrue()
+    {
+        var spriteFont = CreateSpriteFont([('あ', 0)], lineSpacing: 16);
+        var font = new ManagedFont(spriteFont, "ZeroWidthJpFont", 16);
+
+        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'あ');
+
+        Assert.True(result);
     }
 
     [Fact]

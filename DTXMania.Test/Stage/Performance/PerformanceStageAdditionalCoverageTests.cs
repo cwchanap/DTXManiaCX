@@ -361,6 +361,72 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
+    public void DrawCenteredText_WithReadyFont_ShouldMeasureAndDrawAtCenteredPosition()
+    {
+        var stage = CreateStage();
+        var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
+        GC.SuppressFinalize(spriteBatch);
+        var font = new Mock<IFont>();
+        font.Setup(f => f.MeasureString("READY")).Returns(new Vector2(100, 20));
+
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+        ReflectionHelpers.SetPrivateField(stage, "_readyFont", font.Object);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "READY", Color.White);
+
+        font.Verify(f => f.MeasureString("READY"), Times.Once);
+        font.Verify(f => f.DrawString(
+            spriteBatch,
+            "READY",
+            new Vector2((PerformanceUILayout.ScreenWidth / 2) - 50, (PerformanceUILayout.ScreenHeight / 2) - 10),
+            Color.White,
+            0f,
+            Vector2.Zero,
+            Vector2.One,
+            SpriteEffects.None,
+            0.1f), Times.Once);
+    }
+
+    [Fact]
+    public void DrawCenteredText_WithoutReadyFont_ShouldDrawFallbackRectangle()
+    {
+        var stage = CreateStage();
+        Rectangle? capturedRect = null;
+        Color? capturedColor = null;
+        float? capturedDepth = null;
+
+        ReflectionHelpers.SetPrivateField(stage, "_readyFont", null);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackRectangleDrawer",
+            (Action<Rectangle, Color, float>)((rect, color, depth) =>
+            {
+                capturedRect = rect;
+                capturedColor = color;
+                capturedDepth = depth;
+            }));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawCenteredText", "READY", Color.Cyan);
+
+        Assert.Equal(new Rectangle(610, 350, 60, 20), capturedRect);
+        Assert.Equal(Color.Cyan, capturedColor);
+        Assert.Equal(0.1f, capturedDepth);
+    }
+
+    [Fact]
+    public void StartSong_WhenCurrentGameTimeIsNull_ShouldLeaveReadyStateUnchanged()
+    {
+        var stage = CreateStage();
+        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
+
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
+
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+    }
+
+    [Fact]
     public void HandleInput_WhenScrollSpeedIncreasePressed_ShouldAdjustScrollSpeed()
     {
         var configManager = new Mock<IConfigManager>();
