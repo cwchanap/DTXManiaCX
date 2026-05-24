@@ -214,6 +214,30 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
+    public void CreateFont_WhenAllAssetsFailIncludingDefault_ShouldThrowNotSupportedException()
+    {
+        var state = CaptureFontFactoryState();
+        var contentManager = new FakeContentManager(assetName =>
+        {
+            throw new InvalidOperationException($"missing font: {assetName}");
+        });
+
+        try
+        {
+            RestoreFontFactoryState(contentManager, defaultFont: null, loadedFonts: new Dictionary<string, SpriteFont>());
+
+            var exception = Assert.Throws<NotSupportedException>(() => ManagedFont.CreateFont((GraphicsDevice)null!, "FailFont", 14));
+
+            Assert.Contains("Cannot create font", exception.Message);
+            Assert.Contains("failed to load any SpriteFont", exception.Message);
+        }
+        finally
+        {
+            RestoreFontFactoryState(state.ContentManager, state.DefaultFont, state.LoadedFonts);
+        }
+    }
+
+    [Fact]
     public void CreateFont_WhenClosestCachedSpriteFontExists_ShouldReuseCachedFont()
     {
         var state = CaptureFontFactoryState();
@@ -434,6 +458,20 @@ public class ManagedFontLogicTests
 
         var result = font.MeasureString("A\u2603");
 
+        Assert.Equal(new Vector2(18, 16), result);
+    }
+
+    [Fact]
+    public void MeasureString_WhenArgumentExceptionThrown_ShouldSanitizeAndRetry()
+    {
+        var spriteFont = CreateSpriteFont([('A', 10), ('?', 8)]);
+        var font = new ManagedFont(spriteFont, "NoDefaultFont", 16);
+
+        var result = font.MeasureString("A\u2603");
+
+        // \u2603 is unsupported and no SpriteFont default character,
+        // so ArgumentException is thrown, caught, sanitized to "A?",
+        // then MeasureString("A?") succeeds.
         Assert.Equal(new Vector2(18, 16), result);
     }
 
@@ -1189,4 +1227,5 @@ public class ManagedFontLogicTests
             targetLoadedFonts[key] = value;
         }
     }
+
 }

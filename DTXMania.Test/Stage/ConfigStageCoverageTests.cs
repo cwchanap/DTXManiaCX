@@ -548,6 +548,67 @@ public class ConfigStageCoverageTests
         }
     }
 
+    [Fact]
+    public void DrawButtons_WhenBackSelectedAndFontPresent_ShouldUseBoldFont()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            Assert.NotNull(configItems);
+            var boldFont = new Mock<IFont>();
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            ReflectionHelpers.SetPrivateField(stage, "_font", new Mock<IFont>().Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
+
+            boldFont.Verify(f => f.DrawString(spriteBatch, "BACK", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void DrawButtons_WhenSaveSelectedAndFontPresent_ShouldUseBoldFont()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            Assert.NotNull(configItems);
+            var boldFont = new Mock<IFont>();
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            ReflectionHelpers.SetPrivateField(stage, "_font", new Mock<IFont>().Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
+
+            boldFont.Verify(f => f.DrawString(spriteBatch, "SAVE & EXIT", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void DrawInstructions_WhenFontPresent_ShouldDrawText()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var font = new Mock<IFont>();
+            var spriteBatch = CreateUninitializedSpriteBatch();
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions");
+
+            font.Verify(f => f.DrawString(spriteBatch, It.Is<string>(s => s.Contains("UP/DOWN")), It.IsAny<Vector2>(), Color.White), Times.Once);
+        }
+    }
+
     private static void SetFallbackDrawingState(ConfigStage stage)
     {
         ReflectionHelpers.SetPrivateField(stage, "_font", null);
