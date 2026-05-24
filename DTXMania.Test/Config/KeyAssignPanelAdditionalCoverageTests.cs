@@ -100,6 +100,47 @@ public class KeyAssignPanelAdditionalCoverageTests
     }
 
     [Fact]
+    public void DrumPanel_Update_WhenMoveLeftCommandPressed_ShouldClearBinding()
+    {
+        var liveBindings = new KeyBindings();
+        liveBindings.BindButton("Key.A", 0);
+        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
+        panel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>();
+        panel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Q] = InputCommandType.MoveLeft
+        };
+
+        panel.Activate();
+        Assert.True(panel.GetWorkingBindingsSnapshot().ButtonToLane.ContainsKey("Key.A"));
+
+        panel.Update(0.0, new KeyboardState(Keys.Q), new KeyboardState());
+
+        Assert.Equal(-1, panel.GetWorkingBindingsSnapshot().GetLane("Key.A"));
+    }
+
+    [Fact]
+    public void DrumPanel_Update_WhenBackCommandPressedWhileAwaitingKey_ShouldReturnToBrowsing()
+    {
+        var panel = CreateDrumPanel();
+        panel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Enter] = InputCommandType.Activate,
+            [Keys.Q] = InputCommandType.Back
+        };
+
+        panel.Activate();
+        PressKey(panel, Keys.Enter);
+        Assert.Equal("AwaitingKey", GetStateName(panel));
+
+        panel.Update(0.0, new KeyboardState(Keys.Q), new KeyboardState());
+
+        Assert.Equal("Browsing", GetStateName(panel));
+        var snapshot = panel.GetWorkingBindingsSnapshot();
+        Assert.Equal(-1, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.Q)));
+    }
+
+    [Fact]
     public void DrumPanel_Deactivate_ShouldSetInactive()
     {
         var panel = CreateDrumPanel();
@@ -218,6 +259,32 @@ public class KeyAssignPanelAdditionalCoverageTests
         Assert.True(before.ContainsKey(Keys.PageUp));
 
         PressKey(panel, Keys.Delete);
+
+        var after = panel.GetWorkingMappingSnapshot();
+        Assert.False(after.ContainsKey(Keys.PageUp));
+    }
+
+    [Fact]
+    public void SystemPanel_Update_WhenMoveLeftCommandPressed_ShouldUnbindOptionalAction()
+    {
+        using var inputManager = new InputManager();
+        var panel = new SystemKeyAssignPanel(inputManager);
+        panel._liveDrumBindingsProvider = () => new Dictionary<string, int>();
+        panel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>
+        {
+            [Keys.Down] = InputCommandType.MoveDown,
+            [Keys.Q] = InputCommandType.MoveLeft
+        };
+
+        panel.Activate();
+
+        for (int i = 0; i < 6; i++)
+            PressKey(panel, Keys.Down);
+
+        var before = panel.GetWorkingMappingSnapshot();
+        Assert.True(before.ContainsKey(Keys.PageUp));
+
+        panel.Update(0.0, new KeyboardState(Keys.Q), new KeyboardState());
 
         var after = panel.GetWorkingMappingSnapshot();
         Assert.False(after.ContainsKey(Keys.PageUp));

@@ -11,6 +11,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Moq;
 using Xunit;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
@@ -71,6 +72,29 @@ namespace DTXMania.Test.Stage
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawResultLine", args));
 
             Assert.Null(exception);
+            Assert.Equal(140, args[2]);
+        }
+
+        [Fact]
+        public void DrawResultLine_WithFont_ShouldMeasureAndDrawCenteredText()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var spriteBatch = CreateFakeSpriteBatch(800, 600);
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString("CLEARED")).Returns(new Vector2(120, 20));
+
+            SetPrivateField(stage, "_spriteBatch", spriteBatch);
+            SetPrivateField(stage, "_resultFont", font.Object);
+
+            object[] args = ["CLEARED", 400, 100, Color.Green, 40];
+            InvokePrivateMethod(stage, "DrawResultLine", args);
+
+            font.Verify(f => f.MeasureString("CLEARED"), Times.Once);
+            font.Verify(
+                f => f.DrawString(spriteBatch, "CLEARED", new Vector2(340, 100), Color.Green),
+                Times.Once);
             Assert.Equal(140, args[2]);
         }
 

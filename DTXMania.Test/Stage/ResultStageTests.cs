@@ -5,10 +5,13 @@ using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework;
@@ -437,6 +440,61 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnActivate_WhenInputManagerIsNotNull_ShouldClearInputQueue()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
+#pragma warning restore SYSLIB0050
+            var inputManager = new TrackingInputManager();
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+            {
+                ["performanceSummary"] = new PerformanceSummary { Score = 123456 }
+            });
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
+
+            Assert.Null(exception);
+            Assert.True(stage.WhitePixelRequested);
+            Assert.Empty(inputManager.GetInputCommands());
+        }
+
+        [Fact]
+        public void OnActivate_WhenSelectedSongHasNoValidChart_ShouldNotPersistScore()
+        {
+            SongManager.ResetInstanceForTesting();
+            try
+            {
+#pragma warning disable SYSLIB0050
+                var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
+#pragma warning restore SYSLIB0050
+                var summary = new PerformanceSummary { Score = 750000 };
+                var song = new SongListNode
+                {
+                    DatabaseSong = new SongEntity { Charts = new List<SongChart>() }
+                };
+                SetPrivateField(stage, "_inputManager", null);
+                SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+                {
+                    ["performanceSummary"] = summary,
+                    ["selectedSong"] = song,
+                    ["selectedDifficulty"] = 0
+                });
+
+                var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
+
+                Assert.Null(exception);
+                Assert.Same(summary, GetPrivateField<PerformanceSummary>(stage, "_performanceSummary"));
+                Assert.Same(song, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+            }
+        }
+
+        [Fact]
         public void InitializeComponents_WhenFontCreationThrows_ShouldLeaveResultFontNull()
         {
 #pragma warning disable SYSLIB0050
@@ -640,13 +698,19 @@ namespace DTXMania.Test.Stage
 
             public Color? DrawTextureColor { get; private set; }
 
+            public bool WhitePixelRequested { get; private set; }
+
+            public bool ResultFontRequested { get; private set; }
+
             internal override Texture2D CreateWhitePixel()
             {
+                WhitePixelRequested = true;
                 return WhitePixelToReturn!;
             }
 
             internal override IFont CreateResultFont()
             {
+                ResultFontRequested = true;
                 throw FontExceptionToThrow ?? new InvalidOperationException("No font exception configured.");
             }
 
