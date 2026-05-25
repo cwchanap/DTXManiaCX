@@ -334,6 +334,18 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void GetSynchronizedGameplayTimeMs_WhenAudioLatencyOffsetConfigured_ShouldSubtractOffsetAndClamp()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
+            CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = 250 }));
+        var stage = CreateStage(game);
+
+        Assert.Equal(750.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetSynchronizedGameplayTimeMs", 1000.0));
+        Assert.Equal(0.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetSynchronizedGameplayTimeMs", 100.0));
+    }
+
+    [Fact]
     public void UpdateGameplayManagers_WhenAutoPlayDisabled_ShouldStillAdvanceMissDetection()
     {
         var stage = CreateStage();
@@ -2178,7 +2190,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenJudgementIsHit_ShouldForwardToManagersAndTriggerVisualFeedback()
+    public void OnJudgementMade_WhenJudgementIsHit_ShouldForwardToManagersAndTriggerVisualFeedbackWithoutLaneFlash()
     {
         var stage = CreateStage();
         var scoreManager = new ScoreManager(10);
@@ -2188,6 +2200,7 @@ public class PerformanceStageDeterministicTests
         var noteRenderer = CreateNoteRenderer();
         var popupManager = CreateJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
+        var skillPanelDisplay = CreateSkillPanelDisplayState();
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
@@ -2195,6 +2208,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_judgementTextPopupManager", popupManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", skillPanelDisplay);
 
         var judgement = new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great);
 
@@ -2203,9 +2217,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
         Assert.Equal(1, comboManager.CurrentCombo);
         Assert.Equal(51.5f, gaugeManager.CurrentLife);
-        Assert.Equal(1.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
+        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
         Assert.Single(ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(popupManager, "_activePopups"));
+        Assert.Equal(1, skillPanelDisplay.GreatCount);
+        Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
+        Assert.Equal(1, skillPanelDisplay.MaxCombo);
     }
 
     [Fact]
@@ -2734,6 +2751,13 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(display, "_visible", false);
         ReflectionHelpers.SetPrivateField(display, "_targetScale", 1.0f);
         return display;
+    }
+
+    private static SkillPanelDisplay CreateSkillPanelDisplayState()
+    {
+#pragma warning disable SYSLIB0050
+        return (SkillPanelDisplay)FormatterServices.GetUninitializedObject(typeof(SkillPanelDisplay));
+#pragma warning restore SYSLIB0050
     }
 
     private static PadRenderer CreatePadRenderer()

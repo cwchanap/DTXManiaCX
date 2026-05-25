@@ -26,6 +26,7 @@ public class ConfigDataTests
         Assert.NotNull(config.KeyBindings);
         Assert.NotNull(config.UnboundDrumButtons);
         Assert.Equal(100, config.ScrollSpeed);
+        Assert.Equal(200, config.AudioLatencyOffsetMs);
         Assert.False(config.AutoPlay);
     }
 

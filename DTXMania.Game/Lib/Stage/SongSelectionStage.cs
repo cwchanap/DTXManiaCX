@@ -1034,15 +1034,6 @@ namespace DTXMania.Game.Lib.Stage
             // Draw UI (PreviewImagePanel will handle its own drawing including delay)
             _uiManager?.Draw(_spriteBatch, deltaTime);
 
-            // Draw current scroll-speed value as a small label
-            if (_font != null && _configManager != null)
-            {
-                var label = "Scroll " + ScrollSpeedRange.Format(_configManager.Config.ScrollSpeed);
-                _font.DrawString(_spriteBatch, label,
-                    new Vector2(SongSelectionUILayout.ScrollSpeedLabelX, SongSelectionUILayout.ScrollSpeedLabelY),
-                    Microsoft.Xna.Framework.Color.White);
-            }
-
             // Draw empty-state message when the active filter returns no results
             // Skip when the search modal is open to avoid overlaying the modal contents
             if (_showEmptyFilterMessage && _font != null

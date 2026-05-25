@@ -34,5 +34,37 @@ namespace DTXMania.Test.Stage.Performance
         {
             Assert.Equal(expected, SkillPanelDisplay.FormatSkillText(skill));
         }
+
+        [Theory]
+        [InlineData(0, "   0")]
+        [InlineData(7, "   7")]
+        [InlineData(123, " 123")]
+        [InlineData(1234, "1234")]
+        [InlineData(12000, "9999")]
+        public void FormatJudgementCount_WithVariousInputs_ShouldReturnFourColumnText(int count, string expected)
+        {
+            Assert.Equal(expected, SkillPanelDisplay.FormatJudgementCount(count));
+        }
+
+        [Theory]
+        [InlineData(0, 0, "  0%")]
+        [InlineData(1, 4, " 25%")]
+        [InlineData(2, 3, " 67%")]
+        [InlineData(10, 10, "100%")]
+        public void FormatJudgementPercent_WithVariousInputs_ShouldReturnThreeColumnPercent(int count, int total, string expected)
+        {
+            Assert.Equal(expected, SkillPanelDisplay.FormatJudgementPercent(count, total));
+        }
+
+        [Fact]
+        public void GetProcessedJudgementCount_ShouldSumJudgementCounts()
+        {
+            Assert.Equal(15, SkillPanelDisplay.GetProcessedJudgementCount(
+                perfectCount: 5,
+                greatCount: 4,
+                goodCount: 3,
+                poorCount: 2,
+                missCount: 1));
+        }
     }
 }

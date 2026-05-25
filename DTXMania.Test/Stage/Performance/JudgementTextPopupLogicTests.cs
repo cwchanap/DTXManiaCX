@@ -30,6 +30,12 @@ public class JudgementTextPopupLogicTests
     }
 
     [Fact]
+    public void JudgementFontSize_ShouldBeSmallGameplayText()
+    {
+        Assert.Equal(20, PerformanceUILayout.Typography.JudgementFontSize);
+    }
+
+    [Fact]
     public void Constructor_WhenTextIsNull_ShouldNormalizeToEmptyString()
     {
         var popup = new JudgementTextPopup(null!, Vector2.Zero);
@@ -270,7 +276,8 @@ public class JudgementTextPopupLogicTests
         var loadMethod = GetLoadJudgementFontMethod();
         var expectedFont = new Mock<IFont>().Object;
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", 48)).Returns(expectedFont);
+        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", PerformanceUILayout.Typography.JudgementFontSize))
+            .Returns(expectedFont);
 
         var font = (IFont?)loadMethod.Invoke(
             null,
@@ -299,7 +306,8 @@ public class JudgementTextPopupLogicTests
     {
         var fontMock = new Mock<IFont>().Object;
         var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", 48)).Returns(fontMock);
+        resourceManager.Setup(x => x.LoadFont("NotoSerifJP", PerformanceUILayout.Typography.JudgementFontSize))
+            .Returns(fontMock);
 
         using var manager = new JudgementTextPopupManager(
             ReflectionHelpers.CreateUninitialized<GraphicsDevice>(),

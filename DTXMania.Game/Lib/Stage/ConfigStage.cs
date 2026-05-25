@@ -228,7 +228,8 @@ namespace DTXMania.Game.Lib.Stage
                 BufferSizeMs = originalConfig.BufferSizeMs,
                 ScrollSpeed = originalConfig.ScrollSpeed,
                 AutoPlay = originalConfig.AutoPlay,
-                NoFail = originalConfig.NoFail
+                NoFail = originalConfig.NoFail,
+                AudioLatencyOffsetMs = originalConfig.AudioLatencyOffsetMs
             };
 
             _hasUnsavedChanges = false;
@@ -523,6 +524,7 @@ namespace DTXMania.Game.Lib.Stage
             bool prevNoFail = config.NoFail;
             bool prevAutoPlay = config.AutoPlay;
             int prevScrollSpeed = config.ScrollSpeed;
+            int prevAudioLatencyOffsetMs = config.AudioLatencyOffsetMs;
             var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
             var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
             var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
@@ -536,6 +538,7 @@ namespace DTXMania.Game.Lib.Stage
             config.NoFail = _workingConfig.NoFail;
             config.AutoPlay = _workingConfig.AutoPlay;
             config.ScrollSpeed = _workingConfig.ScrollSpeed;
+            config.AudioLatencyOffsetMs = _workingConfig.AudioLatencyOffsetMs;
 
             if (_configManager is ConfigManager concreteConfig)
             {
@@ -560,6 +563,7 @@ namespace DTXMania.Game.Lib.Stage
                 config.NoFail = prevNoFail;
                 config.AutoPlay = prevAutoPlay;
                 config.ScrollSpeed = prevScrollSpeed;
+                config.AudioLatencyOffsetMs = prevAudioLatencyOffsetMs;
                 config.KeyBindings.Clear();
                 foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
                 config.UnboundDrumLanes.Clear();

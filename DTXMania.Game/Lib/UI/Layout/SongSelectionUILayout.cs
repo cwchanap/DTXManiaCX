@@ -11,14 +11,14 @@ namespace DTXMania.Game.Lib.UI.Layout
         #region Status Panel Layout
         
         /// <summary>
-        /// Status Panel main position and size (DTXManiaNX authentic: X:130, Y:350, W:580, H:320)
+        /// Status Panel main position and size (DTXManiaNX authentic: X:130, Y:350, W:561, H:342)
         /// </summary>
         public static class StatusPanel
         {
             public const int X = 130; // Restored original DTXManiaNX authentic position
             public const int Y = 350; // Restored original DTXManiaNX authentic position
-            public const int Width = 580;
-            public const int Height = 320;
+            public const int Width = 561;
+            public const int Height = 342;
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -162,8 +162,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             public const int BaseX = 15;   // Panel base X position
             public const int BaseY = 368;  // Panel base Y position
-            public const int Width = 120;  // Panel width (increased to accommodate larger note counts)
-            public const int Height = 300; // Panel height (covers bars + progress area)
+            public const int Width = 110;  // Natural texture width (5_graph panel drums.png)
+            public const int Height = 321; // Natural texture height (5_graph panel drums.png)
             
             // Total notes counter position
             public const int NotesCounterX = 81;  // X position (15 + 66)

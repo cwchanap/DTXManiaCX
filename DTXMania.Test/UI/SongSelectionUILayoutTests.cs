@@ -266,6 +266,13 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void StatusPanel_Size_ShouldMatchNXStatusPanelTexture()
+        {
+            Assert.Equal(561, SongSelectionUILayout.StatusPanel.Width);
+            Assert.Equal(342, SongSelectionUILayout.StatusPanel.Height);
+        }
+
+        [Fact]
         public void BPMSection_Bounds_ShouldMatchConstants()
         {
             var bounds = SongSelectionUILayout.BPMSection.Bounds;
@@ -341,6 +348,13 @@ namespace DTXMania.Test.UI
             Assert.Equal(SongSelectionUILayout.GraphPanel.BaseY, bounds.Y);
             Assert.Equal(SongSelectionUILayout.GraphPanel.Width, bounds.Width);
             Assert.Equal(SongSelectionUILayout.GraphPanel.Height, bounds.Height);
+        }
+
+        [Fact]
+        public void GraphPanel_Size_ShouldMatchNXDrumsGraphPanelTexture()
+        {
+            Assert.Equal(110, SongSelectionUILayout.GraphPanel.Width);
+            Assert.Equal(321, SongSelectionUILayout.GraphPanel.Height);
         }
 
         [Fact]

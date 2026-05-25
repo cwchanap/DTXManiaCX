@@ -253,6 +253,24 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void ComboDisplay_CalculateDrumComboGlyphs_ShouldMatchNXThreeDigitLayout()
+        {
+            var glyphs = ComboDisplay.CalculateDrumComboGlyphs(123);
+
+            Assert.Equal(4, glyphs.Count);
+            Assert.Equal(TexturePath.ComboDisplay, glyphs[0].TexturePath);
+            Assert.Equal(new Rectangle(0, 320, 250, 60), glyphs[0].SourceRectangle);
+            Assert.Equal(new Vector2(985, 222), glyphs[0].Position);
+
+            Assert.Equal(new Vector2(1131, 60), glyphs[1].Position);
+            Assert.Equal(new Rectangle(360, 0, 120, 160), glyphs[1].SourceRectangle);
+            Assert.Equal(new Vector2(1017, 60), glyphs[2].Position);
+            Assert.Equal(new Rectangle(240, 0, 120, 160), glyphs[2].SourceRectangle);
+            Assert.Equal(new Vector2(903, 60), glyphs[3].Position);
+            Assert.Equal(new Rectangle(120, 0, 120, 160), glyphs[3].SourceRectangle);
+        }
+
+        [Fact]
         public void ComboDisplay_Update_WhenDisposed_ShouldLeaveAnimationStateUnchanged()
         {
             var display = CreateUninitialized<ComboDisplay>();

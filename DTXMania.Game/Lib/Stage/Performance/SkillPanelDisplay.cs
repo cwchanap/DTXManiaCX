@@ -2,6 +2,7 @@
 
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -22,6 +23,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly SongChart? _chart;
         private ManagedFont? _font;
         private ITexture? _maxBadgeTexture;
+        private ITexture? _smallRateNumbersTexture;
+        private ITexture? _largeRateNumbersTexture;
+        private ITexture? _levelNumbersTexture;
+        private ITexture? _ratePercentTexture;
         private bool _disposed;
 
         #endregion
@@ -37,6 +42,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Whether the MAX badge sprite should be drawn over the skill number.
         /// </summary>
         public bool ShowMax { get; set; }
+
+        public int PerfectCount { get; private set; }
+        public int GreatCount { get; private set; }
+        public int GoodCount { get; private set; }
+        public int PoorCount { get; private set; }
+        public int MissCount { get; private set; }
+        public int MaxCombo { get; private set; }
+        public int ProcessedJudgementCount => GetProcessedJudgementCount(
+            PerfectCount,
+            GreatCount,
+            GoodCount,
+            PoorCount,
+            MissCount);
 
         #endregion
 
@@ -67,6 +85,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to load MAX badge: {ex.Message}");
                 _maxBadgeTexture = null;
             }
+
+            _smallRateNumbersTexture = TryLoadTexture(resourceManager, TexturePath.RateNumbersSmall, "small rate numbers");
+            _largeRateNumbersTexture = TryLoadTexture(resourceManager, TexturePath.RateNumbersLarge, "large rate numbers");
+            _levelNumbersTexture = TryLoadTexture(resourceManager, TexturePath.LevelNumbers, "level numbers");
+            _ratePercentTexture = TryLoadTexture(resourceManager, TexturePath.RatePercent, "rate percent");
         }
 
         #endregion
@@ -79,6 +102,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="deltaTime">Time elapsed since last update</param>
         public void Update(double deltaTime) { /* no animation yet */ }
 
+        public void ProcessJudgement(JudgementEvent judgementEvent, int maxCombo)
+        {
+            if (judgementEvent == null)
+                return;
+
+            switch (judgementEvent.Type)
+            {
+                case JudgementType.Perfect:
+                    PerfectCount++;
+                    break;
+                case JudgementType.Great:
+                    GreatCount++;
+                    break;
+                case JudgementType.Good:
+                    GoodCount++;
+                    break;
+                case JudgementType.Poor:
+                    PoorCount++;
+                    break;
+                case JudgementType.Miss:
+                    MissCount++;
+                    break;
+            }
+
+            MaxCombo = Math.Max(MaxCombo, maxCombo);
+        }
+
         /// <summary>
         /// Draw the skill panel contents.
         /// </summary>
@@ -86,24 +136,41 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _font == null) return;
+            if (_disposed || spriteBatch == null) return;
 
             int level    = _chart?.DrumLevel    ?? 0;
             int levelDec = _chart?.DrumLevelDec ?? 0;
 
             string levelText = FormatLevelText(level, levelDec);
-            _font.DrawStringWithShadow(spriteBatch, levelText,
-                PerformanceUILayout.SkillPanel.LevelNumber.StartPosition,
-                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
+            if (_levelNumbersTexture != null)
+            {
+                DrawLevelNumberText(spriteBatch, levelText, PerformanceUILayout.SkillPanel.LevelNumber.StartPosition);
+            }
+            else
+            {
+                DrawFallbackText(spriteBatch, levelText, PerformanceUILayout.SkillPanel.LevelNumber.StartPosition);
+            }
 
             string skillText = FormatSkillText(Skill);
-            _font.DrawStringWithShadow(spriteBatch, skillText,
-                PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition,
-                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
+            if (_largeRateNumbersTexture != null)
+            {
+                DrawLargeRateText(spriteBatch, skillText, PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition);
+            }
+            else
+            {
+                DrawFallbackText(spriteBatch, skillText, PerformanceUILayout.SkillPanel.SkillPercent.NumbersPosition);
+            }
 
-            _font.DrawStringWithShadow(spriteBatch, "%",
-                PerformanceUILayout.SkillPanel.SkillPercent.PercentPosition,
-                Color.White, PerformanceUILayout.Visual.StandardShadowColor, PerformanceUILayout.Visual.StandardShadowOffset);
+            if (_ratePercentTexture != null)
+            {
+                _ratePercentTexture.Draw(spriteBatch, PerformanceUILayout.SkillPanel.SkillPercent.PercentPosition);
+            }
+            else
+            {
+                DrawFallbackText(spriteBatch, "%", PerformanceUILayout.SkillPanel.SkillPercent.PercentPosition);
+            }
+
+            DrawJudgementCounts(spriteBatch);
 
             if (ShowMax && _maxBadgeTexture != null)
             {
@@ -132,7 +199,155 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public static string FormatSkillText(double skill)
         {
-            return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0,6:##0.00}", skill);
+            return string.Format(CultureInfo.InvariantCulture, "{0,6:##0.00}", skill);
+        }
+
+        public static string FormatJudgementCount(int count)
+        {
+            var clamped = Math.Clamp(count, 0, 9999);
+            return string.Format(CultureInfo.InvariantCulture, "{0,4:###0}", clamped);
+        }
+
+        public static string FormatJudgementPercent(int count, int total)
+        {
+            var percent = total <= 0
+                ? 0
+                : (int)Math.Round(count * 100.0 / total, MidpointRounding.AwayFromZero);
+            return string.Format(CultureInfo.InvariantCulture, "{0,3:##0}%", Math.Clamp(percent, 0, 100));
+        }
+
+        public static int GetProcessedJudgementCount(
+            int perfectCount,
+            int greatCount,
+            int goodCount,
+            int poorCount,
+            int missCount)
+        {
+            return Math.Max(0, perfectCount)
+                + Math.Max(0, greatCount)
+                + Math.Max(0, goodCount)
+                + Math.Max(0, poorCount)
+                + Math.Max(0, missCount);
+        }
+
+        private static ITexture? TryLoadTexture(IResourceManager resourceManager, string path, string displayName)
+        {
+            try
+            {
+                return resourceManager.LoadTexture(path);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to load {displayName}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void DrawJudgementCounts(SpriteBatch spriteBatch)
+        {
+            var total = ProcessedJudgementCount;
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(PerfectCount), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(GreatCount), PerformanceUILayout.SkillPanel.JudgementCounts.GreatCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(GoodCount), PerformanceUILayout.SkillPanel.JudgementCounts.GoodCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(PoorCount), PerformanceUILayout.SkillPanel.JudgementCounts.PoorCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(MissCount), PerformanceUILayout.SkillPanel.JudgementCounts.MissCountPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementCount(MaxCombo), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboCountPos);
+
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(PerfectCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PerfectPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(GreatCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GreatPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(GoodCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.GoodPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(PoorCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.PoorPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(MissCount, total), PerformanceUILayout.SkillPanel.JudgementCounts.MissPercentPos);
+            DrawSmallRateText(spriteBatch, FormatJudgementPercent(MaxCombo, total), PerformanceUILayout.SkillPanel.JudgementCounts.MaxComboPercentPos);
+        }
+
+        private void DrawSmallRateText(SpriteBatch spriteBatch, string text, Vector2 position)
+        {
+            if (_smallRateNumbersTexture == null)
+            {
+                DrawFallbackText(spriteBatch, text, position);
+                return;
+            }
+
+            var x = position.X;
+            foreach (var ch in text)
+            {
+                var source = GetSmallRateSourceRectangle(ch);
+                if (source.HasValue)
+                {
+                    _smallRateNumbersTexture.Draw(spriteBatch, new Vector2(x, position.Y), source.Value);
+                }
+
+                x += 20;
+            }
+        }
+
+        private void DrawLargeRateText(SpriteBatch spriteBatch, string text, Vector2 position)
+        {
+            var x = position.X;
+            foreach (var ch in text)
+            {
+                var source = GetLargeRateSourceRectangle(ch);
+                if (source.HasValue)
+                {
+                    _largeRateNumbersTexture!.Draw(spriteBatch, new Vector2(x, position.Y), source.Value);
+                }
+
+                x += ch == '.' ? 12 : 29;
+            }
+        }
+
+        private void DrawLevelNumberText(SpriteBatch spriteBatch, string text, Vector2 position)
+        {
+            var x = position.X;
+            foreach (var ch in text)
+            {
+                var source = GetLevelNumberSourceRectangle(ch);
+                if (source.HasValue)
+                {
+                    _levelNumbersTexture!.Draw(spriteBatch, new Vector2(x, position.Y), source.Value);
+                }
+
+                x += ch == '.' ? 5 : 16;
+            }
+        }
+
+        private static Rectangle? GetSmallRateSourceRectangle(char ch)
+        {
+            if (ch >= '0' && ch <= '9')
+                return new Rectangle((ch - '0') * 20, 0, 20, 26);
+            if (ch == '%')
+                return new Rectangle(200, 0, 20, 26);
+            if (ch == '.')
+                return new Rectangle(210, 0, 10, 26);
+            return null;
+        }
+
+        private static Rectangle? GetLargeRateSourceRectangle(char ch)
+        {
+            if (ch >= '0' && ch <= '9')
+                return new Rectangle((ch - '0') * 28, 0, 28, 42);
+            if (ch == '.')
+                return new Rectangle(280, 0, 10, 42);
+            return null;
+        }
+
+        private static Rectangle? GetLevelNumberSourceRectangle(char ch)
+        {
+            if (ch >= '0' && ch <= '9')
+                return new Rectangle((ch - '0') * 16, 0, 16, 32);
+            if (ch == '.')
+                return new Rectangle(160, 0, 5, 32);
+            return null;
+        }
+
+        private void DrawFallbackText(SpriteBatch spriteBatch, string text, Vector2 position)
+        {
+            _font?.DrawStringWithShadow(spriteBatch, text,
+                position,
+                Color.White,
+                PerformanceUILayout.Visual.StandardShadowColor,
+                PerformanceUILayout.Visual.StandardShadowOffset);
         }
 
         #endregion
@@ -154,6 +369,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _font = null;
                 _maxBadgeTexture?.RemoveReference();
                 _maxBadgeTexture = null;
+                _smallRateNumbersTexture?.RemoveReference();
+                _smallRateNumbersTexture = null;
+                _largeRateNumbersTexture?.RemoveReference();
+                _largeRateNumbersTexture = null;
+                _levelNumbersTexture?.RemoveReference();
+                _levelNumbersTexture = null;
+                _ratePercentTexture?.RemoveReference();
+                _ratePercentTexture = null;
             }
             _disposed = true;
         }

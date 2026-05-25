@@ -72,6 +72,7 @@ public class ConfigManagerTests
             Assert.Contains("ScreenHeight=1080", content);
             Assert.Contains("FullScreen=True", content);
             Assert.Contains("VSyncWait=False", content);
+            Assert.Contains("AudioLatencyOffsetMs=200", content);
             Assert.Contains("[System]", content);
             Assert.Contains("[Display]", content);
         }
@@ -199,6 +200,9 @@ ScreenWidth=1920
 ScreenHeight=1080
 FullScreen=true
 VSyncWait=false
+
+[Game]
+AudioLatencyOffsetMs=350
 ";
 
         try
@@ -216,6 +220,7 @@ VSyncWait=false
             Assert.Equal(1080, manager.Config.ScreenHeight);
             Assert.True(manager.Config.FullScreen);
             Assert.False(manager.Config.VSyncWait);
+            Assert.Equal(350, manager.Config.AudioLatencyOffsetMs);
         }
         finally
         {

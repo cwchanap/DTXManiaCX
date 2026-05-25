@@ -332,8 +332,8 @@ namespace DTXMania.Test.UI
         {
             var statusPanel = new SongStatusPanel();
 
-            // Verify the panel uses DTXManiaNX sizing
-            Assert.Equal(new Vector2(580, 320), statusPanel.Size);
+            // Verify the panel uses the DTXManiaNX status panel texture size.
+            Assert.Equal(new Vector2(561, 342), statusPanel.Size);
         }
 
         private SongListNode CreateMockSongNode()

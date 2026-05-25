@@ -13,6 +13,8 @@ namespace DTXManiaCX.MCP.Server.Services;
 /// </summary>
 public class JsonRpcClient : IDisposable
 {
+    private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
+
     private readonly ILogger<JsonRpcClient>? _logger;
     private readonly HttpClient _httpClient;
     private readonly string _serverUrl;
@@ -32,7 +34,7 @@ public class JsonRpcClient : IDisposable
 
         _httpClient = new HttpClient(handler, disposeHandler: true)
         {
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = DefaultRequestTimeout
         };
         _serverUrl = serverUrl.TrimEnd('/'); // Remove trailing slash if present
         

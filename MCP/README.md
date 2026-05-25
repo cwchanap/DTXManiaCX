@@ -4,7 +4,7 @@ The MCP project hosts the Model Context Protocol (MCP) bridge that lets AI copil
 
 ## Project layout
 - `Bridge/` – MonoGame-facing bridge components (`McpBridgeService`, `McpBridgeComponent`) that can be added to the game loop.
-- `Server/` – Background service, JSON-RPC helpers, and the console harness entry point (`Program.cs`).
+- `Server/` – Stdio MCP server entry point, JSON-RPC helpers, and the console harness (`Program.cs`).
 - `Tools/` – Definitions of MCP tools (`game_click`, `game_drag`, `game_get_state`, etc.) and the dispatcher that calls into the JSON-RPC layer.
 
 ## Prerequisites
@@ -33,19 +33,20 @@ The MCP server can be configured using the following environment variables:
 |----------|-------------|---------|
 | `DTXMANIA_API_URL` | The JSON-RPC endpoint URL for the game API | `http://localhost:8080/jsonrpc` |
 | `DTXMANIA_API_KEY` | The API key for authenticating with the game API (required if the game has `EnableGameApi` with `GameApiKey` set) | _(none)_ |
+| `DTXMANIA_PROJECT_PATH` | The game project path used by `game_launch` and `game_restart` | _(none)_ |
 
 Example with configuration:
 ```bash
 DTXMANIA_API_KEY="your-api-key" dotnet run --project MCP/MCP.csproj
 ```
 
-Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which exercises the tool dispatcher without starting the long-running background service. This is handy while the MonoGame bridge and JSON-RPC endpoints are still being scaffolded.
+Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which exercises the tool dispatcher without starting the long-running MCP stdio session. This is handy while validating the MonoGame bridge and JSON-RPC endpoints.
 
 ### Server lifecycle
-- On startup the server initializes `GameInteractionTools`, which currently registers six high-level actions (`game_click`, `game_drag`, `game_get_state`, `game_get_window_info`, `game_list_clients`, `game_send_key`).
+- On startup the server starts the ModelContextProtocol stdio transport and exposes the registered tool handlers, including `game_launch`, `game_restart`, `game_change_stage`, `game_get_state`, `game_send_key`, `game_click`, `game_drag`, `game_screenshot`, `game_get_window_info`, and `game_list_clients`.
 - `GameInteractionService` forwards each tool invocation to the configured JSON-RPC endpoint (default: `http://localhost:8080/jsonrpc`). Configure the URL via the `DTXMANIA_API_URL` environment variable if your game build exposes a different port or path.
 - If the game API requires authentication (when `EnableGameApi` is enabled with a `GameApiKey` in `Config.ini`), set the `DTXMANIA_API_KEY` environment variable to the same key value. Without this, MCP tool calls will receive HTTP 401 Unauthorized errors.
-- `GameStateManager` collects state snapshots reported by the game bridge. The background service polls the manager every five seconds and logs the latest state; the concrete MCP transport will tap into the same manager.
+- Set `DTXMANIA_PROJECT_PATH` when you want MCP clients to launch or restart the game process instead of connecting to a game that is already running.
 
 ## Configuring an MCP client
 Model Context Protocol clients discover and launch servers via small JSON manifests. Regardless of the client, point the command to `dotnet run --project MCP/MCP.csproj` so the .NET host boots on demand. The exact shape of the manifest depends on the client, but every setup needs the command line, working directory, and optional environment variables. The examples below use `<repo-root>` as a placeholder—replace it with the absolute path to your local DTXManiaCX repository clone.
@@ -105,5 +106,4 @@ Components.Add(bridgeComponent);
 **Note:** `McpBridgeComponent.Initialize` currently targets a placeholder endpoint (`http://localhost:3000`) for future MCP client functionality. This is separate from the JSON-RPC server endpoint (`http://localhost:8080/jsonrpc`) used by `GameInteractionService`. The bridge component will be updated to use configurable endpoints once the MCP transport layer is complete.
 
 ## Next steps
-- Flesh out the MCP transport layer so `McpServerService` registers tools with the `ModelContextProtocol` host instead of just logging.
 - Extend the bridge to stream richer game telemetry (stage, chart, timing) and expose safe control surfaces for automated playtesting.

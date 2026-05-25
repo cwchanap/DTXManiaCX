@@ -382,7 +382,7 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static readonly Vector2 MissPercentPos = new Vector2(189, 442);
                 public static readonly Vector2 MaxComboPercentPos = new Vector2(189, 472);
                 
-                public static readonly Vector2 DigitSize = new Vector2(20, 19);
+                public static readonly Vector2 DigitSize = new Vector2(20, 26);
                 public const int MaxDigits = 4;
             }
             
@@ -546,6 +546,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int ComboFontSize = 48;
             public const int ComboLabelFontSize = 20;
             public const int ScoreFontSize = 32;
+            public const int JudgementFontSize = 20;
         }
         
         /// <summary>
