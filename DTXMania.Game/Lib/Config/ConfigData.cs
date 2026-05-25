@@ -35,6 +35,7 @@ namespace DTXMania.Game.Lib.Config
         public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
+        public int AudioLatencyOffsetMs { get; set; } = 200;
 
         // API settings
         /// <summary>

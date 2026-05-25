@@ -684,16 +684,29 @@ namespace DTXMania.Game.Lib.Stage
                 
                 // Process BGM events during song playback
                 ProcessBGMEvents(currentTimeMs);
-                
-                // Update gameplay managers with actual song time
-                UpdateGameplayManagers(currentTimeMs);
+
+                // Gameplay visuals and autoplay are delayed by the configured audio
+                // output latency so hits line up with the audible BGM.
+                var gameplayTimeMs = GetSynchronizedGameplayTimeMs(currentTimeMs);
+
+                // Update gameplay managers with audio-synchronized song time
+                UpdateGameplayManagers(gameplayTimeMs);
                 
                 // Update song progress
-                UpdateSongProgress(currentTimeMs);
+                UpdateSongProgress(gameplayTimeMs);
                 
                 // Check for stage completion conditions
-                CheckStageCompletion(currentTimeMs);
+                CheckStageCompletion(gameplayTimeMs);
             }
+        }
+
+        private double GetSynchronizedGameplayTimeMs(double currentAudioClockMs)
+        {
+            var offsetMs = _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0;
+            if (offsetMs <= 0)
+                return currentAudioClockMs;
+
+            return Math.Max(0.0, currentAudioClockMs - offsetMs);
         }
 
         /// <summary>
@@ -1166,14 +1179,12 @@ namespace DTXMania.Game.Lib.Stage
             _comboManager?.ProcessJudgement(e);
             _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
+            _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
             if (e.IsHit())
             {
                 _effectsManager?.SpawnHitEffect(e.Lane);
-
-                // Trigger lane flash effect
-                _noteRenderer?.TriggerLaneFlash(e.Lane);
 
                 // Trigger pad press effect
                 _padRenderer?.TriggerPadPress(e.Lane, true);

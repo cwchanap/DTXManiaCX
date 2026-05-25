@@ -304,7 +304,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                return resourceManager.LoadFont("NotoSerifJP", 48);
+                return resourceManager.LoadFont("NotoSerifJP", PerformanceUILayout.Typography.JudgementFontSize);
             }
             catch (Exception ex)
             {

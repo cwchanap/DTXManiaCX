@@ -343,6 +343,10 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var noFail))
                         Config.NoFail = noFail;
                     break;
+                case "AudioLatencyOffsetMs":
+                    if (int.TryParse(value, out var audioLatencyOffsetMs))
+                        Config.AudioLatencyOffsetMs = Math.Max(0, audioLatencyOffsetMs);
+                    break;
                 case "EnableGameApi":
                     if (TryParseBool(value, out var enableGameApi))
                         Config.EnableGameApi = enableGameApi;
@@ -422,6 +426,7 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
             sb.AppendLine($"AutoPlay={Config.AutoPlay}");
             sb.AppendLine($"NoFail={Config.NoFail}");
+            sb.AppendLine($"AudioLatencyOffsetMs={Config.AudioLatencyOffsetMs}");
 
             sb.AppendLine();
             sb.AppendLine("[Api]");

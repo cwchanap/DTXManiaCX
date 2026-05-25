@@ -829,6 +829,21 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void SongSelectionStage_ShouldNotDrawDedicatedScrollSpeedLabel()
+        {
+            var repositoryRoot = TryFindRepositoryRoot();
+            Assert.True(repositoryRoot != null,
+                "Could not locate repository root containing DTXMania.sln from AppContext.BaseDirectory.");
+
+            var songSelectionStagePath = Path.Combine(repositoryRoot!, "DTXMania.Game", "Lib", "Stage", "SongSelectionStage.cs");
+            Assert.True(File.Exists(songSelectionStagePath), $"Could not locate source file: {songSelectionStagePath}");
+
+            var source = File.ReadAllText(songSelectionStagePath);
+
+            Assert.DoesNotContain("\"Scroll \"", source, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void Deactivate_ShouldFlushPendingSave()
         {
             var configManager = new Mock<IConfigManager>();
@@ -2199,6 +2214,23 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "OpenSearchFilterModal");
 
             Assert.Null(GetPrivateField<Microsoft.Xna.Framework.Input.MouseState?>(stage, "_previousMouseState"));
+        }
+
+        private static string? TryFindRepositoryRoot()
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+
+            while (current != null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "DTXMania.sln")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            return null;
         }
 
         #endregion

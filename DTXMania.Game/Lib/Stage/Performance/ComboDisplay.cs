@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -19,6 +20,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly GraphicsDevice _graphicsDevice;
         private ManagedFont _comboFont;
         private ManagedFont _labelFont;
+        private ITexture _comboTexture;
+        private ITexture _comboTextureAlt;
         private readonly Vector2 _position;
         private int _currentCombo = 0;
         private string _comboText = "0";
@@ -39,6 +42,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #endregion
 
         #region Properties
+
+        public readonly struct ComboGlyphDraw
+        {
+            public ComboGlyphDraw(string texturePath, Rectangle sourceRectangle, Vector2 position)
+            {
+                TexturePath = texturePath;
+                SourceRectangle = sourceRectangle;
+                Position = position;
+            }
+
+            public string TexturePath { get; }
+            public Rectangle SourceRectangle { get; }
+            public Vector2 Position { get; }
+        }
 
         /// <summary>
         /// Current combo value
@@ -110,6 +127,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             // Load fonts
             LoadFonts();
+
+            // Load NX combo number sheets. Font rendering remains the fallback for
+            // missing/custom skins, but the skin textures give the correct alignment.
+            LoadTextures();
         }
 
         #endregion
@@ -145,7 +166,31 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         public void Draw(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _comboFont == null || !_visible)
+            if (_disposed || spriteBatch == null || !_visible)
+                return;
+
+            if (_comboTexture != null)
+            {
+                var glyphs = CalculateDrumComboGlyphs(_currentCombo, _position);
+                var allGlyphsDrawn = true;
+
+                foreach (var glyph in glyphs)
+                {
+                    var texture = glyph.TexturePath == TexturePath.ComboDisplayAlt ? _comboTextureAlt : _comboTexture;
+                    if (texture == null)
+                    {
+                        allGlyphsDrawn = false;
+                        break;
+                    }
+
+                    texture.Draw(spriteBatch, glyph.Position, glyph.SourceRectangle);
+                }
+
+                if (allGlyphsDrawn)
+                    return;
+            }
+
+            if (_comboFont == null || _labelFont == null)
                 return;
 
             // Measure text sizes for centering
@@ -205,6 +250,61 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Private Methods
 
+        public static IReadOnlyList<ComboGlyphDraw> CalculateDrumComboGlyphs(int combo)
+        {
+            return CalculateDrumComboGlyphs(combo, PerformanceUILayout.Combo.BasePosition);
+        }
+
+        public static IReadOnlyList<ComboGlyphDraw> CalculateDrumComboGlyphs(int combo, Vector2 centerPosition)
+        {
+            if (combo <= 0)
+                return Array.Empty<ComboGlyphDraw>();
+
+            const int digitWidth = 120;
+            const int digitHeight = 160;
+            const int smallDigitWidth = 96;
+            const int smallDigitHeight = 128;
+            const int digitSpacing = -6;
+            const int comboLabelWidth = 250;
+            const int comboLabelHeight = 60;
+
+            var digits = new List<int>();
+            var value = combo;
+            while (value > 0 && digits.Count < 10)
+            {
+                digits.Add(value % 10);
+                value /= 10;
+            }
+
+            var glyphs = new List<ComboGlyphDraw>(digits.Count + 1);
+
+            var labelX = (int)centerPosition.X - 68 - (int)(comboLabelWidth / 1.3f);
+            var labelY = (int)centerPosition.Y + 162;
+            glyphs.Add(new ComboGlyphDraw(
+                TexturePath.ComboDisplay,
+                new Rectangle(0, 320, comboLabelWidth, comboLabelHeight),
+                new Vector2(labelX, labelY)));
+
+            var x = (int)centerPosition.X;
+            var useSmallDigits = digits.Count >= 4;
+            var texturePath = useSmallDigits ? TexturePath.ComboDisplayAlt : TexturePath.ComboDisplay;
+            var drawWidth = useSmallDigits ? smallDigitWidth : digitWidth;
+            var drawHeight = useSmallDigits ? smallDigitHeight : digitHeight;
+            var drawY = (int)centerPosition.Y + (useSmallDigits ? 20 : 0);
+
+            for (var i = 0; i < digits.Count; i++)
+            {
+                var digit = digits[i];
+                x -= drawWidth + digitSpacing;
+                glyphs.Add(new ComboGlyphDraw(
+                    texturePath,
+                    new Rectangle((digit % 5) * drawWidth, (digit / 5) * drawHeight, drawWidth, drawHeight),
+                    new Vector2(x, drawY)));
+            }
+
+            return glyphs;
+        }
+
         private void LoadFonts()
         {
             try
@@ -234,6 +334,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        private void LoadTextures()
+        {
+            try
+            {
+                _comboTexture = _resourceManager.LoadTexture(TexturePath.ComboDisplay);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ComboDisplay: Failed to load combo texture: {ex.Message}");
+                _comboTexture = null;
+            }
+
+            try
+            {
+                _comboTextureAlt = _resourceManager.LoadTexture(TexturePath.ComboDisplayAlt);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ComboDisplay: Failed to load combo alt texture: {ex.Message}");
+                _comboTextureAlt = null;
+            }
+        }
+
         #endregion
 
         #region IDisposable Implementation
@@ -255,6 +378,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _comboFont = null;
                     _labelFont?.Dispose();
                     _labelFont = null;
+                    _comboTexture?.RemoveReference();
+                    _comboTexture = null;
+                    _comboTextureAlt?.RemoveReference();
+                    _comboTextureAlt = null;
                 }
 
                 _disposed = true;
