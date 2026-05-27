@@ -685,22 +685,22 @@ namespace DTXMania.Game.Lib.Stage
                 // Process BGM events during song playback
                 ProcessBGMEvents(currentTimeMs);
 
-                // Gameplay visuals and autoplay are delayed by the configured audio
-                // output latency so hits line up with the audible BGM.
-                var gameplayTimeMs = GetSynchronizedGameplayTimeMs(currentTimeMs);
+                // Keep autoplay, BGM events, note visuals, progress, and completion
+                // on the same raw song clock. The latency offset only compensates
+                // player judgement timing against audible output latency.
+                var playerJudgementTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
 
-                // Update gameplay managers with audio-synchronized song time
-                UpdateGameplayManagers(gameplayTimeMs);
+                UpdateGameplayManagers(currentTimeMs, playerJudgementTimeMs);
                 
                 // Update song progress
-                UpdateSongProgress(gameplayTimeMs);
+                UpdateSongProgress(currentTimeMs);
                 
                 // Check for stage completion conditions
-                CheckStageCompletion(gameplayTimeMs);
+                CheckStageCompletion(currentTimeMs);
             }
         }
 
-        private double GetSynchronizedGameplayTimeMs(double currentAudioClockMs)
+        private double GetPlayerJudgementTimeMs(double currentAudioClockMs)
         {
             var offsetMs = _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0;
             if (offsetMs <= 0)
@@ -1271,17 +1271,17 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Updates gameplay managers during active gameplay
         /// </summary>
-        private void UpdateGameplayManagers(double currentSongTimeMs)
+        private void UpdateGameplayManagers(double autoPlaySongTimeMs, double judgementSongTimeMs)
         {
             // Process autoplay if enabled
             if (_autoPlayEnabled)
             {
-                ProcessAutoPlay(currentSongTimeMs);
+                ProcessAutoPlay(autoPlaySongTimeMs);
             }
 
             // Always update judgement manager to ensure miss detection runs
             // Input processing is controlled by IsActive flag internally
-            _judgementManager?.Update(currentSongTimeMs);
+            _judgementManager?.Update(judgementSongTimeMs);
         }
         
         /// <summary>

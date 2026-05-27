@@ -334,15 +334,15 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void GetSynchronizedGameplayTimeMs_WhenAudioLatencyOffsetConfigured_ShouldSubtractOffsetAndClamp()
+    public void GetPlayerJudgementTimeMs_WhenAudioLatencyOffsetConfigured_ShouldSubtractOffsetAndClamp()
     {
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
             CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = 250 }));
         var stage = CreateStage(game);
 
-        Assert.Equal(750.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetSynchronizedGameplayTimeMs", 1000.0));
-        Assert.Equal(0.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetSynchronizedGameplayTimeMs", 100.0));
+        Assert.Equal(750.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetPlayerJudgementTimeMs", 1000.0));
+        Assert.Equal(0.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetPlayerJudgementTimeMs", 100.0));
     }
 
     [Fact]
@@ -353,7 +353,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1301.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1301.0, 1301.0);
 
         Assert.Equal(1, judgementManager.GetJudgementCount(JudgementType.Miss));
     }
@@ -370,8 +370,27 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
         judgementManager.Update(1000.0);
+
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
+    }
+
+    [Fact]
+    public void UpdateGameplayManagers_WhenJudgementClockIsLatencyAdjusted_ShouldAutoPlayUseRawSongClock()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 750.0);
 
         Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
         Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
@@ -523,7 +542,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
 
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
         Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
@@ -542,7 +561,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
 
         Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[0].State);
