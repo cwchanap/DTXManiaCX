@@ -845,6 +845,59 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnLaneHitForPadFeedback_WithLatencyOffset_UsesCompensatedTimeForChipLookup()
+    {
+        // Verify P2 fix: chip feedback must use the same compensated clock as
+        // JudgementManager so that a note within the Poor window at the
+        // compensated time is found even when the raw clock is offset.
+        var game = ReflectionHelpers.CreateGame();
+        const int latencyOffsetMs = 200;
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
+            CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = latencyOffsetMs }));
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+
+        // Note at 1000ms on lane 3. With 200ms latency offset, raw clock 1200ms
+        // should map to compensated 1000ms — within the Poor window (150ms).
+        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var chartManager = BuildChartManager(new[] { note });
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        judgementManager.IsActive = true;
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var soundMock = new Mock<ISound>();
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
+                 .GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+            // Raw clock at 1200ms. Without compensation, distance to note = 200ms > PoorWindow (150ms) → no chip.
+            // With compensation, compensated = 1000ms, distance = 0ms → chip plays.
+            ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+            ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+                new GameTime(TimeSpan.FromMilliseconds(1200.0), TimeSpan.FromSeconds(0.016)));
+
+            var args = new LaneHitEventArgs(3, new ButtonState("Player", true, 1.0f));
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+            // Chip sound should play because compensated time (1000ms) matches note exactly
+            soundMock.Verify(s => s.Play(), Times.Once);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
+    }
+
+    [Fact]
     public void OnLaneHitForPadFeedback_SongNotPlaying_VisualPadButNoChipSound()
     {
         var stage = CreateStage();

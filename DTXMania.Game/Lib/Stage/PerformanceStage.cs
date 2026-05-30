@@ -1168,10 +1168,13 @@ namespace DTXMania.Game.Lib.Stage
             if (_songTimer?.IsPlaying != true)
                 return;
 
-            // Play the chip sound for the nearest unhit note in this lane within the
-            // hit window — mirrors what JudgementManager would resolve as the hit target.
+            // Use the same compensated clock that JudgementManager.Update receives
+            // so chip sound lookup mirrors the judgement window. Without this, a hit
+            // judged Perfect at the compensated time can fall outside the chip lookup
+            // window (PoorWindow < AudioLatencyOffsetMs) and fail to play its chip.
             var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
-            var nearest = FindNearestNoteForChip(e.Lane, currentTimeMs);
+            var chipLookupTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
+            var nearest = FindNearestNoteForChip(e.Lane, chipLookupTimeMs);
             if (nearest != null)
                 PlayChipForNote(nearest);
         }
