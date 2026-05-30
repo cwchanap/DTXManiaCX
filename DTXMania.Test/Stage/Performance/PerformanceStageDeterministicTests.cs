@@ -315,7 +315,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ProcessBGMEvents_WhenCurrentTimeReachesTolerance_ShouldTriggerAndRemoveElapsedEvents()
+    public void ProcessBGMEvents_WhenCurrentTimeIsBeforeEventTime_ShouldNotTriggerEarly()
     {
         var stage = CreateStage();
         var scheduledEvents = new List<BGMEvent>
@@ -327,6 +327,26 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", scheduledEvents);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ProcessBGMEvents", 980.0);
+
+        var remainingEvents = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents");
+        Assert.Collection(remainingEvents,
+            first => Assert.Equal("01", first.WavId),
+            second => Assert.Equal("02", second.WavId));
+    }
+
+    [Fact]
+    public void ProcessBGMEvents_WhenCurrentTimeReachesEventTime_ShouldTriggerAndRemoveElapsedEvents()
+    {
+        var stage = CreateStage();
+        var scheduledEvents = new List<BGMEvent>
+        {
+            new() { WavId = "01", TimeMs = 1000.0 },
+            new() { WavId = "02", TimeMs = 1300.0 }
+        };
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", scheduledEvents);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessBGMEvents", 1000.0);
 
         var remainingEvents = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents");
         Assert.Single(remainingEvents);
