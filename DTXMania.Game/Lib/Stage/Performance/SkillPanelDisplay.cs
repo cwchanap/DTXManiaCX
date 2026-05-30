@@ -142,7 +142,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             int levelDec = _chart?.DrumLevelDec ?? 0;
 
             string levelText = FormatLevelText(level, levelDec);
-            if (_levelNumbersTexture != null)
+            if (_levelNumbersTexture != null && CanRenderWithLevelTexture(levelText))
             {
                 DrawLevelNumberText(spriteBatch, levelText, PerformanceUILayout.SkillPanel.LevelNumber.StartPosition);
             }
@@ -339,6 +339,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (ch == '.')
                 return new Rectangle(160, 0, 5, 32);
             return null;
+        }
+
+        /// <summary>
+        /// Checks whether every character in the level text can be rendered
+        /// using the level-number sprite sheet (digits and dot only).
+        /// Falls back to font rendering for unsupported characters like '--'.
+        /// </summary>
+        private static bool CanRenderWithLevelTexture(string text)
+        {
+            foreach (var ch in text)
+            {
+                if (GetLevelNumberSourceRectangle(ch) == null)
+                    return false;
+            }
+            return true;
         }
 
         private void DrawFallbackText(SpriteBatch spriteBatch, string text, Vector2 position)

@@ -66,5 +66,43 @@ namespace DTXMania.Test.Stage.Performance
                 poorCount: 2,
                 missCount: 1));
         }
+
+        // CanRenderWithLevelTexture is internal — test via GetLevelNumberSourceRectangle
+        // which is the gating check. Digits and '.' should be renderable; '-' should not.
+        [Theory]
+        [InlineData('0', true)]
+        [InlineData('5', true)]
+        [InlineData('9', true)]
+        [InlineData('.', true)]
+        [InlineData('-', false)]
+        [InlineData('a', false)]
+        [InlineData(' ', false)]
+        public void GetLevelNumberSourceRectangle_ShouldOnlySupportDigitsAndDot(char ch, bool shouldHaveSource)
+        {
+            // Access the static method via reflection since it's private
+            var method = typeof(SkillPanelDisplay).GetMethod(
+                "GetLevelNumberSourceRectangle",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.NotNull(method);
+            var result = method.Invoke(null, new object[] { ch });
+            if (shouldHaveSource)
+                Assert.NotNull(result);
+            else
+                Assert.Null(result);
+        }
+
+        [Fact]
+        public void CanRenderWithLevelTexture_DashText_ShouldReturnFalse()
+        {
+            var method = typeof(SkillPanelDisplay).GetMethod(
+                "CanRenderWithLevelTexture",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.NotNull(method);
+
+            // "--" (unknown difficulty) should not be renderable via level texture
+            Assert.False((bool)method.Invoke(null, new object[] { "--" })!);
+            // "8.50" (normal level) should be renderable
+            Assert.True((bool)method.Invoke(null, new object[] { "8.50" })!);
+        }
     }
 }
