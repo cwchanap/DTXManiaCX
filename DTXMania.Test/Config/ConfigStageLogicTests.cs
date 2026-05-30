@@ -68,7 +68,7 @@ public class ConfigStageLogicTests
 
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
-            Assert.Equal(8, configItems!.Count);
+            Assert.Equal(9, configItems!.Count);
             Assert.Collection(configItems,
                 item => Assert.Equal("Screen Resolution", item.Name),
                 item => Assert.Equal("Fullscreen", item.Name),
@@ -76,6 +76,7 @@ public class ConfigStageLogicTests
                 item => Assert.Equal("No Fail", item.Name),
                 item => Assert.Equal("Auto Play", item.Name),
                 item => Assert.Equal("Scroll Speed", item.Name),
+                item => Assert.Equal("Audio Latency Offset", item.Name),
                 item => Assert.Equal("Drum Key Mapping", item.Name),
                 item => Assert.Equal("System Key Mapping", item.Name));
             Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
@@ -187,7 +188,7 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -601,7 +602,7 @@ public class ConfigStageLogicTests
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.NotNull(configItems);
-            Assert.Equal(8, configItems!.Count);
+            Assert.Equal(9, configItems!.Count);
             Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
         }
@@ -966,7 +967,8 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            // Drum Key Mapping is a NavigationConfigItem; Left should not change anything
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -982,7 +984,8 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
+            // System Key Mapping is a NavigationConfigItem; Right should not change anything
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 8);
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -1355,14 +1358,14 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: true);
             var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
             Assert.NotNull(systemPanel);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 8);
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
 
             systemPanel!.Update(0.016, new KeyboardState(Keys.Escape), new KeyboardState());
 
             Assert.False(systemPanel.IsActive);
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            Assert.Equal(6, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(8, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
@@ -1569,6 +1572,87 @@ public class ConfigStageLogicTests
             Assert.False(result);
             // ScrollSpeed should be rolled back to the original value
             Assert.Equal(100, configManager.Config.ScrollSpeed);
+        }
+    }
+
+    [Fact]
+    public void ApplyConfiguration_SaveFailure_ShouldRollbackAudioLatencyOffsetMs()
+    {
+        var configManager = new RecordingConfigManager(
+            new ConfigData { AudioLatencyOffsetMs = 200 },
+            saveException: new IOException("disk full"));
+
+        var (stage, _, inputManager) = CreateStage(configManager);
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_workingConfig", new ConfigData
+            {
+                ScreenWidth = 1280,
+                ScreenHeight = 720,
+                AudioLatencyOffsetMs = 100
+            });
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
+
+            Assert.False(result);
+            Assert.Equal(200, configManager.Config.AudioLatencyOffsetMs);
+        }
+    }
+
+    [Fact]
+    public void AudioLatencyConfigItem_ShouldIncrementBy10Ms()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            workingConfig!.AudioLatencyOffsetMs = 200;
+
+            // Audio Latency Offset is at index 6 (after Resolution, Fullscreen, VSync, NoFail, AutoPlay, ScrollSpeed)
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(210, workingConfig.AudioLatencyOffsetMs);
+        }
+    }
+
+    [Fact]
+    public void AudioLatencyConfigItem_AtZero_ShouldNotDecrementBelowMin()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            workingConfig!.AudioLatencyOffsetMs = 0;
+
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(0, workingConfig.AudioLatencyOffsetMs);
+        }
+    }
+
+    [Fact]
+    public void AudioLatencyConfigItem_At500_ShouldNotIncrementAboveMax()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            workingConfig!.AudioLatencyOffsetMs = 500;
+
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(500, workingConfig.AudioLatencyOffsetMs);
         }
     }
 }
