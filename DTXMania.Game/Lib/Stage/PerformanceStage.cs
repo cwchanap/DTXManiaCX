@@ -685,9 +685,12 @@ namespace DTXMania.Game.Lib.Stage
                 // Process BGM events during song playback
                 ProcessBGMEvents(currentTimeMs);
 
-                // Keep autoplay, BGM events, note visuals, progress, and completion
-                // on the same raw song clock. The latency offset only compensates
-                // player judgement timing against audible output latency.
+                // Dual-clock architecture:
+                // - Raw song clock (currentTimeMs): autoplay, BGM events, note visuals,
+                //   progress, completion — everything that must stay synced with the chart.
+                // - Compensated clock (playerJudgementTimeMs): player input judgement only.
+                //   Subtracting AudioLatencyOffsetMs aligns hit detection with what the
+                //   player actually hears, compensating for audio buffer/driver output delay.
                 var playerJudgementTimeMs = GetPlayerJudgementTimeMs(currentTimeMs);
 
                 UpdateGameplayManagers(currentTimeMs, playerJudgementTimeMs);
@@ -700,6 +703,13 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>
+        /// Compensates the raw song clock for audio output latency when judging player input.
+        /// SongTimer returns wall-clock time since Play() was called (audio submit time), but
+        /// the player hears the output ~AudioLatencyOffsetMs later due to buffer/driver latency.
+        /// Subtracting this offset aligns judgement windows with what the player actually hears.
+        /// Autoplay, visuals, and BGM events use the raw clock and are NOT compensated.
+        /// </summary>
         private double GetPlayerJudgementTimeMs(double currentAudioClockMs)
         {
             var offsetMs = _game?.ConfigManager?.Config?.AudioLatencyOffsetMs ?? 0;

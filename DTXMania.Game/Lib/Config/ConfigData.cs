@@ -35,6 +35,27 @@ namespace DTXMania.Game.Lib.Config
         public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
+
+        /// <summary>
+        /// Audio output latency compensation in milliseconds. This value is subtracted from
+        /// the raw song clock when evaluating player input timing, so that judgement windows
+        /// are aligned with what the player actually hears rather than when audio was submitted
+        /// to the output buffer.
+        /// <para>
+        /// SongTimer returns wall-clock time since Play() was called — the moment audio was
+        /// queued. The actual audible output lags behind by the audio buffer + driver latency.
+        /// On MonoGame DesktopGL (OpenAL) with BufferSizeMs=100, total output latency is
+        /// typically 100-200ms. Without compensation, a player with perfect reaction time
+        /// would always be judged ~200ms late because the clock reads T+200 but the note
+        /// they're reacting to was heard at T.
+        /// </para>
+        /// <para>
+        /// This offset only affects player judgement timing. Autoplay, note visuals, BGM
+        /// events, song progress, and stage completion all use the raw song clock to stay
+        /// synchronized with the chart. Equivalent to DTXManiaNX's nInputAdjustTimeMs
+        /// (which defaults to 0 and is user-configured in range -99..+99).
+        /// </para>
+        /// </summary>
         public int AudioLatencyOffsetMs { get; set; } = 200;
 
         // API settings
