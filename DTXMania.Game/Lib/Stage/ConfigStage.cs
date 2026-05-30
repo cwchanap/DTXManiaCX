@@ -325,12 +325,26 @@ namespace DTXMania.Game.Lib.Stage
                 step: ScrollSpeedRange.Step,
                 valueFormatter: ScrollSpeedRange.Format);
 
+            var audioLatencyItem = new IntegerConfigItem(
+                "Audio Latency Offset",
+                () => _workingConfig.AudioLatencyOffsetMs,
+                value =>
+                {
+                    _workingConfig.AudioLatencyOffsetMs = value;
+                    _hasUnsavedChanges = true;
+                },
+                minValue: 0,
+                maxValue: 500,
+                step: 10,
+                valueFormatter: v => $"{v} ms");
+
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
             _configItems.Add(vsyncItem);
             _configItems.Add(noFailItem);
             _configItems.Add(autoPlayItem);
             _configItems.Add(scrollSpeedItem);
+            _configItems.Add(audioLatencyItem);
 
             // Drum and system key mapping navigation items
             _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
