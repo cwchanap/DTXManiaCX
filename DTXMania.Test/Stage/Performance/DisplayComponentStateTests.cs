@@ -312,6 +312,40 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(exception);
         }
 
+        /// <summary>
+        /// Verifies that when _comboTexture is available but _comboTextureAlt is missing,
+        /// Draw does not partially render glyphs from the primary sheet before falling back
+        /// to font rendering. This prevents visual artifacts where texture glyphs appear
+        /// behind the fallback font-rendered digits.
+        /// </summary>
+        [Fact]
+        public void ComboDisplay_Draw_WhenAltTextureMissing_ShouldNotPartiallyDrawGlyphs()
+        {
+            var display = CreateUninitialized<ComboDisplay>();
+            SetPrivateField(display, "_visible", true);
+            SetPrivateField(display, "_currentCombo", 1234); // 4+ digits triggers ComboDisplayAlt
+
+            // Set up primary texture mock that tracks Draw calls
+            var primaryTexture = new Mock<ITexture>();
+            int primaryDrawCount = 0;
+            primaryTexture.Setup(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()))
+                .Callback(() => primaryDrawCount++);
+
+            // Primary texture available, alt texture null, fonts null (so fallback also skips)
+            SetPrivateField(display, "_comboTexture", primaryTexture.Object);
+            SetPrivateField(display, "_comboTextureAlt", null);
+            SetPrivateField(display, "_comboFont", null);
+            SetPrivateField(display, "_labelFont", null);
+
+            // Draw should skip glyph rendering (pre-pass finds alt missing)
+            // and also skip font fallback (fonts null), without calling Draw on primary texture
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+            var exception = Record.Exception(() => display.Draw(spriteBatch));
+
+            Assert.Null(exception);
+            Assert.Equal(0, primaryDrawCount);
+        }
+
         [Fact]
         public void ComboDisplay_Dispose_ShouldDisposeFontsAndClearReferences()
         {

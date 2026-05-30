@@ -172,22 +172,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_comboTexture != null)
             {
                 var glyphs = CalculateDrumComboGlyphs(_currentCombo, _position);
-                var allGlyphsDrawn = true;
 
+                // Pre-pass: validate all glyph textures are available before drawing any
+                var allTexturesAvailable = true;
                 foreach (var glyph in glyphs)
                 {
                     var texture = glyph.TexturePath == TexturePath.ComboDisplayAlt ? _comboTextureAlt : _comboTexture;
                     if (texture == null)
                     {
-                        allGlyphsDrawn = false;
+                        allTexturesAvailable = false;
                         break;
                     }
-
-                    texture.Draw(spriteBatch, glyph.Position, glyph.SourceRectangle);
                 }
 
-                if (allGlyphsDrawn)
+                if (allTexturesAvailable)
+                {
+                    foreach (var glyph in glyphs)
+                    {
+                        var texture = glyph.TexturePath == TexturePath.ComboDisplayAlt ? _comboTextureAlt : _comboTexture;
+                        texture.Draw(spriteBatch, glyph.Position, glyph.SourceRectangle);
+                    }
                     return;
+                }
             }
 
             if (_comboFont == null || _labelFont == null)
