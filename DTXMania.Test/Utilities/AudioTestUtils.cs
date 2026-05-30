@@ -80,6 +80,59 @@ namespace DTXMania.Test.Utilities
         }
 
         /// <summary>
+        /// Creates a minimal DTXMania BJXA/KWD1 XA file for testing purposes.
+        /// </summary>
+        /// <param name="outputPath">The path where the XA file should be created</param>
+        /// <param name="bits">XA ADPCM bit depth. DTXMania charts commonly use 4, 6, or 8.</param>
+        /// <param name="blocks">Number of compressed XA blocks to write.</param>
+        /// <returns>The path to the created XA file</returns>
+        public static string CreateTestXaFile(string outputPath, byte bits = 8, int blocks = 1)
+        {
+            var directory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            if (bits != 4 && bits != 6 && bits != 8)
+                throw new ArgumentOutOfRangeException(nameof(bits), "XA test files support 4, 6, or 8 bits.");
+            if (blocks <= 0)
+                throw new ArgumentOutOfRangeException(nameof(blocks), "XA test files require at least one block.");
+
+            const byte channels = 1;
+            const int blockSamples = 32;
+            const ushort sampleRate = 44100;
+            var blockSize = (uint)(bits * 4 + 1);
+            var dataLength = blockSize * channels * (uint)blocks;
+
+            using var writer = new BinaryWriter(File.Create(outputPath));
+
+            writer.Write(0x3144574Bu); // "KWD1" header magic, little-endian.
+            writer.Write(dataLength);
+            writer.Write((uint)(blockSamples * blocks));
+            writer.Write(sampleRate);
+            writer.Write(bits);
+            writer.Write(channels);
+            writer.Write(0u); // Loop pointer, unused by the decoder.
+            writer.Write((short)0);
+            writer.Write((short)0);
+            writer.Write((short)0);
+            writer.Write((short)0);
+            writer.Write(0u); // Padding to the 32-byte XA header.
+
+            for (var block = 0; block < blocks; block++)
+            {
+                writer.Write((byte)0); // ADPCM profile.
+                for (var i = 1; i < blockSize; i++)
+                {
+                    writer.Write((byte)0);
+                }
+            }
+
+            return outputPath;
+        }
+
+        /// <summary>
         /// Creates a fake MP3 file with dummy content for testing error handling
         /// </summary>
         /// <param name="outputPath">The path where the fake MP3 file should be created</param>

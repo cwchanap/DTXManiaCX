@@ -250,6 +250,9 @@ namespace DTXMania.Game.Lib.Resources
                 case ".mp3":
                     LoadMp3File(filePath);
                     break;
+                case ".xa":
+                    LoadXaFile(filePath);
+                    break;
                 default:
                     throw new NotSupportedException($"Audio format not supported: {extension}");
             }
@@ -290,6 +293,13 @@ namespace DTXMania.Game.Lib.Resources
             // Create SoundEffect from PCM data
             var audioChannels = channels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
             _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
+        }
+
+        private void LoadXaFile(string filePath)
+        {
+            var decoded = XaDecoder.Decode(File.ReadAllBytes(filePath));
+            var audioChannels = decoded.Channels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
+            _soundEffect = new SoundEffect(decoded.PcmData, decoded.SampleRate, audioChannels);
         }
 
         private void LoadMp3File(string filePath)

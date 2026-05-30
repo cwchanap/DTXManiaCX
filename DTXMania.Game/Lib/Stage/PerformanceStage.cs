@@ -1038,15 +1038,12 @@ namespace DTXMania.Game.Lib.Stage
         /// <param name="currentTimeMs">Current song time in milliseconds</param>
         private void ProcessBGMEvents(double currentTimeMs)
         {
-            // Process BGM events that should be triggered (within a small tolerance)
-            const double timingTolerance = 50.0; // 50ms tolerance for BGM triggering
-
             for (int i = _scheduledBGMEvents.Count - 1; i >= 0; i--)
             {
                 var bgmEvent = _scheduledBGMEvents[i];
 
-                // Check if it's time to trigger this BGM event
-                if (currentTimeMs >= bgmEvent.TimeMs - timingTolerance)
+                // Keep BGM aligned to the same raw song clock as autoplay and note visuals.
+                if (currentTimeMs >= bgmEvent.TimeMs)
                 {
                     TriggerBGMEvent(bgmEvent);
                     _scheduledBGMEvents.RemoveAt(i);

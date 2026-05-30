@@ -44,6 +44,7 @@ namespace DTXMania.Test.Resources
             public string EmptyMp3File { get; }
             public string InvalidMp3File { get; }
             public string UnsupportedFile { get; }
+            public string ValidXaFile { get; }
             public string Mp3File { get; }
             public string Mp3FileUppercase { get; }
             public string Mp3FileMixedCase { get; }
@@ -67,6 +68,7 @@ namespace DTXMania.Test.Resources
                 File.WriteAllText(InvalidMp3File, "This is not valid MP3 content at all");
                 
                 UnsupportedFile = AudioTestUtils.CreateTestFile(TempDir, "unsupported.txt", "This is not an audio file");
+                ValidXaFile = AudioTestUtils.CreateTestXaFile(Path.Combine(TempDir, "valid.xa"));
                 
                 // Files for extension detection tests
                 Mp3File = AudioTestUtils.CreateTestFile(TempDir, "test.mp3", "fake audio content");
@@ -108,6 +110,39 @@ namespace DTXMania.Test.Resources
             Assert.NotNull(sound.SoundEffect);
             Assert.Equal(_fixture.ValidWavFile, sound.SourcePath);
             Assert.False(sound.IsDisposed);
+        }
+
+        [Fact]
+        public void Constructor_WithValidXaFile_CreatesSuccessfully()
+        {
+            // Arrange & Act
+            using var sound = new ManagedSound(_fixture.ValidXaFile);
+
+            // Assert
+            Assert.NotNull(sound);
+            Assert.NotNull(sound.SoundEffect);
+            Assert.Equal(_fixture.ValidXaFile, sound.SourcePath);
+            Assert.True(sound.Duration.TotalMilliseconds > 0);
+        }
+
+        [Theory]
+        [InlineData(4, 1)]
+        [InlineData(6, 3)]
+        [InlineData(8, 1)]
+        public void Constructor_WithSupportedXaBitDepth_CreatesSuccessfully(int bits, int blocks)
+        {
+            // Arrange
+            var xaFile = AudioTestUtils.CreateTestXaFile(
+                Path.Combine(_fixture.TempDir, $"valid-{bits}.xa"),
+                (byte)bits,
+                blocks);
+
+            // Act
+            using var sound = new ManagedSound(xaFile);
+
+            // Assert
+            Assert.NotNull(sound.SoundEffect);
+            Assert.True(sound.Duration.TotalMilliseconds > 0);
         }
 
         [Fact]
