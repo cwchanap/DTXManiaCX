@@ -174,6 +174,44 @@ namespace DTXMania.Test.UI
             Assert.Equal(PerformanceUILayout.ScreenHeight, PerformanceUILayout.ScreenResolution.Y);
         }
 
+        [Fact]
+        public void JudgementLineY_ShouldMatchJudgelineY()
+        {
+            Assert.Equal(PerformanceUILayout.JudgelineY, PerformanceUILayout.JudgementLineY);
+        }
+
+        [Fact]
+        public void FullCombo_GetCenteredPosition_ShouldCenterOnScreen()
+        {
+            var pos = PerformanceUILayout.FullCombo.GetCenteredPosition(100, 50);
+            Assert.Equal((1280 - 100) / 2, pos.X);
+            Assert.Equal((720 - 50) / 2, pos.Y);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(5)]
+        [InlineData(6)]
+        [InlineData(7)]
+        [InlineData(8)]
+        [InlineData(9)]
+        public void GetLaneRightX_AllLanes_ShouldBeLeftXPlusWidth(int laneIndex)
+        {
+            var expected = PerformanceUILayout.LaneLeftX[laneIndex] + PerformanceUILayout.LaneWidths[laneIndex];
+            Assert.Equal(expected, PerformanceUILayout.GetLaneRightX(laneIndex));
+        }
+
+        [Fact]
+        public void GaugeSize_WidthAndHeight_ShouldMatchConstants()
+        {
+            Assert.Equal(200, PerformanceUILayout.GaugeSize.X);
+            Assert.Equal(PerformanceUILayout.Gauge.FillHeight, PerformanceUILayout.GaugeSize.Y);
+        }
+
         #endregion
     }
 
