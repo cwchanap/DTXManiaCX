@@ -448,13 +448,6 @@ namespace DTXMania.Game.Lib.Resources
                 SongTransitionBackground,
                 PerformanceBackground,
                 ResultBackground,
-                ResultBackgroundRankSS,
-                ResultBackgroundRankS,
-                ResultBackgroundRankA,
-                ResultBackgroundRankB,
-                ResultBackgroundRankC,
-                ResultBackgroundRankD,
-                ResultBackgroundRankE,
                 ResultRankSS,
                 ResultRankS,
                 ResultRankA,
@@ -535,6 +528,24 @@ namespace DTXMania.Game.Lib.Resources
                 ChipWave,
                 Bonus,
                 Bonus100
+            };
+        }
+
+        /// <summary>
+        /// Gets optional result stage texture paths that may be provided by skins.
+        /// These are not required preload or validation assets.
+        /// </summary>
+        public static string[] GetOptionalResultTexturePaths()
+        {
+            return new[]
+            {
+                ResultBackgroundRankSS,
+                ResultBackgroundRankS,
+                ResultBackgroundRankA,
+                ResultBackgroundRankB,
+                ResultBackgroundRankC,
+                ResultBackgroundRankD,
+                ResultBackgroundRankE
             };
         }
         
