@@ -238,16 +238,18 @@ namespace DTXMania.Game.Lib.Stage.Result
             if (chart == null || !HasText(chart.PreviewImage))
                 return TexturePath.ResultDefaultPreview;
 
-            if (Path.IsPathRooted(chart.PreviewImage))
-                return chart.PreviewImage;
+            var previewImagePath = NormalizePreviewImagePath(chart.PreviewImage);
+
+            if (IsRootedPreviewImagePath(previewImagePath))
+                return previewImagePath;
 
             var chartDirectory = HasText(chart.FilePath)
                 ? Path.GetDirectoryName(chart.FilePath)
                 : null;
 
             return HasText(chartDirectory)
-                ? Path.Combine(chartDirectory!, chart.PreviewImage)
-                : chart.PreviewImage;
+                ? Path.Combine(chartDirectory!, previewImagePath)
+                : previewImagePath;
         }
 
         private static bool IsNewRecord(PerformanceSummary summary, SongScore? previousScore)
@@ -272,6 +274,24 @@ namespace DTXMania.Game.Lib.Stage.Result
         private static bool HasText(string? value)
         {
             return !string.IsNullOrWhiteSpace(value);
+        }
+
+        private static string NormalizePreviewImagePath(string previewImagePath)
+        {
+            return previewImagePath.Replace('\\', Path.DirectorySeparatorChar);
+        }
+
+        private static bool IsRootedPreviewImagePath(string previewImagePath)
+        {
+            return Path.IsPathRooted(previewImagePath) || IsWindowsAbsolutePath(previewImagePath);
+        }
+
+        private static bool IsWindowsAbsolutePath(string previewImagePath)
+        {
+            return previewImagePath.Length >= 3
+                && char.IsLetter(previewImagePath[0])
+                && previewImagePath[1] == ':'
+                && (previewImagePath[2] == '/' || previewImagePath[2] == '\\');
         }
     }
 }
