@@ -156,6 +156,64 @@ namespace DTXMania.Test.Resources
 
         #endregion
 
+        #region Result Stage Texture Constants
+
+        [Fact]
+        public void ResultStageAssets_ShouldUseNXPaths()
+        {
+            Assert.Equal("Graphics/8_background rankSS.png", TexturePath.ResultBackgroundRankSS);
+            Assert.Equal("Graphics/8_background rankS.png", TexturePath.ResultBackgroundRankS);
+            Assert.Equal("Graphics/8_background rankA.png", TexturePath.ResultBackgroundRankA);
+            Assert.Equal("Graphics/8_background rankB.png", TexturePath.ResultBackgroundRankB);
+            Assert.Equal("Graphics/8_background rankC.png", TexturePath.ResultBackgroundRankC);
+            Assert.Equal("Graphics/8_background rankD.png", TexturePath.ResultBackgroundRankD);
+            Assert.Equal("Graphics/8_background rankE.png", TexturePath.ResultBackgroundRankE);
+            Assert.Equal("Graphics/8_rankSS.png", TexturePath.ResultRankSS);
+            Assert.Equal("Graphics/8_rankS.png", TexturePath.ResultRankS);
+            Assert.Equal("Graphics/8_rankA.png", TexturePath.ResultRankA);
+            Assert.Equal("Graphics/8_rankB.png", TexturePath.ResultRankB);
+            Assert.Equal("Graphics/8_rankC.png", TexturePath.ResultRankC);
+            Assert.Equal("Graphics/8_rankD.png", TexturePath.ResultRankD);
+            Assert.Equal("Graphics/8_rankE.png", TexturePath.ResultRankE);
+            Assert.Equal("Graphics/ScreenResult StageCleared.png", TexturePath.ResultPlateStageCleared);
+            Assert.Equal("Graphics/ScreenResult fullcombo.png", TexturePath.ResultPlateFullCombo);
+            Assert.Equal("Graphics/ScreenResult Excellent.png", TexturePath.ResultPlateExcellent);
+            Assert.Equal("Graphics/7_JacketPanel.png", TexturePath.ResultJacketPanel);
+            Assert.Equal("Graphics/7_SkillPanel.png", TexturePath.ResultSkillPanel);
+            Assert.Equal("Graphics/8_New Record.png", TexturePath.ResultNewRecord);
+            Assert.Equal("Graphics/5_preimage default.png", TexturePath.ResultDefaultPreview);
+        }
+
+        [Fact]
+        public void ResultStageAssets_ShouldBeIncludedInAllTexturePaths()
+        {
+            var paths = TexturePath.GetAllTexturePaths();
+
+            Assert.Contains(TexturePath.ResultBackgroundRankSS, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankS, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankA, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankB, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankC, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankD, paths);
+            Assert.Contains(TexturePath.ResultBackgroundRankE, paths);
+            Assert.Contains(TexturePath.ResultRankSS, paths);
+            Assert.Contains(TexturePath.ResultRankS, paths);
+            Assert.Contains(TexturePath.ResultRankA, paths);
+            Assert.Contains(TexturePath.ResultRankB, paths);
+            Assert.Contains(TexturePath.ResultRankC, paths);
+            Assert.Contains(TexturePath.ResultRankD, paths);
+            Assert.Contains(TexturePath.ResultRankE, paths);
+            Assert.Contains(TexturePath.ResultPlateStageCleared, paths);
+            Assert.Contains(TexturePath.ResultPlateFullCombo, paths);
+            Assert.Contains(TexturePath.ResultPlateExcellent, paths);
+            Assert.Contains(TexturePath.ResultJacketPanel, paths);
+            Assert.Contains(TexturePath.ResultSkillPanel, paths);
+            Assert.Contains(TexturePath.ResultNewRecord, paths);
+            Assert.Contains(TexturePath.ResultDefaultPreview, paths);
+        }
+
+        #endregion
+
         #region Font Texture Constants
 
         [Fact]
@@ -228,6 +286,7 @@ namespace DTXMania.Test.Resources
             Assert.Contains(TexturePath.HitBar, paths);
             Assert.Contains(TexturePath.GaugeFrame, paths);
             Assert.Contains(TexturePath.JudgeStrings, paths);
+            Assert.Contains(TexturePath.SkillPanel, paths);
             Assert.Contains(TexturePath.PadCaps, paths);
         }
 
@@ -239,11 +298,17 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetAllTexturePaths_ShouldNotContainDuplicates()
+        public void GetAllTexturePaths_ShouldOnlyDuplicateSharedResultSkillPanelAsset()
         {
             var paths = TexturePath.GetAllTexturePaths();
-            var uniquePaths = paths.Distinct().ToArray();
-            Assert.Equal(paths.Length, uniquePaths.Length);
+            var duplicatePaths = paths
+                .GroupBy(path => path)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToArray();
+
+            Assert.Equal(new[] { TexturePath.SkillPanel }, duplicatePaths);
+            Assert.Equal(TexturePath.SkillPanel, TexturePath.ResultSkillPanel);
         }
 
         #endregion

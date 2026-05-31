@@ -38,6 +38,43 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public const string ResultBackground = "Graphics/8_background.jpg";
 
+        /// <summary>
+        /// Result stage rank-specific background textures. These are optional skin assets.
+        /// </summary>
+        public const string ResultBackgroundRankSS = "Graphics/8_background rankSS.png";
+        public const string ResultBackgroundRankS = "Graphics/8_background rankS.png";
+        public const string ResultBackgroundRankA = "Graphics/8_background rankA.png";
+        public const string ResultBackgroundRankB = "Graphics/8_background rankB.png";
+        public const string ResultBackgroundRankC = "Graphics/8_background rankC.png";
+        public const string ResultBackgroundRankD = "Graphics/8_background rankD.png";
+        public const string ResultBackgroundRankE = "Graphics/8_background rankE.png";
+
+        /// <summary>
+        /// Result stage rank badge textures.
+        /// </summary>
+        public const string ResultRankSS = "Graphics/8_rankSS.png";
+        public const string ResultRankS = "Graphics/8_rankS.png";
+        public const string ResultRankA = "Graphics/8_rankA.png";
+        public const string ResultRankB = "Graphics/8_rankB.png";
+        public const string ResultRankC = "Graphics/8_rankC.png";
+        public const string ResultRankD = "Graphics/8_rankD.png";
+        public const string ResultRankE = "Graphics/8_rankE.png";
+
+        /// <summary>
+        /// Result stage clear category plate textures.
+        /// </summary>
+        public const string ResultPlateStageCleared = "Graphics/ScreenResult StageCleared.png";
+        public const string ResultPlateFullCombo = "Graphics/ScreenResult fullcombo.png";
+        public const string ResultPlateExcellent = "Graphics/ScreenResult Excellent.png";
+
+        /// <summary>
+        /// Result stage structural panel textures.
+        /// </summary>
+        public const string ResultJacketPanel = "Graphics/7_JacketPanel.png";
+        public const string ResultSkillPanel = "Graphics/7_SkillPanel.png";
+        public const string ResultNewRecord = "Graphics/8_New Record.png";
+        public const string ResultDefaultPreview = "Graphics/5_preimage default.png";
+
         #endregion
         
         #region UI Panel Textures
@@ -411,6 +448,27 @@ namespace DTXMania.Game.Lib.Resources
                 SongTransitionBackground,
                 PerformanceBackground,
                 ResultBackground,
+                ResultBackgroundRankSS,
+                ResultBackgroundRankS,
+                ResultBackgroundRankA,
+                ResultBackgroundRankB,
+                ResultBackgroundRankC,
+                ResultBackgroundRankD,
+                ResultBackgroundRankE,
+                ResultRankSS,
+                ResultRankS,
+                ResultRankA,
+                ResultRankB,
+                ResultRankC,
+                ResultRankD,
+                ResultRankE,
+                ResultPlateStageCleared,
+                ResultPlateFullCombo,
+                ResultPlateExcellent,
+                ResultJacketPanel,
+                ResultSkillPanel,
+                ResultNewRecord,
+                ResultDefaultPreview,
                 TitleMenu,
                 SongSelectionHeaderPanel,
                 SongSelectionFooterPanel,

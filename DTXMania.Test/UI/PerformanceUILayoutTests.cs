@@ -319,6 +319,52 @@ namespace DTXMania.Test.UI
             // Should not throw
             Assert.NotEqual(Color.Transparent, color);
         }
+
+        [Fact]
+        public void NXViewport_ShouldMatchResultAssetResolution()
+        {
+            Assert.Equal(1280, ResultUILayout.NXViewport.Width);
+            Assert.Equal(720, ResultUILayout.NXViewport.Height);
+        }
+
+        [Fact]
+        public void NXLayout_KeyPositions_ShouldMatchDrumsResultLayout()
+        {
+            Assert.Equal(new Vector2(480, 0), ResultUILayout.Rank.BadgePosition);
+            Assert.Equal(new Vector2(315, 100), ResultUILayout.ResultPlate.Position);
+            Assert.Equal(new Vector2(420, 156), ResultUILayout.ResultPlate.FailedTextPosition);
+            Assert.Equal(new Vector2(467, 287), ResultUILayout.Jacket.PanelPosition);
+            Assert.Equal(new Rectangle(519, 338, 245, 245), ResultUILayout.Jacket.PreviewDestination);
+            Assert.Equal(new Vector2(180, 260), ResultUILayout.SkillPanel.PanelPosition);
+            Assert.Equal(new Vector2(198, 550), ResultUILayout.SkillPanel.LevelPosition);
+            Assert.Equal(new Vector2(238, 537), ResultUILayout.SkillPanel.PlayingSkillPosition);
+            Assert.Equal(new Vector2(268, 623), ResultUILayout.SkillPanel.GameSkillPosition);
+            Assert.Equal(new Vector2(260, 332), ResultUILayout.SkillPanel.PerfectCountPosition);
+            Assert.Equal(new Vector2(260, 362), ResultUILayout.SkillPanel.GreatCountPosition);
+            Assert.Equal(new Vector2(260, 392), ResultUILayout.SkillPanel.GoodCountPosition);
+            Assert.Equal(new Vector2(260, 422), ResultUILayout.SkillPanel.PoorCountPosition);
+            Assert.Equal(new Vector2(260, 452), ResultUILayout.SkillPanel.MissCountPosition);
+            Assert.Equal(new Vector2(260, 482), ResultUILayout.SkillPanel.MaxComboCountPosition);
+            Assert.Equal(new Vector2(347, 332), ResultUILayout.SkillPanel.PerfectPercentPosition);
+            Assert.Equal(new Vector2(347, 362), ResultUILayout.SkillPanel.GreatPercentPosition);
+            Assert.Equal(new Vector2(347, 392), ResultUILayout.SkillPanel.GoodPercentPosition);
+            Assert.Equal(new Vector2(347, 422), ResultUILayout.SkillPanel.PoorPercentPosition);
+            Assert.Equal(new Vector2(347, 452), ResultUILayout.SkillPanel.MissPercentPosition);
+            Assert.Equal(new Vector2(347, 482), ResultUILayout.SkillPanel.MaxComboPercentPosition);
+            Assert.Equal(new Vector2(30, 58), ResultUILayout.Score.Position);
+            Assert.Equal(new Vector2(500, 630), ResultUILayout.SongInfo.TitlePosition);
+            Assert.Equal(new Vector2(500, 665), ResultUILayout.SongInfo.ArtistPosition);
+            Assert.Equal(320, ResultUILayout.SongInfo.MaxWidth);
+            Assert.Equal(new Vector2(298, 582), ResultUILayout.NewRecord.BadgePosition);
+        }
+
+        [Fact]
+        public void NXLayout_FontSizes_ShouldMatchDrumsResultLayout()
+        {
+            Assert.Equal(16, ResultUILayout.Fonts.Small);
+            Assert.Equal(20, ResultUILayout.Fonts.Normal);
+            Assert.Equal(32, ResultUILayout.Fonts.Large);
+        }
     }
 
     /// <summary>

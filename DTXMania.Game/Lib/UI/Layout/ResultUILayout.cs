@@ -41,6 +41,77 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
         
         #endregion
+
+        #region NX Result Layout
+
+        public static class NXViewport
+        {
+            public const int Width = 1280;
+            public const int Height = 720;
+        }
+
+        public static class Fonts
+        {
+            public const int Small = 16;
+            public const int Normal = 20;
+            public const int Large = 32;
+        }
+
+        public static class Rank
+        {
+            public static readonly Vector2 BadgePosition = new(480, 0);
+        }
+
+        public static class ResultPlate
+        {
+            public static readonly Vector2 Position = new(315, 100);
+            public static readonly Vector2 FailedTextPosition = new(420, 156);
+        }
+
+        public static class Jacket
+        {
+            public static readonly Vector2 PanelPosition = new(467, 287);
+            public static readonly Rectangle PreviewDestination = new(519, 338, 245, 245);
+        }
+
+        public static class SkillPanel
+        {
+            public static readonly Vector2 PanelPosition = new(180, 260);
+            public static readonly Vector2 LevelPosition = new(198, 550);
+            public static readonly Vector2 PlayingSkillPosition = new(238, 537);
+            public static readonly Vector2 GameSkillPosition = new(268, 623);
+            public static readonly Vector2 PerfectCountPosition = new(260, 332);
+            public static readonly Vector2 GreatCountPosition = new(260, 362);
+            public static readonly Vector2 GoodCountPosition = new(260, 392);
+            public static readonly Vector2 PoorCountPosition = new(260, 422);
+            public static readonly Vector2 MissCountPosition = new(260, 452);
+            public static readonly Vector2 MaxComboCountPosition = new(260, 482);
+            public static readonly Vector2 PerfectPercentPosition = new(347, 332);
+            public static readonly Vector2 GreatPercentPosition = new(347, 362);
+            public static readonly Vector2 GoodPercentPosition = new(347, 392);
+            public static readonly Vector2 PoorPercentPosition = new(347, 422);
+            public static readonly Vector2 MissPercentPosition = new(347, 452);
+            public static readonly Vector2 MaxComboPercentPosition = new(347, 482);
+        }
+
+        public static class Score
+        {
+            public static readonly Vector2 Position = new(30, 58);
+        }
+
+        public static class SongInfo
+        {
+            public static readonly Vector2 TitlePosition = new(500, 630);
+            public static readonly Vector2 ArtistPosition = new(500, 665);
+            public const int MaxWidth = 320;
+        }
+
+        public static class NewRecord
+        {
+            public static readonly Vector2 BadgePosition = new(298, 582);
+        }
+
+        #endregion
         
         #region Fallback Text Rendering
         
