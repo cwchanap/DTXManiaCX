@@ -213,6 +213,21 @@ public class ResultScreenModelTests
     }
 
     [Fact]
+    public void Create_WithBackslashPreviewImage_ShouldNormalizeRelativePreviewPath()
+    {
+        var chartDirectory = Path.Combine(Path.GetTempPath(), "dtx-result-test");
+        var chart = new SongChart
+        {
+            FilePath = Path.Combine(chartDirectory, "chart.dtx"),
+            PreviewImage = @"Graphics\jacket.png"
+        };
+
+        var model = ResultScreenModel.Create(Summary(), null, 0, chart, null);
+
+        Assert.Equal(Path.Combine(chartDirectory, "Graphics", "jacket.png"), model.PreviewImagePath);
+    }
+
+    [Fact]
     public void Create_WithoutPreviewImage_ShouldUseDefaultPreview()
     {
         var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
