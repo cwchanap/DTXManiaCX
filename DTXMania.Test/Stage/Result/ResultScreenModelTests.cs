@@ -389,6 +389,23 @@ public class ResultScreenModelTests
         Assert.False(model.NewRecord);
     }
 
+    [Theory]
+    [InlineData(0, 0, "--")]
+    [InlineData(-1, 0, "--")]
+    [InlineData(120, 0, "1.20")]
+    [InlineData(100, 0, "1.00")]
+    [InlineData(78, 33, "8.13")]
+    [InlineData(50, 0, "5.00")]
+    [InlineData(55, 50, "6.00")]
+    [InlineData(10, 99, "1.99")]
+    [InlineData(99, 99, "10.89")]
+    [InlineData(1, 0, "0.10")]
+    [InlineData(50, -1, "5.00")]
+    public void FormatLevel_ShouldHandleBothEncodingSchemes(int level, int levelDec, string expected)
+    {
+        Assert.Equal(expected, ResultScreenModel.FormatLevel(level, levelDec));
+    }
+
     private static PerformanceSummary Summary(
         int score = 0,
         int maxCombo = 0,

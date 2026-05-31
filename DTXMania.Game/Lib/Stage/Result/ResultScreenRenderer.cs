@@ -147,11 +147,9 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         private void ReleaseLoadedTextures()
         {
-            foreach (var texture in _loadedTextures)
-            {
-                texture.RemoveReference();
-            }
-
+            // Copy and clear immediately so the list is always reset even if
+            // RemoveReference throws during iteration.
+            var textures = new List<ITexture>(_loadedTextures);
             _loadedTextures.Clear();
             _backgroundTexture = null;
             _rankBackgroundTexture = null;
@@ -161,6 +159,11 @@ namespace DTXMania.Game.Lib.Stage.Result
             _skillPanelTexture = null;
             _previewTexture = null;
             _newRecordTexture = null;
+
+            foreach (var texture in textures)
+            {
+                texture.RemoveReference();
+            }
         }
 
         [ExcludeFromCodeCoverage]

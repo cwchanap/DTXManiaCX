@@ -170,6 +170,14 @@ namespace DTXMania.Game.Lib.Stage.Result
             return Math.Max(0.0, value).ToString("0.00", CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        /// Formats a DTX difficulty level using its two encoding schemes:
+        /// <list type="bullet">
+        ///   <item>level >= 100: hundredths encoding (e.g. 120 → 1.20)</item>
+        ///   <item>level &lt; 100: tenths from level + hundredths from levelDec (e.g. level=78, levelDec=33 → 8.13)</item>
+        /// </list>
+        /// Returns "--" when level <= 0. Uses InvariantCulture for consistent formatting.
+        /// </summary>
         public static string FormatLevel(int level, int levelDec)
         {
             if (level <= 0)
