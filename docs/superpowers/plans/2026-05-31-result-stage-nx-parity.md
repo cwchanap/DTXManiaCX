@@ -47,6 +47,8 @@
 - Modify: `DTXMania.Test/Resources/TexturePathTests.cs`
 - Modify: `DTXMania.Test/UI/PerformanceUILayoutTests.cs`
 
+Correction: `ResultBackgroundRankSS/S/A/B/C/D/E` are optional skin override assets and must stay out of `TexturePath.GetAllTexturePaths()`, which is used for required preload/validation paths. Expose those seven rank background paths through `GetOptionalResultTexturePaths()` instead; keep only required structural result assets in `GetAllTexturePaths()`.
+
 - [ ] **Step 1: Write failing texture path tests**
 
 Add these facts to `DTXMania.Test/Resources/TexturePathTests.cs` near the existing result/background tests:
@@ -180,16 +182,9 @@ In `DTXMania.Game/Lib/Resources/TexturePath.cs`, add this region after `ResultBa
         public const string ResultDefaultPreview = "Graphics/5_preimage default.png";
 ```
 
-In `GetAllTexturePaths()`, add the new constants immediately after `ResultBackground`:
+In `GetAllTexturePaths()`, add the required structural result constants immediately after `ResultBackground`; do not include the optional rank-specific background overrides:
 
 ```csharp
-                ResultBackgroundRankSS,
-                ResultBackgroundRankS,
-                ResultBackgroundRankA,
-                ResultBackgroundRankB,
-                ResultBackgroundRankC,
-                ResultBackgroundRankD,
-                ResultBackgroundRankE,
                 ResultRankSS,
                 ResultRankS,
                 ResultRankA,

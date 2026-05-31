@@ -185,17 +185,10 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResultStageAssets_ShouldBeIncludedInAllTexturePaths()
+        public void ResultStageRequiredAssets_ShouldBeIncludedInAllTexturePaths()
         {
             var paths = TexturePath.GetAllTexturePaths();
 
-            Assert.Contains(TexturePath.ResultBackgroundRankSS, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankS, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankA, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankB, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankC, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankD, paths);
-            Assert.Contains(TexturePath.ResultBackgroundRankE, paths);
             Assert.Contains(TexturePath.ResultRankSS, paths);
             Assert.Contains(TexturePath.ResultRankS, paths);
             Assert.Contains(TexturePath.ResultRankA, paths);
@@ -210,6 +203,37 @@ namespace DTXMania.Test.Resources
             Assert.Contains(TexturePath.ResultSkillPanel, paths);
             Assert.Contains(TexturePath.ResultNewRecord, paths);
             Assert.Contains(TexturePath.ResultDefaultPreview, paths);
+        }
+
+        [Fact]
+        public void ResultStageOptionalBackgrounds_ShouldBeExcludedFromAllTexturePaths()
+        {
+            var paths = TexturePath.GetAllTexturePaths();
+
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankSS, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankS, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankA, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankB, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankC, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankD, paths);
+            Assert.DoesNotContain(TexturePath.ResultBackgroundRankE, paths);
+        }
+
+        [Fact]
+        public void GetOptionalResultTexturePaths_ShouldContainOnlyOptionalRankBackgrounds()
+        {
+            var paths = TexturePath.GetOptionalResultTexturePaths();
+
+            Assert.Equal(new[]
+            {
+                TexturePath.ResultBackgroundRankSS,
+                TexturePath.ResultBackgroundRankS,
+                TexturePath.ResultBackgroundRankA,
+                TexturePath.ResultBackgroundRankB,
+                TexturePath.ResultBackgroundRankC,
+                TexturePath.ResultBackgroundRankD,
+                TexturePath.ResultBackgroundRankE
+            }, paths);
         }
 
         #endregion
