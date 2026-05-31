@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Result;
 using DTXMania.Game.Lib.UI.Layout;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using Microsoft.Xna.Framework;
@@ -56,115 +57,6 @@ namespace DTXMania.Test.Stage
             Assert.Null(stage.DrawTextureArgument);
             Assert.Null(stage.DrawTextureRectangle);
             Assert.Null(stage.DrawTextureColor);
-        }
-
-        [Fact]
-        public void DrawResultLine_WithNoFont_ShouldDrawFallbackRectangle()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_spriteBatch", CreateFakeSpriteBatch(800, 600));
-            SetPrivateField(stage, "_resultFont", null);
-            SetPrivateField(stage, "_whitePixel", null);
-
-            object[] args = ["CLEARED", 400, 100, Color.Green, 40];
-            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawResultLine", args));
-
-            Assert.Null(exception);
-            Assert.Equal(140, args[2]);
-        }
-
-        [Fact]
-        public void DrawResultLine_WithFont_ShouldMeasureAndDrawCenteredText()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            var spriteBatch = CreateFakeSpriteBatch(800, 600);
-            var font = new Mock<IFont>();
-            font.Setup(f => f.MeasureString("CLEARED")).Returns(new Vector2(120, 20));
-
-            SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            SetPrivateField(stage, "_resultFont", font.Object);
-
-            object[] args = ["CLEARED", 400, 100, Color.Green, 40];
-            InvokePrivateMethod(stage, "DrawResultLine", args);
-
-            font.Verify(f => f.MeasureString("CLEARED"), Times.Once);
-            font.Verify(
-                f => f.DrawString(spriteBatch, "CLEARED", new Vector2(340, 100), Color.Green),
-                Times.Once);
-            Assert.Equal(140, args[2]);
-        }
-
-        [Fact]
-        public void DrawResults_WithNullSummary_ShouldReturnImmediately()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_performanceSummary", null);
-
-            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawResults"));
-
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void DrawResults_WithClearedPerformance_ShouldShowCleared()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_spriteBatch", CreateFakeSpriteBatch(800, 600));
-            SetPrivateField(stage, "_resultFont", null);
-            SetPrivateField(stage, "_whitePixel", null);
-            SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
-            {
-                Score = 950000,
-                MaxCombo = 200,
-                ClearFlag = true,
-                PerfectCount = 100,
-                GreatCount = 50,
-                GoodCount = 20,
-                PoorCount = 5,
-                MissCount = 2,
-                TotalNotes = 177,
-                CompletionReason = CompletionReason.SongComplete
-            });
-
-            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawResults"));
-
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void DrawResults_WithFailedPerformance_ShouldShowFailed()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_spriteBatch", CreateFakeSpriteBatch(800, 600));
-            SetPrivateField(stage, "_resultFont", null);
-            SetPrivateField(stage, "_whitePixel", null);
-            SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
-            {
-                Score = 200000,
-                MaxCombo = 50,
-                ClearFlag = false,
-                PerfectCount = 30,
-                GreatCount = 10,
-                GoodCount = 5,
-                PoorCount = 3,
-                MissCount = 40,
-                TotalNotes = 88,
-                CompletionReason = CompletionReason.PlayerFailed
-            });
-
-            var exception = Record.Exception(() => InvokePrivateMethod(stage, "DrawResults"));
-
-            Assert.Null(exception);
         }
 
         [Fact]
@@ -256,6 +148,21 @@ namespace DTXMania.Test.Stage
             internal override IFont CreateResultFont()
             {
                 ResultFontRequested = true;
+                return null!;
+            }
+
+            internal override IFont CreateSmallResultFont()
+            {
+                return null!;
+            }
+
+            internal override IFont CreateLargeResultFont()
+            {
+                return null!;
+            }
+
+            internal override ResultScreenRenderer CreateResultRenderer()
+            {
                 return null!;
             }
 

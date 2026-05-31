@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Result;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -41,6 +42,7 @@ public class ResultStageAdditionalCoverageTests
         SetPrivateField(stage, "_game", game);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
+        CompleteReveal(stage);
 
         var command = new DTXMania.Game.Lib.Input.InputCommand(
             DTXMania.Game.Lib.Input.InputCommandType.Activate, 0.0);
@@ -65,6 +67,7 @@ public class ResultStageAdditionalCoverageTests
         SetPrivateField(stage, "_game", game);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
+        CompleteReveal(stage);
 
         var command = new DTXMania.Game.Lib.Input.InputCommand(
             DTXMania.Game.Lib.Input.InputCommandType.Back, 0.0);
@@ -89,6 +92,7 @@ public class ResultStageAdditionalCoverageTests
         SetPrivateField(stage, "_game", game);
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
+        CompleteReveal(stage);
 
         var command = new DTXMania.Game.Lib.Input.InputCommand(
             DTXMania.Game.Lib.Input.InputCommandType.Activate, 0.0);
@@ -112,15 +116,36 @@ public class ResultStageAdditionalCoverageTests
         var whitePixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
         GC.SuppressFinalize(whitePixel);
         var font = new Mock<IFont>();
+        var smallFont = new Mock<IFont>();
+        var largeFont = new Mock<IFont>();
+        var resultSound = new Mock<ISound>();
+        var newRecordSound = new Mock<ISound>();
+        var resourceManager = new Mock<IResourceManager>();
+        var renderer = new ResultScreenRenderer(resourceManager.Object, null, null, null);
 
         SetPrivateField(stage, "_whitePixel", whitePixel);
         SetPrivateField(stage, "_resultFont", font.Object);
+        SetPrivateField(stage, "_smallResultFont", smallFont.Object);
+        SetPrivateField(stage, "_largeResultFont", largeFont.Object);
+        SetPrivateField(stage, "_resultSound", resultSound.Object);
+        SetPrivateField(stage, "_newRecordSound", newRecordSound.Object);
+        SetPrivateField(stage, "_resultRenderer", renderer);
 
         InvokePrivateMethod(stage, "CleanupComponents");
 
         font.Verify(f => f.RemoveReference(), Times.Once);
+        smallFont.Verify(f => f.RemoveReference(), Times.Once);
+        largeFont.Verify(f => f.RemoveReference(), Times.Once);
+        resultSound.Verify(s => s.RemoveReference(), Times.Once);
+        newRecordSound.Verify(s => s.RemoveReference(), Times.Once);
+        Assert.Throws<ObjectDisposedException>(() => renderer.Load(ResultScreenModel.Create(null, null, 0, null, null)));
         Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
         Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
+        Assert.Null(GetPrivateField<IFont>(stage, "_smallResultFont"));
+        Assert.Null(GetPrivateField<IFont>(stage, "_largeResultFont"));
+        Assert.Null(GetPrivateField<ISound>(stage, "_resultSound"));
+        Assert.Null(GetPrivateField<ISound>(stage, "_newRecordSound"));
+        Assert.Null(GetPrivateField<ResultScreenRenderer>(stage, "_resultRenderer"));
     }
 
     [Fact]
@@ -179,6 +204,66 @@ public class ResultStageAdditionalCoverageTests
         Assert.True(stage.ResultFontRequested);
     }
 
+    [Fact]
+    public void OnActivate_ShouldBuildModelBeforePersistenceAndInitializeReveal()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
+#pragma warning restore SYSLIB0050
+        var summary = new PerformanceSummary
+        {
+            Score = 123456,
+            ClearFlag = true,
+            PerfectCount = 10,
+            TotalNotes = 10,
+            PlayingSkill = 100.0,
+            GameSkill = 100.0
+        };
+
+        SetPrivateField(stage, "_inputManager", null);
+        SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+        {
+            ["performanceSummary"] = summary
+        });
+
+        var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
+
+        Assert.Null(exception);
+        Assert.True(stage.ResultFontRequested);
+        Assert.NotNull(GetPrivateField<object>(stage, "_resultModel"));
+        Assert.NotNull(GetPrivateField<object>(stage, "_revealState"));
+    }
+
+    [Fact]
+    public void OnActivate_WhenResultFailed_ShouldNotLoadStageClearSound()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
+#pragma warning restore SYSLIB0050
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+
+        SetPrivateField(stage, "_resourceManager", resources.Object);
+        SetPrivateField(stage, "_inputManager", null);
+        SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+        {
+            ["performanceSummary"] = new PerformanceSummary
+            {
+                Score = 123456,
+                ClearFlag = false,
+                PerfectCount = 5,
+                TotalNotes = 10,
+                PlayingSkill = 40.0,
+                GameSkill = 40.0
+            }
+        });
+
+        InvokePrivateMethod(stage, "OnActivate");
+
+        resources.Verify(r => r.LoadSound("Sounds/Stage Clear.ogg"), Times.Never);
+        resources.Verify(r => r.LoadSound(It.IsAny<string>()), Times.Never);
+    }
+
     private static SpriteBatch CreateFakeSpriteBatch(int width, int height)
     {
 #pragma warning disable SYSLIB0050
@@ -190,6 +275,13 @@ public class ResultStageAdditionalCoverageTests
         SetPrivateField(spriteBatch, "graphicsDevice", graphicsDevice);
         SetPrivateField(graphicsDevice, "_viewport", new Viewport(0, 0, width, height));
         return spriteBatch;
+    }
+
+    private static void CompleteReveal(ResultStage stage)
+    {
+        var reveal = new ResultRevealState();
+        reveal.Complete();
+        SetPrivateField(stage, "_revealState", reveal);
     }
 
     private sealed class InspectableNullInputResultStage : ResultStage
@@ -208,6 +300,21 @@ public class ResultStageAdditionalCoverageTests
         internal override IFont CreateResultFont()
         {
             ResultFontRequested = true;
+            return null!;
+        }
+
+        internal override IFont CreateSmallResultFont()
+        {
+            return null!;
+        }
+
+        internal override IFont CreateLargeResultFont()
+        {
+            return null!;
+        }
+
+        internal override ResultScreenRenderer CreateResultRenderer()
+        {
             return null!;
         }
     }

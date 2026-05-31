@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -10,7 +11,9 @@ using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Result;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -34,13 +37,26 @@ namespace DTXMania.Game.Lib.Stage
 
         // UI components
         private IFont _resultFont;
+        private IFont _smallResultFont;
+        private IFont _largeResultFont;
+        private ResultScreenModel _resultModel;
+        private ResultRevealState _revealState;
+        private ResultScreenRenderer _resultRenderer;
+        private ISound _resultSound;
+        private ISound _newRecordSound;
         private Texture2D _whitePixel;
+        private bool _newRecordSoundPlayed;
 
 
         // State
         private double _elapsedTime = 0.0;
         
         // Note: Using global stage transition debouncing from BaseGame
+
+        private const string StageClearSoundPath = "Sounds/Stage Clear.ogg";
+        private const string FullComboSoundPath = "Sounds/Full Combo.ogg";
+        private const string ExcellentSoundPath = "Sounds/Excellent.ogg";
+        private const string NewRecordSoundPath = "Sounds/New Record.ogg";
 
         #endregion
 
@@ -67,24 +83,23 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            // Extract performance summary from shared data
             ExtractSharedData();
 
-            // Persist this play's score + skill values (fire-and-forget).
-            if (_selectedSong != null && _performanceSummary != null)
-            {
-                var savedChart = _selectedSong.GetCurrentDifficultyChart(_selectedDifficulty);
-                if (savedChart != null && savedChart.Id > 0)
-                {
-                    _ = DTXMania.Game.Lib.Song.SongManager.Instance.UpdateScoreAsync(
-                        savedChart.Id,
-                        DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
-                        _performanceSummary);
-                }
-            }
+            var selectedChart = ResolveSelectedChart();
+            var previousScore = ResolvePreviousScore(selectedChart);
+            _resultModel = CreateResultScreenModel(
+                _performanceSummary,
+                _selectedSong,
+                _selectedDifficulty,
+                selectedChart,
+                previousScore);
 
-            // Initialize UI components
+            PersistPerformanceSummary(selectedChart);
+
             InitializeComponents();
+            _revealState = new ResultRevealState();
+            _newRecordSoundPlayed = false;
+            PlayResultSound();
 
             // Clear any pending input commands to prevent auto-transition
             if (_inputManager != null)
@@ -104,6 +119,8 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnUpdate(double deltaTime)
         {
             _elapsedTime += deltaTime;
+            _revealState?.Update(deltaTime);
+            PlayNewRecordSoundIfReady();
 
             // Update input manager
             _inputManager?.Update(deltaTime);
@@ -121,13 +138,19 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null)
                 return;
 
-            _spriteBatch.Begin();
+            var viewport = _spriteBatch.GraphicsDevice.Viewport;
+            var transform = ResultScreenRenderer.CreateViewportTransform(viewport);
 
-            // Draw background
-            DrawBackground();
+            _spriteBatch.Begin(transformMatrix: transform);
 
-            // Draw result information
-            DrawResults();
+            if (_resultRenderer != null && _resultModel != null && _revealState != null)
+            {
+                _resultRenderer.Draw(_spriteBatch, _resultModel, _revealState);
+            }
+            else
+            {
+                DrawBackground();
+            }
 
             _spriteBatch.End();
         }
@@ -178,11 +201,26 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 _resultFont = CreateResultFont();
+                _smallResultFont = CreateSmallResultFont();
+                _largeResultFont = CreateLargeResultFont();
+                _resultRenderer = CreateResultRenderer();
+                _resultRenderer?.Load(_resultModel);
+                _resultSound = LoadSoundForPlate(_resultModel?.PlateKind ?? ResultPlateKind.StageCleared);
+                _newRecordSound = _resultModel?.NewRecord == true ? TryLoadSound(NewRecordSoundPath) : null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to load font: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to initialize result components: {ex.Message}");
+                _resultFont?.RemoveReference();
+                _smallResultFont?.RemoveReference();
+                _largeResultFont?.RemoveReference();
+                _resultRenderer?.Dispose();
                 _resultFont = null;
+                _smallResultFont = null;
+                _largeResultFont = null;
+                _resultRenderer = null;
+                _resultSound = null;
+                _newRecordSound = null;
             }
         }
 
@@ -197,7 +235,24 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         internal virtual IFont CreateResultFont()
         {
-            return _resourceManager.LoadFont("NotoSerifJP", 14);
+            return _resourceManager.LoadFont("NotoSerifJP", ResultUILayout.Fonts.Normal);
+        }
+
+        [ExcludeFromCodeCoverage]
+        internal virtual IFont CreateSmallResultFont()
+        {
+            return _resourceManager.LoadFont("NotoSerifJP", ResultUILayout.Fonts.Small);
+        }
+
+        [ExcludeFromCodeCoverage]
+        internal virtual IFont CreateLargeResultFont()
+        {
+            return _resourceManager.LoadFont("NotoSerifJP", ResultUILayout.Fonts.Large, FontStyle.Bold);
+        }
+
+        internal virtual ResultScreenRenderer CreateResultRenderer()
+        {
+            return new ResultScreenRenderer(_resourceManager, _smallResultFont, _resultFont, _largeResultFont);
         }
 
         private void CleanupComponents()
@@ -207,6 +262,59 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel = null;
             _resultFont?.RemoveReference();
             _resultFont = null;
+            _smallResultFont?.RemoveReference();
+            _smallResultFont = null;
+            _largeResultFont?.RemoveReference();
+            _largeResultFont = null;
+            _resultRenderer?.Dispose();
+            _resultRenderer = null;
+            _resultSound?.RemoveReference();
+            _resultSound = null;
+            _newRecordSound?.RemoveReference();
+            _newRecordSound = null;
+        }
+
+        internal virtual SongChart ResolveSelectedChart()
+        {
+            return _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
+        }
+
+        internal virtual SongScore ResolvePreviousScore(SongChart selectedChart)
+        {
+            if (_selectedSong?.Scores != null && selectedChart != null)
+            {
+                foreach (var score in _selectedSong.Scores)
+                {
+                    if (score?.ChartId == selectedChart.Id && selectedChart.Id != 0)
+                        return score;
+                }
+            }
+
+            return _selectedSong?.GetScore(_selectedDifficulty);
+        }
+
+        internal virtual ResultScreenModel CreateResultScreenModel(
+            PerformanceSummary summary,
+            DTXMania.Game.Lib.Song.SongListNode selectedSong,
+            int selectedDifficulty,
+            SongChart selectedChart,
+            SongScore previousScore)
+        {
+            return ResultScreenModel.Create(summary, selectedSong, selectedDifficulty, selectedChart, previousScore);
+        }
+
+        private void PersistPerformanceSummary(SongChart selectedChart)
+        {
+            if (selectedChart == null || selectedChart.Id <= 0 || _performanceSummary == null)
+                return;
+
+            _ = SongManager.Instance.UpdateScoreAsync(
+                    selectedChart.Id,
+                    EInstrumentPart.DRUMS,
+                    _performanceSummary)
+                .ContinueWith(
+                    task => System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to persist score: {task.Exception?.GetBaseException().Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
         }
 
         #endregion
@@ -232,6 +340,13 @@ namespace DTXMania.Game.Lib.Stage
             {
                 case InputCommandType.Activate:
                 case InputCommandType.Back:
+                    if (_revealState != null && !_revealState.IsComplete)
+                    {
+                        _revealState.Complete();
+                        PlayNewRecordSoundIfReady();
+                        break;
+                    }
+
                     if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
                     {
                         baseGame.MarkStageTransition();
@@ -246,6 +361,54 @@ namespace DTXMania.Game.Lib.Stage
             // Return to song selection stage
             StageManager?.ChangeStage(StageType.SongSelect,
                 new DTXManiaFadeTransition(0.5), null);
+        }
+
+        #endregion
+
+        #region Sound
+
+        private ISound LoadSoundForPlate(ResultPlateKind plateKind)
+        {
+            return plateKind switch
+            {
+                ResultPlateKind.Excellent => TryLoadSound(ExcellentSoundPath),
+                ResultPlateKind.FullCombo => TryLoadSound(FullComboSoundPath),
+                ResultPlateKind.StageCleared => TryLoadSound(StageClearSoundPath),
+                _ => null
+            };
+        }
+
+        private ISound TryLoadSound(string path)
+        {
+            if (_resourceManager == null || string.IsNullOrWhiteSpace(path))
+                return null;
+
+            try
+            {
+                if (!_resourceManager.ResourceExists(path))
+                    return null;
+
+                return _resourceManager.LoadSound(path);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to load sound '{path}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private void PlayResultSound()
+        {
+            _resultSound?.Play();
+        }
+
+        private void PlayNewRecordSoundIfReady()
+        {
+            if (_newRecordSoundPlayed || _resultModel?.NewRecord != true || _revealState?.IsComplete != true)
+                return;
+
+            _newRecordSound?.Play();
+            _newRecordSoundPlayed = true;
         }
 
         #endregion
@@ -288,70 +451,6 @@ namespace DTXMania.Game.Lib.Stage
         internal virtual void DrawTexture(Texture2D texture, Rectangle destinationRectangle, Color color)
         {
             _spriteBatch.Draw(texture, destinationRectangle, color);
-        }
-
-        private void DrawResults()
-        {
-            if (_performanceSummary == null)
-                return;
-
-            var viewport = _spriteBatch.GraphicsDevice.Viewport;
-            var centerX = viewport.Width / 2;
-            var startY = ResultUILayout.ResultDisplay.StartY;
-            var lineHeight = ResultUILayout.ResultDisplay.LineHeight;
-            var currentY = startY;
-
-            // Draw performance results
-            DrawResultLine("PERFORMANCE RESULTS", centerX, ref currentY, ResultUILayout.ResultDisplay.TitleColor, lineHeight);
-            currentY += ResultUILayout.ResultDisplay.ExtraSpacing; // Extra space
-
-            var clearText = _performanceSummary.ClearFlag ? "CLEARED" : "FAILED";
-            var clearColor = _performanceSummary.ClearFlag ? ResultUILayout.ResultDisplay.ClearedColor : ResultUILayout.ResultDisplay.FailedColor;
-            DrawResultLine(clearText, centerX, ref currentY, clearColor, lineHeight);
-
-            DrawResultLine($"Score: {_performanceSummary.Score:N0}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Max Combo: {_performanceSummary.MaxCombo}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Accuracy: {_performanceSummary.Accuracy:F1}%", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-
-            currentY += ResultUILayout.ResultDisplay.ExtraSpacing; // Extra space
-
-            DrawResultLine("JUDGEMENT BREAKDOWN", centerX, ref currentY, ResultUILayout.ResultDisplay.SectionHeaderColor, lineHeight);
-            DrawResultLine($"Perfect: {_performanceSummary.PerfectCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Great: {_performanceSummary.GreatCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Good: {_performanceSummary.GoodCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Poor: {_performanceSummary.PoorCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-            DrawResultLine($"Miss: {_performanceSummary.MissCount}", centerX, ref currentY, ResultUILayout.ResultDisplay.NormalTextColor, lineHeight);
-
-            currentY += lineHeight; // Extra space
-
-            DrawResultLine("Press ESC or ENTER to continue", centerX, ref currentY, ResultUILayout.ResultDisplay.InstructionTextColor, lineHeight);
-        }
-
-        private void DrawResultLine(string text, int centerX, ref int currentY, Color color, int lineHeight)
-        {
-            if (string.IsNullOrEmpty(text))
-                return;
-
-            if (_resultFont != null)
-            {
-                var textSize = _resultFont.MeasureString(text);
-                var textPosition = new Vector2(centerX - textSize.X / 2, currentY);
-                _resultFont.DrawString(_spriteBatch, text, textPosition, color);
-            }
-            else
-            {
-                // Fallback: draw colored rectangle as placeholder
-                var rectWidth = text.Length * ResultUILayout.FallbackText.CharacterWidth;
-                var rectHeight = ResultUILayout.FallbackText.RectHeight;
-                var rectPosition = new Rectangle(centerX - rectWidth / 2, currentY, rectWidth, rectHeight);
-
-                if (_whitePixel != null)
-                {
-                    _spriteBatch.Draw(_whitePixel, rectPosition, color);
-                }
-            }
-
-            currentY += lineHeight;
         }
 
         #endregion
