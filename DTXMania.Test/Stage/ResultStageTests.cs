@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.Stage.Result;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -252,6 +253,7 @@ namespace DTXMania.Test.Stage
 
             SetPrivateField(stage, "_game", game);
             stage.StageManager = stageManager.Object;
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.Back, 0.0));
 
@@ -272,6 +274,7 @@ namespace DTXMania.Test.Stage
 
             SetPrivateField(stage, "_game", game);
             stage.StageManager = stageManager.Object;
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveDown, 0.0));
 
@@ -292,6 +295,7 @@ namespace DTXMania.Test.Stage
 
             SetPrivateField(stage, "_game", game);
             stage.StageManager = stageManager.Object;
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.Activate, 0.0));
 
@@ -308,6 +312,7 @@ namespace DTXMania.Test.Stage
         public void ExecuteInputCommand_WhenActivateIsDebounced_ShouldNotChangeStage()
         {
             var stage = CreateUninitializedResultStageWithStageManager(totalGameTime: 0.1, lastStageTransitionTime: 0.0);
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
 
@@ -323,8 +328,45 @@ namespace DTXMania.Test.Stage
         public void ExecuteInputCommand_WhenBackAndTransitionAllowed_ShouldReturnToSongSelect()
         {
             var stage = CreateUninitializedResultStageWithStageManager();
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
+
+            VerifySongSelectTransition(stage);
+        }
+
+        [Theory]
+        [InlineData(InputCommandType.Activate)]
+        [InlineData(InputCommandType.Back)]
+        public void ExecuteInputCommand_WhenRevealIncomplete_ShouldCompleteRevealWithoutNavigating(InputCommandType commandType)
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stageManager = new Mock<IStageManager>();
+            var reveal = new ResultRevealState();
+
+            SetPrivateField(stage, "_game", game);
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_revealState", reveal);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(commandType, 0.0));
+
+            Assert.True(reveal.IsComplete);
+            stageManager.Verify(
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+            Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_WhenRevealAlreadyComplete_ShouldNavigate()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+            CompleteReveal(stage);
+
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
 
             VerifySongSelectTransition(stage);
         }
@@ -338,6 +380,7 @@ namespace DTXMania.Test.Stage
             var stageManager = new Mock<IStageManager>();
 
             stage.StageManager = stageManager.Object;
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
 
@@ -362,6 +405,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_inputManager", inputManager);
             SetPrivateField(stage, "_uiManager", new UIManager());
             SetPrivateField(stage, "_elapsedTime", 0.0);
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "OnUpdate", 0.25);
 
@@ -385,6 +429,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_inputManager", inputManager);
             SetPrivateField(stage, "_uiManager", null);
             SetPrivateField(stage, "_elapsedTime", 0.0);
+            CompleteReveal(stage);
 
             InvokePrivateMethod(stage, "OnUpdate", 0.25);
 
@@ -406,6 +451,35 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
             Assert.Equal(0.25, GetPrivateField<double>(stage, "_elapsedTime"));
             Assert.False(GetStageManagerMock(stage).Invocations.Any());
+        }
+
+        [Fact]
+        public void OnUpdate_WhenRevealCompletesAndNewRecordSoundExists_ShouldPlayNewRecordSoundOnce()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var sound = new Mock<ISound>();
+            var model = ResultScreenModel.Create(
+                new PerformanceSummary { Score = 900000, GameSkill = 100.0 },
+                null,
+                0,
+                null,
+                new SongScore { PlayCount = 1, BestScore = 100, HighSkill = 1.0 });
+            var reveal = new ResultRevealState();
+
+            SetPrivateField(stage, "_inputManager", null);
+            SetPrivateField(stage, "_uiManager", new UIManager());
+            SetPrivateField(stage, "_elapsedTime", 0.0);
+            SetPrivateField(stage, "_resultModel", model);
+            SetPrivateField(stage, "_revealState", reveal);
+            SetPrivateField(stage, "_newRecordSound", sound.Object);
+            SetPrivateField(stage, "_newRecordSoundPlayed", false);
+
+            InvokePrivateMethod(stage, "OnUpdate", ResultRevealState.TotalRevealSeconds);
+            InvokePrivateMethod(stage, "OnUpdate", 0.1);
+
+            sound.Verify(s => s.Play(), Times.Once);
         }
 
         [Fact]
@@ -530,20 +604,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void DrawResultLine_WhenTextIsEmpty_ShouldNotAdvanceCurrentY()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            var currentY = 120;
-            object[] args = [string.Empty, 400, currentY, Color.White, 32];
-
-            InvokePrivateMethod(stage, "DrawResultLine", args);
-
-            Assert.Equal(120, Assert.IsType<int>(args[2]));
-        }
-
-        [Fact]
         public void CleanupComponents_ShouldDisposeTrackedResourcesAndClearFields()
         {
 #pragma warning disable SYSLIB0050
@@ -551,16 +611,37 @@ namespace DTXMania.Test.Stage
             var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
 #pragma warning restore SYSLIB0050
             var fontMock = new Mock<IFont>();
+            var smallFontMock = new Mock<IFont>();
+            var largeFontMock = new Mock<IFont>();
+            var resultSoundMock = new Mock<ISound>();
+            var newRecordSoundMock = new Mock<ISound>();
+            var resourceManager = new Mock<IResourceManager>();
+            var renderer = new ResultScreenRenderer(resourceManager.Object, null, null, null);
 
             SetPrivateField(stage, "_whitePixel", whitePixel);
             SetPrivateField(stage, "_resultFont", fontMock.Object);
+            SetPrivateField(stage, "_smallResultFont", smallFontMock.Object);
+            SetPrivateField(stage, "_largeResultFont", largeFontMock.Object);
+            SetPrivateField(stage, "_resultSound", resultSoundMock.Object);
+            SetPrivateField(stage, "_newRecordSound", newRecordSoundMock.Object);
+            SetPrivateField(stage, "_resultRenderer", renderer);
 
             InvokePrivateMethod(stage, "CleanupComponents");
 
             Assert.True(whitePixel.WasDisposed);
             fontMock.Verify(f => f.RemoveReference(), Times.Once);
+            smallFontMock.Verify(f => f.RemoveReference(), Times.Once);
+            largeFontMock.Verify(f => f.RemoveReference(), Times.Once);
+            resultSoundMock.Verify(s => s.RemoveReference(), Times.Once);
+            newRecordSoundMock.Verify(s => s.RemoveReference(), Times.Once);
+            Assert.Throws<ObjectDisposedException>(() => renderer.Load(ResultScreenModel.Create(null, null, 0, null, null)));
             Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
+            Assert.Null(GetPrivateField<IFont>(stage, "_smallResultFont"));
+            Assert.Null(GetPrivateField<IFont>(stage, "_largeResultFont"));
+            Assert.Null(GetPrivateField<ISound>(stage, "_resultSound"));
+            Assert.Null(GetPrivateField<ISound>(stage, "_newRecordSound"));
+            Assert.Null(GetPrivateField<ResultScreenRenderer>(stage, "_resultRenderer"));
         }
 
         [Fact]
@@ -572,12 +653,20 @@ namespace DTXMania.Test.Stage
             var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
 #pragma warning restore SYSLIB0050
             var fontMock = new Mock<IFont>();
+            var smallFontMock = new Mock<IFont>();
+            var largeFontMock = new Mock<IFont>();
+            var resultSoundMock = new Mock<ISound>();
+            var newRecordSoundMock = new Mock<ISound>();
 
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
             SetPrivateField(stage, "_spriteBatch", spriteBatch);
             SetPrivateField(stage, "_uiManager", new UIManager());
             SetPrivateField(stage, "_whitePixel", whitePixel);
             SetPrivateField(stage, "_resultFont", fontMock.Object);
+            SetPrivateField(stage, "_smallResultFont", smallFontMock.Object);
+            SetPrivateField(stage, "_largeResultFont", largeFontMock.Object);
+            SetPrivateField(stage, "_resultSound", resultSoundMock.Object);
+            SetPrivateField(stage, "_newRecordSound", newRecordSoundMock.Object);
             SetPrivateField(stage, "_disposed", false);
 
             InvokeDispose(stage, true);
@@ -585,6 +674,10 @@ namespace DTXMania.Test.Stage
             Assert.True(spriteBatch.WasDisposed);
             Assert.True(whitePixel.WasDisposed);
             fontMock.Verify(f => f.RemoveReference(), Times.Once);
+            smallFontMock.Verify(f => f.RemoveReference(), Times.Once);
+            largeFontMock.Verify(f => f.RemoveReference(), Times.Once);
+            resultSoundMock.Verify(s => s.RemoveReference(), Times.Once);
+            newRecordSoundMock.Verify(s => s.RemoveReference(), Times.Once);
         }
 
         #endregion
@@ -622,6 +715,13 @@ namespace DTXMania.Test.Stage
         private static Mock<IStageManager> GetStageManagerMock(ResultStage stage)
         {
             return Mock.Get(stage.StageManager!);
+        }
+
+        private static void CompleteReveal(ResultStage stage)
+        {
+            var reveal = new ResultRevealState();
+            reveal.Complete();
+            SetPrivateField(stage, "_revealState", reveal);
         }
 
         private static void VerifySongSelectTransition(ResultStage stage, double expectedTransitionTime = 2.0)
@@ -712,6 +812,21 @@ namespace DTXMania.Test.Stage
             {
                 ResultFontRequested = true;
                 throw FontExceptionToThrow ?? new InvalidOperationException("No font exception configured.");
+            }
+
+            internal override IFont CreateSmallResultFont()
+            {
+                return null!;
+            }
+
+            internal override IFont CreateLargeResultFont()
+            {
+                return null!;
+            }
+
+            internal override ResultScreenRenderer CreateResultRenderer()
+            {
+                return null!;
             }
 
             internal override Viewport GetBackgroundViewport()
