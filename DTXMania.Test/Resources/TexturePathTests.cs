@@ -322,7 +322,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetAllTexturePaths_ShouldOnlyDuplicateSharedResultSkillPanelAsset()
+        public void GetAllTexturePaths_ShouldNotDuplicateAnyPaths()
         {
             var paths = TexturePath.GetAllTexturePaths();
             var duplicatePaths = paths
@@ -331,8 +331,7 @@ namespace DTXMania.Test.Resources
                 .Select(group => group.Key)
                 .ToArray();
 
-            Assert.Equal(new[] { TexturePath.SkillPanel }, duplicatePaths);
-            Assert.Equal(TexturePath.SkillPanel, TexturePath.ResultSkillPanel);
+            Assert.Empty(duplicatePaths);
         }
 
         #endregion

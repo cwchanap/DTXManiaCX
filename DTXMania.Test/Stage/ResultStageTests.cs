@@ -626,7 +626,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void DrawBackground_WhenBackgroundIsNotReady_ShouldFillViewportUsingWhitePixel()
+        public void DrawBackground_WhenBackgroundIsNotReady_ShouldFillNXViewportUsingWhitePixel()
         {
 #pragma warning disable SYSLIB0050
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
@@ -640,7 +640,9 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "DrawBackground");
 
             Assert.Same(whitePixel, stage.DrawTextureArgument);
-            Assert.Equal(new Rectangle(0, 0, 640, 480), stage.DrawTextureRectangle);
+            // Fallback uses NX virtual dimensions (1280x720), not real viewport dims,
+            // because SpriteBatch has an active 1280x720→screen viewport transform.
+            Assert.Equal(new Rectangle(0, 0, ResultUILayout.NXViewport.Width, ResultUILayout.NXViewport.Height), stage.DrawTextureRectangle);
             Assert.Equal(ResultUILayout.Background.BackgroundColor, stage.DrawTextureColor);
         }
 
@@ -719,6 +721,45 @@ namespace DTXMania.Test.Stage
             largeFontMock.Verify(f => f.RemoveReference(), Times.Once);
             resultSoundMock.Verify(s => s.RemoveReference(), Times.Once);
             newRecordSoundMock.Verify(s => s.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void LoadSoundForPlate_FailedPlate_ShouldLoadStageClearSound()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var resourceManager = new Mock<IResourceManager>();
+            var sound = new Mock<ISound>();
+            resourceManager.Setup(r => r.ResourceExists("Sounds/Stage Clear.ogg")).Returns(true);
+            resourceManager.Setup(r => r.LoadSound("Sounds/Stage Clear.ogg")).Returns(sound.Object);
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            var result = InvokePrivateMethod<ISound>(stage, "LoadSoundForPlate", ResultPlateKind.Failed);
+
+            Assert.NotNull(result);
+            resourceManager.Verify(r => r.LoadSound("Sounds/Stage Clear.ogg"), Times.Once);
+        }
+
+        [Theory]
+        [InlineData(ResultPlateKind.Excellent, "Sounds/Excellent.ogg")]
+        [InlineData(ResultPlateKind.FullCombo, "Sounds/Full Combo.ogg")]
+        [InlineData(ResultPlateKind.StageCleared, "Sounds/Stage Clear.ogg")]
+        [InlineData(ResultPlateKind.Failed, "Sounds/Stage Clear.ogg")]
+        public void LoadSoundForPlate_ShouldMapPlateToCorrectSoundPath(ResultPlateKind plateKind, string expectedPath)
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var resourceManager = new Mock<IResourceManager>();
+            var sound = new Mock<ISound>();
+            resourceManager.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+            resourceManager.Setup(r => r.LoadSound(It.IsAny<string>())).Returns(sound.Object);
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+            InvokePrivateMethod<ISound>(stage, "LoadSoundForPlate", plateKind);
+
+            resourceManager.Verify(r => r.LoadSound(expectedPath), Times.Once);
         }
 
         #endregion

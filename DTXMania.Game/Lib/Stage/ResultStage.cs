@@ -383,8 +383,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 ResultPlateKind.Excellent => TryLoadSound(ExcellentSoundPath),
                 ResultPlateKind.FullCombo => TryLoadSound(FullComboSoundPath),
-                ResultPlateKind.StageCleared => TryLoadSound(StageClearSoundPath),
-                _ => null
+                _ => TryLoadSound(StageClearSoundPath)
             };
         }
 
@@ -428,15 +427,16 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private void DrawBackground()
         {
-            var viewport = GetBackgroundViewport();
-
             // Draw DTXManiaNX authentic background graphics (8_background.jpg)
             DrawStageBackground(_spriteBatch);
 
-            // Draw fallback if no background loaded
+            // Draw fallback if no background loaded.
+            // Use NX virtual coordinates (1280x720) because the SpriteBatch
+            // has an active viewport transform that maps virtual→screen coords.
             if (!IsBackgroundReady)
             {
-                var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
+                var backgroundRect = new Rectangle(0, 0,
+                    ResultUILayout.NXViewport.Width, ResultUILayout.NXViewport.Height);
                 var backgroundColor = ResultUILayout.Background.BackgroundColor;
 
                 DrawFallbackBackground(backgroundRect, backgroundColor);
