@@ -459,7 +459,6 @@ namespace DTXMania.Game.Lib.Resources
                 ResultPlateFullCombo,
                 ResultPlateExcellent,
                 ResultJacketPanel,
-                ResultSkillPanel,
                 ResultNewRecord,
                 ResultDefaultPreview,
                 TitleMenu,

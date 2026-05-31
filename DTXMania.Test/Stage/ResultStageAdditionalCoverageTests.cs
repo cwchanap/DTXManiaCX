@@ -235,13 +235,14 @@ public class ResultStageAdditionalCoverageTests
     }
 
     [Fact]
-    public void OnActivate_WhenResultFailed_ShouldNotLoadStageClearSound()
+    public void OnActivate_WhenResultFailed_ShouldLoadStageClearSound()
     {
 #pragma warning disable SYSLIB0050
         var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
 #pragma warning restore SYSLIB0050
         var resources = new Mock<IResourceManager>();
         resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+        resources.Setup(r => r.LoadSound(It.IsAny<string>())).Returns(new Mock<ISound>().Object);
 
         SetPrivateField(stage, "_resourceManager", resources.Object);
         SetPrivateField(stage, "_inputManager", null);
@@ -260,8 +261,8 @@ public class ResultStageAdditionalCoverageTests
 
         InvokePrivateMethod(stage, "OnActivate");
 
-        resources.Verify(r => r.LoadSound("Sounds/Stage Clear.ogg"), Times.Never);
-        resources.Verify(r => r.LoadSound(It.IsAny<string>()), Times.Never);
+        // Spec: "Otherwise cleared/failed -> stage-clear sound if available"
+        resources.Verify(r => r.LoadSound("Sounds/Stage Clear.ogg"), Times.Once);
     }
 
     private static SpriteBatch CreateFakeSpriteBatch(int width, int height)
