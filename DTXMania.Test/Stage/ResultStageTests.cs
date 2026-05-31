@@ -212,6 +212,27 @@ namespace DTXMania.Test.Stage
             Assert.Equal(10, summary.MissCount);
         }
 
+        [Fact]
+        public void ExtractSharedData_WhenSongKeysAreMissing_ShouldClearPreviousSelection()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var previousSong = new SongListNode { Title = "Previous" };
+
+            SetPrivateField(stage, "_selectedSong", previousSong);
+            SetPrivateField(stage, "_selectedDifficulty", 3);
+            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+            {
+                { PerformanceSummaryKey, new PerformanceSummary { Score = 1000 } }
+            });
+
+            InvokePrivateMethod(stage, "ExtractSharedData");
+
+            Assert.Null(GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.Equal(0, GetPrivateField<int>(stage, "_selectedDifficulty"));
+        }
+
         #endregion
 
         #region Inheritance and Interface Tests
@@ -369,6 +390,24 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
 
             VerifySongSelectTransition(stage);
+        }
+
+        [Fact]
+        public void HandleInput_WhenTwoNavigationCommandsQueuedAndRevealIncomplete_ShouldCompleteRevealWithoutNavigating()
+        {
+            var stage = CreateUninitializedResultStageWithStageManager();
+            var inputManager = new TrackingInputManager();
+            var reveal = new ResultRevealState();
+
+            inputManager.Enqueue(new InputCommand(InputCommandType.Activate, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_revealState", reveal);
+
+            InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.True(reveal.IsComplete);
+            Assert.False(GetStageManagerMock(stage).Invocations.Any());
         }
 
         [Fact]
@@ -531,6 +570,8 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(exception);
             Assert.True(stage.WhitePixelRequested);
+            Assert.True(inputManager.ClearPendingCommandsCalled);
+            Assert.True(inputManager.ResetKeyRepeatStatesCalled);
             Assert.Empty(inputManager.GetInputCommands());
         }
 
@@ -738,6 +779,8 @@ namespace DTXMania.Test.Stage
         private sealed class TrackingInputManager : InputManager
         {
             public bool UpdateCalled { get; private set; }
+            public bool ClearPendingCommandsCalled { get; private set; }
+            public bool ResetKeyRepeatStatesCalled { get; private set; }
 
             public void Enqueue(InputCommand command)
             {
@@ -748,6 +791,18 @@ namespace DTXMania.Test.Stage
             {
                 UpdateCalled = true;
                 base.Update(deltaTime);
+            }
+
+            public override void ClearPendingCommands()
+            {
+                ClearPendingCommandsCalled = true;
+                base.ClearPendingCommands();
+            }
+
+            public override void ResetKeyRepeatStates()
+            {
+                ResetKeyRepeatStatesCalled = true;
+                base.ResetKeyRepeatStates();
             }
         }
 

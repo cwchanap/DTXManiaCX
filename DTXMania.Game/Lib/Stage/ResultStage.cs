@@ -104,7 +104,8 @@ namespace DTXMania.Game.Lib.Stage
             // Clear any pending input commands to prevent auto-transition
             if (_inputManager != null)
             {
-                _inputManager.GetInputCommands(); // This clears the queue
+                _inputManager.ClearPendingCommands();
+                _inputManager.ResetKeyRepeatStates();
             }
 
             System.Diagnostics.Debug.WriteLine($"ResultStage activated with performance summary: {_performanceSummary}");
@@ -161,6 +162,9 @@ namespace DTXMania.Game.Lib.Stage
 
         private void ExtractSharedData()
         {
+            _selectedSong = null;
+            _selectedDifficulty = 0;
+
             if (_sharedData != null && _sharedData.TryGetValue("performanceSummary", out var summaryObj) && summaryObj is PerformanceSummary summary)
             {
                 _performanceSummary = summary;
@@ -330,11 +334,15 @@ namespace DTXMania.Game.Lib.Stage
             InputCommand? command;
             while ((command = _inputManager.GetNextCommand()) != null)
             {
-                ExecuteInputCommand(command.Value);
+                if (ExecuteInputCommand(command.Value))
+                {
+                    _inputManager.ClearPendingCommands();
+                    break;
+                }
             }
         }
 
-        private void ExecuteInputCommand(InputCommand command)
+        private bool ExecuteInputCommand(InputCommand command)
         {
             switch (command.Type)
             {
@@ -344,7 +352,7 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         _revealState.Complete();
                         PlayNewRecordSoundIfReady();
-                        break;
+                        return true;
                     }
 
                     if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
@@ -354,6 +362,8 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     break;
             }
+
+            return false;
         }
 
         private void ReturnToSongSelect()
