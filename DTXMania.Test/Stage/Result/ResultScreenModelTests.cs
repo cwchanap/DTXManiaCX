@@ -65,6 +65,19 @@ public class ResultScreenModelTests
     }
 
     [Fact]
+    public void Create_PerfectCountAboveTotal_ShouldNotSelectExcellentPlate()
+    {
+        var model = ResultScreenModel.Create(
+            Summary(perfect: 101, totalNotes: 100, clear: true),
+            null,
+            0,
+            null,
+            null);
+
+        Assert.Equal(ResultPlateKind.FullCombo, model.PlateKind);
+    }
+
+    [Fact]
     public void Create_ClearWithMiss_ShouldSelectStageClearedPlate()
     {
         var model = ResultScreenModel.Create(
@@ -247,7 +260,7 @@ public class ResultScreenModelTests
     }
 
     [Fact]
-    public void Create_WithNoPreviousScore_ShouldDetectNewRecord()
+    public void Create_WithNoPreviousScore_ShouldNotDetectNewRecord()
     {
         var model = ResultScreenModel.Create(
             Summary(score: 1, gameSkill: 1.0),
@@ -256,11 +269,11 @@ public class ResultScreenModelTests
             null,
             previousScore: null);
 
-        Assert.True(model.NewRecord);
+        Assert.False(model.NewRecord);
     }
 
     [Fact]
-    public void Create_WithUnplayedPreviousScore_ShouldDetectNewRecord()
+    public void Create_WithUnplayedPreviousScoreAndZeroResult_ShouldNotDetectNewRecord()
     {
         var previous = new SongScore
         {
@@ -271,6 +284,28 @@ public class ResultScreenModelTests
 
         var model = ResultScreenModel.Create(
             Summary(score: 0, gameSkill: 0.0),
+            null,
+            0,
+            null,
+            previous);
+
+        Assert.False(model.NewRecord);
+    }
+
+    [Theory]
+    [InlineData(1, 0.0)]
+    [InlineData(0, 1.0)]
+    public void Create_WithUnplayedPreviousScoreAndPositiveResult_ShouldDetectNewRecord(int score, double gameSkill)
+    {
+        var previous = new SongScore
+        {
+            PlayCount = 0,
+            BestScore = 9999999,
+            HighSkill = 999.0
+        };
+
+        var model = ResultScreenModel.Create(
+            Summary(score: score, gameSkill: gameSkill),
             null,
             0,
             null,
