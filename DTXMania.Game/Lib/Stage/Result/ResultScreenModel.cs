@@ -185,7 +185,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         private static bool IsExcellent(PerformanceSummary summary)
         {
             return summary.TotalNotes > 0
-                && Math.Max(0, summary.PerfectCount) >= summary.TotalNotes
+                && Math.Max(0, summary.PerfectCount) == summary.TotalNotes
                 && Math.Max(0, summary.GreatCount) == 0
                 && Math.Max(0, summary.GoodCount) == 0
                 && Math.Max(0, summary.PoorCount) == 0
@@ -252,8 +252,11 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         private static bool IsNewRecord(PerformanceSummary summary, SongScore? previousScore)
         {
-            if (previousScore == null || !previousScore.HasBeenPlayed)
-                return true;
+            if (previousScore == null)
+                return false;
+
+            if (!previousScore.HasBeenPlayed)
+                return summary.Score > 0 || summary.GameSkill > 0.0;
 
             return summary.Score > previousScore.BestScore
                 || summary.GameSkill > previousScore.HighSkill;
