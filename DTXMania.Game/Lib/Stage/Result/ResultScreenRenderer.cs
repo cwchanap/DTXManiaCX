@@ -28,6 +28,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         private ITexture? _previewTexture;
         private ITexture? _newRecordTexture;
         private bool _disposed;
+        private List<(ITexture texture, int original)>? _panelOriginalTransparency;
 
         public ResultScreenRenderer(
             IResourceManager resources,
@@ -90,6 +91,13 @@ namespace DTXMania.Game.Lib.Stage.Result
             if (reveal.PanelProgress <= 0.0f)
                 return;
 
+            // Apply panel reveal alpha so visuals match the animation progress.
+            // ITexture.Transparency (0-255) is multiplied into every draw call.
+            var panelAlpha = Math.Clamp(reveal.PanelProgress, 0.0f, 1.0f);
+            var transparency = (int)Math.Round(panelAlpha * 255);
+
+            ApplyPanelTransparency(transparency);
+
             DrawTexture(spriteBatch, _plateTexture, ResultUILayout.ResultPlate.Position);
             if (model.PlateKind == ResultPlateKind.Failed)
                 DrawText(spriteBatch, _largeFont, "FAILED", ResultUILayout.ResultPlate.FailedTextPosition, Color.Red);
@@ -101,6 +109,8 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             if (model.NewRecord)
                 DrawTexture(spriteBatch, _newRecordTexture, ResultUILayout.NewRecord.BadgePosition);
+
+            RestorePanelTransparency();
         }
 
         public void Dispose()
@@ -172,6 +182,38 @@ namespace DTXMania.Game.Lib.Stage.Result
             texture?.Draw(spriteBatch, position);
         }
 
+        /// <summary>
+        /// Applies panel reveal transparency to all panel textures.
+        /// Stored original values are kept for restoration via <see cref="RestorePanelTransparency"/>.
+        /// </summary>
+        private void ApplyPanelTransparency(int transparency)
+        {
+            _panelOriginalTransparency = new List<(ITexture texture, int original)>();
+
+            foreach (var texture in new[] { _plateTexture, _jacketPanelTexture, _previewTexture, _skillPanelTexture, _newRecordTexture })
+            {
+                if (texture != null)
+                {
+                    _panelOriginalTransparency.Add((texture, texture.Transparency));
+                    texture.Transparency = (int)Math.Round(texture.Transparency * (transparency / 255.0));
+                }
+            }
+        }
+
+        private void RestorePanelTransparency()
+        {
+            if (_panelOriginalTransparency == null)
+                return;
+
+            foreach (var (texture, original) in _panelOriginalTransparency)
+            {
+                if (!texture.IsDisposed)
+                    texture.Transparency = original;
+            }
+
+            _panelOriginalTransparency.Clear();
+        }
+
         [ExcludeFromCodeCoverage]
         private void DrawRank(SpriteBatch spriteBatch, ResultRevealState reveal)
         {
@@ -188,12 +230,12 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             var source = new Rectangle(
                 0,
-                _rankTexture.Height - visibleHeight,
+                0,
                 _rankTexture.Width,
                 visibleHeight);
             var destination = new Rectangle(
                 (int)ResultUILayout.Rank.BadgePosition.X,
-                (int)ResultUILayout.Rank.BadgePosition.Y + _rankTexture.Height - visibleHeight,
+                (int)ResultUILayout.Rank.BadgePosition.Y,
                 _rankTexture.Width,
                 visibleHeight);
 
