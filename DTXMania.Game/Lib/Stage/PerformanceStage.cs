@@ -627,7 +627,13 @@ namespace DTXMania.Game.Lib.Stage
                 _scheduledBGMEvents = _parsedChart.BGMEvents.ToList();
 
                 // Create song timer with logging support
-                _songTimer = _audioLoader.CreateSongTimer(message => LogPerformanceError(message));
+                var songTimer = _audioLoader.CreateSongTimer(message => LogPerformanceError(message));
+                if (songTimer == null)
+                {
+                    LogPerformanceError("PerformanceStage: No audio timer available; using silent GameTime clock");
+                    songTimer = new SongTimer(message => LogPerformanceError(message));
+                }
+                _songTimer = songTimer;
 
                 _isLoading = false;
                 _isReady = true;
@@ -1862,6 +1868,7 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.SelectedDifficulty = _selectedDifficulty;
             telemetry.PerformanceReady = !_isLoading
                 && _chartManager != null
+                && _songTimer != null
                 && !_stageCompleted
                 && (_isReady || _songTimer?.IsPlaying == true);
             telemetry.AutoPlayEnabled = _autoPlayEnabled;

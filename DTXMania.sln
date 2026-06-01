@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.Test", "DTXMania.T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXManiaCX.MCP", "MCP\MCP.csproj", "{D7F2A8B3-C4E5-4F67-8A9B-1C2D3E4F5G6H}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTXMania.E2E", "DTXMania.E2E\DTXMania.E2E.csproj", "{F258F3DE-7484-4572-8D4E-9C6DBEC945B1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,5 +38,9 @@ Global
 		{D7F2A8B3-C4E5-4F67-8A9B-1C2D3E4F5G6H}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D7F2A8B3-C4E5-4F67-8A9B-1C2D3E4F5G6H}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D7F2A8B3-C4E5-4F67-8A9B-1C2D3E4F5G6H}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F258F3DE-7484-4572-8D4E-9C6DBEC945B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F258F3DE-7484-4572-8D4E-9C6DBEC945B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F258F3DE-7484-4572-8D4E-9C6DBEC945B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F258F3DE-7484-4572-8D4E-9C6DBEC945B1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

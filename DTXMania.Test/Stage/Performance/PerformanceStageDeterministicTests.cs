@@ -135,6 +135,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
@@ -158,13 +159,18 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
+    public void PopulateTelemetry_WhenSongTimerMissing_ShouldReportPerformanceNotReady()
     {
         var stage = CreateStage();
+        var chart = new ParsedChart("telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
-        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.5);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", null);
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
 
         var telemetry = new GameTelemetrySnapshot();
@@ -172,6 +178,54 @@ public class PerformanceStageDeterministicTests
         stage.PopulateTelemetry(telemetry);
 
         Assert.False(telemetry.PerformanceReady);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.False(telemetry.PerformanceReady);
+    }
+
+    [Fact]
+    public async Task InitializeGameplayAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSilentSongTimer()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("silent-clock.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+
+        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+        await initializeTask;
+
+        var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
+        Assert.NotNull(timer);
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+
+        var startTime = new GameTime(TimeSpan.FromMilliseconds(1000), TimeSpan.Zero);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", startTime);
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
+
+        Assert.True(timer!.IsPlaying);
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        Assert.Equal(500.0, timer.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero)));
     }
 
     [Fact]
