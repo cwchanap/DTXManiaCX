@@ -234,6 +234,142 @@ public class ResultScreenRendererTests
         secondTexture.Verify(t => t.RemoveReference(), Times.AtLeastOnce);
     }
 
+    [Fact]
+    public void ApplyPanelTransparency_ShouldScaleAndRestoreTransparency()
+    {
+        // Use distinct mock textures to simulate production behavior where
+        // each texture slot holds a different object.
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+
+        // Track per-path textures so we can verify the panel-specific ones
+        var pathToTexture = new Dictionary<string, Mock<ITexture>>();
+        resources
+            .Setup(r => r.LoadTexture(It.IsAny<string>()))
+            .Returns<string>(path =>
+            {
+                var tex = new Mock<ITexture>();
+                tex.SetupProperty(t => t.Transparency, 255);
+                pathToTexture[path] = tex;
+                return tex.Object;
+            });
+
+        var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary
+            {
+                ClearFlag = true,
+                PerfectCount = 100,
+                TotalNotes = 100,
+                PlayingSkill = 100.0,
+                Score = 1
+            },
+            null,
+            0,
+            null,
+            new SongScore { PlayCount = 1, BestScore = 0, HighSkill = 0.0 });
+        renderer.Load(model);
+
+        var applyMethod = typeof(ResultScreenRenderer).GetMethod(
+            "ApplyPanelTransparency", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var restoreMethod = typeof(ResultScreenRenderer).GetMethod(
+            "RestorePanelTransparency", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        // Apply 50% alpha
+        applyMethod!.Invoke(renderer, new object[] { 128 });
+
+        // Panel textures should have transparency scaled to ~128
+        var panelPaths = new[]
+        {
+            TexturePath.ResultPlateExcellent, // SS → Excellent plate
+            TexturePath.ResultJacketPanel,
+            TexturePath.ResultDefaultPreview,
+            TexturePath.ResultSkillPanel,
+            TexturePath.ResultNewRecord,
+        };
+        foreach (var path in panelPaths)
+        {
+            if (pathToTexture.TryGetValue(path, out var tex))
+            {
+                Assert.InRange(tex.Object.Transparency, 120, 136);
+            }
+        }
+
+        restoreMethod!.Invoke(renderer, null);
+
+        // All panel textures should be restored to 255
+        foreach (var path in panelPaths)
+        {
+            if (pathToTexture.TryGetValue(path, out var tex))
+            {
+                Assert.Equal(255, tex.Object.Transparency);
+            }
+        }
+
+        renderer.Dispose();
+    }
+
+    [Fact]
+    public void ApplyPanelTransparency_ZeroAlpha_ShouldSetZeroTransparency()
+    {
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+
+        var pathToTexture = new Dictionary<string, Mock<ITexture>>();
+        resources
+            .Setup(r => r.LoadTexture(It.IsAny<string>()))
+            .Returns<string>(path =>
+            {
+                var tex = new Mock<ITexture>();
+                tex.SetupProperty(t => t.Transparency, 255);
+                pathToTexture[path] = tex;
+                return tex.Object;
+            });
+
+        var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary { ClearFlag = true, TotalNotes = 10 },
+            null,
+            0,
+            null,
+            null);
+        renderer.Load(model);
+
+        var applyMethod = typeof(ResultScreenRenderer).GetMethod(
+            "ApplyPanelTransparency", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var restoreMethod = typeof(ResultScreenRenderer).GetMethod(
+            "RestorePanelTransparency", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        // Apply zero alpha
+        applyMethod!.Invoke(renderer, new object[] { 0 });
+
+        // Plate texture (FullCombo) should be at transparency 0
+        Assert.True(pathToTexture.ContainsKey(TexturePath.ResultPlateFullCombo),
+            $"Expected plate path not found. Actual paths: {string.Join(", ", pathToTexture.Keys)}");
+        Assert.Equal(0, pathToTexture[TexturePath.ResultPlateFullCombo].Object.Transparency);
+
+        restoreMethod!.Invoke(renderer, null);
+
+        // Should be restored to 255
+        Assert.Equal(255, pathToTexture[TexturePath.ResultPlateFullCombo].Object.Transparency);
+
+        renderer.Dispose();
+    }
+
+    [Fact]
+    public void RestorePanelTransparency_WithoutApply_ShouldNotThrow()
+    {
+        var resources = new Mock<IResourceManager>();
+        var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
+
+        var restoreMethod = typeof(ResultScreenRenderer).GetMethod(
+            "RestorePanelTransparency", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        var exception = CaptureException(() => restoreMethod!.Invoke(renderer, null));
+
+        Assert.Null(exception);
+    }
+
     private static Exception? CaptureException(Action action)
     {
         try
