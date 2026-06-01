@@ -13,7 +13,7 @@ public static class E2EFixtureBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
 
-        var paths = CreateRunPaths(runRoot);
+        var paths = CreateRunPaths(runRoot, repoRoot);
 
         Directory.CreateDirectory(paths.AppDataRoot);
         Directory.CreateDirectory(paths.SkinRoot);
@@ -39,16 +39,23 @@ public static class E2EFixtureBuilder
             ApiKey);
     }
 
-    private static E2ERunPaths CreateRunPaths(string runRoot)
+    private static E2ERunPaths CreateRunPaths(string runRoot, string repoRoot)
     {
         var normalizedRunRoot = Path.GetFullPath(runRoot);
+        var normalizedRepoRoot = Path.GetFullPath(repoRoot);
         var appDataRoot = Path.Combine(normalizedRunRoot, "appdata");
         var skinRoot = Path.Combine(normalizedRunRoot, "System");
         var dtxRoot = Path.Combine(normalizedRunRoot, "DTXFiles");
         var songDirectory = Path.Combine(dtxRoot, "AutoPlaySmoke");
         var artifactRoot = Environment.GetEnvironmentVariable(ArtifactRootEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(artifactRoot))
+        {
             artifactRoot = Path.Combine(normalizedRunRoot, "TestResults", "e2e");
+        }
+        else if (!Path.IsPathRooted(artifactRoot))
+        {
+            artifactRoot = Path.Combine(normalizedRepoRoot, artifactRoot);
+        }
 
         return new E2ERunPaths(
             normalizedRunRoot,
