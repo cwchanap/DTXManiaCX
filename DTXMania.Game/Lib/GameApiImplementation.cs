@@ -75,7 +75,8 @@ public class GameApiImplementation : IGameApi
                         ["game_name"] = "DTXManiaCX",
                         ["platform"] = Environment.OSVersion.Platform.ToString(),
                         ["config_screen_width"] = _game.ConfigManager?.Config?.ScreenWidth ?? 0,
-                        ["config_screen_height"] = _game.ConfigManager?.Config?.ScreenHeight ?? 0
+                        ["config_screen_height"] = _game.ConfigManager?.Config?.ScreenHeight ?? 0,
+                        ["telemetry"] = BuildTelemetrySnapshot()
                     },
                     Timestamp = DateTime.UtcNow
                 };
@@ -102,6 +103,43 @@ public class GameApiImplementation : IGameApi
                 };
             }
         }
+    }
+
+    private GameTelemetrySnapshot BuildTelemetrySnapshot()
+    {
+        var stageManager = _game.StageManager;
+        var currentStage = stageManager?.CurrentStage;
+
+        var baseTelemetry = new GameTelemetrySnapshot
+        {
+            StageName = currentStage?.GetType().Name ?? "Unknown",
+            StageType = currentStage?.Type.ToString() ?? "Unknown",
+            StagePhase = currentStage?.CurrentPhase.ToString() ?? "Unknown",
+            IsTransitioning = stageManager?.IsTransitioning ?? false
+        };
+
+        if (currentStage is IStageTelemetryProvider provider)
+        {
+            try
+            {
+                var providerTelemetry = new GameTelemetrySnapshot
+                {
+                    StageName = baseTelemetry.StageName,
+                    StageType = baseTelemetry.StageType,
+                    StagePhase = baseTelemetry.StagePhase,
+                    IsTransitioning = baseTelemetry.IsTransitioning
+                };
+
+                provider.PopulateTelemetry(providerTelemetry);
+                return providerTelemetry;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Game API: Stage telemetry provider failed for {StageType}", baseTelemetry.StageType);
+            }
+        }
+
+        return baseTelemetry;
     }
 
     private static string SanitizeExceptionMessage(Exception ex)
