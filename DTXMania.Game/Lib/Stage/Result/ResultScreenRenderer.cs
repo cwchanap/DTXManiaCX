@@ -240,7 +240,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 visibleHeight);
             var destination = new Rectangle(
                 (int)ResultUILayout.Rank.BadgePosition.X,
-                (int)ResultUILayout.Rank.BadgePosition.Y,
+                (int)ResultUILayout.Rank.BadgePosition.Y + (_rankTexture.Height - visibleHeight),
                 _rankTexture.Width,
                 visibleHeight);
 
