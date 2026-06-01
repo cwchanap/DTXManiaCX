@@ -108,7 +108,7 @@ namespace DTXMania.Game.Lib.Stage
                 _inputManager.ResetKeyRepeatStates();
             }
 
-            System.Diagnostics.Debug.WriteLine($"ResultStage activated with performance summary: {_performanceSummary}");
+            System.Diagnostics.Trace.WriteLine($"ResultStage activated with performance summary: {_performanceSummary}");
         }
 
         protected override void OnDeactivate()
@@ -201,7 +201,7 @@ namespace DTXMania.Game.Lib.Stage
             // Create white pixel texture for backgrounds
             _whitePixel = CreateWhitePixel();
 
-            // Initialize font for text display
+            // Initialize fonts and renderer (core visual components)
             try
             {
                 _resultFont = CreateResultFont();
@@ -209,12 +209,10 @@ namespace DTXMania.Game.Lib.Stage
                 _largeResultFont = CreateLargeResultFont();
                 _resultRenderer = CreateResultRenderer();
                 _resultRenderer?.Load(_resultModel);
-                _resultSound = LoadSoundForPlate(_resultModel?.PlateKind ?? ResultPlateKind.StageCleared);
-                _newRecordSound = _resultModel?.NewRecord == true ? TryLoadSound(NewRecordSoundPath) : null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to initialize result components: {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to initialize result renderer: {ex.Message}");
                 _resultFont?.RemoveReference();
                 _smallResultFont?.RemoveReference();
                 _largeResultFont?.RemoveReference();
@@ -223,6 +221,17 @@ namespace DTXMania.Game.Lib.Stage
                 _smallResultFont = null;
                 _largeResultFont = null;
                 _resultRenderer = null;
+            }
+
+            // Initialize sounds (optional — failure should not affect visuals)
+            try
+            {
+                _resultSound = LoadSoundForPlate(_resultModel?.PlateKind ?? ResultPlateKind.StageCleared);
+                _newRecordSound = _resultModel?.NewRecord == true ? TryLoadSound(NewRecordSoundPath) : null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to load result sounds: {ex.Message}");
                 _resultSound = null;
                 _newRecordSound = null;
             }
@@ -317,7 +326,7 @@ namespace DTXMania.Game.Lib.Stage
                     EInstrumentPart.DRUMS,
                     _performanceSummary)
                 .ContinueWith(
-                    task => System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to persist score: {task.Exception?.GetBaseException().Message}"),
+                    task => System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to persist score: {task.Exception?.GetBaseException().Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
         }
 
@@ -401,7 +410,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ResultStage: Failed to load sound '{path}': {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to load sound '{path}': {ex.Message}");
                 return null;
             }
         }

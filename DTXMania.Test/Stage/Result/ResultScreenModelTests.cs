@@ -406,6 +406,41 @@ public class ResultScreenModelTests
         Assert.Equal(expected, ResultScreenModel.FormatLevel(level, levelDec));
     }
 
+    [Fact]
+    public void Create_WithWindowsAbsolutePathPreview_ShouldKeepPreviewPath()
+    {
+        var chart = new SongChart
+        {
+            FilePath = "/some/chart.dtx",
+            PreviewImage = @"C:\Jackets\art.png"
+        };
+
+        var model = ResultScreenModel.Create(Summary(), null, 0, chart, null);
+
+        // On any OS, a Windows-style absolute path (C:\...) should be detected as rooted
+        Assert.Equal(@"C:\Jackets\art.png".Replace('\\', Path.DirectorySeparatorChar), model.PreviewImagePath);
+    }
+
+    [Fact]
+    public void FormatPercent_MidpointValue_ShouldRoundAwayFromZero()
+    {
+        // 1/8 = 12.5% → MidpointRounding.AwayFromZero → 13%
+        Assert.Equal("13%", ResultScreenModel.FormatPercent(1, 8));
+    }
+
+    [Fact]
+    public void FormatPercent_ValueExceeds100Percent_ShouldClampTo100()
+    {
+        // 150 out of 100 notes = 150%, clamped to 100%
+        Assert.Equal("100%", ResultScreenModel.FormatPercent(150, 100));
+    }
+
+    [Fact]
+    public void FormatScore_AboveUpperClamp_ShouldClampTo9999999()
+    {
+        Assert.Equal("9999999", ResultScreenModel.FormatScore(10_000_000));
+    }
+
     private static PerformanceSummary Summary(
         int score = 0,
         int maxCombo = 0,

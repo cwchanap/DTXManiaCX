@@ -98,19 +98,24 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             ApplyPanelTransparency(transparency);
 
-            DrawTexture(spriteBatch, _plateTexture, ResultUILayout.ResultPlate.Position);
-            if (model.PlateKind == ResultPlateKind.Failed)
-                DrawText(spriteBatch, _largeFont, "FAILED", ResultUILayout.ResultPlate.FailedTextPosition, Color.Red);
+            try
+            {
+                DrawTexture(spriteBatch, _plateTexture, ResultUILayout.ResultPlate.Position);
+                if (model.PlateKind == ResultPlateKind.Failed)
+                    DrawText(spriteBatch, _largeFont, "FAILED", ResultUILayout.ResultPlate.FailedTextPosition, Color.Red);
 
-            DrawTexture(spriteBatch, _jacketPanelTexture, ResultUILayout.Jacket.PanelPosition);
-            DrawPreview(spriteBatch);
-            DrawTexture(spriteBatch, _skillPanelTexture, ResultUILayout.SkillPanel.PanelPosition);
-            DrawModelText(spriteBatch, model);
+                DrawTexture(spriteBatch, _jacketPanelTexture, ResultUILayout.Jacket.PanelPosition);
+                DrawPreview(spriteBatch);
+                DrawTexture(spriteBatch, _skillPanelTexture, ResultUILayout.SkillPanel.PanelPosition);
+                DrawModelText(spriteBatch, model);
 
-            if (model.NewRecord)
-                DrawTexture(spriteBatch, _newRecordTexture, ResultUILayout.NewRecord.BadgePosition);
-
-            RestorePanelTransparency();
+                if (model.NewRecord)
+                    DrawTexture(spriteBatch, _newRecordTexture, ResultUILayout.NewRecord.BadgePosition);
+            }
+            finally
+            {
+                RestorePanelTransparency();
+            }
         }
 
         public void Dispose()
@@ -137,7 +142,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"ResultScreenRenderer: Failed to load texture '{path}': {ex.Message}");
+                Trace.WriteLine($"ResultScreenRenderer: Failed to load texture '{path}': {ex.Message}");
                 return null;
             }
         }
@@ -150,7 +155,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"ResultScreenRenderer: Failed to check texture '{path}': {ex.Message}");
+                Trace.WriteLine($"ResultScreenRenderer: Failed to check texture '{path}': {ex.Message}");
                 return false;
             }
         }
