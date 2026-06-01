@@ -119,16 +119,6 @@ public class AppPathsTests
     }
 
     [Fact]
-    public void GetAppDataRoot_ShouldReturnRootedPathEndingInAppName()
-    {
-        var root = AppPaths.GetAppDataRoot();
-
-        Assert.False(string.IsNullOrWhiteSpace(root));
-        Assert.True(Path.IsPathRooted(root));
-        Assert.Equal("DTXManiaCX", Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)));
-    }
-
-    [Fact]
     public void GetAppDataRoot_OnRepeatedCalls_ShouldBeIdempotent()
     {
         var a = AppPaths.GetAppDataRoot();
@@ -245,6 +235,75 @@ public class AppPathsTests
 [Collection("AppPaths")]
 public class AppPathsEnvironmentTests
 {
+    [Fact]
+    public void GetAppDataRoot_ShouldReturnRootedPathEndingInAppName()
+    {
+        const string envName = "DTXMANIA_APPDATA_ROOT";
+        var previous = Environment.GetEnvironmentVariable(envName);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(envName, null);
+
+            var root = AppPaths.GetAppDataRoot();
+
+            Assert.False(string.IsNullOrWhiteSpace(root));
+            Assert.True(Path.IsPathRooted(root));
+            Assert.Equal("DTXManiaCX", Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envName, previous);
+        }
+    }
+
+    [Fact]
+    public void GetAppDataRoot_WhenEnvironmentOverrideIsSet_ShouldUseOverride()
+    {
+        const string envName = "DTXMANIA_APPDATA_ROOT";
+        var previous = Environment.GetEnvironmentVariable(envName);
+        var overrideRoot = Path.Combine(Path.GetTempPath(), "dtx-appdata-root-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Environment.SetEnvironmentVariable(envName, overrideRoot);
+
+            var root = AppPaths.GetAppDataRoot();
+
+            Assert.Equal(Path.GetFullPath(overrideRoot), root);
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "Config.ini"), AppPaths.GetConfigFilePath());
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "DTXFiles"), AppPaths.GetDefaultSongsPath());
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "System"), AppPaths.GetDefaultSystemSkinRoot());
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "songs.db"), AppPaths.GetSongsDatabasePath());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envName, previous);
+        }
+    }
+
+    [Fact]
+    public void GetAppDataRoot_WhenEnvironmentOverrideIsBlank_ShouldUseDefaultRoot()
+    {
+        const string envName = "DTXMANIA_APPDATA_ROOT";
+        var previous = Environment.GetEnvironmentVariable(envName);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(envName, "   ");
+
+            var root = AppPaths.GetAppDataRoot();
+
+            Assert.False(string.IsNullOrWhiteSpace(root));
+            Assert.True(Path.IsPathRooted(root));
+            Assert.Equal("DTXManiaCX", Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envName, previous);
+        }
+    }
+
     /// <summary>
     /// After clearing HOME/USERPROFILE env vars, checks whether the null-home fallback
     /// branch can be exercised. On most CI runners, SpecialFolder.UserProfile/Personal
