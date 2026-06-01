@@ -84,4 +84,31 @@ public sealed class E2EFixtureBuilderTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Build_WhenArtifactRootEnvironmentOverrideIsSet_ShouldUseOverride()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+        var artifactRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-artifacts-" + Guid.NewGuid().ToString("N"));
+        var previousArtifactRoot = Environment.GetEnvironmentVariable(E2EFixtureBuilder.ArtifactRootEnvironmentVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(E2EFixtureBuilder.ArtifactRootEnvironmentVariable, artifactRoot);
+
+            var fixture = E2EFixtureBuilder.Build(root, Directory.GetCurrentDirectory(), apiPort: 18080);
+
+            Assert.Equal(Path.GetFullPath(artifactRoot), fixture.ArtifactRoot);
+            Assert.True(Directory.Exists(fixture.ArtifactRoot));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(E2EFixtureBuilder.ArtifactRootEnvironmentVariable, previousArtifactRoot);
+
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(artifactRoot))
+                Directory.Delete(artifactRoot, recursive: true);
+        }
+    }
 }
