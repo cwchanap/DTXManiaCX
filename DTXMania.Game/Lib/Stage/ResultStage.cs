@@ -487,6 +487,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_performanceSummary != null)
             {
                 telemetry.ApplyPerformanceSummary(_performanceSummary);
+                telemetry.StageCompleted = true;
             }
         }
 

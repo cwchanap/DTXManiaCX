@@ -14,7 +14,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly SoundEffectInstance _soundInstance;
+        private readonly SoundEffectInstance? _soundInstance;
         private TimeSpan _startTime;
         private DateTime _systemStartTime;
         private bool _isPlaying = false;
@@ -84,8 +84,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="logger">Optional logger action for logging errors and warnings</param>
         public SongTimer(SoundEffectInstance soundInstance, Action<string>? logger = null)
         {
-        _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
-        _logger = logger;
+            _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Creates a silent timer that uses GameTime as the master clock when no audio is available.
+        /// </summary>
+        /// <param name="logger">Optional logger action for logging errors and warnings</param>
+        public SongTimer(Action<string>? logger = null)
+        {
+            _logger = logger;
         }
 
         #endregion
@@ -99,24 +108,30 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <returns>True if playback started successfully, false if an error occurred</returns>
         public bool Play(GameTime gameTime)
         {
-        if (_disposed || _soundInstance == null)
-            return false;
+            if (_disposed)
+                return false;
 
-        _startTime = gameTime.TotalGameTime;
-        _systemStartTime = DateTime.UtcNow;
+            _startTime = gameTime.TotalGameTime;
+            _systemStartTime = DateTime.UtcNow;
 
-        try
-        {
-            _soundInstance.Play();
-            _isPlaying = true;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _isPlaying = false;
-            _logger?.Invoke($"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
-            return false;
-        }
+            if (_soundInstance == null)
+            {
+                _isPlaying = true;
+                return true;
+            }
+
+            try
+            {
+                _soundInstance.Play();
+                _isPlaying = true;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _isPlaying = false;
+                _logger?.Invoke($"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -124,10 +139,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public void Pause()
         {
-            if (_disposed || _soundInstance == null)
+            if (_disposed)
                 return;
 
-            _soundInstance.Pause();
+            _soundInstance?.Pause();
             _isPlaying = false;
         }
 
@@ -137,7 +152,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="gameTime">Current game time for timing adjustment</param>
         public void Resume(GameTime gameTime)
         {
-            if (_disposed || _soundInstance == null)
+            if (_disposed)
                 return;
 
             // Adjust start time to account for pause duration
@@ -145,7 +160,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var pauseDuration = gameTime.TotalGameTime - _startTime - TimeSpan.FromMilliseconds(GetCurrentMs());
             _startTime += pauseDuration;
 
-            _soundInstance.Resume();
+            _soundInstance?.Resume();
             _isPlaying = true;
             _systemStartTime = DateTime.UtcNow;
         }
@@ -155,11 +170,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public void Stop()
         {
-        if (_disposed || _soundInstance == null)
-            return;
+            if (_disposed)
+                return;
 
-        _soundInstance.Stop();
-        _isPlaying = false;
+            _soundInstance?.Stop();
+            _isPlaying = false;
         }
 
         /// <summary>
@@ -199,13 +214,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="gameTime">Current game time for timing adjustment</param>
         public void SetPosition(double positionMs, GameTime gameTime)
         {
-        if (_disposed || _soundInstance == null)
-            return;
+            if (_disposed)
+                return;
 
-        // Note: XNA/MonoGame SoundEffectInstance doesn't support seeking
-        // This method is provided for future compatibility
-        // For now, we adjust the start time to simulate the position
-        _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(positionMs);
+            // Note: XNA/MonoGame SoundEffectInstance doesn't support seeking
+            // This method is provided for future compatibility
+            // For now, we adjust the start time to simulate the position
+            _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(positionMs);
         }
 
         /// <summary>

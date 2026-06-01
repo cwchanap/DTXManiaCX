@@ -98,6 +98,7 @@ namespace DTXMania.Test.Stage
             Assert.Equal(4, telemetry.PerfectCount);
             Assert.Equal(4, telemetry.TotalNotes);
             Assert.True(telemetry.ClearFlag);
+            Assert.True(telemetry.StageCompleted);
             Assert.Equal("SongComplete", telemetry.CompletionReason);
         }
 

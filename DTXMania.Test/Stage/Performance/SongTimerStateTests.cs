@@ -273,22 +273,24 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         // ---------------------------------------------------------------
-        // Play – null _soundInstance / disposed guard paths
+        // Play – silent timer / disposed guard paths
         // ---------------------------------------------------------------
 
         [Fact]
-        public void Play_WhenSoundInstanceNull_ReturnsFalse()
+        public void Play_WhenSilentTimer_ShouldUseGameTimeClock()
         {
-            var timer = CreateTimer(isPlaying: false);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            Assert.False(timer.Play(gameTime));
+            var timer = new SongTimer();
+            var start = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+
+            Assert.True(timer.Play(start));
+
+            Assert.True(timer.IsPlaying);
+            Assert.Equal(400.0, timer.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero)));
         }
 
         [Fact]
         public void Play_WhenDisposed_ReturnsFalse()
         {
-            // _soundInstance is also null under this seam, so this verifies the combined
-            // _disposed || _soundInstance == null guard rather than isolating _disposed.
             var timer = CreateTimer(isPlaying: false, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
             Assert.False(timer.Play(gameTime));

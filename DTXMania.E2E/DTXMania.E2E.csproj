@@ -17,4 +17,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -13,18 +13,22 @@ public static class E2EFixtureBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
 
         var paths = CreateRunPaths(runRoot);
-        var systemRoot = Path.Combine(Path.GetFullPath(repoRoot), "System");
 
         Directory.CreateDirectory(paths.AppDataRoot);
+        Directory.CreateDirectory(paths.SkinRoot);
+        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Graphics"));
+        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Sounds"));
+        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Script"));
         Directory.CreateDirectory(paths.SongDirectory);
         Directory.CreateDirectory(paths.ArtifactRoot);
 
-        File.WriteAllText(paths.ConfigPath, BuildConfig(paths.DtxRoot, systemRoot, apiPort), Encoding.UTF8);
+        File.WriteAllText(paths.ConfigPath, BuildConfig(paths.DtxRoot, paths.SkinRoot, apiPort), Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
 
         return new E2EFixture(
             paths.RunRoot,
             paths.AppDataRoot,
+            paths.SkinRoot,
             paths.DtxRoot,
             paths.SongDirectory,
             paths.ConfigPath,
@@ -38,12 +42,14 @@ public static class E2EFixtureBuilder
     {
         var normalizedRunRoot = Path.GetFullPath(runRoot);
         var appDataRoot = Path.Combine(normalizedRunRoot, "appdata");
+        var skinRoot = Path.Combine(normalizedRunRoot, "System");
         var dtxRoot = Path.Combine(normalizedRunRoot, "DTXFiles");
         var songDirectory = Path.Combine(dtxRoot, "AutoPlaySmoke");
 
         return new E2ERunPaths(
             normalizedRunRoot,
             appDataRoot,
+            skinRoot,
             dtxRoot,
             songDirectory,
             Path.Combine(appDataRoot, "Config.ini"),
