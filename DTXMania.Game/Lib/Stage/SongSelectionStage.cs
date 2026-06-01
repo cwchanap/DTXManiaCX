@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Song.Components;
@@ -27,7 +28,7 @@ namespace DTXMania.Game.Lib.Stage
     /// Song selection stage implementation based on DTXManiaNX CStage選曲
     /// Handles song list display, navigation, and selection with BOX folder support
     /// </summary>
-    public class SongSelectionStage : BaseStage
+    public class SongSelectionStage : BaseStage, IStageTelemetryProvider
     {
         #region Fields
 
@@ -1954,6 +1955,19 @@ namespace DTXMania.Game.Lib.Stage
             
             _backgroundMusic = backgroundMusic;
             _backgroundMusicInstance = backgroundMusicInstance;
+        }
+
+        #endregion
+
+        #region Telemetry
+
+        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        {
+            ArgumentNullException.ThrowIfNull(telemetry);
+
+            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
+            telemetry.SelectedDifficulty = _currentDifficulty;
+            telemetry.InStatusPanel = _isInStatusPanel;
         }
 
         #endregion

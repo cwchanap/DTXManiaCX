@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
@@ -39,7 +40,7 @@ namespace DTXMania.Game.Lib.Stage
     /// JudgementMade events that are forwarded to ScoreManager, ComboManager,
     /// and GaugeManager for processing.
     /// </remarks>
-    public class PerformanceStage : BaseStage
+    public class PerformanceStage : BaseStage, IStageTelemetryProvider
     {
         #region Private Fields
 
@@ -1850,6 +1851,35 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
+
+        #region Telemetry
+
+        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        {
+            ArgumentNullException.ThrowIfNull(telemetry);
+
+            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
+            telemetry.SelectedDifficulty = _selectedDifficulty;
+            telemetry.PerformanceReady = !_isLoading
+                && _chartManager != null
+                && !_stageCompleted
+                && (_isReady || _songTimer?.IsPlaying == true);
+            telemetry.AutoPlayEnabled = _autoPlayEnabled;
+            telemetry.StageCompleted = _stageCompleted;
+            telemetry.Score = _scoreManager?.CurrentScore ?? 0;
+            telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
+            telemetry.MaxCombo = _comboManager?.MaxCombo ?? 0;
+            telemetry.Gauge = _gaugeManager?.CurrentLife ?? 0.0f;
+            telemetry.HasFailed = _gaugeManager?.HasFailed ?? false;
+            telemetry.TotalNotes = _chartManager?.TotalNotes ?? 0;
+            telemetry.PerfectCount = _judgementManager?.GetJudgementCount(JudgementType.Perfect) ?? 0;
+            telemetry.GreatCount = _judgementManager?.GetJudgementCount(JudgementType.Great) ?? 0;
+            telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
+            telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
+            telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
+        }
+
+        #endregion
 
         #region Disposal
 

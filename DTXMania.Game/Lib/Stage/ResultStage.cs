@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
@@ -21,7 +22,7 @@ namespace DTXMania.Game.Lib.Stage
     /// Result stage for displaying performance results after song completion
     /// Shows score, accuracy, combo, and other performance metrics
     /// </summary>
-    public class ResultStage : BaseStage
+    public class ResultStage : BaseStage, IStageTelemetryProvider
     {
         #region Private Fields
 
@@ -470,6 +471,23 @@ namespace DTXMania.Game.Lib.Stage
         internal virtual void DrawTexture(Texture2D texture, Rectangle destinationRectangle, Color color)
         {
             _spriteBatch.Draw(texture, destinationRectangle, color);
+        }
+
+        #endregion
+
+        #region Telemetry
+
+        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        {
+            ArgumentNullException.ThrowIfNull(telemetry);
+
+            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
+            telemetry.SelectedDifficulty = _selectedDifficulty;
+
+            if (_performanceSummary != null)
+            {
+                telemetry.ApplyPerformanceSummary(_performanceSummary);
+            }
         }
 
         #endregion
