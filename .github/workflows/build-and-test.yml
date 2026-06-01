@@ -127,6 +127,50 @@ jobs:
         name: test-results-macos
         path: ./TestResults
 
+  gameplay-e2e-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-e2e-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore Windows game
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
+
+    - name: Restore E2E project
+      run: dotnet restore DTXMania.E2E/DTXMania.E2E.csproj
+
+    - name: Build Windows game
+      run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
+
+    - name: Run gameplay E2E smoke
+      env:
+        ALSOFT_DRIVERS: 'null'
+        DTXMANIA_E2E_GAME_PROJECT: DTXMania.Game/DTXMania.Game.Windows.csproj
+        DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e
+      run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e --filter "Category=E2E"
+
+    - name: Upload gameplay E2E artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: gameplay-e2e-windows
+        path: ./TestResults/e2e
+
   build-artifacts:
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
