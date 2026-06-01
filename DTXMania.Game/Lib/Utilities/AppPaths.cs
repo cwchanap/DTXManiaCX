@@ -10,15 +10,23 @@ namespace DTXMania.Game.Lib.Utilities
     public static class AppPaths
     {
         private const string AppName = "DTXManiaCX";
+        private const string AppDataRootOverrideEnvVar = "DTXMANIA_APPDATA_ROOT";
 
         /// <summary>
         /// Get the base application data directory for the current OS.
+        /// DTXMANIA_APPDATA_ROOT overrides the OS-specific default when set.
         /// Windows: %LOCALAPPDATA%\DTXManiaCX
         /// macOS: ~/Library/Application Support/DTXManiaCX
         /// Other: ~/.config/DTXManiaCX (via SpecialFolder.ApplicationData, which maps to $XDG_CONFIG_HOME or ~/.config on Linux)
         /// </summary>
         public static string GetAppDataRoot()
         {
+            var overrideRoot = Environment.GetEnvironmentVariable(AppDataRootOverrideEnvVar);
+            if (!string.IsNullOrWhiteSpace(overrideRoot))
+            {
+                return Path.GetFullPath(ExpandHomePath(overrideRoot));
+            }
+
             string basePath;
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
