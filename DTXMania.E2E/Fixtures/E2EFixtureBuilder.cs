@@ -6,6 +6,7 @@ public static class E2EFixtureBuilder
 {
     public const string ApiKey = "e2e-autoplay-smoke-key";
     public const string SongTitle = "E2E AutoPlay Smoke";
+    public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
     public static E2EFixture Build(string runRoot, string repoRoot, int apiPort)
     {
@@ -45,6 +46,9 @@ public static class E2EFixtureBuilder
         var skinRoot = Path.Combine(normalizedRunRoot, "System");
         var dtxRoot = Path.Combine(normalizedRunRoot, "DTXFiles");
         var songDirectory = Path.Combine(dtxRoot, "AutoPlaySmoke");
+        var artifactRoot = Environment.GetEnvironmentVariable(ArtifactRootEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(artifactRoot))
+            artifactRoot = Path.Combine(normalizedRunRoot, "TestResults", "e2e");
 
         return new E2ERunPaths(
             normalizedRunRoot,
@@ -54,7 +58,7 @@ public static class E2EFixtureBuilder
             songDirectory,
             Path.Combine(appDataRoot, "Config.ini"),
             Path.Combine(songDirectory, "autoplay-smoke.dtx"),
-            Path.Combine(normalizedRunRoot, "TestResults", "e2e"));
+            Path.GetFullPath(artifactRoot));
     }
 
     private static string BuildConfig(string dtxRoot, string systemRoot, int apiPort)
