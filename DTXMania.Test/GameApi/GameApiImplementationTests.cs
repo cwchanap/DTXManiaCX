@@ -2,6 +2,7 @@ using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Extensions.Logging;
 using Moq;
 using System;
@@ -71,6 +72,145 @@ namespace DTXMania.Test.GameApi
             Assert.Equal("DTXManiaCX", result.CustomData["game_name"]);
             Assert.Equal(1234, (int)result.CustomData["config_screen_width"]);
             Assert.Equal(567, (int)result.CustomData["config_screen_height"]);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_ShouldIncludeBaseTelemetrySnapshot()
+        {
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Title);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+            stageManager.SetupGet(sm => sm.IsTransitioning).Returns(false);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Equal("Title", telemetry.StageType);
+            Assert.Equal("Normal", telemetry.StagePhase);
+            Assert.False(telemetry.IsTransitioning);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_WhenStageProvidesTelemetry_ShouldIncludeStageDetails()
+        {
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Performance);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+            stage.As<IStageTelemetryProvider>()
+                .Setup(s => s.PopulateTelemetry(It.IsAny<GameTelemetrySnapshot>()))
+                .Callback<GameTelemetrySnapshot>(telemetry =>
+                {
+                    telemetry.SelectedSongTitle = "E2E AutoPlay Smoke";
+                    telemetry.SelectedDifficulty = 0;
+                    telemetry.AutoPlayEnabled = true;
+                    telemetry.PerformanceReady = true;
+                    telemetry.Score = 12345;
+                    telemetry.TotalNotes = 4;
+                    telemetry.PerfectCount = 4;
+                });
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Equal("Performance", telemetry.StageType);
+            Assert.Equal("E2E AutoPlay Smoke", telemetry.SelectedSongTitle);
+            Assert.Equal(0, telemetry.SelectedDifficulty);
+            Assert.True(telemetry.AutoPlayEnabled);
+            Assert.True(telemetry.PerformanceReady);
+            Assert.Equal(12345, telemetry.Score);
+            Assert.Equal(4, telemetry.TotalNotes);
+            Assert.Equal(4, telemetry.PerfectCount);
+            Assert.Equal(4, telemetry.TotalJudgements);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_WhenStageTelemetryProviderThrows_ShouldReturnBaseTelemetry()
+        {
+            var telemetryException = new InvalidOperationException("provider failure");
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Performance);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+            stage.Setup(s => s.ToString()).Returns("Performance");
+            stage.As<IStageTelemetryProvider>()
+                .Setup(s => s.PopulateTelemetry(It.IsAny<GameTelemetrySnapshot>()))
+                .Throws(telemetryException);
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+            stageManager.SetupGet(sm => sm.IsTransitioning).Returns(true);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+
+            var logger = new Mock<ILogger<GameApiImplementation>>();
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            Assert.Equal("Performance", state.CurrentStage);
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Equal("Performance", telemetry.StageType);
+            Assert.Equal("Normal", telemetry.StagePhase);
+            Assert.True(telemetry.IsTransitioning);
+
+            logger.Verify(l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Stage telemetry provider")),
+                telemetryException,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_WhenStageTelemetryProviderPartiallyMutatesThenThrows_ShouldDiscardProviderFields()
+        {
+            var telemetryException = new InvalidOperationException("provider failure");
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Performance);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+            stage.As<IStageTelemetryProvider>()
+                .Setup(s => s.PopulateTelemetry(It.IsAny<GameTelemetrySnapshot>()))
+                .Callback<GameTelemetrySnapshot>(telemetry =>
+                {
+                    telemetry.SelectedSongTitle = "Partial";
+                    telemetry.Score = 999;
+                    throw telemetryException;
+                });
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+            stageManager.SetupGet(sm => sm.IsTransitioning).Returns(true);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Equal("Performance", telemetry.StageType);
+            Assert.Equal("Normal", telemetry.StagePhase);
+            Assert.True(telemetry.IsTransitioning);
+            Assert.Null(telemetry.SelectedSongTitle);
+            Assert.Null(telemetry.Score);
         }
 
         [Fact]
