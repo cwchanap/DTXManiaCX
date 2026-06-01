@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -58,6 +59,46 @@ namespace DTXMania.Test.Stage
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
             Assert.Equal(StageType.Result, stage.Type);
+        }
+
+        #endregion
+
+        #region Telemetry Tests
+
+        [Fact]
+        public void PopulateTelemetry_WhenPerformanceSummaryExists_ShouldExposeResultSummary()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var selectedSong = new SongListNode { Title = "E2E AutoPlay Smoke" };
+            var summary = new PerformanceSummary
+            {
+                Score = 1000000,
+                MaxCombo = 4,
+                ClearFlag = true,
+                PerfectCount = 4,
+                TotalNotes = 4,
+                FinalLife = 100f,
+                CompletionReason = CompletionReason.SongComplete
+            };
+
+            SetPrivateField(stage, "_selectedSong", selectedSong);
+            SetPrivateField(stage, "_selectedDifficulty", 0);
+            SetPrivateField(stage, "_performanceSummary", summary);
+
+            var telemetry = new GameTelemetrySnapshot();
+
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Equal("E2E AutoPlay Smoke", telemetry.SelectedSongTitle);
+            Assert.Equal(0, telemetry.SelectedDifficulty);
+            Assert.Equal(1000000, telemetry.Score);
+            Assert.Equal(4, telemetry.MaxCombo);
+            Assert.Equal(4, telemetry.PerfectCount);
+            Assert.Equal(4, telemetry.TotalNotes);
+            Assert.True(telemetry.ClearFlag);
+            Assert.Equal("SongComplete", telemetry.CompletionReason);
         }
 
         #endregion

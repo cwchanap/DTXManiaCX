@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
@@ -22,7 +23,7 @@ namespace DTXMania.Game.Lib.Stage
     /// Song transition stage that displays song information before transitioning to performance
     /// Shows song name, artist, difficulty level, and preview image
     /// </summary>
-    public class SongTransitionStage : BaseStage
+    public class SongTransitionStage : BaseStage, IStageTelemetryProvider
     {
         #region Fields
 
@@ -841,6 +842,19 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     break;
             }
+        }
+
+        #endregion
+
+        #region Telemetry
+
+        public void PopulateTelemetry(GameTelemetrySnapshot telemetry)
+        {
+            ArgumentNullException.ThrowIfNull(telemetry);
+
+            telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
+            telemetry.SelectedDifficulty = _selectedDifficulty;
+            telemetry.ChartLoaded = _chartLoaded;
         }
 
         #endregion

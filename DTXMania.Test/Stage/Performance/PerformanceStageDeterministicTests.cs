@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -112,6 +113,65 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
         Assert.Equal(8, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
         Assert.Same(existingChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenManagersExist_ShouldExposePerformanceState()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+        var scoreManager = new ScoreManager(1);
+        var comboManager = new ComboManager();
+        var gaugeManager = new GaugeManager();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var selectedSong = new SongListNode { Title = "E2E AutoPlay Smoke" };
+
+        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
+        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 0);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 1.5);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal("E2E AutoPlay Smoke", telemetry.SelectedSongTitle);
+        Assert.Equal(0, telemetry.SelectedDifficulty);
+        Assert.True(telemetry.AutoPlayEnabled);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.False(telemetry.StageCompleted);
+        Assert.Equal(1, telemetry.TotalNotes);
+        Assert.Equal(0, telemetry.Score);
+        Assert.Equal(0, telemetry.CurrentCombo);
+        Assert.Equal(0, telemetry.MaxCombo);
+        Assert.Equal(GaugeManager.StartingLife, telemetry.Gauge);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.0);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.False(telemetry.PerformanceReady);
     }
 
     [Fact]
