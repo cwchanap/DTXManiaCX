@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game;
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -1105,5 +1106,69 @@ namespace DTXMania.Test.Stage
             public event EventHandler<EventArgs>? DeviceReset;
             public event EventHandler<EventArgs>? DeviceResetting;
         }
+
+        #region PopulateTelemetry Tests
+
+        [Fact]
+        public void PopulateTelemetry_WhenSongSelected_ShouldExposeSongTitleAndDifficulty()
+        {
+            var stage = CreateStage();
+            var chart = new SongChart { DrumLevel = 50, HasDrumChart = true };
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(chart));
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Equal("Test Song", telemetry.SelectedSongTitle);
+            Assert.Equal(2, telemetry.SelectedDifficulty);
+        }
+
+        [Fact]
+        public void PopulateTelemetry_WhenSongHasChart_ShouldSetChartLoadedTrue()
+        {
+            var stage = CreateStage();
+            var chart = new SongChart { DrumLevel = 50, HasDrumChart = true };
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(chart));
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 0);
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.True(telemetry.ChartLoaded);
+        }
+
+        [Fact]
+        public void PopulateTelemetry_WhenNoSongSelected_ShouldSetChartLoadedFalse()
+        {
+            var stage = CreateStage();
+            // _selectedSong is left null (uninitialized)
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Null(telemetry.SelectedSongTitle);
+            Assert.False(telemetry.ChartLoaded);
+        }
+
+        [Fact]
+        public void PopulateTelemetry_WhenSongHasNoMatchingChart_ShouldSetChartLoadedFalse()
+        {
+            var stage = CreateStage();
+            var chart = new SongChart { DrumLevel = 0, HasDrumChart = false };
+            var node = CreateSongNode(chart);
+            // Remove all chart references so GetCurrentDifficultyChart returns null
+            node.DatabaseSong.Charts = new List<SongChart>();
+            node.DatabaseChart = null;
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", node);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 5);
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.False(telemetry.ChartLoaded);
+        }
+
+        #endregion
     }
 }

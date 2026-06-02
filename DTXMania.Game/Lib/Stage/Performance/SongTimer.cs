@@ -136,15 +136,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Pauses the song
+        /// Pauses the song, caching elapsed position using the GameTime clock
+        /// so that Resume(GameTime) can restore position without clock-drift errors.
         /// </summary>
-        public void Pause()
+        /// <param name="gameTime">Current game time for precise elapsed caching</param>
+        public void Pause(GameTime gameTime)
         {
             if (_disposed)
                 return;
 
-            // Cache elapsed position before clearing _isPlaying so Resume can restore it
-            _cachedElapsedMs = GetCurrentMs();
+            // Cache elapsed position using the same clock as GetCurrentMs(GameTime)
+            // to avoid mixing system-clock and GameTime clock values.
+            _cachedElapsedMs = GetCurrentMs(gameTime);
             _soundInstance?.Pause();
             _isPlaying = false;
         }
@@ -158,7 +161,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
-            // Restore start time so elapsed position matches where we paused
+            // Restore start time so elapsed position matches where we paused.
+            // _cachedElapsedMs was captured via GetCurrentMs(gameTime) in Pause(GameTime),
+            // so both clocks are now consistent.
             _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(_cachedElapsedMs);
 
             _soundInstance?.Resume();

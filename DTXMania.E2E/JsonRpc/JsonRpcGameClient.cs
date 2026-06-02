@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using DTXMania.E2E.Telemetry;
+using DTXMania.Game.Lib;
 
 namespace DTXMania.E2E.JsonRpc;
 
@@ -51,10 +52,10 @@ public sealed class JsonRpcGameClient
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-        await SendInputAsync(2, key, cancellationToken);
+        await SendInputAsync((int)InputType.KeyPress, key, cancellationToken);
         if (holdDuration > TimeSpan.Zero)
             await Task.Delay(holdDuration, cancellationToken);
-        await SendInputAsync(3, key, cancellationToken);
+        await SendInputAsync((int)InputType.KeyRelease, key, cancellationToken);
     }
 
     public async Task<string?> TakeScreenshotBase64Async(CancellationToken cancellationToken)

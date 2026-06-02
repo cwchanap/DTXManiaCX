@@ -170,7 +170,7 @@ namespace DTXMania.Test.GameApi
             Assert.True(telemetry.IsTransitioning);
 
             logger.Verify(l => l.Log(
-                LogLevel.Warning,
+                LogLevel.Error,
                 It.IsAny<EventId>(),
                 It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Stage telemetry provider")),
                 telemetryException,

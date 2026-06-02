@@ -166,6 +166,9 @@ jobs:
         DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e --filter "Category=E2E"
 
+    - name: Run E2E support tests
+      run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-support --filter "Category=E2E-Support"
+
     - name: Upload gameplay E2E artifacts
       uses: actions/upload-artifact@v4
       if: always()

@@ -135,7 +135,7 @@ public class GameApiImplementation : IGameApi
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Game API: Stage telemetry provider failed for {StageType}", baseTelemetry.StageType);
+                _logger?.LogError(ex, "Game API: Stage telemetry provider failed for {StageType}", baseTelemetry.StageType);
             }
         }
 

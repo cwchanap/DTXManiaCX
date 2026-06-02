@@ -149,7 +149,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Pause_WhenDisposed_DoesNotThrow()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
-            var ex = Record.Exception(() => timer.Pause());
+            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+            var ex = Record.Exception(() => timer.Pause(gameTime));
             Assert.Null(ex);
         }
 
@@ -196,7 +197,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Pause_WhenSoundInstanceNull_DoesNotThrow()
         {
             var timer = CreateTimer(isPlaying: true);
-            var ex = Record.Exception(() => timer.Pause());
+            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+            var ex = Record.Exception(() => timer.Pause(gameTime));
             Assert.Null(ex);
         }
 
@@ -303,7 +305,9 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Pause_ThenResume_ShouldPreserveElapsedPosition()
         {
-            // Use a real SongTimer (silent) for deterministic GameTime-based testing
+            // Use a real SongTimer (silent) for deterministic GameTime-based testing.
+            // Both Pause(GameTime) and Resume(GameTime) now use the GameTime clock,
+            // so the elapsed position is preserved exactly.
             var timer = new SongTimer();
             var start = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
             Assert.True(timer.Play(start));
@@ -313,19 +317,18 @@ namespace DTXMania.Test.Stage.Performance
             var elapsedBefore = timer.GetCurrentMs(beforePause);
             Assert.Equal(500.0, elapsedBefore);
 
-            // Pause and verify stopped
-            timer.Pause();
+            // Pause using GameTime — caches 500 ms from the GameTime clock
+            timer.Pause(beforePause);
             Assert.False(timer.IsPlaying);
 
-            // Resume at gameTime 1200 ms – elapsed should be ~500 ms (system clock jitter acceptable)
+            // Resume at gameTime 1200 ms — elapsed should continue from 500 ms
             var atResume = new GameTime(TimeSpan.FromMilliseconds(1200), TimeSpan.Zero);
             timer.Resume(atResume);
 
-            // After resume: elapsed = gameTime - _startTime = gameTime - (resumeTime - cachedElapsed)
-            // cachedElapsed is system-clock based (~500ms with jitter), so we allow ±50ms tolerance
+            // After resume: elapsed = 1700 - (1200 - 500) = 1000 ms
             var afterResume = new GameTime(TimeSpan.FromMilliseconds(1700), TimeSpan.Zero);
             var elapsedAfter = timer.GetCurrentMs(afterResume);
-            Assert.InRange(elapsedAfter, 450.0, 550.0 + (1700.0 - 1200.0));
+            Assert.Equal(1000.0, elapsedAfter);
         }
 
         [Fact]
@@ -335,12 +338,13 @@ namespace DTXMania.Test.Stage.Performance
             var start = new GameTime(TimeSpan.FromMilliseconds(0), TimeSpan.Zero);
             Assert.True(timer.Play(start));
 
-            // Pause caches the elapsed position
-            timer.Pause();
+            // Pause caches the elapsed position from the GameTime clock
+            var atPause = new GameTime(TimeSpan.FromMilliseconds(250), TimeSpan.Zero);
+            timer.Pause(atPause);
 
-            // _cachedElapsedMs should be >= 0 (system clock based, so includes execution time)
+            // _cachedElapsedMs should be exactly 250 (GameTime-based, no jitter)
             var cachedMs = ReflectionHelpers.GetPrivateField<double>(timer, "_cachedElapsedMs");
-            Assert.True(cachedMs >= 0.0, $"Expected cached elapsed >= 0, got {cachedMs}");
+            Assert.Equal(250.0, cachedMs);
         }
     }
 }
