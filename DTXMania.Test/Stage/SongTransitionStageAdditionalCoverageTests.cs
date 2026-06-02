@@ -137,7 +137,6 @@ public class SongTransitionStageAdditionalCoverageTests
         ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
         ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-        ReflectionHelpers.SetPrivateField(stage, "_chartLoaded", true);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "PerformTransition");
 

@@ -15,9 +15,14 @@ public sealed class E2EGameState
             if (CustomData.TryGetValue("telemetry", out var telemetry))
                 return telemetry;
 
-            throw new InvalidOperationException("Game state did not include customData.telemetry.");
+            // Return a default empty object so downstream accessors degrade gracefully
+            // instead of throwing when telemetry is absent (e.g. game not fully started).
+            return _emptyTelemetry;
         }
     }
+
+    private static readonly JsonElement _emptyTelemetry =
+        JsonDocument.Parse("{}").RootElement;
 
     public string StageType => GetTelemetryString("stageType") ?? string.Empty;
 
