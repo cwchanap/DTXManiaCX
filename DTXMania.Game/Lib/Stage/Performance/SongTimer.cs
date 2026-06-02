@@ -20,6 +20,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private bool _isPlaying = false;
         private bool _disposed = false;
         private readonly Action<string>? _logger;
+        private double _cachedElapsedMs = 0.0;
 
         #endregion
 
@@ -142,6 +143,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
+            // Cache elapsed position before clearing _isPlaying so Resume can restore it
+            _cachedElapsedMs = GetCurrentMs();
             _soundInstance?.Pause();
             _isPlaying = false;
         }
@@ -155,10 +158,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
-            // Adjust start time to account for pause duration
-            // Adjust start time to account for pause duration
-            var pauseDuration = gameTime.TotalGameTime - _startTime - TimeSpan.FromMilliseconds(GetCurrentMs());
-            _startTime += pauseDuration;
+            // Restore start time so elapsed position matches where we paused
+            _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(_cachedElapsedMs);
 
             _soundInstance?.Resume();
             _isPlaying = true;

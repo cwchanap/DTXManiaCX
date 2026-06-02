@@ -8,11 +8,12 @@ public sealed class GameProcessDriver : IAsyncDisposable
 {
     private readonly StringBuilder _stdout = new();
     private readonly StringBuilder _stderr = new();
+    private readonly object _outputLock = new();
     private System.Diagnostics.Process? _process;
 
-    public string StandardOutput => _stdout.ToString();
+    public string StandardOutput { get { lock (_outputLock) { return _stdout.ToString(); } } }
 
-    public string StandardError => _stderr.ToString();
+    public string StandardError { get { lock (_outputLock) { return _stderr.ToString(); } } }
 
     public int? ExitCode => _process?.HasExited == true ? _process.ExitCode : null;
 
@@ -42,8 +43,8 @@ public sealed class GameProcessDriver : IAsyncDisposable
 
         _process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start game process.");
-        _process.OutputDataReceived += (_, e) => { if (e.Data != null) _stdout.AppendLine(e.Data); };
-        _process.ErrorDataReceived += (_, e) => { if (e.Data != null) _stderr.AppendLine(e.Data); };
+        _process.OutputDataReceived += (_, e) => { if (e.Data != null) { lock (_outputLock) { _stdout.AppendLine(e.Data); } } };
+        _process.ErrorDataReceived += (_, e) => { if (e.Data != null) { lock (_outputLock) { _stderr.AppendLine(e.Data); } } };
         _process.BeginOutputReadLine();
         _process.BeginErrorReadLine();
     }

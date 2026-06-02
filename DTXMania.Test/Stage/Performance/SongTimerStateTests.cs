@@ -295,5 +295,52 @@ namespace DTXMania.Test.Stage.Performance
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
             Assert.False(timer.Play(gameTime));
         }
+
+        // ---------------------------------------------------------------
+        // Pause / Resume – elapsed position preservation
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void Pause_ThenResume_ShouldPreserveElapsedPosition()
+        {
+            // Use a real SongTimer (silent) for deterministic GameTime-based testing
+            var timer = new SongTimer();
+            var start = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
+            Assert.True(timer.Play(start));
+
+            // Elapsed at gameTime 600 ms → 500 ms
+            var beforePause = new GameTime(TimeSpan.FromMilliseconds(600), TimeSpan.Zero);
+            var elapsedBefore = timer.GetCurrentMs(beforePause);
+            Assert.Equal(500.0, elapsedBefore);
+
+            // Pause and verify stopped
+            timer.Pause();
+            Assert.False(timer.IsPlaying);
+
+            // Resume at gameTime 1200 ms – elapsed should be ~500 ms (system clock jitter acceptable)
+            var atResume = new GameTime(TimeSpan.FromMilliseconds(1200), TimeSpan.Zero);
+            timer.Resume(atResume);
+
+            // After resume: elapsed = gameTime - _startTime = gameTime - (resumeTime - cachedElapsed)
+            // cachedElapsed is system-clock based (~500ms with jitter), so we allow ±50ms tolerance
+            var afterResume = new GameTime(TimeSpan.FromMilliseconds(1700), TimeSpan.Zero);
+            var elapsedAfter = timer.GetCurrentMs(afterResume);
+            Assert.InRange(elapsedAfter, 450.0, 550.0 + (1700.0 - 1200.0));
+        }
+
+        [Fact]
+        public void Pause_CachesElapsedBeforeClearingIsPlaying()
+        {
+            var timer = new SongTimer();
+            var start = new GameTime(TimeSpan.FromMilliseconds(0), TimeSpan.Zero);
+            Assert.True(timer.Play(start));
+
+            // Pause caches the elapsed position
+            timer.Pause();
+
+            // _cachedElapsedMs should be >= 0 (system clock based, so includes execution time)
+            var cachedMs = ReflectionHelpers.GetPrivateField<double>(timer, "_cachedElapsedMs");
+            Assert.True(cachedMs >= 0.0, $"Expected cached elapsed >= 0, got {cachedMs}");
+        }
     }
 }

@@ -69,7 +69,6 @@ namespace DTXMania.Game.Lib.Stage
         
         // Chart data
         private ParsedChart _parsedChart;
-        private bool _chartLoaded = false;
         
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -854,7 +853,7 @@ namespace DTXMania.Game.Lib.Stage
 
             telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
             telemetry.SelectedDifficulty = _selectedDifficulty;
-            telemetry.ChartLoaded = _chartLoaded;
+            telemetry.ChartLoaded = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty) != null;
         }
 
         #endregion
@@ -887,7 +886,7 @@ namespace DTXMania.Game.Lib.Stage
                 sharedData["songId"] = _songId;
                 
                 // Pass parsed chart data if available
-                if (_chartLoaded && _parsedChart != null)
+                if (_parsedChart != null)
                 {
                     sharedData["parsedChart"] = _parsedChart;
                 }

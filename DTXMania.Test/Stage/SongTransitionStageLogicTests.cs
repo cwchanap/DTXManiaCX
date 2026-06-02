@@ -172,7 +172,6 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
             ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-            ReflectionHelpers.SetPrivateField(stage, "_chartLoaded", true);
 
             InvokePrivateMethod(stage, "PerformTransition");
 
@@ -183,31 +182,6 @@ namespace DTXMania.Test.Stage
                     It.Is<Dictionary<string, object>>(sharedData =>
                         sharedData.ContainsKey("parsedChart") &&
                         ReferenceEquals(sharedData["parsedChart"], parsedChart))),
-                Times.Once);
-        }
-
-        [Fact]
-        public void PerformTransition_WhenChartNotLoaded_ShouldOmitParsedChartFromSharedData()
-        {
-            var stageManager = new Mock<IStageManager>();
-            var stage = CreateStage();
-            var selectedSong = CreateSongNode(new SongChart { DrumLevel = 40, HasDrumChart = true });
-            var parsedChart = new ParsedChart("test.dtx");
-
-            stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
-            ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
-            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
-            ReflectionHelpers.SetPrivateField(stage, "_chartLoaded", false);
-
-            InvokePrivateMethod(stage, "PerformTransition");
-
-            stageManager.Verify(
-                x => x.ChangeStage(
-                    StageType.Performance,
-                    It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData => !sharedData.ContainsKey("parsedChart"))),
                 Times.Once);
         }
 
@@ -223,7 +197,6 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
             ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
-            ReflectionHelpers.SetPrivateField(stage, "_chartLoaded", true);
 
             InvokePrivateMethod(stage, "PerformTransition");
 

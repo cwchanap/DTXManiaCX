@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Song;
 namespace DTXMania.E2E.Fixtures;
 
 [Trait("Category", "E2E-Support")]
+[Collection("E2EFixture")]
 public sealed class E2EFixtureBuilderTests
 {
     [Fact]

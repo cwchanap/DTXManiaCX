@@ -120,9 +120,34 @@ public sealed class GameplayAutoPlaySmokeTests
         if (int.TryParse(raw, out var port))
             return port;
 
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        // Bind an ephemeral port and verify it is usable to avoid TOCTOU races
+        const int maxAttempts = 5;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+            // Quick bind check: release and immediately re-bind to confirm availability
+            listener.Stop();
+
+            try
+            {
+                var verify = new TcpListener(IPAddress.Loopback, chosen);
+                verify.Start();
+                verify.Stop();
+                return chosen;
+            }
+            catch (SocketException)
+            {
+                // Port was snatched up; try again
+            }
+        }
+
+        // Fallback: just return a fresh ephemeral port
+        using var fallback = new TcpListener(IPAddress.Loopback, 0);
+        fallback.Start();
+        return ((IPEndPoint)fallback.LocalEndpoint).Port;
     }
 
     private static string FindRepoRoot()
