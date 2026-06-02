@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
@@ -6,6 +7,7 @@ using Moq;
 using System;
 using System.Reflection;
 using System.Runtime.Serialization;
+using DTXMania.Game.Lib.Song;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -243,6 +245,46 @@ namespace DTXMania.Test.Stage
         public void SongSelectionStage_ShouldInheritFromBaseStage()
         {
             Assert.True(typeof(BaseStage).IsAssignableFrom(typeof(SongSelectionStage)));
+        }
+
+        #endregion
+
+        #region PopulateTelemetry Tests
+
+        [Fact]
+        public void PopulateTelemetry_WhenSongSelected_ShouldExposeTitleDifficultyAndPanelState()
+        {
+            var stage = CreateUninitializedStage();
+            var song = new SongListNode { Title = "My Song" };
+            SetPrivateField(stage, "_selectedSong", song);
+            SetPrivateField(stage, "_currentDifficulty", 3);
+            SetPrivateField(stage, "_isInStatusPanel", true);
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Equal("My Song", telemetry.SelectedSongTitle);
+            Assert.Equal(3, telemetry.SelectedDifficulty);
+            Assert.True(telemetry.InStatusPanel);
+        }
+
+        [Fact]
+        public void PopulateTelemetry_WhenNoSongSelected_ShouldSetDefaults()
+        {
+            var stage = CreateUninitializedStage();
+            // _selectedSong is null (uninitialized)
+
+            var telemetry = new GameTelemetrySnapshot();
+            stage.PopulateTelemetry(telemetry);
+
+            Assert.Null(telemetry.SelectedSongTitle);
+        }
+
+        [Fact]
+        public void PopulateTelemetry_WhenNullTelemetry_ShouldThrowArgumentNullException()
+        {
+            var stage = CreateUninitializedStage();
+            Assert.Throws<ArgumentNullException>(() => stage.PopulateTelemetry(null!));
         }
 
         #endregion

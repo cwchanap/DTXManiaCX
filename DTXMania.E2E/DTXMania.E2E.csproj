@@ -18,7 +18,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" />
+    <!-- Platform-conditional: reference the matching game csproj so that shared
+         types (ConfigManager, DTXChartParser, InputType, etc.) are available at
+         compile time. The game itself runs out-of-process via GameProcessDriver. -->
+    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Windows.csproj" Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(OS)' == 'Windows_NT'" />
+    <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" Condition="'$(RuntimeIdentifier)' != 'win-x64' And '$(OS)' != 'Windows_NT'" />
   </ItemGroup>
 
 </Project>

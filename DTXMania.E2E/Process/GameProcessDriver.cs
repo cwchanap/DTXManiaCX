@@ -32,7 +32,7 @@ public sealed class GameProcessDriver : IAsyncDisposable
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            CreateNoWindow = false
+            CreateNoWindow = true
         };
 
         startInfo.ArgumentList.Add("run");
@@ -58,8 +58,20 @@ public sealed class GameProcessDriver : IAsyncDisposable
         {
             if (!_process.HasExited)
             {
-                _process.Kill(entireProcessTree: true);
-                await _process.WaitForExitAsync();
+                try
+                {
+                    _process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Process already exited between the HasExited check and Kill — safe to ignore.
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // Process-exit race on Windows — safe to ignore.
+                }
+
+                await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
         finally
