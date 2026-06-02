@@ -132,7 +132,6 @@ jobs:
 
   gameplay-e2e-windows:
     runs-on: windows-latest
-    continue-on-error: true
     permissions:
       contents: read
       actions: write
