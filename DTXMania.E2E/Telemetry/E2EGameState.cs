@@ -46,7 +46,7 @@ public sealed class E2EGameState
             : null;
 
     private int? GetTelemetryInt(string propertyName) =>
-        Telemetry.TryGetProperty(propertyName, out var value) && value.TryGetInt32(out var number)
+        Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)
             ? number
             : null;
 

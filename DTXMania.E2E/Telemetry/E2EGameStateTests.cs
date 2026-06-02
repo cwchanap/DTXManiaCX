@@ -56,4 +56,32 @@ public sealed class E2EGameStateTests
         Assert.Null(ex);
         Assert.Equal(string.Empty, state.StageType);
     }
+
+    [Fact]
+    public void Telemetry_WhenNumericFieldsAreNull_ReturnsDefaultsInsteadOfThrowing()
+    {
+        var state = new E2EGameState
+        {
+            CustomData = new Dictionary<string, JsonElement>
+            {
+                ["telemetry"] = JsonDocument.Parse("{\"stageType\":\"SongSelect\",\"score\":null,\"totalNotes\":null,\"totalJudgements\":null,\"clearFlag\":null,\"stageCompleted\":null}").RootElement
+            }
+        };
+
+        var ex = Record.Exception(() =>
+        {
+            _ = state.Score;
+            _ = state.TotalNotes;
+            _ = state.TotalJudgements;
+            _ = state.ClearFlag;
+            _ = state.StageCompleted;
+        });
+
+        Assert.Null(ex);
+        Assert.Equal(0, state.Score);
+        Assert.Equal(0, state.TotalNotes);
+        Assert.Equal(0, state.TotalJudgements);
+        Assert.False(state.ClearFlag);
+        Assert.False(state.StageCompleted);
+    }
 }
