@@ -49,9 +49,20 @@ dotnet run --project MCP/MCP.csproj
 dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 ```
 
+### End-to-End Tests
+```bash
+# Support tests only (in-process, no game launch) - fast, run anywhere
+dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support"
+
+# Full gameplay smoke (launches the game out-of-process, drives it via JSON-RPC)
+DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj \
+  dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E"
+```
+
 ### Test Projects
 - `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
 - `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Stage/Performance/PooledEffectsManagerTests.cs`, `Helpers/MockPerformanceStage.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
+- `DTXMania.E2E.csproj` - End-to-end tests (`net8.0-windows7.0`). References the matching game `.csproj` for shared types but runs the game out-of-process. Two trait categories: `E2E` (full gameplay smoke, launches the game) and `E2E-Support` (in-process unit tests for the harness itself: fixtures, JSON-RPC client, telemetry).
 
 ## Architecture Overview
 
@@ -61,6 +72,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
   - `Lib/` - All shared libraries organized by subsystem
   - `Content/` - Shared content files (fonts, textures)
 - **DTXMania.Test/** - xUnit test suite with Moq
+- **DTXMania.E2E/** - Out-of-process end-to-end tests that launch the game and drive it via the GameApiServer JSON-RPC endpoint
 - **MCP/** - Model Context Protocol server for AI copilot integration
 - **DTXManiaNX/** - Legacy codebase (reference only)
 - **System/** - Default skin directory (Graphics/, Sounds/, Script/ subdirs); the fallback when no custom skin is active
@@ -139,6 +151,14 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - Tools: game_click, game_drag, game_get_state, game_send_key
 - Environment variables: `DTXMANIA_API_URL`, `DTXMANIA_API_KEY`
 
+**E2E Harness** (`DTXMania.E2E/`): Black-box gameplay testing over the same JSON-RPC API
+- `GameProcessDriver` (`Process/`) launches the game via `dotnet run` and captures stdout/stderr; the game is fully isolated through env vars `DTXMANIA_APPDATA_ROOT` (sandbox app-data dir) and `DTXMANIA_LAUNCH_TOKEN`
+- `E2EFixtureBuilder` (`Fixtures/`) writes a throwaway `Config.ini` (enables `AutoPlay`, `NoFail`, the GameApi) plus a deterministic generated `.dtx` chart into a temp run-root so the smoke test needs no external audio/song assets
+- `JsonRpcGameClient` (`JsonRpc/`) is the test-side client; `E2EGameState` (`Telemetry/`) is the deserialized state snapshot used for assertions
+- `Eventually.UntilAsync` (`Support/`) polls game state until a stage/condition is reached; failures dump artifacts (logs, final state, screenshot) via `E2EArtifactWriter`
+- Smoke flow: launch → wait for Title → Enter → SongSelect → Enter → Performance → assert Result reports a cleared run
+- Env vars: `DTXMANIA_E2E_GAME_PROJECT` (which game csproj to launch), `DTXMANIA_E2E_API_PORT` (else an ephemeral port is chosen), `DTXMANIA_E2E_ARTIFACT_ROOT` (artifact output dir)
+
 ### Key Interfaces
 - `IStageGame` - Internal interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which is for external API/MCP access
 - `IGameContext` - External game state access for API/MCP (same services as `IStageGame` but public-facing)
@@ -194,12 +214,16 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - `DTXMania.Game/Lib/GameApiServer.cs` - HTTP/JSON-RPC server for MCP
 - `MCP/Tools/GameInteractionTools.cs` - MCP tool definitions
 - `MCP/Server/GameInteractionService.cs` - MCP game communication
+- `DTXMania.E2E/GameplayAutoPlaySmokeTests.cs` - End-to-end gameplay smoke test
+- `DTXMania.E2E/Process/GameProcessDriver.cs` - Launches/tears down the game subprocess
+- `DTXMania.E2E/Fixtures/E2EFixtureBuilder.cs` - Generates isolated config + deterministic chart
 
 ## CI
 
 GitHub Actions (`.github/workflows/build-and-test.yml`):
 - **Windows job**: Builds Windows project, runs full test suite (`DTXMania.Test.csproj`) with `ALSOFT_DRIVERS=null` for audio driver workaround, Coverlet MSBuild coverage
 - **macOS job**: Builds Mac project, runs Mac test suite (`DTXMania.Test.Mac.csproj`) with XPlat Code Coverage using `coverlet.runsettings`
+- **Gameplay E2E job** (Windows): Restores the E2E project with `--runtime win-x64`, runs the `Category=E2E` smoke test (launches the game with `ALSOFT_DRIVERS=null`) then the `Category=E2E-Support` tests, uploading artifacts from `TestResults/e2e`
 - **Artifacts job**: Manual dispatch only, builds release artifacts for both platforms
 
 ## Troubleshooting
