@@ -534,6 +534,57 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Returns the most-recently-played songs, one row per song. A song with multiple
+        /// difficulty charts is collapsed to a single entry using the maximum LastPlayedAt
+        /// across its charts. Songs that have never been played (no score with a LastPlayedAt)
+        /// are excluded. Results are ordered newest-first and limited to <paramref name="limit"/>.
+        /// Each returned Song has its Charts and the charts' Scores eagerly loaded so callers
+        /// can build fully-populated SongListNodes.
+        /// </summary>
+        public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(int limit = 20)
+        {
+            if (limit <= 0) return new List<SongEntity>();
+
+            using var context = CreateContext();
+
+            // Materialize the scores that have been played and group in memory to avoid
+            // EF Core SQLite translation issues with grouped aggregates.
+            var playedScores = await context.SongScores
+                .Where(s => s.LastPlayedAt != null)
+                .Select(s => new { s.Chart.SongId, s.LastPlayedAt })
+                .ToListAsync();
+
+            if (playedScores.Count == 0) return new List<SongEntity>();
+
+            var orderedIds = playedScores
+                .GroupBy(s => s.SongId)
+                .Select(g => new { SongId = g.Key, LastPlayed = g.Max(s => s.LastPlayedAt) })
+                .OrderByDescending(x => x.LastPlayed)
+                .Take(limit)
+                .Select(x => x.SongId)
+                .ToList();
+
+            if (orderedIds.Count == 0) return new List<SongEntity>();
+
+            var songs = await context.Songs
+                .Where(s => orderedIds.Contains(s.Id))
+                .Include(s => s.Charts)
+                    .ThenInclude(c => c.Scores)
+                .ToListAsync();
+
+            // Re-order the loaded songs to match the recency ordering (the IN query does
+            // not preserve order).
+            var byId = songs.ToDictionary(s => s.Id);
+            var result = new List<SongEntity>(orderedIds.Count);
+            foreach (var id in orderedIds)
+            {
+                if (byId.TryGetValue(id, out var song))
+                    result.Add(song);
+            }
+            return result;
+        }
+
         /// Add a score record for a chart
         private async Task AddScoreRecordAsync(SongDbContext context, int chartId, EInstrumentPart instrument)
         {
