@@ -52,6 +52,21 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void RefreshSongListForActiveTab_OnRecentTab_WhenNodeListIsNull_ShowsEmptyAndSetsFlag()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            // _recentPlayNodes left null (default)
+
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            Assert.Empty(display.CurrentList);
+            Assert.True(GetPrivateField<bool>(stage, "_showEmptyRecentMessage"));
+        }
+
+        [Fact]
         public void RefreshSongListForActiveTab_OnAllSongsTab_UsesBrowseList()
         {
             var stage = CreateStage();

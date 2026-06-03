@@ -59,7 +59,7 @@ namespace DTXMania.Game.Lib.Stage
         private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
         // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
         // switching into the Recent tab. Null until first load.
-        private System.Collections.Generic.List<SongListNode>? _recentPlayNodes;
+        private List<SongListNode>? _recentPlayNodes;
         private bool _showEmptyRecentMessage;
 
         // Async initialization management
@@ -973,8 +973,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PopulateRecentPlaysList()
         {
-            var nodes = _recentPlayNodes ?? new System.Collections.Generic.List<SongListNode>();
-            _songListDisplay.CurrentList = new System.Collections.Generic.List<SongListNode>(nodes);
+            var nodes = _recentPlayNodes ?? new List<SongListNode>();
+            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
             _showEmptyRecentMessage = nodes.Count == 0;
         }
 
