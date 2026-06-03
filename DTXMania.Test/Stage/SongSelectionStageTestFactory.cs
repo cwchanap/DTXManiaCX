@@ -1,3 +1,4 @@
+using DTXMania.Game;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI.Components;
@@ -7,9 +8,9 @@ namespace DTXMania.Test.Stage
 {
     internal static class SongSelectionStageTestFactory
     {
-        public static SongSelectionStage CreateStage()
+        public static SongSelectionStage CreateStage(BaseGame? game = null)
         {
-            return new SongSelectionStage(CreateGame());
+            return new SongSelectionStage(game ?? CreateGame());
         }
 
         public static void AttachCoreUi(

@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
 namespace DTXMania.Test.Stage
 {
@@ -20,9 +21,9 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void RefreshSongListForActiveTab_OnRecentTab_ShowsCachedRecentNodes()
         {
-            var stage = SongSelectionStageTabTestHelper.CreateStage();
+            var stage = CreateStage();
             var display = new SongListDisplay();
-            SongSelectionStageTabTestHelper.AttachCoreUi(stage, display);
+            AttachCoreUi(stage, display);
 
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
             SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode> { ScoreNode("R1"), ScoreNode("R2") });
@@ -37,9 +38,9 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void RefreshSongListForActiveTab_OnRecentTab_WhenEmpty_SetsEmptyFlag()
         {
-            var stage = SongSelectionStageTabTestHelper.CreateStage();
+            var stage = CreateStage();
             var display = new SongListDisplay();
-            SongSelectionStageTabTestHelper.AttachCoreUi(stage, display);
+            AttachCoreUi(stage, display);
 
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
             SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode>());
@@ -53,9 +54,9 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void RefreshSongListForActiveTab_OnAllSongsTab_UsesBrowseList()
         {
-            var stage = SongSelectionStageTabTestHelper.CreateStage();
+            var stage = CreateStage();
             var display = new SongListDisplay();
-            SongSelectionStageTabTestHelper.AttachCoreUi(stage, display);
+            AttachCoreUi(stage, display);
 
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { ScoreNode("A1") });
@@ -69,12 +70,4 @@ namespace DTXMania.Test.Stage
         }
     }
 
-    internal static class SongSelectionStageTabTestHelper
-    {
-        public static SongSelectionStage CreateStage()
-            => SongSelectionStageTestFactory.CreateStage();
-
-        public static void AttachCoreUi(SongSelectionStage stage, SongListDisplay display)
-            => SongSelectionStageTestFactory.AttachCoreUi(stage, display);
-    }
 }
