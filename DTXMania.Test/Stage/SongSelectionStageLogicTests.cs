@@ -21,6 +21,7 @@ using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
@@ -2265,19 +2266,6 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        private static void AttachCoreUi(
-            SongSelectionStage stage,
-            SongListDisplay? display = null,
-            SongStatusPanel? statusPanel = null,
-            PreviewImagePanel? previewPanel = null,
-            UILabel? breadcrumb = null)
-        {
-            SetPrivateField(stage, "_songListDisplay", display ?? new SongListDisplay());
-            SetPrivateField(stage, "_statusPanel", statusPanel ?? new SongStatusPanel());
-            SetPrivateField(stage, "_previewImagePanel", previewPanel ?? new PreviewImagePanel());
-            SetPrivateField(stage, "_breadcrumbLabel", breadcrumb ?? new UILabel());
-        }
-
         private static void AttachResourceManager(SongSelectionStage stage, IResourceManager resourceManager)
         {
             SetPrivateField(stage, "_resourceManager", resourceManager);
@@ -2291,11 +2279,6 @@ namespace DTXMania.Test.Stage
         private static HashSet<int> GetVisibleIndices(SongListDisplay display)
         {
             return GetPrivateField<HashSet<int>>(display, "_visibleBarIndices")!;
-        }
-
-        private static SongSelectionStage CreateStage(BaseGame? game = null)
-        {
-            return new SongSelectionStage(game ?? CreateGame());
         }
 
         private static SongListNode CreateScoreNode(
