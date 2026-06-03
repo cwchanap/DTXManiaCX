@@ -83,6 +83,33 @@ namespace DTXMania.Test.Stage
             Assert.Single(display.CurrentList);
             Assert.Equal("A1", display.CurrentList[0].Title);
         }
+
+        [Fact]
+        public void SwitchToNextTab_TogglesActiveTabAndRequestsRepopulate()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            InvokePrivateMethod(stage, "SwitchToNextTab");
+
+            Assert.Equal(SongSelectionTab.RecentPlays, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+            Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+        }
+
+        [Fact]
+        public void SwitchToNextTab_FromRecent_WrapsBackToAllSongs()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+
+            InvokePrivateMethod(stage, "SwitchToNextTab");
+
+            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
     }
 
 }
