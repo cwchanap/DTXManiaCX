@@ -154,7 +154,7 @@ jobs:
       run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
 
     - name: Restore E2E project
-      run: dotnet restore DTXMania.E2E/DTXMania.E2E.csproj
+      run: dotnet restore DTXMania.E2E/DTXMania.E2E.csproj --runtime win-x64
 
     - name: Build Windows game
       run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
