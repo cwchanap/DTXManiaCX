@@ -61,6 +61,10 @@ namespace DTXMania.Game.Lib.Stage
         // switching into the Recent tab. Null until first load.
         private List<SongListNode>? _recentPlayNodes;
         private bool _showEmptyRecentMessage;
+        // Set when the active tab's list must be repopulated on the next OnUpdate.
+        // Used so background recent-plays loads and lane-hit/Tab switches never mutate
+        // SongListDisplay off the update thread.
+        private bool _tabListNeedsRefresh;
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -103,7 +107,8 @@ namespace DTXMania.Game.Lib.Stage
 
         // Constants for DTXMania-style display - using values from SongSelectionUILayout
         private const int VISIBLE_SONGS = SongSelectionUILayout.SongBars.VisibleItems;
-        private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;        // RenderTarget management for stage-level resource pooling
+        private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
+        private const int RecentPlaysLimit = 20;        // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
         // Preview sound functionality
@@ -1045,6 +1050,13 @@ namespace DTXMania.Game.Lib.Stage
             // Handle input
             HandleInput();
 
+            // Apply any pending tab list repopulate on the update thread.
+            if (_tabListNeedsRefresh)
+            {
+                _tabListNeedsRefresh = false;
+                RefreshSongListForActiveTab();
+            }
+
             // Update UI (PreviewImagePanel will handle its own timing)
             _uiManager?.Update(deltaTime);
         }
@@ -1885,6 +1897,46 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Label re-renders each frame from current config; nothing to do here today.
             // Hook kept for symmetry with PerformanceStage and to make future caching trivial.
+        }
+
+        #endregion
+
+        #region Tab Switching
+
+        /// <summary>
+        /// Cycles to the next tab, exits status-panel mode, kicks a recent-plays reload
+        /// when entering the Recent tab, and requests a list repopulate on the next update.
+        /// </summary>
+        private void SwitchToNextTab()
+        {
+            _activeTab = SongSelectionTabExtensions.Next(_activeTab);
+            _isInStatusPanel = false;
+
+            if (_activeTab == SongSelectionTab.RecentPlays)
+                BeginRecentPlaysLoad();
+
+            _tabListNeedsRefresh = true;
+            PlayCursorMoveSound();
+        }
+
+        /// <summary>
+        /// Loads recent-plays nodes in the background and flags a repopulate when done.
+        /// Safe to call when the singleton DB is unavailable (returns an empty list).
+        /// </summary>
+        private void BeginRecentPlaysLoad()
+        {
+            _ = SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
+                .ContinueWith(task =>
+                {
+                    if (task.IsFaulted)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: recent-plays load failed: {task.Exception?.GetBaseException().Message}");
+                        return;
+                    }
+                    _recentPlayNodes = task.Result;
+                    _tabListNeedsRefresh = true;
+                }, TaskScheduler.Default);
         }
 
         #endregion
