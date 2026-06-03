@@ -565,8 +565,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Select(x => x.SongId)
                 .ToList();
 
-            if (orderedIds.Count == 0) return new List<SongEntity>();
-
             var songs = await context.Songs
                 .Where(s => orderedIds.Contains(s.Id))
                 .Include(s => s.Charts)
