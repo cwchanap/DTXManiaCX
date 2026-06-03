@@ -45,9 +45,9 @@ namespace DTXMania.Test.Song
         {
             await _db.InitializeDatabaseAsync();
             await AddAndPlayAsync("First");
-            await Task.Delay(10);
+            await Task.Delay(50);
             await AddAndPlayAsync("Second");
-            await Task.Delay(10);
+            await Task.Delay(50);
             await AddAndPlayAsync("Third");
 
             var recent = await _db.GetRecentlyPlayedSongsAsync(20);
@@ -99,7 +99,7 @@ namespace DTXMania.Test.Song
 
             // Play the easier chart, then later the harder chart.
             await _db.UpdateScoreAsync(charts[0].Id, EInstrumentPart.DRUMS, 50000, 0.5, false);
-            await Task.Delay(10);
+            await Task.Delay(50);
             await _db.UpdateScoreAsync(charts[1].Id, EInstrumentPart.DRUMS, 90000, 0.9, true);
 
             var recent = await _db.GetRecentlyPlayedSongsAsync(20);
