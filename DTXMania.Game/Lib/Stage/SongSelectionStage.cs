@@ -55,6 +55,13 @@ namespace DTXMania.Game.Lib.Stage
         private readonly ISongListFilterService _filterService = new SongListFilterService();
         private bool _showEmptyFilterMessage;
 
+        // Tab state. The stage instance is cached per game; reset to AllSongs on Activate.
+        private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
+        // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
+        // switching into the Recent tab. Null until first load.
+        private System.Collections.Generic.List<SongListNode>? _recentPlayNodes;
+        private bool _showEmptyRecentMessage;
+
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
@@ -949,6 +956,26 @@ namespace DTXMania.Game.Lib.Stage
                 PopulateFilteredSongList();
             else
                 PopulateSongList();
+        }
+
+        /// <summary>
+        /// Repopulates the visible song list according to the active tab.
+        /// AllSongs uses the existing hierarchical/filtered view; RecentPlays shows the
+        /// cached flat recent-plays list (and toggles the empty-state flag).
+        /// </summary>
+        private void RefreshSongListForActiveTab()
+        {
+            if (_activeTab == SongSelectionTab.RecentPlays)
+                PopulateRecentPlaysList();
+            else
+                PopulateSongListForCurrentMode();
+        }
+
+        private void PopulateRecentPlaysList()
+        {
+            var nodes = _recentPlayNodes ?? new System.Collections.Generic.List<SongListNode>();
+            _songListDisplay.CurrentList = new System.Collections.Generic.List<SongListNode>(nodes);
+            _showEmptyRecentMessage = nodes.Count == 0;
         }
 
         private void PopulateFilteredSongList()
