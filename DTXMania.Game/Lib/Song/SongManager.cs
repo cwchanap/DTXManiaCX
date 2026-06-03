@@ -1578,6 +1578,38 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        /// <summary>
+        /// Builds a flat list of Score nodes for the most-recently-played songs, newest first.
+        /// One node per song (multi-chart songs collapse to a single node carrying all charts),
+        /// limited to <paramref name="limit"/>. Returns an empty list when the database service
+        /// is unavailable or nothing has been played. Reuses the same node builder as the browse
+        /// list so difficulty cycling, status panel, preview, and activation behave identically.
+        /// </summary>
+        public async Task<List<SongListNode>> GetRecentlyPlayedNodesAsync(int limit = 20)
+        {
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return new List<SongListNode>();
+
+            try
+            {
+                var songs = await db.GetRecentlyPlayedSongsAsync(limit).ConfigureAwait(false);
+                var nodes = new List<SongListNode>(songs.Count);
+                foreach (var song in songs)
+                {
+                    var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+                    var node = CreateSongNodeFromDatabaseEntities(song, charts);
+                    if (node != null)
+                        nodes.Add(node);
+                }
+                return nodes;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Error getting recent plays: {ex.Message}");
+                return new List<SongListNode>();
+            }
+        }
+
         #endregion
 
         #region Helper Methods
