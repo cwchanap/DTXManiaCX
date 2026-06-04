@@ -108,5 +108,21 @@ namespace DTXMania.Test.Song
             Assert.Equal("Multi", recent[0].Title);
             Assert.Equal(2, recent[0].Charts.Count);
         }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(-100)]
+        public async Task GetRecentlyPlayedSongsAsync_WithNonPositiveLimit_ReturnsEmptyList(int limit)
+        {
+            await _db.InitializeDatabaseAsync();
+            // Add a played song so the database is non-empty; the guard should still
+            // short-circuit before any query is issued.
+            await AddAndPlayAsync("Played");
+
+            var recent = await _db.GetRecentlyPlayedSongsAsync(limit);
+
+            Assert.Empty(recent);
+        }
     }
 }
