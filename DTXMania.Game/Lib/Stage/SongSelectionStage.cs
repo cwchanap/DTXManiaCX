@@ -68,6 +68,10 @@ namespace DTXMania.Game.Lib.Stage
         // SongListDisplay off the update thread. volatile so the update thread reliably
         // observes the flag set by the background continuation.
         private volatile bool _tabListNeedsRefresh;
+        // Activation token bumped on every Activate(). Captured by BeginRecentPlaysLoad so
+        // its background continuation can detect that a later Deactivate/Activate cycle has
+        // occurred and discard stale results instead of overwriting fresh state.
+        private int _activationVersion;
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -254,6 +258,9 @@ namespace DTXMania.Game.Lib.Stage
             // that set the flag just before Deactivate). Without this, the first OnUpdate
             // would repopulate the All Songs list and reset selection/scroll to index 0.
             _tabListNeedsRefresh = false;
+            // Bump the activation token so any in-flight BeginRecentPlaysLoad continuation
+            // from a prior activation discards its stale result.
+            _activationVersion++;
             BeginRecentPlaysLoad();
 
             SubscribeTabSwitchLaneHits();
@@ -1999,9 +2006,13 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Loads recent-plays nodes in the background and flags a repopulate when done.
         /// Safe to call when the singleton DB is unavailable (returns an empty list).
+        /// Captures <see cref="_activationVersion"/> so a completion that lands after a
+        /// subsequent Deactivate/Activate cycle is discarded instead of overwriting fresh
+        /// state or spuriously flagging a list refresh.
         /// </summary>
         private void BeginRecentPlaysLoad()
         {
+            int capturedVersion = _activationVersion;
             _ = SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
                 .ContinueWith(task =>
                 {
@@ -2011,6 +2022,11 @@ namespace DTXMania.Game.Lib.Stage
                             $"SongSelectionStage: recent-plays load failed: {task.Exception?.GetBaseException().Message}");
                         return;
                     }
+                    // Discard stale completions from a prior activation. Without this guard,
+                    // a slow load from activation N can overwrite the _recentPlayNodes that
+                    // activation N+1 already populated, and trigger an unwanted list rebuild.
+                    if (capturedVersion != _activationVersion)
+                        return;
                     _recentPlayNodes = task.Result;
                     // Only request a list repopulate when the user is actually viewing the
                     // Recent tab. Activate() warms the cache while the user is on All Songs;
