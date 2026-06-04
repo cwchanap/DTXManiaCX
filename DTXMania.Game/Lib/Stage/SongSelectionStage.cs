@@ -1105,6 +1105,22 @@ namespace DTXMania.Game.Lib.Stage
                     Microsoft.Xna.Framework.Color.LightGray);
             }
 
+            // Draw the tab bar (skip while the search modal is open to avoid overlap).
+            if (_font != null && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            {
+                DrawTabBar();
+            }
+
+            // Draw empty-state message for the Recent tab when it has no entries.
+            if (_activeTab == SongSelectionTab.RecentPlays && _showEmptyRecentMessage && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            {
+                string msg = "No recent plays yet";
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    Microsoft.Xna.Framework.Color.LightGray);
+            }
+
             _spriteBatch.End();
         }
 
@@ -1456,6 +1472,25 @@ namespace DTXMania.Game.Lib.Stage
                         }
                     }
                 }
+            }
+        }
+
+        private void DrawTabBar()
+        {
+            float x = SongSelectionUILayout.Tabs.X;
+            float y = SongSelectionUILayout.Tabs.Y;
+
+            foreach (SongSelectionTab tab in System.Enum.GetValues(typeof(SongSelectionTab)))
+            {
+                string label = tab.DisplayLabel();
+                var color = tab == _activeTab
+                    ? SongSelectionUILayout.Tabs.ActiveColor
+                    : SongSelectionUILayout.Tabs.InactiveColor;
+
+                _font.DrawString(_spriteBatch, label, new Vector2(x, y), color);
+
+                var size = _font.MeasureString(label);
+                x += size.X + SongSelectionUILayout.Tabs.Spacing;
             }
         }
 

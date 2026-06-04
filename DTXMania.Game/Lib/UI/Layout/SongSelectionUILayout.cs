@@ -590,6 +590,26 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ScrollSpeedLabelX = 20;
         public const int ScrollSpeedLabelY = 680; // bottom-left
 
+        #region Tab Bar Layout
+
+        /// <summary>
+        /// Layout for the song-select tab bar (All Songs / Recent).
+        /// Coordinates are in the stage's 1280x720 design space.
+        /// </summary>
+        public static class Tabs
+        {
+            // Top-left origin of the tab strip.
+            public const int X = 40;
+            public const int Y = 8;
+            // Horizontal gap between tab labels.
+            public const int Spacing = 24;
+            // Active vs. inactive label tint.
+            public static readonly Color ActiveColor = Color.White;
+            public static readonly Color InactiveColor = new Color(150, 150, 150);
+        }
+
+        #endregion
+
         #region Search Filter Modal Layout
 
         /// <summary>
