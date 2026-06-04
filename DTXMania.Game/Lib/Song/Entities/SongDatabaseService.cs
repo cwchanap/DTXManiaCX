@@ -548,22 +548,20 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             using var context = CreateContext();
 
-            // Materialize the scores that have been played and group in memory to avoid
-            // EF Core SQLite translation issues with grouped aggregates.
-            var playedScores = await context.SongScores
+            // Push grouping + ordering + limit into SQL so we transfer at most `limit`
+            // integer IDs back to the client instead of every played SongScore row.
+            // EF Core 9.x SQLite translates GroupBy+Max+OrderBy+Take to a single query.
+            var orderedIds = await context.SongScores
                 .Where(s => s.LastPlayedAt != null)
                 .Select(s => new { s.Chart.SongId, s.LastPlayedAt })
-                .ToListAsync();
-
-            if (playedScores.Count == 0) return new List<SongEntity>();
-
-            var orderedIds = playedScores
                 .GroupBy(s => s.SongId)
                 .Select(g => new { SongId = g.Key, LastPlayed = g.Max(s => s.LastPlayedAt) })
                 .OrderByDescending(x => x.LastPlayed)
                 .Take(limit)
                 .Select(x => x.SongId)
-                .ToList();
+                .ToListAsync();
+
+            if (orderedIds.Count == 0) return new List<SongEntity>();
 
             var songs = await context.Songs
                 .Where(s => orderedIds.Contains(s.Id))
