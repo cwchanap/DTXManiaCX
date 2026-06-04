@@ -70,5 +70,37 @@ namespace DTXMania.Test.Song
 
             Assert.Empty(nodes);
         }
+
+        [Fact]
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseServiceNull_ReturnsEmptyList()
+        {
+            // After ResetInstanceForTesting, the singleton has no DatabaseService until
+            // InitializeDatabaseServiceAsync is called. The null-guard should return an
+            // empty list without throwing.
+            var manager = SongManager.Instance;
+            // Deliberately not initializing the database service.
+
+            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
+
+            Assert.Empty(nodes);
+        }
+
+        [Fact]
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_ReturnsEmptyList()
+        {
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
+            var db = manager.DatabaseService!;
+
+            // Purging the database resets the service's _isInitialized flag, which makes
+            // subsequent CreateContext() calls throw InvalidOperationException. The catch
+            // block in GetRecentlyPlayedNodesAsync should swallow the exception and return
+            // an empty list.
+            await db.PurgeDatabaseAsync();
+
+            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
+
+            Assert.Empty(nodes);
+        }
     }
 }

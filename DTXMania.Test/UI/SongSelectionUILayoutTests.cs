@@ -563,5 +563,17 @@ namespace DTXMania.Test.UI
             Assert.Equal(SongSelectionUILayout.DifficultyGrid.CellWidth, size.X);
             Assert.Equal(SongSelectionUILayout.DifficultyGrid.CellHeight, size.Y);
         }
+
+        [Fact]
+        public void Tabs_Constants_ShouldBeValid()
+        {
+            Assert.True(SongSelectionUILayout.Tabs.X >= 0);
+            Assert.True(SongSelectionUILayout.Tabs.Y >= 0);
+            Assert.True(SongSelectionUILayout.Tabs.Spacing > 0);
+            // Referencing the static fields forces their initializers to run,
+            // covering the two static Color fields reported as uncovered.
+            Assert.Equal(Color.White, SongSelectionUILayout.Tabs.ActiveColor);
+            Assert.Equal(new Color(150, 150, 150), SongSelectionUILayout.Tabs.InactiveColor);
+        }
     }
 }

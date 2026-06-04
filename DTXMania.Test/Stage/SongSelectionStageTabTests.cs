@@ -1,7 +1,11 @@
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI.Components;
+using Microsoft.Xna.Framework.Input;
+using Moq;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
@@ -153,6 +157,143 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
-    }
 
+        [Fact]
+        public void DetectTabSwitchKey_WhenTabPressed_SwitchesToNextTab()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            SetPrivateField(stage, "_inputManager", new TabKeyDetectInputManager());
+
+            InvokePrivateMethod(stage, "DetectTabSwitchKey");
+
+            Assert.Equal(SongSelectionTab.RecentPlays,
+                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void DetectTabSwitchKey_WhenTabNotPressed_KeepsCurrentTab()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            SetPrivateField(stage, "_inputManager", new NoKeyPressInputManager());
+
+            InvokePrivateMethod(stage, "DetectTabSwitchKey");
+
+            Assert.Equal(SongSelectionTab.AllSongs,
+                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void DetectTabSwitchKey_WhenInputManagerNull_DoesNotThrow()
+        {
+            var stage = CreateStage();
+            SetPrivateField(stage, "_inputManager", null);
+
+            var ex = Record.Exception(() => InvokePrivateMethod(stage, "DetectTabSwitchKey"));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void OnTabSwitchLaneHit_WhenModalOpen_DoesNotSwitchTab()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            modal.Open(SongFilterCriteria.Default);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(8, default);
+            InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
+
+            Assert.Equal(SongSelectionTab.AllSongs,
+                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void OnTabSwitchLaneHit_WhenModalClosed_SwitchesTabOnLowTom()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(8, default);
+            InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
+
+            Assert.Equal(SongSelectionTab.RecentPlays,
+                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void OnUpdate_WhenTabListNeedsRefresh_ResetsFlagAndPopulatesList()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_recentPlayNodes",
+                new List<SongListNode> { ScoreNode("Recent1") });
+            SetPrivateField(stage, "_tabListNeedsRefresh", true);
+            SetPrivateField(stage, "_uiManager", null); // Avoid NRE in _uiManager.Update
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.016);
+
+            Assert.False(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+            Assert.Single(display.CurrentList);
+            Assert.Equal("Recent1", display.CurrentList[0].Title);
+        }
+
+        [Fact]
+        public void OnUpdate_WhenTabListDoesNotNeedRefresh_LeavesDisplayUntouched()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode> { ScoreNode("Existing") }
+            };
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_recentPlayNodes",
+                new List<SongListNode> { ScoreNode("RecentFresh") });
+            SetPrivateField(stage, "_tabListNeedsRefresh", false);
+            SetPrivateField(stage, "_uiManager", null);
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.016);
+
+            // The refresh flag stays false and the display is untouched.
+            Assert.False(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+            Assert.Single(display.CurrentList);
+            Assert.Equal("Existing", display.CurrentList[0].Title);
+        }
+
+        // Fake InputManager that reports Tab key pressed on the first poll.
+        private sealed class TabKeyDetectInputManager : DTXMania.Game.Lib.Input.InputManager
+        {
+            private bool _consumed;
+            public override bool IsKeyPressed(int keyCode)
+            {
+                if (keyCode == (int)Keys.Tab && !_consumed)
+                {
+                    _consumed = true;
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // Fake InputManager that never reports a key press.
+        private sealed class NoKeyPressInputManager : DTXMania.Game.Lib.Input.InputManager
+        {
+            public override bool IsKeyPressed(int keyCode) => false;
+        }
+    }
 }

@@ -26,5 +26,18 @@ namespace DTXMania.Test.Song
             Assert.Equal("All Songs", SongSelectionTab.AllSongs.DisplayLabel());
             Assert.Equal("Recent", SongSelectionTab.RecentPlays.DisplayLabel());
         }
+
+        [Fact]
+        public void Next_ForInvalidEnumValue_FallsBackToAllSongs()
+        {
+            Assert.Equal(SongSelectionTab.AllSongs,
+                SongSelectionTabExtensions.Next((SongSelectionTab)999));
+        }
+
+        [Fact]
+        public void DisplayLabel_ForInvalidEnumValue_FallsBackToString()
+        {
+            Assert.Equal("999", ((SongSelectionTab)999).DisplayLabel());
+        }
     }
 }
