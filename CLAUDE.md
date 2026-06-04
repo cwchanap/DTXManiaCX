@@ -51,7 +51,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 
 ### End-to-End Tests
 ```bash
-# Support tests only (in-process, no game launch) - fast, run anywhere
+# Support tests only (in-process, no game launch) - Windows only (E2E project targets net8.0-windows7.0)
 dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support"
 
 # Full gameplay smoke (launches the game out-of-process, drives it via JSON-RPC)
