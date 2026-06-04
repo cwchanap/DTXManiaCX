@@ -1480,7 +1480,7 @@ namespace DTXMania.Game.Lib.Stage
             float x = SongSelectionUILayout.Tabs.X;
             float y = SongSelectionUILayout.Tabs.Y;
 
-            foreach (SongSelectionTab tab in System.Enum.GetValues(typeof(SongSelectionTab)))
+            foreach (SongSelectionTab tab in System.Enum.GetValues<SongSelectionTab>())
             {
                 string label = tab.DisplayLabel();
                 var color = tab == _activeTab
