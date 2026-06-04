@@ -1094,9 +1094,10 @@ namespace DTXMania.Game.Lib.Stage
             // Draw UI (PreviewImagePanel will handle its own drawing including delay)
             _uiManager?.Draw(_spriteBatch, deltaTime);
 
-            // Draw empty-state message when the active filter returns no results
-            // Skip when the search modal is open to avoid overlaying the modal contents
-            if (_showEmptyFilterMessage && _font != null
+            // Draw empty-state message when the active filter returns no results.
+            // Only on the All Songs tab (filter is All-Songs-only) and skipped while the
+            // search modal is open to avoid overlaying the modal / the Recent empty state.
+            if (_activeTab == SongSelectionTab.AllSongs && _showEmptyFilterMessage && _font != null
                 && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 string msg = "No songs match this filter";
@@ -2013,6 +2014,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnTabSwitchLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
         {
+            // Ignore pad-driven tab switches while the search modal is open, matching the
+            // Tab-key path (suppressed by HandleInput's modal early-return).
+            if (_searchFilterModal != null && _searchFilterModal.IsOpen)
+                return;
+
             HandleLaneHitForTabSwitch(e.Lane);
         }
 
