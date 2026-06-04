@@ -58,13 +58,16 @@ namespace DTXMania.Game.Lib.Stage
         // Tab state. The stage instance is cached per game; reset to AllSongs on Activate.
         private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
         // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
-        // switching into the Recent tab. Null until first load.
-        private List<SongListNode>? _recentPlayNodes;
+        // switching into the Recent tab. Null until first load. volatile: published from a
+        // background load continuation and read on the update thread (release-acquire pair
+        // with _tabListNeedsRefresh).
+        private volatile List<SongListNode>? _recentPlayNodes;
         private bool _showEmptyRecentMessage;
         // Set when the active tab's list must be repopulated on the next OnUpdate.
         // Used so background recent-plays loads and lane-hit/Tab switches never mutate
-        // SongListDisplay off the update thread.
-        private bool _tabListNeedsRefresh;
+        // SongListDisplay off the update thread. volatile so the update thread reliably
+        // observes the flag set by the background continuation.
+        private volatile bool _tabListNeedsRefresh;
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -108,7 +111,9 @@ namespace DTXMania.Game.Lib.Stage
         // Constants for DTXMania-style display - using values from SongSelectionUILayout
         private const int VISIBLE_SONGS = SongSelectionUILayout.SongBars.VisibleItems;
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
-        private const int RecentPlaysLimit = 20;        // RenderTarget management for stage-level resource pooling
+        private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
+
+        // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
         // Preview sound functionality
@@ -1906,6 +1911,7 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cycles to the next tab, exits status-panel mode, kicks a recent-plays reload
         /// when entering the Recent tab, and requests a list repopulate on the next update.
+        /// Invoked by the Tab key and the Low Tom pad (wired in the input-handling path).
         /// </summary>
         private void SwitchToNextTab()
         {
@@ -1928,7 +1934,7 @@ namespace DTXMania.Game.Lib.Stage
             _ = SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
                 .ContinueWith(task =>
                 {
-                    if (task.IsFaulted)
+                    if (task.IsFaulted || task.IsCanceled)
                     {
                         System.Diagnostics.Debug.WriteLine(
                             $"SongSelectionStage: recent-plays load failed: {task.Exception?.GetBaseException().Message}");

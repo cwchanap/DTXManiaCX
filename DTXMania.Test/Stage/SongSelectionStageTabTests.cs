@@ -109,6 +109,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "SwitchToNextTab");
 
             Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+            Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
         }
     }
 
