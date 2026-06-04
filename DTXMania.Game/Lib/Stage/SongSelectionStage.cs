@@ -113,6 +113,10 @@ namespace DTXMania.Game.Lib.Stage
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
         private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
 
+        // Low Tom in the lane-hit (KeyBindings) numbering; shared with Right Cymbal.
+        // NOTE: distinct from the visual PerformanceUILayout.LaneType.LT (=6).
+        private const int LowTomLaneIndex = 8;
+
         // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
@@ -241,6 +245,15 @@ namespace DTXMania.Game.Lib.Stage
             // Start song loading
             InitializeSongList();
 
+            // Always start on All Songs for predictability; warm the recent-plays cache so
+            // the Recent tab is populated the moment the user switches to it.
+            _activeTab = SongSelectionTab.AllSongs;
+            _recentPlayNodes = null;
+            _showEmptyRecentMessage = false;
+            BeginRecentPlaysLoad();
+
+            SubscribeTabSwitchLaneHits();
+
             _currentPhase = StagePhase.FadeIn;
             _selectionPhase = SongSelectionPhase.FadeIn;
             _phaseStartTime = 0;
@@ -298,6 +311,8 @@ namespace DTXMania.Game.Lib.Stage
             _textInputSource?.Dispose();
             _textInputSource = null;
             _searchFilterModal = null;
+
+            UnsubscribeTabSwitchLaneHits();
 
             if (_ownsInputManager)
             {
@@ -1132,6 +1147,7 @@ namespace DTXMania.Game.Lib.Stage
             // Backspace is not a default InputCommand binding because the KeyAssign
             // UI uses it as a meta cancel-capture key, so we poll raw keyboard state here.
             DetectOpenSearchKey();
+            DetectTabSwitchKey();
 
             // If the modal was just opened this frame, skip processing normal
             // input commands so queued navigation/Back inputs don't leak through
@@ -1148,6 +1164,20 @@ namespace DTXMania.Game.Lib.Stage
             // alongside hardware presses. (Raw Keyboard.GetState() misses injected keys.)
             if (_inputManager != null && _inputManager.IsKeyPressed((int)Microsoft.Xna.Framework.Input.Keys.Back))
                 OpenSearchFilterModal();
+        }
+
+        private void DetectTabSwitchKey()
+        {
+            // Tab is not in the InputCommandType key-map on purpose: queued commands are
+            // not drained while the search modal is open, so a mapped Tab would accumulate
+            // and fire stale tab-switches on modal close. Raw-poll here (non-modal path
+            // only), matching DetectOpenSearchKey's handling of Backspace. IsKeyPressed
+            // also surfaces MCP/E2E injected keys.
+            if (_inputManager != null &&
+                _inputManager.IsKeyPressed((int)Microsoft.Xna.Framework.Input.Keys.Tab))
+            {
+                SwitchToNextTab();
+            }
         }
 
         // Keys polled as raw input alongside the command-based navigation.
@@ -1368,6 +1398,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OpenSearchFilterModal()
         {
+            if (_activeTab != SongSelectionTab.AllSongs) return;
             if (_searchFilterModal == null) return;
             _isInStatusPanel = false;
             // Reset mouse edge-detection state so the first click after the modal
@@ -1943,6 +1974,37 @@ namespace DTXMania.Game.Lib.Stage
                     _recentPlayNodes = task.Result;
                     _tabListNeedsRefresh = true;
                 }, TaskScheduler.Default);
+        }
+
+        private void OnTabSwitchLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
+        {
+            HandleLaneHitForTabSwitch(e.Lane);
+        }
+
+        private void HandleLaneHitForTabSwitch(int lane)
+        {
+            if (lane == LowTomLaneIndex)
+                SwitchToNextTab();
+        }
+
+        private void SubscribeTabSwitchLaneHits()
+        {
+            if (_inputManager is DTXMania.Game.Lib.Input.InputManagerCompat compat
+                && compat.ModularInputManager != null)
+            {
+                // Defensive: remove before adding so re-Activate never double-subscribes.
+                compat.ModularInputManager.OnLaneHit -= OnTabSwitchLaneHit;
+                compat.ModularInputManager.OnLaneHit += OnTabSwitchLaneHit;
+            }
+        }
+
+        private void UnsubscribeTabSwitchLaneHits()
+        {
+            if (_inputManager is DTXMania.Game.Lib.Input.InputManagerCompat compat
+                && compat.ModularInputManager != null)
+            {
+                compat.ModularInputManager.OnLaneHit -= OnTabSwitchLaneHit;
+            }
         }
 
         #endregion
