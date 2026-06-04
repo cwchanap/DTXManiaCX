@@ -111,6 +111,48 @@ namespace DTXMania.Test.Stage
             Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
             Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
         }
+
+        [Fact]
+        public void OpenSearchFilterModal_OnRecentTab_DoesNotOpen()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+
+            // No modal is attached; method must early-return without throwing.
+            InvokePrivateMethod(stage, "OpenSearchFilterModal");
+
+            // Confirm the tab is unchanged (method early-returned).
+            Assert.Equal(SongSelectionTab.RecentPlays, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void HandleLaneHitForTabSwitch_OnLowTom_SwitchesTab()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            // Low Tom is lane 8 in the lane-hit (KeyBindings) scheme.
+            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 8);
+
+            Assert.Equal(SongSelectionTab.RecentPlays, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void HandleLaneHitForTabSwitch_OnOtherLane_DoesNotSwitch()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 4); // Snare
+
+            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
     }
 
 }
