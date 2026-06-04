@@ -250,6 +250,10 @@ namespace DTXMania.Game.Lib.Stage
             _activeTab = SongSelectionTab.AllSongs;
             _recentPlayNodes = null;
             _showEmptyRecentMessage = false;
+            // Clear any stale refresh flag from the previous activation (e.g., a tab-switch
+            // that set the flag just before Deactivate). Without this, the first OnUpdate
+            // would repopulate the All Songs list and reset selection/scroll to index 0.
+            _tabListNeedsRefresh = false;
             BeginRecentPlaysLoad();
 
             SubscribeTabSwitchLaneHits();
@@ -2008,7 +2012,13 @@ namespace DTXMania.Game.Lib.Stage
                         return;
                     }
                     _recentPlayNodes = task.Result;
-                    _tabListNeedsRefresh = true;
+                    // Only request a list repopulate when the user is actually viewing the
+                    // Recent tab. Activate() warms the cache while the user is on All Songs;
+                    // flagging a refresh there would spuriously rebuild the All Songs list
+                    // and reset selection/scroll. Tab switches into Recent already request a
+                    // refresh via SwitchToNextTab and rely on this load to populate the list.
+                    if (_activeTab == SongSelectionTab.RecentPlays)
+                        _tabListNeedsRefresh = true;
                 }, TaskScheduler.Default);
         }
 
