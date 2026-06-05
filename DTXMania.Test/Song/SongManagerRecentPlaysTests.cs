@@ -86,21 +86,19 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_ReturnsEmptyList()
+        public async Task GetRecentlyPlayedNodesAsync_WhenDatabaseThrows_PropagatesException()
         {
             var manager = SongManager.Instance;
             await manager.InitializeDatabaseServiceAsync(_dbPath, purgeDatabaseFirst: true);
             var db = manager.DatabaseService!;
 
             // Purging the database resets the service's _isInitialized flag, which makes
-            // subsequent CreateContext() calls throw InvalidOperationException. The catch
-            // block in GetRecentlyPlayedNodesAsync should swallow the exception and return
-            // an empty list.
+            // subsequent CreateContext() calls throw InvalidOperationException. The exception
+            // must propagate to the caller so BeginRecentPlaysLoad can set _recentPlaysLoadFailed
+            // and the UI can show the "Could not load recent plays" message.
             await db.PurgeDatabaseAsync();
 
-            var nodes = await manager.GetRecentlyPlayedNodesAsync(20);
-
-            Assert.Empty(nodes);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetRecentlyPlayedNodesAsync(20));
         }
     }
 }

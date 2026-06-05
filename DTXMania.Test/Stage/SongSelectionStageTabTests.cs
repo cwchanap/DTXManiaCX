@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Filtering;
@@ -425,6 +427,66 @@ namespace DTXMania.Test.Stage
             // shows "Could not load recent plays" instead of "No recent plays yet."
             Assert.False(GetPrivateField<bool>(stage, "_showEmptyRecentMessage"));
             Assert.True(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
+        }
+
+        // --- Back command on Recent tab tests ---
+
+        [Fact]
+        public void ExecuteInputCommand_BackOnRecent_WithActiveFilter_DoesNotResetFilter()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            // Simulate All-Songs filter state left over from before tab switch.
+            var filterView = new List<FilteredSongResult> { new(ScoreNode("F1"), "") };
+            SetPrivateField(stage, "_filteredView", filterView);
+
+            InvokePrivateMethod<bool>(stage, "ExecuteInputCommand",
+                new InputCommand(InputCommandType.Back, 0));
+
+            // Filter state must be preserved (not cleared by OnFilterReset) because the
+            // user is on the Recent tab. When they tab back to All Songs, the filter
+            // should still be active.
+            Assert.NotNull(GetPrivateField<IReadOnlyList<FilteredSongResult>>(stage, "_filteredView"));
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_BackOnRecent_WithNavigationStack_DoesNotPopStack()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            // Simulate All-Songs BOX navigation state left over from before tab switch.
+            var navStack = new Stack<SongListNode>();
+            navStack.Push(new SongListNode { Title = "BOX", Type = NodeType.BackBox });
+            SetPrivateField(stage, "_navigationStack", navStack);
+            SetPrivateField(stage, "_filteredView", null);
+
+            InvokePrivateMethod<bool>(stage, "ExecuteInputCommand",
+                new InputCommand(InputCommandType.Back, 0));
+
+            // Navigation stack must be preserved because the user is on the Recent tab.
+            var stack = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack");
+            Assert.Single(stack);
+        }
+
+        [Fact]
+        public void ExecuteInputCommand_BackOnAllSongs_WithActiveFilter_ResetsFilter()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            var filterView = new List<FilteredSongResult> { new(ScoreNode("F1"), "") };
+            SetPrivateField(stage, "_filteredView", filterView);
+
+            InvokePrivateMethod<bool>(stage, "ExecuteInputCommand",
+                new InputCommand(InputCommandType.Back, 0));
+
+            // On All Songs tab, Back should clear the filter as before.
+            Assert.Null(GetPrivateField<IReadOnlyList<FilteredSongResult>>(stage, "_filteredView"));
         }
 
         // Fake InputManager that reports Tab key pressed on the first poll.
