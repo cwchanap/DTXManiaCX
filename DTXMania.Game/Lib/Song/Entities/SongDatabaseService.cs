@@ -550,7 +550,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // Push grouping + ordering + limit into SQL so we transfer at most `limit`
             // integer IDs back to the client instead of every played SongScore row.
-            // EF Core 9.x SQLite translates GroupBy+Max+OrderBy+Take to a single query.
+            // The IDs are then used in a second query to load full Song+Chart+Score
+            // graphs, and manually reordered client-side (IN does not preserve order).
             var orderedIds = await context.SongScores
                 .Where(s => s.LastPlayedAt != null)
                 .Select(s => new { s.Chart.SongId, s.LastPlayedAt })

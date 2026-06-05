@@ -2,7 +2,8 @@ namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// Identifies which tab is active in the Song Selection stage.
-    /// Ordering here defines the cycle order used by <see cref="SongSelectionTabExtensions.Next"/>.
+    /// The cycle order is an explicit map in <see cref="SongSelectionTabExtensions.Next"/>,
+    /// not driven by declaration order; add new arms there when extending this enum.
     /// </summary>
     public enum SongSelectionTab
     {
@@ -13,13 +14,12 @@ namespace DTXMania.Game.Lib.Song
     public static class SongSelectionTabExtensions
     {
         /// <summary>Cycles to the next tab, wrapping back to the first.</summary>
-        public static SongSelectionTab Next(SongSelectionTab tab)
+        public static SongSelectionTab Next(this SongSelectionTab tab)
         {
             return tab switch
             {
                 SongSelectionTab.AllSongs => SongSelectionTab.RecentPlays,
-                SongSelectionTab.RecentPlays => SongSelectionTab.AllSongs,
-                _ => SongSelectionTab.AllSongs
+                SongSelectionTab.RecentPlays => SongSelectionTab.AllSongs
             };
         }
 

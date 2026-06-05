@@ -55,6 +55,31 @@ namespace DTXMania.Test.Song
             Assert.Equal(new[] { "Third", "Second", "First" }, recent.Select(s => s.Title).ToArray());
         }
 
+        // Stronger ordering guard: insertion order diverges from recency order.
+        // Inserts A,B,C (ascending recency), then replays A so it becomes most recent.
+        // Expected: A,C,B — the client-side reorder loop (which compensates for the
+        // IN query's unordered delivery) is essential for this to pass.
+        [Fact]
+        public async Task GetRecentlyPlayedSongsAsync_WhenRecencyDivergesFromInsertionOrder_StillCorrect()
+        {
+            await _db.InitializeDatabaseAsync();
+            var idA = await AddAndPlayAsync("A");
+            await Task.Delay(50);
+            var idB = await AddAndPlayAsync("B");
+            await Task.Delay(50);
+            var idC = await AddAndPlayAsync("C");
+            await Task.Delay(50);
+
+            // Replay A so it becomes the most recent, diverging from insertion order.
+            await _db.UpdateScoreAsync(
+                (await _db.GetSongsAsync()).Single(s => s.Id == idA).Charts.Single().Id,
+                EInstrumentPart.DRUMS, 200000, 0.95, true);
+
+            var recent = await _db.GetRecentlyPlayedSongsAsync(20);
+
+            Assert.Equal(new[] { "A", "C", "B" }, recent.Select(s => s.Title).ToArray());
+        }
+
         [Fact]
         public async Task GetRecentlyPlayedSongsAsync_ExcludesNeverPlayedSongs()
         {

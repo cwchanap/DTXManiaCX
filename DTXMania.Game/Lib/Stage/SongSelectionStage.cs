@@ -63,6 +63,10 @@ namespace DTXMania.Game.Lib.Stage
         // with _tabListNeedsRefresh).
         private volatile List<SongListNode>? _recentPlayNodes;
         private bool _showEmptyRecentMessage;
+        // True when the most recent BeginRecentPlaysLoad continuation failed (DB error,
+        // IO error, etc.). Distinct from _showEmptyRecentMessage so a corrupted/locked
+        // score DB doesn't look identical to "no plays yet."
+        private bool _recentPlaysLoadFailed;
         // Set when the active tab's list must be repopulated on the next OnUpdate.
         // Used so background recent-plays loads and lane-hit/Tab switches never mutate
         // SongListDisplay off the update thread. volatile so the update thread reliably
@@ -71,7 +75,9 @@ namespace DTXMania.Game.Lib.Stage
         // Activation token bumped on every Activate(). Captured by BeginRecentPlaysLoad so
         // its background continuation can detect that a later Deactivate/Activate cycle has
         // occurred and discard stale results instead of overwriting fresh state.
-        private int _activationVersion;
+        // volatile: written on the update thread (Activate) and read on a background
+        // continuation thread; ensures the continuation sees the latest bump.
+        private volatile int _activationVersion;
 
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
@@ -254,6 +260,7 @@ namespace DTXMania.Game.Lib.Stage
             _activeTab = SongSelectionTab.AllSongs;
             _recentPlayNodes = null;
             _showEmptyRecentMessage = false;
+            _recentPlaysLoadFailed = false;
             // Clear any stale refresh flag from the previous activation (e.g., a tab-switch
             // that set the flag just before Deactivate). Without this, the first OnUpdate
             // would repopulate the All Songs list and reset selection/scroll to index 0.
@@ -1011,7 +1018,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             var nodes = _recentPlayNodes ?? new List<SongListNode>();
             _songListDisplay.CurrentList = new List<SongListNode>(nodes);
-            _showEmptyRecentMessage = nodes.Count == 0;
+            // Show empty message only when the load succeeded but returned nothing.
+            // A failed load gets its own distinct message in the draw path.
+            _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
         }
 
         private void PopulateFilteredSongList()
@@ -1123,11 +1132,16 @@ namespace DTXMania.Game.Lib.Stage
                 DrawTabBar();
             }
 
-            // Draw empty-state message for the Recent tab when it has no entries.
-            if (_activeTab == SongSelectionTab.RecentPlays && _showEmptyRecentMessage && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            // Draw status message for the Recent tab: distinct text for load failure vs.
+            // genuinely empty, so a corrupted/locked score DB is not indistinguishable
+            // from "no plays yet."
+            if (_activeTab == SongSelectionTab.RecentPlays && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen)
+                && (_recentPlaysLoadFailed || _showEmptyRecentMessage))
             {
-                string msg = "No recent plays yet";
+                string msg = _recentPlaysLoadFailed
+                    ? "Could not load recent plays"
+                    : "No recent plays yet";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
                     Microsoft.Xna.Framework.Color.LightGray);
@@ -1993,7 +2007,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void SwitchToNextTab()
         {
-            _activeTab = SongSelectionTabExtensions.Next(_activeTab);
+            _activeTab = _activeTab.Next();
             _isInStatusPanel = false;
 
             if (_activeTab == SongSelectionTab.RecentPlays)
@@ -2018,8 +2032,17 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     if (task.IsFaulted || task.IsCanceled)
                     {
+                        // Log the full exception (type + stack), not just the base message,
+                        // so DB/IO failures are diagnosable from the debug output.
                         System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: recent-plays load failed: {task.Exception?.GetBaseException().Message}");
+                            $"SongSelectionStage: recent-plays load failed:\n{task.Exception}");
+                        // Discard stale completions from a prior activation.
+                        if (capturedVersion == _activationVersion)
+                        {
+                            _recentPlaysLoadFailed = true;
+                            if (_activeTab == SongSelectionTab.RecentPlays)
+                                _tabListNeedsRefresh = true;
+                        }
                         return;
                     }
                     // Discard stale completions from a prior activation. Without this guard,
@@ -2027,6 +2050,7 @@ namespace DTXMania.Game.Lib.Stage
                     // activation N+1 already populated, and trigger an unwanted list rebuild.
                     if (capturedVersion != _activationVersion)
                         return;
+                    _recentPlaysLoadFailed = false;
                     _recentPlayNodes = task.Result;
                     // Only request a list repopulate when the user is actually viewing the
                     // Recent tab. Activate() warms the cache while the user is on All Songs;

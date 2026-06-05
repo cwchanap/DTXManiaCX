@@ -1,3 +1,5 @@
+using System;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 
@@ -10,14 +12,14 @@ namespace DTXMania.Test.Song
         public void FromAllSongs_ShouldReturnRecentPlays()
         {
             Assert.Equal(SongSelectionTab.RecentPlays,
-                SongSelectionTabExtensions.Next(SongSelectionTab.AllSongs));
+                SongSelectionTab.AllSongs.Next());
         }
 
         [Fact]
         public void FromRecentPlays_ShouldWrapToAllSongs()
         {
             Assert.Equal(SongSelectionTab.AllSongs,
-                SongSelectionTabExtensions.Next(SongSelectionTab.RecentPlays));
+                SongSelectionTab.RecentPlays.Next());
         }
 
         [Fact]
@@ -27,15 +29,18 @@ namespace DTXMania.Test.Song
             Assert.Equal("Recent", SongSelectionTab.RecentPlays.DisplayLabel());
         }
 
+        // Without a default arm, Next() throws for invalid enum values instead of
+        // silently returning AllSongs. This makes future enum additions visible at
+        // runtime rather than masked by a fallback.
         [Fact]
-        public void ForInvalidEnumValue_ShouldFallBackToAllSongs()
+        public void Next_ForInvalidEnumValue_Throws()
         {
-            Assert.Equal(SongSelectionTab.AllSongs,
-                SongSelectionTabExtensions.Next((SongSelectionTab)999));
+            Assert.Throws<SwitchExpressionException>(
+                () => ((SongSelectionTab)999).Next());
         }
 
         [Fact]
-        public void ForInvalidEnumValue_ShouldFallBackToString()
+        public void DisplayLabel_ForInvalidEnumValue_FallsBackToString()
         {
             Assert.Equal("999", ((SongSelectionTab)999).DisplayLabel());
         }

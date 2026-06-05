@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Filtering;
@@ -343,6 +344,87 @@ namespace DTXMania.Test.Stage
             Assert.False(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
             Assert.Equal(2, display.SelectedIndex);
             Assert.Equal("S3", display.CurrentList[display.SelectedIndex].Title);
+        }
+
+        // Real exercise of the _activationVersion staleness guard in BeginRecentPlaysLoad.
+        // The companion pair below replaces the tautological tests that only hand-set
+        // _tabListNeedsRefresh=false. Here we actually invoke BeginRecentPlaysLoad, bump
+        // the version token, and wait for the continuation — proving the guard discards
+        // stale results instead of overwriting fresh state.
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenActivationVersionBumped_PreservesExistingNodes()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+
+            // Simulate "fresh" data that a newer activation already populated.
+            var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
+            SetPrivateField(stage, "_recentPlayNodes", freshNodes);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+
+            // Start the background load — captures version=0.
+            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+            // Simulate re-Activate: bump the version so the in-flight continuation is stale.
+            SetPrivateField(stage, "_activationVersion", 1);
+
+            // Wait for the thread-pool continuation to complete. With no DB connected,
+            // GetRecentlyPlayedNodesAsync returns an empty list almost instantly.
+            await Task.Delay(300);
+
+            // The stale continuation must NOT have overwritten _recentPlayNodes.
+            var nodes = GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes");
+            Assert.NotNull(nodes);
+            Assert.Single(nodes);
+            Assert.Equal("Fresh", nodes[0].Title);
+        }
+
+        // Companion to the guarded test above: proves the continuation actually runs
+        // and overwrites _recentPlayNodes when the version is NOT bumped. Without this
+        // test, the guarded test could pass simply because the continuation hadn't
+        // completed yet within the delay window.
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenActivationVersionUnchanged_OverwritesNodes()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+
+            var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
+            SetPrivateField(stage, "_recentPlayNodes", staleNodes);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+
+            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+            // Do NOT bump version — continuation should be accepted.
+
+            await Task.Delay(300);
+
+            // The continuation ran with matching version and overwrote _recentPlayNodes
+            // with the empty result from the no-DB load.
+            var nodes = GetPrivateField<List<SongListNode>>(stage, "_recentPlayNodes");
+            Assert.NotNull(nodes);
+            Assert.Empty(nodes);
+        }
+
+        [Fact]
+        public void PopulateRecentPlaysList_WhenLoadFailed_DoesNotShowEmptyMessage()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode>());
+            SetPrivateField(stage, "_recentPlaysLoadFailed", true);
+
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
+
+            // When load failed, _showEmptyRecentMessage must be false so the draw path
+            // shows "Could not load recent plays" instead of "No recent plays yet."
+            Assert.False(GetPrivateField<bool>(stage, "_showEmptyRecentMessage"));
+            Assert.True(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
         }
 
         // Fake InputManager that reports Tab key pressed on the first poll.
