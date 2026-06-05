@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Input;
@@ -487,6 +489,116 @@ namespace DTXMania.Test.Stage
 
             // On All Songs tab, Back should clear the filter as before.
             Assert.Null(GetPrivateField<IReadOnlyList<FilteredSongResult>>(stage, "_filteredView"));
+        }
+
+        // --- BeginRecentPlaysLoad faulted-continuation tests ---
+        // These exercise the _activationVersion staleness guard on the faulted
+        // path (lines 2039-2053 in SongSelectionStage.cs) by making the SongManager
+        // singleton throw from GetRecentlyPlayedNodesAsync. The DB is purged after
+        // initialization so CreateContext() throws InvalidOperationException.
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_fault_{Guid.NewGuid():N}.db");
+            SongManager.ResetInstanceForTesting();
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
+            await manager.DatabaseService!.PurgeDatabaseAsync();
+
+            try
+            {
+                var stage = CreateStage();
+                var display = new SongListDisplay();
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+                SetPrivateField(stage, "_activationVersion", 0);
+
+                InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+                await Task.Delay(500);
+
+                Assert.True(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
+                Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenDbThrowsAndVersionBumped_DiscardsStaleFault()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_stale_fault_{Guid.NewGuid():N}.db");
+            SongManager.ResetInstanceForTesting();
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
+            await manager.DatabaseService!.PurgeDatabaseAsync();
+
+            try
+            {
+                var stage = CreateStage();
+                var display = new SongListDisplay();
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+                SetPrivateField(stage, "_activationVersion", 0);
+
+                InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+                // Bump version to simulate re-Activate — the faulted continuation
+                // must be discarded.
+                SetPrivateField(stage, "_activationVersion", 1);
+
+                await Task.Delay(500);
+
+                Assert.False(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_WhenAllSongsTab_DoesNotFlagListRefresh()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            SetPrivateField(stage, "_activationVersion", 0);
+
+            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+            await Task.Delay(300);
+
+            // The success continuation populates _recentPlayNodes (cache-warming)
+            // but must NOT set _tabListNeedsRefresh on the All Songs tab.
+            Assert.False(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+        }
+
+        [Fact]
+        public async Task BeginRecentPlaysLoad_OnSuccess_ClearsPreExistingLoadFailedFlag()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_recentPlaysLoadFailed", true);
+
+            InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
+
+            await Task.Delay(300);
+
+            // The success continuation must clear the failure flag so the draw
+            // path shows the normal empty message instead of the error message.
+            Assert.False(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
         }
 
         // Fake InputManager that reports Tab key pressed on the first poll.
