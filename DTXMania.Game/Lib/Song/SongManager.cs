@@ -1584,30 +1584,25 @@ namespace DTXMania.Game.Lib.Song
         /// limited to <paramref name="limit"/>. Returns an empty list when the database service
         /// is unavailable or nothing has been played. Reuses the same node builder as the browse
         /// list so difficulty cycling, status panel, preview, and activation behave identically.
+        /// Exceptions from the database layer are allowed to propagate so the caller
+        /// (BeginRecentPlaysLoad) can distinguish a genuine failure from an empty result
+        /// and set the appropriate UI state.
         /// </summary>
         public async Task<List<SongListNode>> GetRecentlyPlayedNodesAsync(int limit = 20)
         {
             var db = GetDatabaseServiceSnapshot();
             if (db == null) return new List<SongListNode>();
 
-            try
+            var songs = await db.GetRecentlyPlayedSongsAsync(limit).ConfigureAwait(false);
+            var nodes = new List<SongListNode>(songs.Count);
+            foreach (var song in songs)
             {
-                var songs = await db.GetRecentlyPlayedSongsAsync(limit).ConfigureAwait(false);
-                var nodes = new List<SongListNode>(songs.Count);
-                foreach (var song in songs)
-                {
-                    var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
-                    var node = CreateSongNodeFromDatabaseEntities(song, charts);
-                    if (node != null)
-                        nodes.Add(node);
-                }
-                return nodes;
+                var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+                var node = CreateSongNodeFromDatabaseEntities(song, charts);
+                if (node != null)
+                    nodes.Add(node);
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error getting recent plays: {ex.Message}");
-                return new List<SongListNode>();
-            }
+            return nodes;
         }
 
         #endregion

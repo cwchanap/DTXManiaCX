@@ -1393,22 +1393,28 @@ namespace DTXMania.Game.Lib.Stage
                         // Exit status panel mode - no debounce needed for navigation
                         _isInStatusPanel = false;
                     }
-                    else if (_filteredView != null)
+                    else if (_activeTab == SongSelectionTab.AllSongs && _filteredView != null)
                     {
                         // Clear active filter so subsequent Back presses navigate normally.
                         // Drain remaining queued commands to prevent a stale second Back
                         // from navigating away or exiting the stage in the same frame.
+                        // Gated by AllSongs: filter state is All-Songs browse state and
+                        // must not be touched while on the Recent tab.
                         OnFilterReset(this, System.EventArgs.Empty);
                         return false;
                     }
-                    else if (_navigationStack.Count > 0)
+                    else if (_activeTab == SongSelectionTab.AllSongs && _navigationStack.Count > 0)
                     {
-                        // Navigate back in folder structure - no debounce needed for navigation
+                        // Navigate back in folder structure - no debounce needed for navigation.
+                        // Gated by AllSongs: the navigation stack is All-Songs browse state
+                        // and must not be popped while on the Recent tab.
                         NavigateBack();
                     }
                     else
                     {
-                        // Return to title stage - debounce only for stage transitions
+                        // Return to title stage - debounce only for stage transitions.
+                        // Also reached from the Recent tab: Back on Recent exits the stage
+                        // rather than triggering All-Songs browse actions.
                         if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
                         {
                             baseGame.MarkStageTransition();
