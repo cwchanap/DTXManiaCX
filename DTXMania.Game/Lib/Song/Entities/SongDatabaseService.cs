@@ -816,6 +816,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                 await context.Database.ExecuteSqlRawAsync(
                     "ALTER TABLE Songs ADD COLUMN IsBookmarked INTEGER NOT NULL DEFAULT 0");
 
+                // Match the EF model's index (fresh DBs get it from EnsureCreated); idempotent.
+                await context.Database.ExecuteSqlRawAsync(
+                    "CREATE INDEX IF NOT EXISTS IX_Songs_IsBookmarked ON Songs(IsBookmarked)");
+
                 System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added Songs.IsBookmarked column");
             }
             catch (Exception ex) when (ex.Message.Contains("duplicate column"))

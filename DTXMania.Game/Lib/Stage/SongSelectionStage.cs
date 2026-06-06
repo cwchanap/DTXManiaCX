@@ -2200,6 +2200,13 @@ namespace DTXMania.Game.Lib.Stage
                             $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
                 }, TaskScheduler.Default);
 
+            // Reconcile the flag across every in-memory representation of this song (browse
+            // tree, Recent list, Bookmarks list) so the star marker stays consistent across
+            // tabs without a reload — each surface holds a distinct node/entity instance.
+            BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, songId, newState);
+            BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
+            BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
+
             // On the Bookmarks tab, an un-bookmark should drop the row from view.
             if (_activeTab == SongSelectionTab.Bookmarks && !newState)
             {
