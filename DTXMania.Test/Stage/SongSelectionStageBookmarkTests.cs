@@ -67,18 +67,18 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SwitchToNextTab_FromRecent_GoesToBookmarks()
+        public void RefreshSongListForActiveTab_OnBookmarksTab_WhenNodeListIsNull_ShowsEmptyAndSetsFlag()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
-            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            // _bookmarkNodes deliberately left null (never loaded).
 
-            InvokePrivateMethod(stage, "SwitchToNextTab");
+            InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
 
-            Assert.Equal(SongSelectionTab.Bookmarks,
-                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
-            Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+            Assert.Empty(display.CurrentList);
+            Assert.True(GetPrivateField<bool>(stage, "_showEmptyBookmarksMessage"));
         }
     }
 }
