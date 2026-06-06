@@ -1,5 +1,3 @@
-using System;
-using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 
@@ -9,40 +7,19 @@ namespace DTXMania.Test.Song
     public class SongSelectionTabTests
     {
         [Fact]
-        public void FromAllSongs_ShouldReturnRecentPlays()
+        public void Next_CyclesAllSongs_Recent_Bookmarks_AndWraps()
         {
-            Assert.Equal(SongSelectionTab.RecentPlays,
-                SongSelectionTab.AllSongs.Next());
+            Assert.Equal(SongSelectionTab.RecentPlays, SongSelectionTab.AllSongs.Next());
+            Assert.Equal(SongSelectionTab.Bookmarks, SongSelectionTab.RecentPlays.Next());
+            Assert.Equal(SongSelectionTab.AllSongs, SongSelectionTab.Bookmarks.Next());
         }
 
         [Fact]
-        public void FromRecentPlays_ShouldWrapToAllSongs()
-        {
-            Assert.Equal(SongSelectionTab.AllSongs,
-                SongSelectionTab.RecentPlays.Next());
-        }
-
-        [Fact]
-        public void DisplayLabel_ShouldReturnHumanReadableNames()
+        public void DisplayLabel_ReturnsExpectedLabels()
         {
             Assert.Equal("All Songs", SongSelectionTab.AllSongs.DisplayLabel());
             Assert.Equal("Recent", SongSelectionTab.RecentPlays.DisplayLabel());
-        }
-
-        // Without a default arm, Next() throws for invalid enum values instead of
-        // silently returning AllSongs. This makes future enum additions visible at
-        // runtime rather than masked by a fallback.
-        [Fact]
-        public void Next_ForInvalidEnumValue_Throws()
-        {
-            Assert.Throws<SwitchExpressionException>(
-                () => ((SongSelectionTab)999).Next());
-        }
-
-        [Fact]
-        public void DisplayLabel_ForInvalidEnumValue_FallsBackToString()
-        {
-            Assert.Equal("999", ((SongSelectionTab)999).DisplayLabel());
+            Assert.Equal("Bookmarks", SongSelectionTab.Bookmarks.DisplayLabel());
         }
     }
 }

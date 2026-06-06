@@ -108,7 +108,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SwitchToNextTab_FromRecent_WrapsBackToAllSongs()
+        public void SwitchToNextTab_FromRecent_GoesToBookmarks()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -117,7 +117,7 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "SwitchToNextTab");
 
-            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+            Assert.Equal(SongSelectionTab.Bookmarks, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
             Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
         }
 
