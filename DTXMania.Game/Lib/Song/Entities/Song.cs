@@ -131,6 +131,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 Artist = Artist,
                 Genre = Genre,
                 Comment = Comment,
+                IsBookmarked = IsBookmarked,
                 CreatedAt = CreatedAt,
                 UpdatedAt = UpdatedAt
                 // Note: Charts are not cloned to avoid deep copy complexity
