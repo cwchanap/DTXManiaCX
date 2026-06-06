@@ -1,3 +1,5 @@
+#nullable enable
+
 using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Game.Lib.Song.Components
@@ -14,7 +16,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// True when the node is a real song whose database entity is bookmarked.
         /// </summary>
-        public static bool ShouldShow(SongListNode node)
+        public static bool ShouldShow(SongListNode? node)
         {
             return node != null
                 && node.Type == NodeType.Score

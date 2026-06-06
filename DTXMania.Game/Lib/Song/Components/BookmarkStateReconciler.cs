@@ -1,3 +1,5 @@
+#nullable enable
+
 using System.Collections.Generic;
 
 namespace DTXMania.Game.Lib.Song.Components
@@ -15,7 +17,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// (and descendant) whose <c>DatabaseSong.Id</c> equals <paramref name="songId"/>.
         /// Null-safe: a null collection is ignored.
         /// </summary>
-        public static void Apply(IEnumerable<SongListNode> nodes, int songId, bool isBookmarked)
+        public static void Apply(IEnumerable<SongListNode?>? nodes, int songId, bool isBookmarked)
         {
             if (nodes == null)
                 return;
