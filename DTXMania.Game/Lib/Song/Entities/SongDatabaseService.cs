@@ -582,6 +582,37 @@ namespace DTXMania.Game.Lib.Song.Entities
             return result;
         }
 
+        /// <summary>
+        /// Sets or clears the bookmark flag on a song. No-op if the song id is not found.
+        /// </summary>
+        public async Task SetBookmarkAsync(int songId, bool bookmarked)
+        {
+            using var context = CreateContext();
+            var song = await context.Songs.FirstOrDefaultAsync(s => s.Id == songId);
+            if (song == null) return;
+            song.IsBookmarked = bookmarked;
+            song.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Returns all bookmarked songs ordered alphabetically by Title (Id as a stable
+        /// tiebreak). Each Song has its Charts and the charts' Scores eagerly loaded so
+        /// callers can build fully-populated SongListNodes, mirroring
+        /// <see cref="GetRecentlyPlayedSongsAsync"/>.
+        /// </summary>
+        public async Task<List<SongEntity>> GetBookmarkedSongsAsync()
+        {
+            using var context = CreateContext();
+            return await context.Songs
+                .Where(s => s.IsBookmarked)
+                .Include(s => s.Charts)
+                    .ThenInclude(c => c.Scores)
+                .OrderBy(s => s.Title)
+                .ThenBy(s => s.Id)
+                .ToListAsync();
+        }
+
         /// Add a score record for a chart
         private async Task AddScoreRecordAsync(SongDbContext context, int chartId, EInstrumentPart instrument)
         {
