@@ -67,6 +67,13 @@ namespace DTXMania.Game.Lib.Stage
         // IO error, etc.). Distinct from _showEmptyRecentMessage so a corrupted/locked
         // score DB doesn't look identical to "no plays yet."
         private bool _recentPlaysLoadFailed;
+        // Cached bookmark nodes (flat Score nodes), refreshed on activation and on switching
+        // into the Bookmarks tab. Null until first load. volatile: published from a background
+        // load continuation and read on the update thread, paired with _tabListNeedsRefresh.
+        private volatile List<SongListNode>? _bookmarkNodes;
+        private bool _showEmptyBookmarksMessage;
+        // True when the most recent BeginBookmarksLoad continuation failed (DB/IO error).
+        private bool _bookmarksLoadFailed;
         // Set when the active tab's list must be repopulated on the next OnUpdate.
         // Used so background recent-plays loads and lane-hit/Tab switches never mutate
         // SongListDisplay off the update thread. volatile so the update thread reliably
@@ -261,6 +268,9 @@ namespace DTXMania.Game.Lib.Stage
             _recentPlayNodes = null;
             _showEmptyRecentMessage = false;
             _recentPlaysLoadFailed = false;
+            _bookmarkNodes = null;
+            _showEmptyBookmarksMessage = false;
+            _bookmarksLoadFailed = false;
             // Clear any stale refresh flag from the previous activation (e.g., a tab-switch
             // that set the flag just before Deactivate). Without this, the first OnUpdate
             // would repopulate the All Songs list and reset selection/scroll to index 0.
@@ -269,6 +279,7 @@ namespace DTXMania.Game.Lib.Stage
             // from a prior activation discards its stale result.
             _activationVersion++;
             BeginRecentPlaysLoad();
+            BeginBookmarksLoad();
 
             SubscribeTabSwitchLaneHits();
 
@@ -1010,6 +1021,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_activeTab == SongSelectionTab.RecentPlays)
                 PopulateRecentPlaysList();
+            else if (_activeTab == SongSelectionTab.Bookmarks)
+                PopulateBookmarksList();
             else
                 PopulateSongListForCurrentMode();
         }
@@ -1021,6 +1034,15 @@ namespace DTXMania.Game.Lib.Stage
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
             _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
+        }
+
+        private void PopulateBookmarksList()
+        {
+            var nodes = _bookmarkNodes ?? new List<SongListNode>();
+            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
+            // Show empty message only when the load succeeded but returned nothing.
+            // A failed load gets its own distinct message in the draw path.
+            _showEmptyBookmarksMessage = !_bookmarksLoadFailed && nodes.Count == 0;
         }
 
         private void PopulateFilteredSongList()
@@ -1142,6 +1164,20 @@ namespace DTXMania.Game.Lib.Stage
                 string msg = _recentPlaysLoadFailed
                     ? "Could not load recent plays"
                     : "No recent plays yet";
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    Microsoft.Xna.Framework.Color.LightGray);
+            }
+
+            // Draw status message for the Bookmarks tab: distinct text for load failure vs.
+            // genuinely empty, mirroring the Recent-tab status block above.
+            if (_activeTab == SongSelectionTab.Bookmarks && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen)
+                && (_bookmarksLoadFailed || _showEmptyBookmarksMessage))
+            {
+                string msg = _bookmarksLoadFailed
+                    ? "Could not load bookmarks"
+                    : "No bookmarks yet";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
                     Microsoft.Xna.Framework.Color.LightGray);
@@ -2019,6 +2055,9 @@ namespace DTXMania.Game.Lib.Stage
             if (_activeTab == SongSelectionTab.RecentPlays)
                 BeginRecentPlaysLoad();
 
+            if (_activeTab == SongSelectionTab.Bookmarks)
+                BeginBookmarksLoad();
+
             _tabListNeedsRefresh = true;
             PlayCursorMoveSound();
         }
@@ -2064,6 +2103,39 @@ namespace DTXMania.Game.Lib.Stage
                     // and reset selection/scroll. Tab switches into Recent already request a
                     // refresh via SwitchToNextTab and rely on this load to populate the list.
                     if (_activeTab == SongSelectionTab.RecentPlays)
+                        _tabListNeedsRefresh = true;
+                }, TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Loads bookmark nodes in the background and flags a repopulate when done.
+        /// Safe when the DB is unavailable (returns an empty list). Captures
+        /// <see cref="_activationVersion"/> so a completion that lands after a later
+        /// Deactivate/Activate cycle is discarded instead of overwriting fresh state.
+        /// </summary>
+        private void BeginBookmarksLoad()
+        {
+            int capturedVersion = _activationVersion;
+            _ = SongManager.Instance.GetBookmarkedNodesAsync()
+                .ContinueWith(task =>
+                {
+                    if (task.IsFaulted || task.IsCanceled)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: bookmarks load failed:\n{task.Exception}");
+                        if (capturedVersion == _activationVersion)
+                        {
+                            _bookmarksLoadFailed = true;
+                            if (_activeTab == SongSelectionTab.Bookmarks)
+                                _tabListNeedsRefresh = true;
+                        }
+                        return;
+                    }
+                    if (capturedVersion != _activationVersion)
+                        return;
+                    _bookmarksLoadFailed = false;
+                    _bookmarkNodes = task.Result;
+                    if (_activeTab == SongSelectionTab.Bookmarks)
                         _tabListNeedsRefresh = true;
                 }, TaskScheduler.Default);
         }
