@@ -27,7 +27,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         // Timestamps
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-        
+
+        // Whether the player has bookmarked this song. Surfaced in the Bookmarks tab
+        // and as a star marker in the All Songs list.
+        public bool IsBookmarked { get; set; } = false;
+
         // Navigation Properties
         public virtual ICollection<SongChart> Charts { get; set; } = new List<SongChart>();
         
