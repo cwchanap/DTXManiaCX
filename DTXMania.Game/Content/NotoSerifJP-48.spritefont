@@ -83,6 +83,11 @@ with.
         <Start>&#65280;</Start>
         <End>&#65519;</End>
       </CharacterRegion>
+      <!-- Bookmark star marker (★ U+2605) -->
+      <CharacterRegion>
+        <Start>&#9733;</Start>
+        <End>&#9733;</End>
+      </CharacterRegion>
     </CharacterRegions>
   </Asset>
 </XnaContent>
