@@ -1605,6 +1605,41 @@ namespace DTXMania.Game.Lib.Song
             return nodes;
         }
 
+        /// <summary>
+        /// Returns bookmarked songs as flat Score nodes, alphabetical by title. Returns an
+        /// empty list if the database is unavailable. Reuses the same node builder as the
+        /// browse list so difficulty cycling, status panel, preview, and activation behave
+        /// identically. Exceptions from the database layer propagate so the caller
+        /// (BeginBookmarksLoad) can distinguish a genuine failure from an empty result.
+        /// </summary>
+        public async Task<List<SongListNode>> GetBookmarkedNodesAsync()
+        {
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return new List<SongListNode>();
+
+            var songs = await db.GetBookmarkedSongsAsync().ConfigureAwait(false);
+            var nodes = new List<SongListNode>(songs.Count);
+            foreach (var song in songs)
+            {
+                var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+                var node = CreateSongNodeFromDatabaseEntities(song, charts);
+                if (node != null)
+                    nodes.Add(node);
+            }
+            return nodes;
+        }
+
+        /// <summary>
+        /// Sets or clears the bookmark flag on a song. Safe no-op when the database is
+        /// unavailable.
+        /// </summary>
+        public async Task SetBookmarkAsync(int songId, bool bookmarked)
+        {
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return;
+            await db.SetBookmarkAsync(songId, bookmarked).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Helper Methods
