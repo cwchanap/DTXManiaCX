@@ -248,6 +248,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int SelectedBarY = 269;       // Y position for selected song bar (center position)
             public const int UnselectedBarX = 709;     // Fixed X position for all unselected bars; 18px gap from difficulty panel
             public const int BarWidth = 510;           // Maximum width for song bars
+
+            // Bookmark star marker offsets, relative to the bar's top-left (itemBounds).
+            public const int BookmarkStarOffsetX = 20;
+            public const int BookmarkStarOffsetY = 6;
             
             // Visual constants
             public const int VisibleItems = 13;        // Number of visible song bars
