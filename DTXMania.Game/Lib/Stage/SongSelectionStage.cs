@@ -135,6 +135,10 @@ namespace DTXMania.Game.Lib.Stage
         // NOTE: distinct from the visual PerformanceUILayout.LaneType.LT (=6).
         private const int LowTomLaneIndex = 8;
 
+        // Floor Tom in the lane-hit (KeyBindings) numbering; used to toggle a bookmark on the
+        // highlighted song. Distinct from the tab-switch pad (Low Tom = lane 8).
+        private const int FloorTomLaneIndex = 1;
+
         // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
 
@@ -1227,6 +1231,7 @@ namespace DTXMania.Game.Lib.Stage
             // UI uses it as a meta cancel-capture key, so we poll raw keyboard state here.
             DetectOpenSearchKey();
             DetectTabSwitchKey();
+            DetectBookmarkKey();
 
             // If the modal was just opened this frame, skip processing normal
             // input commands so queued navigation/Back inputs don't leak through
@@ -1256,6 +1261,18 @@ namespace DTXMania.Game.Lib.Stage
                 _inputManager.IsKeyPressed((int)Microsoft.Xna.Framework.Input.Keys.Tab))
             {
                 SwitchToNextTab();
+            }
+        }
+
+        private void DetectBookmarkKey()
+        {
+            // 'B' toggles a bookmark on the highlighted song. Routed through InputManager so
+            // MCP/E2E injected keys are honored. Suppressed implicitly while the search modal
+            // is open because HandleInput early-returns before calling this.
+            if (_inputManager != null &&
+                _inputManager.IsKeyPressed((int)Microsoft.Xna.Framework.Input.Keys.B))
+            {
+                ToggleBookmarkForSelectedSong();
             }
         }
 
@@ -2152,6 +2169,52 @@ namespace DTXMania.Game.Lib.Stage
                 }, TaskScheduler.Default);
         }
 
+        /// <summary>
+        /// Toggles the bookmark flag on the highlighted song. No-op for non-song nodes
+        /// (folders/back boxes). Updates the in-memory flag immediately so the star marker
+        /// refreshes this frame, persists asynchronously, and—on the Bookmarks tab when
+        /// un-bookmarking—removes the row from the cached list and requests a repopulate.
+        /// </summary>
+        private void ToggleBookmarkForSelectedSong()
+        {
+            var node = _songListDisplay?.SelectedSong;
+            if (node == null || node.Type != NodeType.Score)
+                return;
+
+            var song = node.DatabaseSong;
+            if (song == null)
+                return;
+
+            bool newState = !song.IsBookmarked;
+            song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
+            int songId = song.Id;
+
+            // Persist asynchronously; log faults without crashing the stage.
+            _ = SongManager.Instance.SetBookmarkAsync(songId, newState)
+                .ContinueWith(task =>
+                {
+                    if (task.IsFaulted || task.IsCanceled)
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
+                }, TaskScheduler.Default);
+
+            // On the Bookmarks tab, an un-bookmark should drop the row from view.
+            if (_activeTab == SongSelectionTab.Bookmarks && !newState)
+            {
+                _bookmarkNodes?.RemoveAll(n =>
+                    ReferenceEquals(n, node) || n.DatabaseSong?.Id == songId);
+                _tabListNeedsRefresh = true;
+            }
+
+            PlayCursorMoveSound();
+        }
+
+        private void HandleLaneHitForBookmark(int lane)
+        {
+            if (lane == FloorTomLaneIndex)
+                ToggleBookmarkForSelectedSong();
+        }
+
         private void OnTabSwitchLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
         {
             // Ignore pad-driven tab switches while the search modal is open, matching the
@@ -2160,6 +2223,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             HandleLaneHitForTabSwitch(e.Lane);
+            HandleLaneHitForBookmark(e.Lane);
         }
 
         private void HandleLaneHitForTabSwitch(int lane)
