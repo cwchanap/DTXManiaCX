@@ -37,6 +37,16 @@ namespace DTXMania.Test.Song
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
 
+        private async Task<int> IndexCountAsync()
+        {
+            SqliteConnection.ClearAllPools();
+            using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='IX_Songs_IsBookmarked'";
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        }
+
         [Fact]
         public async Task InitializeDatabaseAsync_OnLegacyDbMissingColumn_AddsColumn()
         {
@@ -68,6 +78,35 @@ namespace DTXMania.Test.Song
             second.Dispose();
 
             Assert.Equal(1, await ColumnCountAsync());
+        }
+
+        [Fact]
+        public async Task InitializeDatabaseAsync_OnDbWithColumnButNoIndex_CreatesIndex()
+        {
+            // Simulate a partially migrated DB: the column exists (from an older upgrade) but
+            // the supporting index was never created. Re-initialization must add the index even
+            // though the column is already present (the early-return used to skip index creation).
+            var first = new SongDatabaseService(_dbPath);
+            await first.InitializeDatabaseAsync();
+            first.Dispose();
+
+            SqliteConnection.ClearAllPools();
+            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+            {
+                await conn.OpenAsync();
+                using var dropIdx = conn.CreateCommand();
+                dropIdx.CommandText = "DROP INDEX IF EXISTS IX_Songs_IsBookmarked";
+                await dropIdx.ExecuteNonQueryAsync();
+            }
+            Assert.Equal(0, await IndexCountAsync()); // confirm the partially-migrated state
+
+            // Re-initialize: the column is present so only the index should be (re)created.
+            var second = new SongDatabaseService(_dbPath);
+            await second.InitializeDatabaseAsync();
+            second.Dispose();
+
+            Assert.Equal(1, await ColumnCountAsync()); // unchanged
+            Assert.Equal(1, await IndexCountAsync());  // index now enforced
         }
 
         [Fact]
