@@ -745,28 +745,34 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         private async Task ConfigureUtf8EncodingAsync(SongDbContext context)
         {
+            // UTF-8 pragma configuration is best-effort: most modern SQLite installations
+            // default to UTF-8, so a pragma failure here should not abort initialization.
             try
             {
                 // Ensure we can write to the database
                 await context.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE");
-                
+
                 // Set SQLite pragmas for UTF-8 and case-insensitive comparisons
                 await context.Database.ExecuteSqlRawAsync("PRAGMA case_sensitive_like = OFF");
-                
+
                 System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured for database");
-
-                // Create/update version table to mark Unicode configuration
-                await EnsureDatabaseVersionTableAsync(context);
-
-                // Additive schema upgrade for existing databases: EnsureCreated never
-                // alters an existing schema, so add new columns here, idempotently.
-                await EnsureBookmarkColumnAsync(context);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not configure UTF-8 encoding: {ex.Message}");
                 // Continue anyway - most modern SQLite installations default to UTF-8
             }
+
+            // Schema migrations must NOT be swallowed by the UTF-8 best-effort catch above:
+            // a failed bookmark-column migration would otherwise leave init reporting success
+            // while bookmark queries fail later with confusing errors. These run unguarded so
+            // real errors propagate (fail fast) during startup.
+            // Create/update version table to mark Unicode configuration as configured.
+            await EnsureDatabaseVersionTableAsync(context);
+
+            // Additive schema upgrade for existing databases: EnsureCreated never alters an
+            // existing schema, so add new columns here, idempotently.
+            await EnsureBookmarkColumnAsync(context);
         }
 
         /// <summary>
@@ -800,36 +806,40 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Ensures the Songs.IsBookmarked column exists. Fresh databases already have it via
         /// EnsureCreated; pre-existing databases get it added here exactly once. Idempotent and
-        /// defensive: a duplicate-column error is treated as success.
+        /// defensive: a duplicate-column error (concurrent caller) is treated as success, but a
+        /// genuine migration failure propagates so initialization fails fast rather than leaving
+        /// the bookmark schema broken for later queries.
         /// </summary>
         private async Task EnsureBookmarkColumnAsync(SongDbContext context)
         {
-            try
+            var columnCount = await context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM pragma_table_info('Songs') WHERE name='IsBookmarked'"
+            ).ToListAsync();
+
+            if (columnCount.FirstOrDefault() == 0)
             {
-                var columnCount = await context.Database.SqlQueryRaw<int>(
-                    "SELECT COUNT(*) FROM pragma_table_info('Songs') WHERE name='IsBookmarked'"
-                ).ToListAsync();
-
-                if (columnCount.FirstOrDefault() > 0)
-                    return; // Column already present (fresh DB or prior upgrade).
-
-                await context.Database.ExecuteSqlRawAsync(
-                    "ALTER TABLE Songs ADD COLUMN IsBookmarked INTEGER NOT NULL DEFAULT 0");
-
-                // Match the EF model's index (fresh DBs get it from EnsureCreated); idempotent.
-                await context.Database.ExecuteSqlRawAsync(
-                    "CREATE INDEX IF NOT EXISTS IX_Songs_IsBookmarked ON Songs(IsBookmarked)");
-
-                System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added Songs.IsBookmarked column");
+                try
+                {
+                    await context.Database.ExecuteSqlRawAsync(
+                        "ALTER TABLE Songs ADD COLUMN IsBookmarked INTEGER NOT NULL DEFAULT 0");
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added Songs.IsBookmarked column");
+                }
+                catch (Exception ex) when (ex.Message.Contains("duplicate column"))
+                {
+                    // Another caller added it concurrently; nothing to do.
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        "SongDatabaseService: Failed to add IsBookmarked column during schema migration.", ex);
+                }
             }
-            catch (Exception ex) when (ex.Message.Contains("duplicate column"))
-            {
-                // Another caller added it concurrently; nothing to do.
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not add IsBookmarked column: {ex.Message}");
-            }
+
+            // Always ensure the index exists, even on columns added by older versions that
+            // predate the index, so bookmark queries stay fast on partially migrated DBs.
+            // CREATE INDEX IF NOT EXISTS is idempotent.
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IF NOT EXISTS IX_Songs_IsBookmarked ON Songs(IsBookmarked)");
         }
 
         /// <summary>

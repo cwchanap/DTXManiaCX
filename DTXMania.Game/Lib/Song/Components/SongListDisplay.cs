@@ -1085,6 +1085,17 @@ namespace DTXMania.Game.Lib.Song.Components
                     spriteBatch.Draw(_whitePixel, textBounds, fallbackColor);
                 }
             }
+
+            // Bookmark star marker (overlay so bookmark toggles don't require rebuilding any
+            // cached text). Mirrors DrawBarInfoWithPerspective so the indicator appears in the
+            // basic rendering path as well.
+            if (_font != null && SongBookmarkIndicator.ShouldShow(node))
+            {
+                var starPos = new Vector2(
+                    itemBounds.X + SongSelectionUILayout.SongBars.BookmarkStarOffsetX,
+                    itemBounds.Y + SongSelectionUILayout.SongBars.BookmarkStarOffsetY);
+                spriteBatch.DrawString(_font, SongBookmarkIndicator.Glyph, starPos, Color.Gold * opacityFactor);
+            }
         }
 
         private string GetDisplayText(SongListNode node)

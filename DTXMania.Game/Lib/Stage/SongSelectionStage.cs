@@ -87,6 +87,13 @@ namespace DTXMania.Game.Lib.Stage
         // continuation thread; ensures the continuation sees the latest bump.
         private volatile int _activationVersion;
 
+        // Serializes bookmark persistence writes per song. Each toggle chains after the
+        // in-flight write for the same song so rapid double-toggles apply in order and the
+        // last user intent wins in the database, instead of a fire-and-forget race that can
+        // leave the DB divergent from the in-memory flag. ToggleBookmarkForSelectedSong runs
+        // on the update thread, so dictionary access here is single-threaded.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, Task> _pendingBookmarkWrites = new();
+
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
@@ -2191,14 +2198,24 @@ namespace DTXMania.Game.Lib.Stage
             song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
             int songId = song.Id;
 
-            // Persist asynchronously; log faults without crashing the stage.
-            _ = SongManager.Instance.SetBookmarkAsync(songId, newState)
-                .ContinueWith(task =>
-                {
-                    if (task.IsFaulted || task.IsCanceled)
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
-                }, TaskScheduler.Default);
+            // Persist asynchronously, serialized per song so rapid toggles apply in order and
+            // the last user intent (song.IsBookmarked) is what lands in the database. Each
+            // write chains after the previous in-flight write for the same song; without this,
+            // two overlapping fire-and-forget calls could complete out of order and leave the
+            // DB divergent from the in-memory flag.
+            var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
+            var write = prior.ContinueWith(
+                _ => SongManager.Instance.SetBookmarkAsync(songId, newState),
+                TaskScheduler.Default).Unwrap();
+            _pendingBookmarkWrites[songId] = write;
+
+            // Log faults without crashing the stage.
+            write.ContinueWith(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                    Debug.WriteLine(
+                        $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
+            }, TaskScheduler.Default);
 
             // Reconcile the flag across every in-memory representation of this song (browse
             // tree, Recent list, Bookmarks list) so the star marker stays consistent across

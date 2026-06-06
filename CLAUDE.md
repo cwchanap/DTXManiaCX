@@ -174,7 +174,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - **Factory**: ResourceManagerFactory, ManagedFont
 - **Strategy**: Transition types (FadeTransition, CrossfadeTransition, etc.)
 - **Observer**: Stage lifecycle events, Graphics device events, lane hit events
-- **Component**: PerformanceStage composition of 18 subsystems
+- **Component**: PerformanceStage composition of 23 subsystems
 - **Reference Counting**: Resource management (AddReference/RemoveReference)
 
 ## Development Guidelines

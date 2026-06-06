@@ -59,6 +59,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ToggleBookmarkForSelectedSong_RegistersPendingSerializedWrite()
+        {
+            var stage = CreateStage();
+            var node = BookmarkableNode("Song", bookmarked: false);
+            var display = DisplayWithSelection(node);
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+            // The per-song serialization dictionary must track an in-flight write so rapid
+            // toggles apply in order and the last user intent wins in the database.
+            var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, System.Threading.Tasks.Task>>(stage, "_pendingBookmarkWrites");
+            Assert.NotNull(pending);
+            Assert.True(pending!.ContainsKey(node.DatabaseSong!.Id));
+        }
+
+        [Fact]
         public void ToggleBookmarkForSelectedSong_OnFolderNode_DoesNothing()
         {
             var stage = CreateStage();
