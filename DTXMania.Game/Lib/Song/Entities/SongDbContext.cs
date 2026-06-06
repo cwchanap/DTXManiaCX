@@ -59,6 +59,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .HasIndex(s => s.Artist);
             modelBuilder.Entity<Song>()
                 .HasIndex(s => s.Genre);
+            modelBuilder.Entity<Song>()
+                .HasIndex(s => s.IsBookmarked);
 
             // Configure Unicode support for SongChart text fields
             modelBuilder.Entity<SongChart>()
