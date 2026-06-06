@@ -69,7 +69,8 @@ namespace DTXMania.Game.Lib.Stage
         private bool _recentPlaysLoadFailed;
         // Cached bookmark nodes (flat Score nodes), refreshed on activation and on switching
         // into the Bookmarks tab. Null until first load. volatile: published from a background
-        // load continuation and read on the update thread, paired with _tabListNeedsRefresh.
+        // load continuation and read on the update thread (release-acquire pair with
+        // _tabListNeedsRefresh).
         private volatile List<SongListNode>? _bookmarkNodes;
         private bool _showEmptyBookmarksMessage;
         // True when the most recent BeginBookmarksLoad continuation failed (DB/IO error).
@@ -2121,8 +2122,11 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     if (task.IsFaulted || task.IsCanceled)
                     {
+                        // Log the full exception (type + stack), not just the base message,
+                        // so DB/IO failures are diagnosable from the debug output.
                         System.Diagnostics.Debug.WriteLine(
                             $"SongSelectionStage: bookmarks load failed:\n{task.Exception}");
+                        // Discard stale completions from a prior activation.
                         if (capturedVersion == _activationVersion)
                         {
                             _bookmarksLoadFailed = true;
@@ -2131,10 +2135,18 @@ namespace DTXMania.Game.Lib.Stage
                         }
                         return;
                     }
+                    // Discard stale completions from a prior activation. Without this guard,
+                    // a slow load from activation N can overwrite the _bookmarkNodes that
+                    // activation N+1 already populated, and trigger an unwanted list rebuild.
                     if (capturedVersion != _activationVersion)
                         return;
                     _bookmarksLoadFailed = false;
                     _bookmarkNodes = task.Result;
+                    // Only request a list repopulate when the user is actually viewing the
+                    // Bookmarks tab. Activate() warms the cache while the user is on All Songs;
+                    // flagging a refresh there would spuriously rebuild the All Songs list
+                    // and reset selection/scroll. Tab switches into Bookmarks already request a
+                    // refresh via SwitchToNextTab and rely on this load to populate the list.
                     if (_activeTab == SongSelectionTab.Bookmarks)
                         _tabListNeedsRefresh = true;
                 }, TaskScheduler.Default);
