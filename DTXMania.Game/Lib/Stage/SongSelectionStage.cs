@@ -135,8 +135,10 @@ namespace DTXMania.Game.Lib.Stage
         // NOTE: distinct from the visual PerformanceUILayout.LaneType.LT (=6).
         private const int LowTomLaneIndex = 8;
 
-        // Floor Tom in the lane-hit (KeyBindings) numbering; used to toggle a bookmark on the
-        // highlighted song. Distinct from the tab-switch pad (Low Tom = lane 8).
+        // Floor Tom in the lane-hit (KeyBindings) numbering; toggles a bookmark on the
+        // highlighted song. Lane 1 is shared by Floor Tom and Left Cymbal (channels 18 & 11),
+        // so either pad triggers the toggle. Distinct from the tab-switch pad (Low Tom = lane 8,
+        // itself shared with Right Cymbal).
         private const int FloorTomLaneIndex = 1;
 
         // RenderTarget management for stage-level resource pooling
@@ -2201,6 +2203,10 @@ namespace DTXMania.Game.Lib.Stage
             // On the Bookmarks tab, an un-bookmark should drop the row from view.
             if (_activeTab == SongSelectionTab.Bookmarks && !newState)
             {
+                // _bookmarkNodes is volatile and may be replaced by a background BeginBookmarksLoad
+                // continuation. RemoveAll targets the list reference seen here; if that reference was
+                // just swapped, the removal is harmlessly lost — _tabListNeedsRefresh forces the next
+                // update to repopulate from the new list regardless.
                 _bookmarkNodes?.RemoveAll(n =>
                     ReferenceEquals(n, node) || n.DatabaseSong?.Id == songId);
                 _tabListNeedsRefresh = true;
