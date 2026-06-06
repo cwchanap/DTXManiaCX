@@ -983,6 +983,16 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 DrawArtistName(spriteBatch, barInfo.SongNode.DatabaseSong.Artist, itemBounds, new Vector2(scaleFactor, scaleFactor), opacityFactor);
             }
+
+            // Bookmark star marker (drawn as an overlay so the cached title texture is not
+            // invalidated when bookmark state changes).
+            if (_font != null && SongBookmarkIndicator.ShouldShow(barInfo.SongNode))
+            {
+                var starPos = new Vector2(
+                    itemBounds.X + SongSelectionUILayout.SongBars.BookmarkStarOffsetX,
+                    itemBounds.Y + SongSelectionUILayout.SongBars.BookmarkStarOffsetY);
+                spriteBatch.DrawString(_font, SongBookmarkIndicator.Glyph, starPos, Color.Gold * opacityFactor);
+            }
         }
 
         private void DrawBasicSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
