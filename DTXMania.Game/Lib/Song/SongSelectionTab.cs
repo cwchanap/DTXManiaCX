@@ -8,7 +8,8 @@ namespace DTXMania.Game.Lib.Song
     public enum SongSelectionTab
     {
         AllSongs = 0,
-        RecentPlays = 1
+        RecentPlays = 1,
+        Bookmarks = 2
     }
 
     public static class SongSelectionTabExtensions
@@ -19,7 +20,9 @@ namespace DTXMania.Game.Lib.Song
             return tab switch
             {
                 SongSelectionTab.AllSongs => SongSelectionTab.RecentPlays,
-                SongSelectionTab.RecentPlays => SongSelectionTab.AllSongs
+                SongSelectionTab.RecentPlays => SongSelectionTab.Bookmarks,
+                SongSelectionTab.Bookmarks => SongSelectionTab.AllSongs,
+                _ => SongSelectionTab.AllSongs
             };
         }
 
@@ -30,6 +33,7 @@ namespace DTXMania.Game.Lib.Song
             {
                 SongSelectionTab.AllSongs => "All Songs",
                 SongSelectionTab.RecentPlays => "Recent",
+                SongSelectionTab.Bookmarks => "Bookmarks",
                 _ => tab.ToString()
             };
         }
