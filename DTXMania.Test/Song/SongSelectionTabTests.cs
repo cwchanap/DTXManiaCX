@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 
@@ -22,10 +23,13 @@ namespace DTXMania.Test.Song
             Assert.Equal("Bookmarks", SongSelectionTab.Bookmarks.DisplayLabel());
         }
 
+        // The Next() switch has no default arm by design: a future enum member that lacks an
+        // explicit arm must fail loudly (SwitchExpressionException) instead of silently
+        // falling through to AllSongs. This guards the exhaustive-switch contract.
         [Fact]
-        public void Next_ForInvalidEnumValue_FallsBackToAllSongs()
+        public void Next_ForUnhandledEnumValue_Throws()
         {
-            Assert.Equal(SongSelectionTab.AllSongs, ((SongSelectionTab)999).Next());
+            Assert.Throws<SwitchExpressionException>(() => ((SongSelectionTab)999).Next());
         }
 
         [Fact]

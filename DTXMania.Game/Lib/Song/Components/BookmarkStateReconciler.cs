@@ -30,7 +30,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (node.DatabaseSong != null && node.DatabaseSong.Id == songId)
                     node.DatabaseSong.IsBookmarked = isBookmarked;
 
-                if (node.Children != null && node.Children.Count > 0)
+                if (node.Children.Count > 0)
                     Apply(node.Children, songId, isBookmarked);
             }
         }

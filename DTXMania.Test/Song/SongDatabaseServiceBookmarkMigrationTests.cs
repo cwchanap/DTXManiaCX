@@ -123,5 +123,33 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(1, await ColumnCountAsync());
         }
+
+        // Guards the fail-fast rethrow in EnsureBookmarkColumnAsync: a genuine ALTER failure
+        // (not the tolerated "duplicate column" race) must propagate as an
+        // InvalidOperationException instead of being swallowed and leaving the bookmark schema
+        // broken for later queries. We drop the Songs table (keeping the version table so
+        // EnsureCreated is skipped) so the ADD COLUMN fails with "no such table".
+        [Fact]
+        public async Task EnsureBookmarkColumnAsync_OnGenuineAlterFailure_RethrowsAsInvalidOperationException()
+        {
+            var first = new SongDatabaseService(_dbPath);
+            await first.InitializeDatabaseAsync();
+            first.Dispose();
+
+            SqliteConnection.ClearAllPools();
+            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+            {
+                await conn.OpenAsync();
+                using var drop = conn.CreateCommand();
+                drop.CommandText = "DROP TABLE Songs";
+                await drop.ExecuteNonQueryAsync();
+            }
+
+            var second = new SongDatabaseService(_dbPath);
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => second.InitializeDatabaseAsync());
+            Assert.Contains("IsBookmarked", ex.Message);
+            second.Dispose();
+        }
     }
 }

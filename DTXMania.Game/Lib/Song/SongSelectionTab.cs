@@ -17,12 +17,13 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>Cycles to the next tab, wrapping back to the first.</summary>
         public static SongSelectionTab Next(this SongSelectionTab tab)
         {
+            // No default arm: a future enum value must add an explicit arm here so the
+            // switch stays exhaustive instead of silently falling through to AllSongs.
             return tab switch
             {
                 SongSelectionTab.AllSongs => SongSelectionTab.RecentPlays,
                 SongSelectionTab.RecentPlays => SongSelectionTab.Bookmarks,
                 SongSelectionTab.Bookmarks => SongSelectionTab.AllSongs,
-                _ => SongSelectionTab.AllSongs
             };
         }
 

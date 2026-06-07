@@ -28,8 +28,8 @@ namespace DTXMania.Game.Lib.Song.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Whether the player has bookmarked this song. Surfaced in the Bookmarks tab
-        // and as a star marker in the All Songs list.
+        // Whether the player has bookmarked this song. Surfaced in the Bookmarks tab and as a
+        // star marker on song bars across all song-list tabs.
         public bool IsBookmarked { get; set; } = false;
 
         // Navigation Properties
@@ -134,6 +134,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                 IsBookmarked = IsBookmarked,
                 CreatedAt = CreatedAt,
                 UpdatedAt = UpdatedAt
+                // Id is intentionally NOT copied: a clone is a detached metadata snapshot,
+                // not a tracked entity. Copying the primary key would make two entities claim
+                // the same identity, which could confuse EF Core change tracking. Call sites
+                // that need a tracked entity hold the original node's DatabaseSong instead.
                 // Note: Charts are not cloned to avoid deep copy complexity
             };
         }

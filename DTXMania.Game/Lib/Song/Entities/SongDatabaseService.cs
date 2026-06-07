@@ -763,10 +763,12 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Continue anyway - most modern SQLite installations default to UTF-8
             }
 
-            // Schema migrations must NOT be swallowed by the UTF-8 best-effort catch above:
-            // a failed bookmark-column migration would otherwise leave init reporting success
-            // while bookmark queries fail later with confusing errors. These run unguarded so
-            // real errors propagate (fail fast) during startup.
+            // The bookmark-column migration below must NOT be swallowed by the UTF-8
+            // best-effort catch above: a failed migration would otherwise leave init reporting
+            // success while bookmark queries fail later with confusing errors. Note that
+            // EnsureDatabaseVersionTableAsync has its own swallow-all catch and therefore does
+            // NOT fail fast — only EnsureBookmarkColumnAsync propagates real errors. It runs
+            // unguarded so a genuine schema error fails initialization fast.
             // Create/update version table to mark Unicode configuration as configured.
             await EnsureDatabaseVersionTableAsync(context);
 
@@ -824,7 +826,14 @@ namespace DTXMania.Game.Lib.Song.Entities
                         "ALTER TABLE Songs ADD COLUMN IsBookmarked INTEGER NOT NULL DEFAULT 0");
                     System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added Songs.IsBookmarked column");
                 }
-                catch (Exception ex) when (ex.Message.Contains("duplicate column"))
+                // The COUNT guard above already confirmed the column is absent, so the only way
+                // to reach this ALTER and still get a "duplicate column" error is a concurrent
+                // initializer racing us between the check and the ALTER. Microsoft.Data.Sqlite
+                // surfaces SQLite's stable, English-only error messages (SQLite is not localized),
+                // so matching on the message here is reliable and more precise than the generic
+                // error code (SQLITE_ERROR == 1). Narrowing to SqliteException keeps unrelated
+                // faults reaching the rethrow below.
+                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
                 {
                     // Another caller added it concurrently; nothing to do.
                 }

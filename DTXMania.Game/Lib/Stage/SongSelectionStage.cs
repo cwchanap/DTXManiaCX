@@ -94,6 +94,20 @@ namespace DTXMania.Game.Lib.Stage
         // on the update thread, so dictionary access here is single-threaded.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, Task> _pendingBookmarkWrites = new();
 
+        // Monotonic per-song toggle generation. Bumped on every toggle so a persist fault from
+        // an older toggle can be detected and its rollback discarded when a newer toggle has
+        // since changed the in-memory flag (otherwise a stale fault would override a successful
+        // later toggle). Accessed only on the update thread; the value is captured immutably by
+        // the background write continuation.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _bookmarkToggleVersion = new();
+
+        // Pending bookmark reverts enqueued by a faulted persist continuation (which runs on a
+        // thread-pool thread). OnUpdate drains this queue on the update thread so the in-memory
+        // flag and the reconciled lists roll back safely without racing the draw/input path.
+        // Each entry carries the toggle generation that triggered it so a superseded revert is
+        // skipped.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(int SongId, bool RevertTo, int ToggleVersion)> _pendingBookmarkReverts = new();
+
         // Async initialization management
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
@@ -1123,6 +1137,10 @@ namespace DTXMania.Game.Lib.Stage
             // Update phase
             UpdatePhase(deltaTime);
 
+            // Roll back any bookmark toggles whose persist failed, so the in-memory star does
+            // not silently diverge from the database. Must run on the update thread.
+            ProcessPendingBookmarkReverts();
+
             // Handle input
             HandleInput();
 
@@ -1179,7 +1197,7 @@ namespace DTXMania.Game.Lib.Stage
                     ? "Could not load recent plays"
                     : "No recent plays yet";
                 _font.DrawString(_spriteBatch, msg,
-                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + SongSelectionUILayout.SongBars.EmptyMessageOffsetX, SongSelectionUILayout.SongBars.SelectedBarY),
                     Microsoft.Xna.Framework.Color.LightGray);
             }
 
@@ -1193,7 +1211,7 @@ namespace DTXMania.Game.Lib.Stage
                     ? "Could not load bookmarks"
                     : "No bookmarks yet";
                 _font.DrawString(_spriteBatch, msg,
-                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + SongSelectionUILayout.SongBars.EmptyMessageOffsetX, SongSelectionUILayout.SongBars.SelectedBarY),
                     Microsoft.Xna.Framework.Color.LightGray);
             }
 
@@ -2197,24 +2215,34 @@ namespace DTXMania.Game.Lib.Stage
             bool newState = !song.IsBookmarked;
             song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
             int songId = song.Id;
+            // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
+            // from a fault of an older, already-superseded toggle at rollback time.
+            int toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
 
             // Persist asynchronously, serialized per song so rapid toggles apply in order and
-            // the last user intent (song.IsBookmarked) is what lands in the database. Each
-            // write chains after the previous in-flight write for the same song; without this,
-            // two overlapping fire-and-forget calls could complete out of order and leave the
-            // DB divergent from the in-memory flag.
+            // the last user intent (the captured newState above) is what lands in the database.
+            // Each write chains after the previous in-flight write for the same song; without
+            // this, two overlapping fire-and-forget calls could complete out of order and leave
+            // the DB divergent from the in-memory flag.
             var prior = _pendingBookmarkWrites.GetOrAdd(songId, _ => Task.CompletedTask);
             var write = prior.ContinueWith(
                 _ => SongManager.Instance.SetBookmarkAsync(songId, newState),
                 TaskScheduler.Default).Unwrap();
             _pendingBookmarkWrites[songId] = write;
 
-            // Log faults without crashing the stage.
+            // If the persist fails, the optimistic in-memory flip would otherwise diverge from
+            // the database (the star would vanish on next load with no feedback). Enqueue a
+            // rollback to the pre-toggle state; OnUpdate applies it on the update thread so it
+            // can't race the draw path. The captured toggleVersion lets the rollback be skipped
+            // if a newer toggle has since superseded this one.
             write.ContinueWith(task =>
             {
                 if (task.IsFaulted || task.IsCanceled)
+                {
                     Debug.WriteLine(
                         $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
+                    _pendingBookmarkReverts.Enqueue((songId, !newState, toggleVersion));
+                }
             }, TaskScheduler.Default);
 
             // Reconcile the flag across every in-memory representation of this song (browse
@@ -2237,6 +2265,37 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             PlayCursorMoveSound();
+        }
+
+        /// <summary>
+        /// Drains <see cref="_pendingBookmarkReverts"/> on the update thread. For each rollback
+        /// whose toggle generation is still current, the pre-toggle bookmark state is restored
+        /// across every in-memory representation (browse tree, Recent list, Bookmarks list) so the
+        /// star marker matches the database after a failed persist. Superseded reverts — those
+        /// superseded by a newer toggle — are skipped so a stale fault cannot override a later,
+        /// possibly successful toggle.
+        /// </summary>
+        private void ProcessPendingBookmarkReverts()
+        {
+            while (_pendingBookmarkReverts.TryDequeue(out var revert))
+            {
+                if (_bookmarkToggleVersion.TryGetValue(revert.SongId, out var current)
+                    && current != revert.ToggleVersion)
+                {
+                    // A newer toggle has since changed the flag; this fault is stale.
+                    continue;
+                }
+
+                BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, revert.SongId, revert.RevertTo);
+                BookmarkStateReconciler.Apply(_recentPlayNodes, revert.SongId, revert.RevertTo);
+                BookmarkStateReconciler.Apply(_bookmarkNodes, revert.SongId, revert.RevertTo);
+
+                // On the Bookmarks tab, an un-bookmark that failed to persist wrongly removed
+                // the row from view (the song is still bookmarked in the DB). Re-sync from the
+                // authoritative store so the row reappears.
+                if (_activeTab == SongSelectionTab.Bookmarks)
+                    BeginBookmarksLoad();
+            }
         }
 
         private void HandleLaneHitForBookmark(int lane)
