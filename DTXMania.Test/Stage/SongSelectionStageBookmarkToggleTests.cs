@@ -401,6 +401,63 @@ namespace DTXMania.Test.Stage
             }
         }
 
+        // Zero-id guard regression: when the selected node has neither a persisted id
+        // (DatabaseSongId is null) nor a stamped entity id (DatabaseSong.Id == 0) — e.g. an
+        // unpersisted fallback node — the toggle must NOT key persistence/reconciliation on
+        // the sentinel 0. Doing so would (a) queue a silent no-op DB write and (b) flip
+        // IsBookmarked on every OTHER unrelated zero-id node via BookmarkStateReconciler.
+        // The selected node's own optimistic flip (done before the id resolution) is allowed
+        // to stand so its star marker refreshes, but the shared path must be skipped.
+        [Fact]
+        public void ToggleBookmarkForSelectedSong_WhenNoPersistedIdAndZeroEntityId_SkipsSharedPath()
+        {
+            var stage = CreateStage();
+            // Selected node: no persisted id, entity id 0.
+            var selectedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "S", IsBookmarked = false };
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "S",
+                DatabaseSong = selectedSong,
+                DatabaseSongId = null
+            };
+            var display = DisplayWithSelection(node);
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            // An unrelated zero-id node in RootSongs that must NOT be touched.
+            var bystanderSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "Other", IsBookmarked = false };
+            var bystander = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Other",
+                DatabaseSong = bystanderSong,
+                DatabaseSongId = null
+            };
+            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var savedRoots = roots.ToList();
+            roots.Clear();
+            roots.Add(bystander);
+
+            try
+            {
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+                // The selected node's optimistic flip is allowed to stand (visual feedback).
+                Assert.True(selectedSong.IsBookmarked);
+                // The bystander zero-id node must be untouched.
+                Assert.False(bystanderSong.IsBookmarked);
+                // No persistence queued under the sentinel key 0.
+                var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+                Assert.False(pending.ContainsKey(0));
+            }
+            finally
+            {
+                roots.Clear();
+                roots.AddRange(savedRoots);
+            }
+        }
+
         // Comment 2 regression: switching to the Bookmarks tab must wait for any in-flight
         // bookmark writes before querying the DB, otherwise a just-bookmarked song won't
         // appear (the optimistic reconciler only updates nodes already in _bookmarkNodes).

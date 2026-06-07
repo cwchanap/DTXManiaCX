@@ -2256,6 +2256,15 @@ namespace DTXMania.Game.Lib.Stage
             // DatabaseSongId holds the real persisted id. Using song.Id would pass 0 to
             // SetBookmarkAsync (a no-op) and reconcile against every zero-id node.
             int songId = node.DatabaseSongId ?? song.Id;
+            // When neither the persisted id nor the entity id is set (e.g. an unpersisted
+            // fallback node whose DatabaseSong.Id is still 0), keying the persistence write
+            // and the cross-list reconciliation on the sentinel 0 would (a) be a silent
+            // no-op in the DB and (b) flip IsBookmarked on EVERY unrelated zero-id node via
+            // BookmarkStateReconciler.Apply. The optimistic in-memory flip on the selected
+            // node above already refreshed its star marker, so bail out before touching the
+            // shared persistence/reconciliation state to leave unrelated nodes untouched.
+            if (songId <= 0)
+                return;
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
             // from a fault of an older, already-superseded toggle at rollback time.
             int toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
