@@ -608,7 +608,7 @@ namespace DTXMania.Test.Stage
         // _bookmarksLoadFailed only when the activation is still current.
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenActivationVersionBumped_PreservesExistingNodes()
+        public async Task BeginBookmarksLoad_WhenActivationVersionBumped_ShouldPreserveExistingNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -635,7 +635,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenActivationVersionUnchanged_OverwritesNodes()
+        public async Task BeginBookmarksLoad_WhenActivationVersionUnchanged_ShouldOverwriteNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -659,7 +659,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
+        public async Task BeginBookmarksLoad_WhenDbThrows_ShouldSetLoadFailedAndFlagsRefresh()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_fault_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -691,7 +691,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenDbThrowsAndVersionBumped_DiscardsStaleFault()
+        public async Task BeginBookmarksLoad_WhenDbThrowsAndVersionBumped_ShouldDiscardStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -726,7 +726,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_OnSuccess_ClearsPreExistingLoadFailedFlag()
+        public async Task BeginBookmarksLoad_OnSuccess_ShouldClearPreExistingLoadFailedFlag()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -751,7 +751,7 @@ namespace DTXMania.Test.Stage
         // overwriting the result of a newer load with a stale pre-toggle snapshot.
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenNewerSameActivationLoadSupersedes_PreservesFreshResult()
+        public async Task BeginBookmarksLoad_WhenNewerSameActivationLoadSupersedes_ShouldPreserveFreshResult()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -782,7 +782,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenFaultedAndLoadVersionSuperseded_DiscardsStaleFault()
+        public async Task BeginBookmarksLoad_WhenFaultedAndLoadVersionSuperseded_ShouldDiscardStaleFault()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_load_{Guid.NewGuid():N}.db");
             SongManager.ResetInstanceForTesting();
@@ -819,7 +819,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task BeginBookmarksLoad_WhenLoadVersionUnchanged_OverwritesNodes()
+        public async Task BeginBookmarksLoad_WhenLoadVersionUnchanged_ShouldOverwriteNodes()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
