@@ -329,6 +329,115 @@ namespace DTXMania.Test.Stage
             }
         }
 
+        // SET.def duplicate regression: when the persisted id (DatabaseSongId) is set but the
+        // parsed SongEntity.Id was never stamped (AddSongAsync returned the existing id), the
+        // toggle must key persistence/reconciliation on the persisted id — not 0. Otherwise
+        // SetBookmarkAsync(0,...) is a no-op and the per-song write chain collides on key 0.
+        [Fact]
+        public void ToggleBookmarkForSelectedSong_WhenDatabaseSongIdSetButEntityIdZero_UsesPersistedId()
+        {
+            var stage = CreateStage();
+            var song = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "S", IsBookmarked = false };
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "S",
+                DatabaseSong = song,
+                DatabaseSongId = 77
+            };
+            var display = DisplayWithSelection(node);
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+            var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+            // Must key on the persisted id (77), not the zero entity id.
+            Assert.True(pending.ContainsKey(77));
+            Assert.False(pending.ContainsKey(0));
+        }
+
+        // SET.def duplicate reconciliation: a browse-tree node whose DatabaseSong.Id is 0 but
+        // whose DatabaseSongId matches the toggled song must receive the new flag via the
+        // reconciler (otherwise the star marker never refreshes in the All Songs list).
+        [Fact]
+        public void ToggleBookmarkForSelectedSong_WhenZeroEntityIdNodeInRoots_ReconcilesByPersistedId()
+        {
+            var stage = CreateStage();
+            var selectedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "S", IsBookmarked = false };
+            var rootNode = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "S",
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, Title = "S", IsBookmarked = false },
+                DatabaseSongId = 77
+            };
+            var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode>
+                {
+                    new() { Type = NodeType.Score, Title = "S", DatabaseSong = selectedSong, DatabaseSongId = 77 }
+                }
+            };
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var savedRoots = roots.ToList();
+            roots.Clear();
+            roots.Add(rootNode);
+
+            try
+            {
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+                Assert.True(selectedSong.IsBookmarked);   // direct flip on the selected node
+                Assert.True(rootNode.DatabaseSong!.IsBookmarked); // reconciled via persisted id
+            }
+            finally
+            {
+                roots.Clear();
+                roots.AddRange(savedRoots);
+            }
+        }
+
+        // Comment 2 regression: switching to the Bookmarks tab must wait for any in-flight
+        // bookmark writes before querying the DB, otherwise a just-bookmarked song won't
+        // appear (the optimistic reconciler only updates nodes already in _bookmarkNodes).
+        // Here an incomplete pending write defers the load; settling it triggers the reload.
+        [Fact]
+        public async Task SwitchToNextTab_ToBookmarks_ChainsLoadAfterPendingWrites()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays); // -> Bookmarks
+            SetPrivateField(stage, "_activationVersion", 0);
+
+            // Stale bookmark list from before the toggle.
+            SetPrivateField(stage, "_bookmarkNodes",
+                new List<SongListNode> { new() { Type = NodeType.Score, Title = "Stale" } });
+
+            // In-flight bookmark write that has not yet committed.
+            var tcs = new TaskCompletionSource<bool>();
+            var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
+            pending[42] = tcs.Task;
+
+            InvokePrivateMethod(stage, "SwitchToNextTab");
+
+            // Load is deferred until the pending write settles; stale list remains.
+            var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.Single(nodes);
+
+            // Settle the write; the chained load fires and (no DB connected) overwrites with
+            // an empty list.
+            tcs.SetResult(true);
+            await Task.Delay(400);
+
+            nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.Empty(nodes);
+        }
+
         // Stale-revert guard: a revert from an older, superseded toggle must be skipped so it
         // cannot override a newer toggle's in-memory flag.
         [Fact]
