@@ -986,13 +986,28 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Bookmark star marker (drawn as an overlay so the cached title texture is not
             // invalidated when bookmark state changes).
-            if (_font != null && SongBookmarkIndicator.ShouldShow(barInfo.SongNode))
-            {
-                var starPos = new Vector2(
-                    itemBounds.X + SongSelectionUILayout.SongBars.BookmarkStarOffsetX,
-                    itemBounds.Y + SongSelectionUILayout.SongBars.BookmarkStarOffsetY);
-                spriteBatch.DrawString(_font, SongBookmarkIndicator.Glyph, starPos, Color.Gold * opacityFactor);
-            }
+            DrawBookmarkGlyph(spriteBatch, barInfo.SongNode, itemBounds, opacityFactor);
+        }
+
+        /// <summary>
+        /// Draw the bookmark star glyph at the NX offset. Renders via the SpriteFont when
+        /// available, otherwise via the managed font, so the indicator stays visible in both
+        /// SpriteFont-only and managed-font-only rendering modes.
+        /// </summary>
+        private void DrawBookmarkGlyph(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, float opacityFactor)
+        {
+            if (!SongBookmarkIndicator.ShouldShow(node) || (_font == null && _managedFont == null))
+                return;
+
+            var starPos = new Vector2(
+                itemBounds.X + SongSelectionUILayout.SongBars.BookmarkStarOffsetX,
+                itemBounds.Y + SongSelectionUILayout.SongBars.BookmarkStarOffsetY);
+            var starColor = Color.Gold * opacityFactor;
+
+            if (_font != null)
+                spriteBatch.DrawString(_font, SongBookmarkIndicator.Glyph, starPos, starColor);
+            else
+                _managedFont!.DrawString(spriteBatch, SongBookmarkIndicator.Glyph, starPos, starColor);
         }
 
         private void DrawBasicSongItemWithPerspective(SpriteBatch spriteBatch, SongListNode node, Rectangle itemBounds, bool isSelected, bool isCenter, int barIndex, float scaleFactor, float opacityFactor)
@@ -1089,13 +1104,7 @@ namespace DTXMania.Game.Lib.Song.Components
             // Bookmark star marker (overlay so bookmark toggles don't require rebuilding any
             // cached text). Mirrors DrawBarInfoWithPerspective so the indicator appears in the
             // basic rendering path as well.
-            if (_font != null && SongBookmarkIndicator.ShouldShow(node))
-            {
-                var starPos = new Vector2(
-                    itemBounds.X + SongSelectionUILayout.SongBars.BookmarkStarOffsetX,
-                    itemBounds.Y + SongSelectionUILayout.SongBars.BookmarkStarOffsetY);
-                spriteBatch.DrawString(_font, SongBookmarkIndicator.Glyph, starPos, Color.Gold * opacityFactor);
-            }
+            DrawBookmarkGlyph(spriteBatch, node, itemBounds, opacityFactor);
         }
 
         private string GetDisplayText(SongListNode node)

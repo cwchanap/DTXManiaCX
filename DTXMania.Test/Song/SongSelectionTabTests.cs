@@ -27,7 +27,7 @@ namespace DTXMania.Test.Song
         // explicit arm must fail loudly (SwitchExpressionException) instead of silently
         // falling through to AllSongs. This guards the exhaustive-switch contract.
         [Fact]
-        public void Next_ForUnhandledEnumValue_Throws()
+        public void Next_ForUnhandledEnumValue_ShouldThrow()
         {
             Assert.Throws<SwitchExpressionException>(() => ((SongSelectionTab)999).Next());
         }
