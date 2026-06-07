@@ -1350,10 +1350,12 @@ namespace DTXMania.Game.Lib.Song
                                         {
                                             var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
                                             currentSong.DatabaseSongId = songId;
-                                            // AddSongAsync returns the existing DB id for duplicate charts
-                                            // without assigning it to the parsed entity (diffSong.Id stays 0).
-                                            // Stamp the persisted id so DatabaseSong.Id matches DatabaseSongId —
-                                            // consumers (bookmark toggle, reconciler, telemetry) key off the id.
+                                            // AddSongAsync hydrates diffSong with the persisted id and
+                                            // bookmark for duplicate charts (a freshly parsed entity
+                                            // defaults to Id=0, IsBookmarked=false). The explicit id
+                                            // stamp below is a defensive guarantee that DatabaseSong.Id
+                                            // matches DatabaseSongId — consumers (bookmark toggle,
+                                            // reconciler, telemetry) key off the id.
                                             diffSong.Id = songId;
                                             
                                             // Update the current song's database entities to reflect the latest data
