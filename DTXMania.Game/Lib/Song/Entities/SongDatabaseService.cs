@@ -300,11 +300,21 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 // Check if a chart with this file path already exists
                 var existingChart = await context.SongCharts
+                    .Include(c => c.Song)
                     .FirstOrDefaultAsync(c => c.FilePath == chart.FilePath);
 
                 if (existingChart != null)
                 {
-                    // Song already exists, return the existing song ID
+                    // Song already exists. Hydrate the caller's parsed entity with the
+                    // persisted id and bookmark so in-memory nodes built from it reflect
+                    // real DB state after a rescan. Without the bookmark copy, a bookmarked
+                    // song re-parsed during enumeration keeps its default IsBookmarked ==
+                    // false, hiding the star marker and inverting the B-key toggle (it sets
+                    // the bookmark instead of clearing it). The new-song branch below gets
+                    // the id for free via EF change-tracking; this branch mirrors that.
+                    song.Id = existingChart.SongId;
+                    if (existingChart.Song != null)
+                        song.IsBookmarked = existingChart.Song.IsBookmarked;
                     return existingChart.SongId;
                 }
 
@@ -314,8 +324,12 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 if (existingSong != null)
                 {
-                    // Song exists, add chart to existing song
-                    
+                    // Song exists, add chart to existing song. Mirror the persisted id and
+                    // bookmark onto the caller's parsed entity for the same reason as the
+                    // duplicate-file-path branch above.
+                    song.Id = existingSong.Id;
+                    song.IsBookmarked = existingSong.IsBookmarked;
+
                     // Calculate file hash if not already set
                     if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
                     {

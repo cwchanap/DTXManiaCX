@@ -254,6 +254,78 @@ namespace DTXMania.Test.Song
             Assert.Single(testSongs[0].Charts);
         }
 
+        // Regression: when a SET.def difficulty already exists in the DB and is bookmarked,
+        // a rescan re-parses a fresh Song entity (IsBookmarked defaults false) for the same
+        // chart file path. AddSongAsync must hydrate the persisted id AND bookmark onto the
+        // caller's entity, otherwise the in-memory node built from it loses the star marker
+        // and the B-key toggle inverts (sets instead of clears).
+        [Fact]
+        public async Task AddSongAsync_WithDuplicateBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
+        {
+            await _databaseService.InitializeDatabaseAsync();
+
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Bookmarked Rescan", Artist = "A"
+            };
+            var chart = new SongChart
+            {
+                FilePath = "/dup/bookmarked.dtx", HasDrumChart = true, DrumLevel = 30
+            };
+            var songId = await _databaseService.AddSongAsync(song, chart);
+            await _databaseService.SetBookmarkAsync(songId, true);
+
+            // Simulate a rescan: a freshly parsed entity (Id=0, IsBookmarked=false) for the
+            // exact same chart file path.
+            var rescannedSong = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Bookmarked Rescan", Artist = "A"
+            };
+            var rescannedChart = new SongChart
+            {
+                FilePath = "/dup/bookmarked.dtx", HasDrumChart = true, DrumLevel = 30
+            };
+            var returnedId = await _databaseService.AddSongAsync(rescannedSong, rescannedChart);
+
+            Assert.Equal(songId, returnedId);            // same persisted row
+            Assert.Equal(songId, rescannedSong.Id);      // id hydrated onto parsed entity
+            Assert.True(rescannedSong.IsBookmarked);     // bookmark hydrated from DB
+        }
+
+        // Same bug class for the title+artist duplicate branch: a new chart file for an
+        // existing (bookmarked) song must hydrate the bookmark onto the parsed entity.
+        [Fact]
+        public async Task AddSongAsync_WithNewChartForBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
+        {
+            await _databaseService.InitializeDatabaseAsync();
+
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Multi Chart Bookmark", Artist = "A"
+            };
+            var basChart = new SongChart
+            {
+                FilePath = "/multi/bas.dtx", HasDrumChart = true, DrumLevel = 30
+            };
+            var songId = await _databaseService.AddSongAsync(song, basChart);
+            await _databaseService.SetBookmarkAsync(songId, true);
+
+            // A different chart file for the same title+artist (a new difficulty).
+            var rescannedSong = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Multi Chart Bookmark", Artist = "A"
+            };
+            var advChart = new SongChart
+            {
+                FilePath = "/multi/adv.dtx", HasDrumChart = true, DrumLevel = 60
+            };
+            var returnedId = await _databaseService.AddSongAsync(rescannedSong, advChart);
+
+            Assert.Equal(songId, returnedId);            // grouped into existing song
+            Assert.Equal(songId, rescannedSong.Id);      // id hydrated
+            Assert.True(rescannedSong.IsBookmarked);     // bookmark hydrated
+        }
+
         [Fact]
         public async Task AddSongAsync_WithMultipleChartsForSameSong_ShouldMaintainCorrectDurations()
         {
