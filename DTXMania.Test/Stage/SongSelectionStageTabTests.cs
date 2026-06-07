@@ -601,6 +601,149 @@ namespace DTXMania.Test.Stage
             Assert.False(GetPrivateField<bool>(stage, "_recentPlaysLoadFailed"));
         }
 
+        // --- BeginBookmarksLoad staleness/fault tests ---
+        // These mirror the BeginRecentPlaysLoad pair above. BeginBookmarksLoad has an
+        // identical _activationVersion guard; these prove the bookmark load discards stale
+        // completions instead of overwriting fresh state, and that DB faults set
+        // _bookmarksLoadFailed only when the activation is still current.
+
+        [Fact]
+        public async Task BeginBookmarksLoad_WhenActivationVersionBumped_PreservesExistingNodes()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+
+            var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
+            SetPrivateField(stage, "_bookmarkNodes", freshNodes);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+
+            // Start the background load — captures version=0.
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
+
+            // Simulate re-Activate: bump the version so the in-flight continuation is stale.
+            SetPrivateField(stage, "_activationVersion", 1);
+
+            await Task.Delay(300);
+
+            // The stale continuation must NOT have overwritten _bookmarkNodes.
+            var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.NotNull(nodes);
+            Assert.Single(nodes);
+            Assert.Equal("Fresh", nodes[0].Title);
+        }
+
+        [Fact]
+        public async Task BeginBookmarksLoad_WhenActivationVersionUnchanged_OverwritesNodes()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+
+            var staleNodes = new List<SongListNode> { ScoreNode("Stale") };
+            SetPrivateField(stage, "_bookmarkNodes", staleNodes);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
+            // Do NOT bump version — continuation should be accepted.
+
+            await Task.Delay(300);
+
+            // The continuation ran with matching version and overwrote _bookmarkNodes
+            // with the empty result from the no-DB load.
+            var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.NotNull(nodes);
+            Assert.Empty(nodes);
+        }
+
+        [Fact]
+        public async Task BeginBookmarksLoad_WhenDbThrows_SetsLoadFailedAndFlagsRefresh()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_fault_{Guid.NewGuid():N}.db");
+            SongManager.ResetInstanceForTesting();
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
+            await manager.DatabaseService!.PurgeDatabaseAsync();
+
+            try
+            {
+                var stage = CreateStage();
+                var display = new SongListDisplay();
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+                SetPrivateField(stage, "_activationVersion", 0);
+
+                InvokePrivateMethod(stage, "BeginBookmarksLoad");
+
+                await Task.Delay(500);
+
+                Assert.True(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
+                Assert.True(GetPrivateField<bool>(stage, "_tabListNeedsRefresh"));
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task BeginBookmarksLoad_WhenDbThrowsAndVersionBumped_DiscardsStaleFault()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), $"stage_bm_stale_fault_{Guid.NewGuid():N}.db");
+            SongManager.ResetInstanceForTesting();
+            var manager = SongManager.Instance;
+            await manager.InitializeDatabaseServiceAsync(dbPath, purgeDatabaseFirst: true);
+            await manager.DatabaseService!.PurgeDatabaseAsync();
+
+            try
+            {
+                var stage = CreateStage();
+                var display = new SongListDisplay();
+                AttachCoreUi(stage, display);
+                SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+                SetPrivateField(stage, "_activationVersion", 0);
+
+                InvokePrivateMethod(stage, "BeginBookmarksLoad");
+
+                // Bump version to simulate re-Activate — the faulted continuation
+                // must be discarded.
+                SetPrivateField(stage, "_activationVersion", 1);
+
+                await Task.Delay(500);
+
+                Assert.False(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
+            }
+            finally
+            {
+                SongManager.ResetInstanceForTesting();
+                if (File.Exists(dbPath))
+                    try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task BeginBookmarksLoad_OnSuccess_ClearsPreExistingLoadFailedFlag()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_bookmarksLoadFailed", true);
+
+            InvokePrivateMethod(stage, "BeginBookmarksLoad");
+
+            await Task.Delay(300);
+
+            // The success continuation must clear the failure flag so the draw
+            // path shows the normal empty message instead of the error message.
+            Assert.False(GetPrivateField<bool>(stage, "_bookmarksLoadFailed"));
+        }
+
         // Fake InputManager that reports Tab key pressed on the first poll.
         private sealed class TabKeyDetectInputManager : DTXMania.Game.Lib.Input.InputManager
         {
