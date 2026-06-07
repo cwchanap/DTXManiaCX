@@ -75,6 +75,16 @@ namespace DTXMania.Game.Lib.Stage
         private bool _showEmptyBookmarksMessage;
         // True when the most recent BeginBookmarksLoad continuation failed (DB/IO error).
         private bool _bookmarksLoadFailed;
+        // Per-load sequence guard for BeginBookmarksLoad. Incremented on every call so a
+        // completion from an older same-activation load (e.g., the activation-time warm load
+        // still in flight when the user bookmarks a song and switches to the Bookmarks tab)
+        // can detect it has been superseded by a newer load and discard its stale result
+        // instead of overwriting _bookmarkNodes with a pre-toggle snapshot that omits the
+        // just-bookmarked song. Interlocked because BeginBookmarksLoad is called from both
+        // the update thread (Activate, ProcessPendingBookmarkReverts) and thread-pool
+        // continuations (SwitchToNextTab's Task.WhenAll chain). volatile so the plain read
+        // in the continuation observes the latest increment.
+        private volatile int _bookmarksLoadVersion;
         // Set when the active tab's list must be repopulated on the next OnUpdate.
         // Used so background recent-plays loads and lane-hit/Tab switches never mutate
         // SongListDisplay off the update thread. volatile so the update thread reliably
@@ -2166,11 +2176,18 @@ namespace DTXMania.Game.Lib.Stage
         /// Loads bookmark nodes in the background and flags a repopulate when done.
         /// Safe when the DB is unavailable (returns an empty list). Captures
         /// <see cref="_activationVersion"/> so a completion that lands after a later
-        /// Deactivate/Activate cycle is discarded instead of overwriting fresh state.
+        /// Deactivate/Activate cycle is discarded, and assigns a per-load sequence id
+        /// (<see cref="_bookmarksLoadVersion"/>) so an older same-activation load
+        /// cannot overwrite the result of a newer load.
         /// </summary>
         private void BeginBookmarksLoad()
         {
             int capturedVersion = _activationVersion;
+            // Assign a monotonic per-load id so an older same-activation load (e.g., the
+            // activation-time warm load still in flight when the user bookmarks a song and
+            // switches to the Bookmarks tab) can detect it has been superseded by a newer
+            // load and discard its stale result.
+            int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
             _ = SongManager.Instance.GetBookmarkedNodesAsync()
                 .ContinueWith(task =>
                 {
@@ -2180,8 +2197,10 @@ namespace DTXMania.Game.Lib.Stage
                         // so DB/IO failures are diagnosable from the debug output.
                         System.Diagnostics.Debug.WriteLine(
                             $"SongSelectionStage: bookmarks load failed:\n{task.Exception}");
-                        // Discard stale completions from a prior activation.
-                        if (capturedVersion == _activationVersion)
+                        // Discard stale completions from a prior activation or a newer
+                        // same-activation load.
+                        if (capturedVersion == _activationVersion
+                            && capturedLoadVersion == _bookmarksLoadVersion)
                         {
                             _bookmarksLoadFailed = true;
                             if (_activeTab == SongSelectionTab.Bookmarks)
@@ -2193,6 +2212,13 @@ namespace DTXMania.Game.Lib.Stage
                     // a slow load from activation N can overwrite the _bookmarkNodes that
                     // activation N+1 already populated, and trigger an unwanted list rebuild.
                     if (capturedVersion != _activationVersion)
+                        return;
+                    // Discard completions from an older same-activation load. Without this
+                    // guard, the activation-time warm load (which queried the DB before a
+                    // bookmark toggle committed) can complete after a newer load triggered
+                    // by a tab switch, overwriting _bookmarkNodes with a stale pre-toggle
+                    // result that omits the just-bookmarked song.
+                    if (capturedLoadVersion != _bookmarksLoadVersion)
                         return;
                     _bookmarksLoadFailed = false;
                     _bookmarkNodes = task.Result;
