@@ -27,7 +27,14 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (node == null)
                     continue;
 
-                if (node.DatabaseSong != null && node.DatabaseSong.Id == songId)
+                // Match by the persisted id (DatabaseSongId) when available, falling back to
+                // the entity id. SET.def duplicates can carry a populated DatabaseSongId while
+                // their DatabaseSong.Id is still 0 (AddSongAsync returns the existing id
+                // without stamping it onto the parsed entity), so matching solely on
+                // DatabaseSong.Id would miss them — or worse, match every zero-id node when
+                // songId itself is 0.
+                int? effectiveId = node.DatabaseSongId ?? node.DatabaseSong?.Id;
+                if (node.DatabaseSong != null && effectiveId == songId)
                     node.DatabaseSong.IsBookmarked = isBookmarked;
 
                 if (node.Children.Count > 0)

@@ -57,5 +57,48 @@ namespace DTXMania.Test.Song
             BookmarkStateReconciler.Apply(new List<SongListNode> { folderNoSong, other }, 42, true);
             Assert.False(other.DatabaseSong!.IsBookmarked);
         }
+
+        // SET.def duplicates can carry a populated DatabaseSongId while their DatabaseSong.Id
+        // is still 0 (AddSongAsync returns the existing id without stamping it onto the parsed
+        // entity). The reconciler must match these by DatabaseSongId so the star propagates,
+        // instead of missing them (or, when songId is 0, mass-updating every zero-id node).
+        [Fact]
+        public void Apply_WhenNodeHasDatabaseSongIdButZeroEntityId_MatchesByPersistedId()
+        {
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                DatabaseSongId = 42,
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, IsBookmarked = false }
+            };
+
+            BookmarkStateReconciler.Apply(new List<SongListNode> { node }, songId: 42, isBookmarked: true);
+
+            Assert.True(node.DatabaseSong!.IsBookmarked);
+        }
+
+        // Guards the zero-id mass-update regression: when reconciling a real songId, nodes
+        // whose DatabaseSongId differs must be left untouched even though their entity id is 0.
+        [Fact]
+        public void Apply_WhenMultipleNodesHaveZeroEntityId_OnlyMatchesByPersistedId()
+        {
+            var match = new SongListNode
+            {
+                Type = NodeType.Score,
+                DatabaseSongId = 42,
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, IsBookmarked = false }
+            };
+            var other = new SongListNode
+            {
+                Type = NodeType.Score,
+                DatabaseSongId = 99,
+                DatabaseSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 0, IsBookmarked = false }
+            };
+
+            BookmarkStateReconciler.Apply(new List<SongListNode> { match, other }, songId: 42, isBookmarked: true);
+
+            Assert.True(match.DatabaseSong!.IsBookmarked);
+            Assert.False(other.DatabaseSong!.IsBookmarked);
+        }
     }
 }

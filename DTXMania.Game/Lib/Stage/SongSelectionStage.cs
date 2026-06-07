@@ -2101,7 +2101,17 @@ namespace DTXMania.Game.Lib.Stage
                 BeginRecentPlaysLoad();
 
             if (_activeTab == SongSelectionTab.Bookmarks)
-                BeginBookmarksLoad();
+            {
+                // Chain the load after any in-flight bookmark writes so the DB query reflects
+                // the latest toggles instead of the pre-toggle snapshot. Without this, a
+                // bookmark-on followed by a quick tab switch can query the DB before
+                // SetBookmarkAsync commits, returning a stale list that omits the
+                // just-bookmarked song (the optimistic reconciler only updates nodes already
+                // present in _bookmarkNodes, so a newly bookmarked song wouldn't appear until
+                // the next reload). Task.WhenAll of an empty/completed set settles immediately.
+                var pending = _pendingBookmarkWrites.Values.ToArray();
+                _ = Task.WhenAll(pending).ContinueWith(_ => BeginBookmarksLoad(), TaskScheduler.Default);
+            }
 
             _tabListNeedsRefresh = true;
             PlayCursorMoveSound();
@@ -2214,7 +2224,12 @@ namespace DTXMania.Game.Lib.Stage
 
             bool newState = !song.IsBookmarked;
             song.IsBookmarked = newState; // immediate, in-memory; star refreshes next draw.
-            int songId = song.Id;
+            // Prefer the persisted id over the in-memory entity id. When re-enumerating
+            // SET.def songs that already exist in the DB, AddSongAsync returns the existing
+            // id without assigning it to the parsed SongEntity.Id (left at 0), while
+            // DatabaseSongId holds the real persisted id. Using song.Id would pass 0 to
+            // SetBookmarkAsync (a no-op) and reconcile against every zero-id node.
+            int songId = node.DatabaseSongId ?? song.Id;
             // Bump the per-song toggle generation so a fault from THIS toggle can be told apart
             // from a fault of an older, already-superseded toggle at rollback time.
             int toggleVersion = _bookmarkToggleVersion.AddOrUpdate(songId, 1, (_, v) => v + 1);
@@ -2260,7 +2275,7 @@ namespace DTXMania.Game.Lib.Stage
                 // just swapped, the removal is harmlessly lost — _tabListNeedsRefresh forces the next
                 // update to repopulate from the new list regardless.
                 _bookmarkNodes?.RemoveAll(n =>
-                    ReferenceEquals(n, node) || n.DatabaseSong?.Id == songId);
+                    ReferenceEquals(n, node) || (n.DatabaseSongId ?? n.DatabaseSong?.Id) == songId);
                 _tabListNeedsRefresh = true;
             }
 
