@@ -11,6 +11,7 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Unit")]
+    [Collection("SongManager")]
     public class SongManagerNxImportTests : IDisposable
     {
         private readonly string _root;
