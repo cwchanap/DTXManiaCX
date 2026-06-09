@@ -431,6 +431,9 @@ namespace DTXMania.Game.Lib.Stage
             _importRunning = true;
             _importStatus = "Importing NX scores...";
 
+            // Progress<T> captures no SynchronizationContext here (MonoGame's loop has none),
+            // so this callback runs on a thread-pool thread. Safe because _importStatus is
+            // volatile and the payload is a plain string read by the draw thread.
             var progress = new System.Progress<NxImportProgress>(p =>
             {
                 _importStatus = $"Importing... {p.Imported} imported / {p.Scanned} scanned";
