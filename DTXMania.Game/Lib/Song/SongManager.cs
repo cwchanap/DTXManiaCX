@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Song.Entities;
+using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
@@ -1583,6 +1584,73 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Error updating score (summary): {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Imports DTXManiaNX drum scores from sibling &lt;chart&gt;.score.ini files for every
+        /// drum chart already in the database. Best-of merge with snapshot-delta counters;
+        /// safe to run repeatedly. Reports progress per chart. See the design spec.
+        /// </summary>
+        public async Task<NxImportResult> ImportNxScoresAsync(
+            IProgress<NxImportProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            var result = new NxImportResult();
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null)
+            {
+                Debug.WriteLine("SongManager: ImportNxScoresAsync called with no database service.");
+                return result;
+            }
+
+            var importer = new NxScoreImporter();
+            using var context = db.CreateContext();
+
+            var charts = await context.SongCharts
+                .Include(c => c.Song)
+                .Where(c => c.HasDrumChart)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var chart in charts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                result.Scanned++;
+                try
+                {
+                    var iniPath = chart.FilePath + ".score.ini";
+                    var data = NxScoreIniParser.Parse(iniPath);
+                    if (data == null)
+                    {
+                        result.Skipped++;
+                    }
+                    else
+                    {
+                        await importer.MergeAsync(context, chart, data).ConfigureAwait(false);
+                        result.Imported++;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    result.Errors++;
+                    Debug.WriteLine($"SongManager: NX import error for {chart.FilePath}: {ex.Message}");
+                }
+
+                progress?.Report(new NxImportProgress
+                {
+                    Scanned = result.Scanned,
+                    Imported = result.Imported,
+                    Skipped = result.Skipped,
+                    Errors = result.Errors,
+                    CurrentFile = Path.GetFileName(chart.FilePath)
+                });
+            }
+
+            Debug.WriteLine($"SongManager: NX import complete — scanned {result.Scanned}, imported {result.Imported}, skipped {result.Skipped}, errors {result.Errors}.");
+            return result;
         }
 
         /// <summary>
