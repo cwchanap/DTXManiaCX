@@ -789,6 +789,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             // Additive schema upgrade for existing databases: EnsureCreated never alters an
             // existing schema, so add new columns here, idempotently.
             await EnsureBookmarkColumnAsync(context);
+
+            // Additive schema upgrade: NX-import snapshot columns.
+            await EnsureNxImportColumnsAsync(context);
         }
 
         /// <summary>
@@ -863,6 +866,41 @@ namespace DTXMania.Game.Lib.Song.Entities
             // CREATE INDEX IF NOT EXISTS is idempotent.
             await context.Database.ExecuteSqlRawAsync(
                 "CREATE INDEX IF NOT EXISTS IX_Songs_IsBookmarked ON Songs(IsBookmarked)");
+        }
+
+        /// <summary>
+        /// Ensures SongScores.NxImportedPlayCount / NxImportedClearCount exist. Fresh
+        /// databases already have them via EnsureCreated; pre-existing databases get them
+        /// added here exactly once. Idempotent; a concurrent duplicate-column error is
+        /// treated as success, a genuine failure propagates.
+        /// </summary>
+        private async Task EnsureNxImportColumnsAsync(SongDbContext context)
+        {
+            foreach (var column in new[] { "NxImportedPlayCount", "NxImportedClearCount" })
+            {
+                var columnCount = await context.Database.SqlQueryRaw<int>(
+                    $"SELECT COUNT(*) FROM pragma_table_info('SongScores') WHERE name='{column}'"
+                ).ToListAsync();
+
+                if (columnCount.FirstOrDefault() != 0)
+                    continue;
+
+                try
+                {
+                    await context.Database.ExecuteSqlRawAsync(
+                        $"ALTER TABLE SongScores ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0");
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Added SongScores.{column} column");
+                }
+                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
+                {
+                    // Concurrent initializer added it; nothing to do.
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        $"SongDatabaseService: Failed to add {column} column during schema migration.", ex);
+                }
+            }
         }
 
         /// <summary>
