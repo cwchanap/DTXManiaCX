@@ -68,7 +68,7 @@ public class ConfigStageLogicTests
 
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
-            Assert.Equal(9, configItems!.Count);
+            Assert.Equal(10, configItems!.Count);
             Assert.Collection(configItems,
                 item => Assert.Equal("Screen Resolution", item.Name),
                 item => Assert.Equal("Fullscreen", item.Name),
@@ -78,7 +78,8 @@ public class ConfigStageLogicTests
                 item => Assert.Equal("Scroll Speed", item.Name),
                 item => Assert.Equal("Audio Latency Offset", item.Name),
                 item => Assert.Equal("Drum Key Mapping", item.Name),
-                item => Assert.Equal("System Key Mapping", item.Name));
+                item => Assert.Equal("System Key Mapping", item.Name),
+                item => Assert.Equal("Import NX Scores", item.Name));
             Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
         }
     }
@@ -602,7 +603,7 @@ public class ConfigStageLogicTests
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.NotNull(configItems);
-            Assert.Equal(9, configItems!.Count);
+            Assert.Equal(10, configItems!.Count);
             Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
         }
