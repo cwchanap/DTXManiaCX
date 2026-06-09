@@ -40,4 +40,11 @@
     </None>
   </ItemGroup>
 
+
+  <ItemGroup>
+    <None Include="TestData/NxScores/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
