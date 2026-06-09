@@ -781,8 +781,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             // best-effort catch above: a failed migration would otherwise leave init reporting
             // success while bookmark queries fail later with confusing errors. Note that
             // EnsureDatabaseVersionTableAsync has its own swallow-all catch and therefore does
-            // NOT fail fast — only EnsureBookmarkColumnAsync propagates real errors. It runs
-            // unguarded so a genuine schema error fails initialization fast.
+            // NOT fail fast — only EnsureBookmarkColumnAsync and EnsureNxImportColumnsAsync
+            // propagate real errors. They run unguarded so a genuine schema error fails
+            // initialization fast.
             // Create/update version table to mark Unicode configuration as configured.
             await EnsureDatabaseVersionTableAsync(context);
 

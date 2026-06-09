@@ -52,6 +52,7 @@ namespace DTXMania.Test.Song
                 }
             }
             Assert.Equal(0, await ColumnCountAsync("NxImportedPlayCount"));
+            Assert.Equal(0, await ColumnCountAsync("NxImportedClearCount"));
 
             var second = new SongDatabaseService(_dbPath);
             await second.InitializeDatabaseAsync();
