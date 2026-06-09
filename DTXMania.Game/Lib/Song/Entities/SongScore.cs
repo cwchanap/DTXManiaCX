@@ -74,7 +74,17 @@ namespace DTXMania.Game.Lib.Song.Entities
         public int PlayCount { get; set; }
         public int ClearCount { get; set; }
         public int MaxCombo { get; set; }
-        
+
+        /// <summary>
+        /// Cumulative NX PlayCount already imported into PlayCount (snapshot for delta merge).
+        /// </summary>
+        public int NxImportedPlayCount { get; set; }
+
+        /// <summary>
+        /// Cumulative NX ClearCount already imported into ClearCount (snapshot for delta merge).
+        /// </summary>
+        public int NxImportedClearCount { get; set; }
+
         #endregion
         
         #region Skill Calculation (Legacy)
@@ -458,7 +468,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                 UsedKeyboard = UsedKeyboard,
                 UsedMidi = UsedMidi,
                 UsedJoypad = UsedJoypad,
-                UsedMouse = UsedMouse
+                UsedMouse = UsedMouse,
+                NxImportedPlayCount = NxImportedPlayCount,
+                NxImportedClearCount = NxImportedClearCount
             };
         }
         
