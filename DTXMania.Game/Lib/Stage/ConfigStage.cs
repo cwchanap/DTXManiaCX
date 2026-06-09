@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
@@ -54,6 +55,10 @@ namespace DTXMania.Game.Lib.Stage
         private IFont _font;
         private IFont _boldFont;
         private IResourceManager _resourceManager;
+
+        // NX score import status
+        private volatile string _importStatus = "";
+        private volatile bool _importRunning;
 
         // DTXMania-style constants
         private const int MenuX = 100;
@@ -115,6 +120,7 @@ namespace DTXMania.Game.Lib.Stage
             DrawTitle();
             DrawConfigItems();
             DrawButtons();
+            DrawImportStatus();
             DrawInstructions();
 
             // Draw active panel as overlay within the same sprite batch
@@ -352,6 +358,10 @@ namespace DTXMania.Game.Lib.Stage
             _configItems.Add(new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel)));
 
+            // NX score import (manual, non-destructive merge)
+            _configItems.Add(new NavigationConfigItem("Import NX Scores",
+                () => StartNxScoreImport()));
+
             if (_configItems.Count > 0)
                 _selectedIndex = 0;
         }
@@ -407,6 +417,43 @@ namespace DTXMania.Game.Lib.Stage
         private void OnPanelClosed(object? sender, EventArgs e)
         {
             _activePanel = null;
+        }
+
+        /// <summary>
+        /// Starts the NX score import asynchronously. Guarded against re-entry; updates
+        /// <see cref="_importStatus"/> for the live status line. Non-destructive merge,
+        /// so no confirmation prompt.
+        /// </summary>
+        private void StartNxScoreImport()
+        {
+            if (_importRunning)
+                return;
+            _importRunning = true;
+            _importStatus = "Importing NX scores...";
+
+            var progress = new System.Progress<NxImportProgress>(p =>
+            {
+                _importStatus = $"Importing... {p.Imported} imported / {p.Scanned} scanned";
+            });
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await SongManager.Instance.ImportNxScoresAsync(progress);
+                    _importStatus = $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
+                        (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
+                }
+                catch (System.Exception ex)
+                {
+                    _importStatus = "NX import failed (see log)";
+                    System.Diagnostics.Debug.WriteLine($"ConfigStage: NX import failed: {ex.Message}");
+                }
+                finally
+                {
+                    _importRunning = false;
+                }
+            });
         }
 
         #endregion
@@ -711,6 +758,16 @@ namespace DTXMania.Game.Lib.Stage
                 var color = saveSelected ? Color.Yellow : Color.Green;
                 DrawTextRect(x, y + 5, 88, 16, color);
             }
+        }
+
+        private void DrawImportStatus()
+        {
+            if (string.IsNullOrEmpty(_importStatus) || _font == null)
+                return;
+
+            int x = MenuX;
+            int y = MenuY + (_configItems.Count * MenuItemHeight) + 60;
+            _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), Color.Cyan);
         }
 
         private void DrawInstructions()
