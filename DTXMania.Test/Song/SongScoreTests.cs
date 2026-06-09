@@ -518,6 +518,8 @@ namespace DTXMania.Test.Song
                 UsedMidi = true,
                 UsedJoypad = false,
                 UsedMouse = false,
+                NxImportedPlayCount = 79,
+                NxImportedClearCount = 72,
             };
             var clone = score.Clone();
             Assert.Equal(score.ChartId, clone.ChartId);
@@ -549,6 +551,8 @@ namespace DTXMania.Test.Song
             Assert.Equal(score.UsedMidi, clone.UsedMidi);
             Assert.Equal(score.UsedJoypad, clone.UsedJoypad);
             Assert.Equal(score.UsedMouse, clone.UsedMouse);
+            Assert.Equal(score.NxImportedPlayCount, clone.NxImportedPlayCount);
+            Assert.Equal(score.NxImportedClearCount, clone.NxImportedClearCount);
         }
 
 
