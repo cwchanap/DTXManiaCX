@@ -295,5 +295,81 @@ namespace DTXMania.Test.Song
             var s = Load(chart.Id);
             Assert.Equal(500, s.LastScore);  // CX kept; NX was older in UTC terms
         }
+
+        [Fact]
+        public async Task NullContext_ShouldThrowArgumentNullException()
+        {
+            var chart = SeedChart();
+            await Assert.ThrowsAsync<ArgumentNullException>(
+                () => _importer.MergeAsync(null!, chart, Mas()));
+        }
+
+        [Fact]
+        public async Task NullChart_ShouldThrowArgumentNullException()
+        {
+            using var ctx = new SongDbContext(_options);
+            await Assert.ThrowsAsync<ArgumentNullException>(
+                () => _importer.MergeAsync(ctx, null!, Mas()));
+        }
+
+        [Fact]
+        public async Task NullData_ShouldThrowArgumentNullException()
+        {
+            var chart = SeedChart();
+            using var ctx = new SongDbContext(_options);
+            var tracked = ctx.SongCharts.Include(c => c.Song).First(c => c.Id == chart.Id);
+            await Assert.ThrowsAsync<ArgumentNullException>(
+                () => _importer.MergeAsync(ctx, tracked, null!));
+        }
+
+        [Fact]
+        public async Task NoLastPlayedAt_ShouldNotUpdateLastPlay()
+        {
+            var chart = SeedChart();
+            var data = Mas();
+            data.LastPlayedAt = null;
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.Null(s.LastPlayedAt);
+        }
+
+        [Fact]
+        public async Task EmptyLastProgress_ShouldNotUpdateProgress()
+        {
+            var chart = SeedChart();
+            var data = Mas();
+            data.LastProgress = "";
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.Empty(s.ProgressBar);
+        }
+
+        [Fact]
+        public async Task NxFullComboFalse_ShouldNotSetFullCombo()
+        {
+            var chart = SeedChart();
+            var data = Mas();
+            data.BestMaxCombo = 10; // less than total notes (2575)
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.False(s.FullCombo);
+        }
+
+        [Fact]
+        public async Task UtcTimestamp_ShouldRemainUtc()
+        {
+            var chart = SeedChart();
+            var utcTime = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+            var data = Mas();
+            data.LastPlayedAt = utcTime;
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            // UTC input should be stored as-is (ticks match).
+            Assert.Equal(utcTime.Ticks, s.LastPlayedAt!.Value.Ticks);
+        }
     }
 }

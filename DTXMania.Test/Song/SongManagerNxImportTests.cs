@@ -111,5 +111,72 @@ namespace DTXMania.Test.Song
             var s = ctx.SongScores.AsNoTracking().First(x => x.ChartId == chartId);
             Assert.Equal(79, s.PlayCount);
         }
+
+        [Fact]
+        public async Task NoDatabaseService_ShouldReturnEmptyResult()
+        {
+            // Do not initialize the database service.
+            var result = await _manager.ImportNxScoresAsync();
+            Assert.Equal(0, result.Scanned);
+            Assert.Equal(0, result.Imported);
+            Assert.Equal(0, result.Skipped);
+            Assert.Equal(0, result.Errors);
+        }
+
+        [Fact]
+        public async Task ChartWithEmptyFilePath_ShouldBeSkipped()
+        {
+            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            using var ctx = _manager.DatabaseService!.CreateContext();
+            var chart = new SongChart
+            {
+                Song = new SongEntity { Title = "Ghost" },
+                FilePath = "", HasDrumChart = true, DrumLevel = 50
+            };
+            ctx.SongCharts.Add(chart);
+            await ctx.SaveChangesAsync();
+
+            var result = await _manager.ImportNxScoresAsync();
+
+            Assert.Equal(1, result.Scanned);
+            Assert.Equal(0, result.Imported);
+            Assert.Equal(1, result.Skipped);
+        }
+
+        [Fact]
+        public async Task CanceledToken_ShouldThrowOperationCanceledException()
+        {
+            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => _manager.ImportNxScoresAsync(cancellationToken: cts.Token));
+        }
+
+        private sealed class ImmediateProgress : IProgress<NxImportProgress>
+        {
+            public readonly System.Collections.Generic.List<NxImportProgress> Reports = new();
+            public void Report(NxImportProgress value) => Reports.Add(value);
+        }
+
+        [Fact]
+        public async Task ProgressReporter_ShouldReceiveUpdates()
+        {
+            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            var dtx = WriteChartAndScore("prog.dtx", playCount: 10, score: 50000);
+            await SeedChartAsync(dtx, "Progress Song");
+
+            var progress = new ImmediateProgress();
+
+            await _manager.ImportNxScoresAsync(progress);
+
+            Assert.NotEmpty(progress.Reports);
+            var last = progress.Reports[^1];
+            Assert.Equal(1, last.Scanned);
+            Assert.Equal(1, last.Imported);
+            Assert.Equal(0, last.Skipped);
+            Assert.Equal("prog.dtx", last.CurrentFile);
+        }
     }
 }
