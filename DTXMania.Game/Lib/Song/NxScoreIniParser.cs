@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace DTXMania.Game.Lib.Song
 {
@@ -15,7 +16,7 @@ namespace DTXMania.Game.Lib.Song
     /// </summary>
     public static class NxScoreIniParser
     {
-        private static bool _encodingProviderRegistered;
+        private static int _encodingProviderRegistered;
 
         public static NxScoreData? Parse(string scoreIniPath)
         {
@@ -72,10 +73,9 @@ namespace DTXMania.Game.Lib.Song
             var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, string>? current = null;
 
-            if (!_encodingProviderRegistered)
+            if (Interlocked.CompareExchange(ref _encodingProviderRegistered, 1, 0) == 0)
             {
                 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-                _encodingProviderRegistered = true;
             }
             // Shift-JIS: every consumed field is ASCII, so even a decode hiccup on Title is harmless.
             var encoding = Encoding.GetEncoding("Shift_JIS");

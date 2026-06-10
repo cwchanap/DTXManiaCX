@@ -65,7 +65,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_FirstImport_SeedsScoreAndSnapshot()
+        public async Task FirstImport_ShouldSeedScoreAndSnapshot()
         {
             var chart = SeedChart();
             await Merge(chart, Mas());
@@ -84,7 +84,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_RepeatedUnchanged_DoesNotInflateCounts()
+        public async Task RepeatedUnchanged_ShouldNotInflateCounts()
         {
             var chart = SeedChart();
             await Merge(chart, Mas());
@@ -96,7 +96,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_IncreasedNxCounts_AddsOnlyDelta()
+        public async Task IncreasedNxCounts_ShouldAddOnlyDelta()
         {
             var chart = SeedChart();
             await Merge(chart, Mas());
@@ -111,7 +111,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_CxHigherScore_RetainsCxBestButAddsCounts()
+        public async Task CxHigherScore_ShouldRetainCxBestAndAddCounts()
         {
             var chart = SeedChart();
             using (var ctx = new SongDbContext(_options))
@@ -140,7 +140,7 @@ namespace DTXMania.Test.Song
         [InlineData(1, 90, "S")]
         [InlineData(2, 80, "A")]
         [InlineData(6, 40, "E")]
-        public async Task Merge_MapsNxRankOrdinalToBucket(int ordinal, int bucket, string label)
+        public async Task MapsNxRankOrdinal_ShouldMapToBucket(int ordinal, int bucket, string label)
         {
             var chart = SeedChart(file: $"r{ordinal}.dtx");
             var data = Mas();
@@ -153,7 +153,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_UnknownRank_LeavesRankUnchanged()
+        public async Task UnknownRank_ShouldLeaveRankUnchanged()
         {
             var chart = SeedChart();
             var data = Mas();
@@ -165,7 +165,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_CxLastPlayNewer_KeepsCxLastPlay()
+        public async Task CxLastPlayNewer_ShouldKeepCxLastPlay()
         {
             var chart = SeedChart();
             using (var ctx = new SongDbContext(_options))
@@ -185,7 +185,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_TwoChartsSameSong_MergesHistoryNewestFiveAcrossCharts()
+        public async Task TwoChartsSameSong_ShouldMergeNewestFiveHistoryAcrossCharts()
         {
             var chart1 = SeedChart(title: "Shared", file: "mas.dtx");
             var chart2 = SeedChart(file: "ext.dtx", songId: chart1.SongId);
@@ -222,7 +222,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task Merge_RepeatedHistory_IsDeduped()
+        public async Task RepeatedHistory_ShouldBeDeduped()
         {
             var chart = SeedChart();
             var data = Mas();

@@ -66,7 +66,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ImportNxScoresAsync_ImportsDrumScoreForSiblingIni()
+        public async Task SiblingIniPresent_ShouldImportDrumScore()
         {
             Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
@@ -84,7 +84,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ImportNxScoresAsync_SkipsChartsWithoutScoreIni()
+        public async Task ChartsWithoutScoreIni_ShouldBeSkipped()
         {
             Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
             var dtx = WriteChartAndScore("no.dtx", 0, 0, withScoreIni: false);
@@ -98,7 +98,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ImportNxScoresAsync_RepeatedRun_DoesNotInflatePlayCount()
+        public async Task RepeatedRun_ShouldNotInflatePlayCount()
         {
             Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
             var dtx = WriteChartAndScore("mas.dtx", playCount: 79, score: 958247);
