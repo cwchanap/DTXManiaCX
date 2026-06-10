@@ -88,5 +88,97 @@ namespace DTXMania.Test.Song
             try { Assert.Null(NxScoreIniParser.Parse(path)); }
             finally { File.Delete(path); }
         }
+
+        [Fact]
+        public void Parse_NullPath_ReturnsNull()
+        {
+            Assert.Null(NxScoreIniParser.Parse(null));
+        }
+
+        [Fact]
+        public void Parse_EmptyPath_ReturnsNull()
+        {
+            Assert.Null(NxScoreIniParser.Parse(""));
+        }
+
+        [Fact]
+        public void Parse_MissingKeys_ShouldUseDefaults()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=5\n" +
+                "[HiScore.Drums]\nScore=1000\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Equal(1000, data!.BestScore);
+                Assert.Equal(0, data.BestPerfect);   // default fallback
+                Assert.Equal(0, data.BestGreat);     // default fallback
+                Assert.Equal(0, data.BestAchievementRate); // default fallback
+                Assert.Equal(99, data.BestRankOrdinal);    // default fallback
+                Assert.Equal(5, data.PlayCount);
+                Assert.Equal(0, data.ClearCount);    // missing key
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void Parse_InvalidDateTime_ReturnsNullDate()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"baddate_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=not-a-date\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Null(data!.LastPlayedAt);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void Parse_HistoryWithInvalidDate_ShouldUseMinValue()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"badhistory_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\nHistory0=99.no-date-here Cleared (S: 90)\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Single(data!.History);
+                Assert.Equal(DateTime.MinValue, data.History[0].Date);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void Parse_NoHistory_ShouldReturnEmptyList()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"nohist_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Empty(data!.History);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void Parse_DoubleRegistration_ShouldNotThrow()
+        {
+            // A second parse after the first should reuse the already-registered encoding provider.
+            var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
+            Assert.NotNull(data);
+        }
     }
 }
