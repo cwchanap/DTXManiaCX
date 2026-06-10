@@ -34,7 +34,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_OnLegacyDbMissingColumns_AddsThem()
+        public async Task LegacyDbMissingColumns_ShouldAddColumns()
         {
             var first = new SongDatabaseService(_dbPath);
             await first.InitializeDatabaseAsync();

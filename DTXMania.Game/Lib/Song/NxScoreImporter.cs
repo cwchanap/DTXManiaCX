@@ -116,8 +116,9 @@ namespace DTXMania.Game.Lib.Song
             var top5 = candidates.OrderByDescending(c => c.Date).Take(5).ToList();
 
             // Delete then re-insert so the (SongId, DisplayOrder) unique index never collides.
+            // Deletions and inserts are staged in the tracked context; the caller's single
+            // SaveChangesAsync persists everything atomically.
             ctx.PerformanceHistory.RemoveRange(existing);
-            await ctx.SaveChangesAsync();
 
             int order = 1;
             foreach (var c in top5)
@@ -130,7 +131,6 @@ namespace DTXMania.Game.Lib.Song
                     DisplayOrder = order++,
                 });
             }
-            // Saved by the caller's SaveChangesAsync.
         }
     }
 }

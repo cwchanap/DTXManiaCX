@@ -1617,6 +1617,11 @@ namespace DTXMania.Game.Lib.Song
                 result.Scanned++;
                 try
                 {
+                    if (string.IsNullOrEmpty(chart.FilePath))
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
                     var iniPath = chart.FilePath + ".score.ini";
                     var data = NxScoreIniParser.Parse(iniPath);
                     if (data == null)

@@ -25,7 +25,7 @@ namespace DTXMania.Test.Song
         public void Dispose() => _connection.Dispose();
 
         [Fact]
-        public async Task SongScore_PersistsNxImportedCounts()
+        public async Task PersistingNxImportedCounts_ShouldPersist()
         {
             int chartId;
             using (var ctx = new SongDbContext(_options))
@@ -51,7 +51,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Clone_CopiesNxImportedCounts()
+        public void Clone_WhenCalled_ShouldCopyNxImportedCounts()
         {
             var score = new SongScore { NxImportedPlayCount = 5, NxImportedClearCount = 3 };
             var clone = score.Clone();
