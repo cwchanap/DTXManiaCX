@@ -32,10 +32,11 @@ namespace DTXMania.Game.Lib.Song
         };
 
         /// <summary>
-        /// Applies the merge using the caller's tracked context. The chart must be tracked
-        /// (its SongId is used for history). Returns true if any row was written.
+        /// Applies the merge using the caller's tracked context. The chart's Id and
+        /// SongId are read for score lookup and history merge. Persists all changes
+        /// via SaveChangesAsync.
         /// </summary>
-        public async Task<bool> MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data)
+        public async Task MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data)
         {
             if (ctx == null) throw new ArgumentNullException(nameof(ctx));
             if (chart == null) throw new ArgumentNullException(nameof(chart));
@@ -103,7 +104,6 @@ namespace DTXMania.Game.Lib.Song
             await MergeHistoryAsync(ctx, chart.SongId, data.History);
 
             await ctx.SaveChangesAsync();
-            return true;
         }
 
         private static async Task MergeHistoryAsync(SongDbContext ctx, int songId, IReadOnlyList<NxHistoryLine> nxHistory)

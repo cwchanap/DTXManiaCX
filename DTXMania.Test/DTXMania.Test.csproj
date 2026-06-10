@@ -27,7 +27,6 @@
     <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" />
   </ItemGroup>
 
-
   <ItemGroup>
     <None Include="TestData/NxScores/**/*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

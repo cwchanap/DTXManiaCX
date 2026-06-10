@@ -8,6 +8,9 @@ namespace DTXMania.Game.Lib.Song
         public int Imported { get; set; }
         public int Skipped { get; set; }
         public int Errors { get; set; }
+
+        /// <summary>True when the import could not run because no database service was available.</summary>
+        public bool DbUnavailable { get; set; }
     }
 
     /// <summary>Progress snapshot reported during a bulk NX score import.</summary>

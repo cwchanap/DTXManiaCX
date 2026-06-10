@@ -777,9 +777,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Continue anyway - most modern SQLite installations default to UTF-8
             }
 
-            // The bookmark-column migration below must NOT be swallowed by the UTF-8
-            // best-effort catch above: a failed migration would otherwise leave init reporting
-            // success while bookmark queries fail later with confusing errors. Note that
+            // The bookmark-column and NX-import-column migrations below must NOT be swallowed
+            // by the UTF-8 best-effort catch above: a failed migration would otherwise leave
+            // init reporting success while queries fail later with confusing errors. Note that
             // EnsureDatabaseVersionTableAsync has its own swallow-all catch and therefore does
             // NOT fail fast — only EnsureBookmarkColumnAsync and EnsureNxImportColumnsAsync
             // propagate real errors. They run unguarded so a genuine schema error fails
@@ -895,6 +895,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
                 {
                     // Concurrent initializer added it; nothing to do.
+                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: {column} column already exists (concurrent race)");
                 }
                 catch (Exception ex)
                 {

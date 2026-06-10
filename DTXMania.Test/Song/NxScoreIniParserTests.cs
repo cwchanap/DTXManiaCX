@@ -180,5 +180,75 @@ namespace DTXMania.Test.Song
             var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
             Assert.NotNull(data);
         }
+
+        [Fact]
+        public void Parse_JapaneseLocaleDateTime_ShouldRoundTrip()
+        {
+            // NX writes timestamps in the user's locale format. The most common real-world
+            // format from the Japanese-locale user base is "2026/05/15 17:54:24".
+            // ParseDateTime uses InvariantCulture, which handles this slash-delimited form.
+            var path = Path.Combine(Path.GetTempPath(), $"jpdate_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=2026/05/15 17:54:24\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.NotNull(data!.LastPlayedAt);
+                Assert.Equal(new DateTime(2026, 5, 15, 17, 54, 24), data.LastPlayedAt!.Value);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void Parse_UnreadableFile_ShouldThrow()
+        {
+            // I/O failures must propagate so the orchestrator counts them as errors,
+            // not silently returning null (which would be counted as Skipped).
+            var path = Path.Combine(Path.GetTempPath(), $"unreadable_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
+            try
+            {
+                // Make the file unreadable (no permissions).
+                File.SetUnixFileMode(path, System.IO.UnixFileMode.None);
+                Assert.Throws<UnauthorizedAccessException>(() => NxScoreIniParser.Parse(path));
+            }
+            finally
+            {
+                // Restore permissions so cleanup can delete.
+                try { File.SetUnixFileMode(path, System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite); } catch { }
+                try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Parse_Utf8BomFile_ShouldParseAllSections()
+        {
+            // UTF-8 with BOM: .NET's StreamReader auto-detects the BOM and reads the file
+            // as UTF-8 regardless of the Shift-JIS encoding passed to ReadAllLines.
+            // All ASCII-valued fields parse correctly; this pins the actual behavior.
+            var path = Path.Combine(Path.GetTempPath(), $"bom_{Guid.NewGuid()}.score.ini");
+            var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+            using (var fs = new FileStream(path, FileMode.Create))
+            {
+                fs.Write(bom, 0, bom.Length);
+                var content = "[File]\nPlayCountDrums=5\nClearCountDrums=3\n" +
+                    "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n";
+                var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+                fs.Write(bytes, 0, bytes.Length);
+            }
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Equal(5, data!.PlayCount);
+                Assert.Equal(3, data.ClearCount);
+                Assert.Equal(1000, data.BestScore);
+            }
+            finally { File.Delete(path); }
+        }
     }
 }

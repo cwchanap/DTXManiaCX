@@ -48,5 +48,20 @@ namespace DTXMania.Test.Song
             var progress = new NxImportProgress();
             Assert.Equal("", progress.CurrentFile);
         }
+
+        [Fact]
+        public void NxImportResult_DbUnavailable_DefaultsFalse()
+        {
+            var result = new NxImportResult();
+            Assert.False(result.DbUnavailable);
+        }
+
+        [Fact]
+        public void NxImportResult_DbUnavailable_CanBeSet()
+        {
+            var result = new NxImportResult { DbUnavailable = true, Scanned = 0 };
+            Assert.True(result.DbUnavailable);
+            Assert.Equal(0, result.Scanned);
+        }
     }
 }
