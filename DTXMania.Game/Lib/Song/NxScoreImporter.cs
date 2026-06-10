@@ -83,15 +83,21 @@ namespace DTXMania.Game.Lib.Song
             score.ClearCount += Math.Max(0, data.ClearCount - score.NxImportedClearCount);
             score.NxImportedClearCount = data.ClearCount;
 
-            // Last play (newest wins).
-            if (data.LastPlayedAt.HasValue &&
-                (!score.LastPlayedAt.HasValue || data.LastPlayedAt.Value > score.LastPlayedAt.Value))
+            // Last play (newest wins).  NX timestamps are local wall-clock (Unspecified);
+            // CX timestamps are UTC.  Normalize both to UTC before comparing / storing so
+            // that the comparison is not skewed by the local UTC offset.
+            if (data.LastPlayedAt.HasValue)
             {
-                score.LastScore = data.LastScore;
-                score.LastSkillPoint = data.LastSkill;
-                score.LastPlayedAt = data.LastPlayedAt;
-                if (!string.IsNullOrEmpty(data.LastProgress))
-                    score.ProgressBar = data.LastProgress;
+                var nxUtc = ToUtc(data.LastPlayedAt.Value);
+                if (!score.LastPlayedAt.HasValue || nxUtc > score.LastPlayedAt.Value)
+                {
+                    score.LastScore = data.LastScore;
+                    score.LastSkillPoint = data.LastSkill;
+                    score.SongSkill = data.LastSkill;
+                    score.LastPlayedAt = nxUtc;
+                    if (!string.IsNullOrEmpty(data.LastProgress))
+                        score.ProgressBar = data.LastProgress;
+                }
             }
 
             await MergeHistoryAsync(ctx, chart.SongId, data.History);
@@ -131,6 +137,21 @@ namespace DTXMania.Game.Lib.Song
                     DisplayOrder = order++,
                 });
             }
+        }
+
+        /// <summary>
+        /// Converts an NX-sourced <see cref="DateTime"/> to UTC for comparison with CX
+        /// timestamps (which are always UTC).  NX .score.ini files store local wall-clock
+        /// times parsed as <see cref="DateTimeKind.Unspecified"/>; we treat those as local.
+        /// </summary>
+        private static DateTime ToUtc(DateTime dt)
+        {
+            return dt.Kind switch
+            {
+                DateTimeKind.Utc => dt,
+                DateTimeKind.Local => dt.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(dt, DateTimeKind.Local).ToUniversalTime(),
+            };
         }
     }
 }

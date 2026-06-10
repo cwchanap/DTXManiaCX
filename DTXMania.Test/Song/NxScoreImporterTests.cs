@@ -80,6 +80,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(72, s.NxImportedClearCount);
             Assert.Equal(90, s.BestRank);            // ordinal 1 -> bucket 90
             Assert.Equal("S", SongScore.RankString(s.BestRank));
+            Assert.Equal(154.77, s.SongSkill, 2);    // mirrors CX: SongSkill = last skill
             Assert.True(s.UsedMidi);
         }
 
@@ -237,6 +238,62 @@ namespace DTXMania.Test.Song
             using var ctx = new SongDbContext(_options);
             var rows = ctx.PerformanceHistory.AsNoTracking().Where(p => p.SongId == chart.SongId).ToList();
             Assert.Single(rows);
+        }
+
+        [Fact]
+        public async Task NxLastPlayWins_ShouldSetSongSkill()
+        {
+            var chart = SeedChart();
+            await Merge(chart, Mas());
+
+            var s = Load(chart.Id);
+            Assert.Equal(154.77, s.SongSkill, 2);  // mirrors CX behaviour (SongSkill = last skill)
+            Assert.Equal(154.77, s.LastSkillPoint, 2);
+        }
+
+        [Fact]
+        public async Task NxLastPlayWins_ShouldNormalizeTimestampToUtc()
+        {
+            var chart = SeedChart();
+            // Simulate an NX local wall-clock timestamp (Unspecified kind).
+            var localTime = new DateTime(2026, 6, 1, 20, 0, 0, DateTimeKind.Unspecified);
+            var data = Mas();
+            data.LastPlayedAt = localTime;
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            // The stored value must be the UTC-equivalent of the local time.
+            // SQLite/EF Core strips DateTimeKind on round-trip, so we compare ticks only.
+            var expectedUtc = DateTime.SpecifyKind(localTime, DateTimeKind.Local).ToUniversalTime();
+            Assert.Equal(expectedUtc.Ticks, s.LastPlayedAt!.Value.Ticks);
+        }
+
+        [Fact]
+        public async Task CxLastPlayNewerInUtc_ShouldKeepCxLastPlay()
+        {
+            var chart = SeedChart();
+            // CX stores UTC.  Seed a CX score with a recent UTC timestamp.
+            // Use DateTimeKind.Utc so the intent is clear; SQLite strips Kind on round-trip.
+            var cxUtc = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+            using (var ctx = new SongDbContext(_options))
+            {
+                ctx.SongScores.Add(new SongScore
+                {
+                    ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS,
+                    LastScore = 500, LastPlayedAt = cxUtc
+                });
+                ctx.SaveChanges();
+            }
+
+            // NX has a wall-clock time from many years before — clearly older regardless of timezone.
+            var nxLocal = new DateTime(2020, 1, 1, 8, 0, 0, DateTimeKind.Unspecified);
+            var data = Mas();
+            data.LastPlayedAt = nxLocal;
+            data.LastScore = 999;
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.Equal(500, s.LastScore);  // CX kept; NX was older in UTC terms
         }
     }
 }
