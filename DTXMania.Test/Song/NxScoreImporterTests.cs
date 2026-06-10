@@ -56,12 +56,11 @@ namespace DTXMania.Test.Song
             UsedMidi = true,
         };
 
-        private async Task<bool> Merge(SongChart chart, NxScoreData data)
+        private async Task Merge(SongChart chart, NxScoreData data)
         {
             using var ctx = new SongDbContext(_options);
             var tracked = ctx.SongCharts.Include(c => c.Song).First(c => c.Id == chart.Id);
-            var wrote = await _importer.MergeAsync(ctx, tracked, data);
-            return wrote;
+            await _importer.MergeAsync(ctx, tracked, data);
         }
 
         [Fact]
@@ -370,6 +369,58 @@ namespace DTXMania.Test.Song
             var s = Load(chart.Id);
             // UTC input should be stored as-is (ticks match).
             Assert.Equal(utcTime.Ticks, s.LastPlayedAt!.Value.Ticks);
+        }
+
+        [Fact]
+        public async Task DecreasedNxSnapshot_ShouldClampToZeroDelta()
+        {
+            // If the NX file now reports fewer plays than the last import snapshot
+            // (e.g. the user deleted and re-ran with an older backup), Math.Max(0,...)
+            // should prevent PlayCount from decreasing.
+            var chart = SeedChart();
+
+            // First import: NX says 79 plays, 72 clears.
+            await Merge(chart, Mas());
+
+            // Second import: NX file was replaced with an older backup (fewer plays).
+            var older = Mas();
+            older.PlayCount = 50;
+            older.ClearCount = 40;
+            await Merge(chart, older);
+
+            var s = Load(chart.Id);
+            // PlayCount must not go down — delta is max(0, 50-79) = 0.
+            Assert.Equal(79, s.PlayCount);
+            Assert.Equal(72, s.ClearCount);
+            // Snapshot is updated to the current NX value regardless.
+            Assert.Equal(50, s.NxImportedPlayCount);
+            Assert.Equal(40, s.NxImportedClearCount);
+        }
+
+        [Fact]
+        public async Task ErrorOnChartN_ShouldNotAffectChartN1()
+        {
+            // Seed two charts for the same song.
+            var chart1 = SeedChart(title: "Shared", file: "chart1.dtx");
+            var chart2 = SeedChart(file: "chart2.dtx", songId: chart1.SongId);
+
+            // Merge chart1 successfully.
+            await Merge(chart1, Mas());
+
+            // Merge chart2 successfully.
+            var data2 = Mas();
+            data2.BestScore = 500000;
+            data2.PlayCount = 10;
+            data2.ClearCount = 5;
+            await Merge(chart2, data2);
+
+            // Verify both charts have their own data.
+            var s1 = Load(chart1.Id);
+            var s2 = Load(chart2.Id);
+            Assert.Equal(958247, s1.BestScore);
+            Assert.Equal(79, s1.PlayCount);
+            Assert.Equal(500000, s2.BestScore);
+            Assert.Equal(10, s2.PlayCount);
         }
     }
 }

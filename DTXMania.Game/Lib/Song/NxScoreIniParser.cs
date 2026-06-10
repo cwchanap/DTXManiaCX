@@ -10,8 +10,10 @@ namespace DTXMania.Game.Lib.Song
 {
     /// <summary>
     /// Parses a DTXManiaNX &lt;chart&gt;.score.ini (Shift-JIS) into the drum-only
-    /// <see cref="NxScoreData"/>. Returns null when the file is absent, unreadable, or
-    /// has no drum data. Only ASCII-valued fields are consumed, so a non-ASCII Title is
+    /// <see cref="NxScoreData"/>. Returns null when the file is absent or
+    /// has no drum data. Throws on I/O or decode failures so the caller can
+    /// distinguish them from a legitimate absent-file skip.
+    /// Only ASCII-valued fields are consumed, so a non-ASCII Title is
     /// never decoded/depended upon.
     /// </summary>
     public static class NxScoreIniParser
@@ -23,16 +25,9 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrEmpty(scoreIniPath) || !File.Exists(scoreIniPath))
                 return null;
 
-            Dictionary<string, Dictionary<string, string>> sections;
-            try
-            {
-                sections = ReadSections(scoreIniPath);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"NxScoreIniParser: failed to read {scoreIniPath}: {ex.Message}");
-                return null;
-            }
+            // Let I/O and decode exceptions propagate so the caller can count them as errors
+            // rather than silently treating them as "no data" (Skipped).
+            var sections = ReadSections(scoreIniPath);
 
             var file = Section(sections, "File");
             var hiScore = Section(sections, "HiScore.Drums");

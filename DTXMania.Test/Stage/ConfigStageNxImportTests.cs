@@ -115,7 +115,7 @@ public class ConfigStageNxImportTests : IDisposable
             var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
-            Assert.Equal("NX import failed (see log)", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+            Assert.StartsWith("NX import failed:", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
         }
     }
 

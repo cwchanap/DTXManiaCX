@@ -358,7 +358,7 @@ namespace DTXMania.Game.Lib.Stage
             _configItems.Add(new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel)));
 
-            // NX score import (manual, non-destructive merge)
+            // NX score import (idempotent best/delta counters; history merged top-5)
             _configItems.Add(new NavigationConfigItem("Import NX Scores",
                 () => StartNxScoreImport()));
 
@@ -421,8 +421,9 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Starts the NX score import asynchronously. Guarded against re-entry; updates
-        /// <see cref="_importStatus"/> for the live status line. Non-destructive merge,
-        /// so no confirmation prompt.
+        /// <see cref="_importStatus"/> for the live status line. Best scores and counters
+        /// use idempotent max/delta merges (safe to re-run); performance history is merged
+        /// and deduplicated (top 5 kept). No confirmation prompt needed.
         /// </summary>
         private void StartNxScoreImport()
         {
@@ -444,13 +445,16 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     var result = await SongManager.Instance.ImportNxScoresAsync(progress);
-                    _importStatus = $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
-                        (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
+                    _importStatus = result.DbUnavailable
+                        ? "NX import unavailable (no database)"
+                        : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
+                          (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
                 }
                 catch (System.Exception ex)
                 {
-                    _importStatus = "NX import failed (see log)";
-                    System.Diagnostics.Debug.WriteLine($"ConfigStage: NX import failed: {ex.Message}");
+                    var detail = ex.GetBaseException().Message;
+                    _importStatus = $"NX import failed: {detail}";
+                    System.Diagnostics.Debug.WriteLine($"ConfigStage: NX import failed: {ex}");
                 }
                 finally
                 {

@@ -1599,6 +1599,7 @@ namespace DTXMania.Game.Lib.Song
             if (db == null)
             {
                 Debug.WriteLine("SongManager: ImportNxScoresAsync called with no database service.");
+                result.DbUnavailable = true;
                 return result;
             }
 
@@ -1620,18 +1621,20 @@ namespace DTXMania.Game.Lib.Song
                     if (string.IsNullOrEmpty(chart.FilePath))
                     {
                         result.Skipped++;
-                        continue;
-                    }
-                    var iniPath = chart.FilePath + ".score.ini";
-                    var data = NxScoreIniParser.Parse(iniPath);
-                    if (data == null)
-                    {
-                        result.Skipped++;
                     }
                     else
                     {
-                        await importer.MergeAsync(context, chart, data).ConfigureAwait(false);
-                        result.Imported++;
+                        var iniPath = chart.FilePath + ".score.ini";
+                        var data = NxScoreIniParser.Parse(iniPath);
+                        if (data == null)
+                        {
+                            result.Skipped++;
+                        }
+                        else
+                        {
+                            await importer.MergeAsync(context, chart, data).ConfigureAwait(false);
+                            result.Imported++;
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1641,6 +1644,8 @@ namespace DTXMania.Game.Lib.Song
                 catch (Exception ex)
                 {
                     result.Errors++;
+                    // Clear tracked entities so a failed merge does not poison the next chart.
+                    context.ChangeTracker.Clear();
                     Debug.WriteLine($"SongManager: NX import error for {chart.FilePath}: {ex.Message}");
                 }
 
