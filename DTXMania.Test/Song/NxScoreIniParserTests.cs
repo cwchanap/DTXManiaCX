@@ -207,6 +207,10 @@ namespace DTXMania.Test.Song
         {
             // I/O failures must propagate so the orchestrator counts them as errors,
             // not silently returning null (which would be counted as Skipped).
+            // File.SetUnixFileMode is Unix-only; skip on Windows.
+            if (!System.OperatingSystem.IsLinux() && !System.OperatingSystem.IsMacOS())
+                return;
+
             var path = Path.Combine(Path.GetTempPath(), $"unreadable_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\n[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
