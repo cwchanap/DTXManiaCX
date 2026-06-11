@@ -465,6 +465,24 @@ namespace DTXMania.Game.Lib.Stage
                         ? "NX import unavailable (no database)"
                         : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
                           (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
+
+                    // Refresh the in-memory song list so SongSelectionStage sees the
+                    // updated play counts, ranks, etc. without requiring a restart.
+                    if (result.Imported > 0)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        try
+                        {
+                            await SongManager.Instance.RefreshSongListFromDatabaseAsync();
+                        }
+                        catch (System.Exception ex)
+                        {
+                            // Import succeeded; refresh failure is non-fatal — the user
+                            // can restart or re-enter song select to trigger a rebuild.
+                            System.Diagnostics.Debug.WriteLine(
+                                $"ConfigStage: NX import succeeded but song list refresh failed: {ex}");
+                        }
+                    }
                 }
                 catch (System.OperationCanceledException)
                 {

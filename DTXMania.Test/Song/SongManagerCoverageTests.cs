@@ -95,6 +95,35 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WithValidSearchPaths_ShouldRebuildRootSongs()
+    {
+        var songsRoot = Path.Combine(_testRoot, "RefreshSongs");
+        var songFolder = Path.Combine(songsRoot, "Refresh Song");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Refresh Song", "Test Bot", "Pop", 40);
+
+        await InitializeAndEnumerateAsync(songsRoot);
+        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        ClearRootSongs();
+
+        await _manager.RefreshSongListFromDatabaseAsync();
+
+        Assert.NotEmpty(_manager.RootSongs);
+        var node = Assert.Single(_manager.RootSongs);
+        Assert.Equal("Refresh Song", node.Title);
+        Assert.Equal(NodeType.Score, node.Type);
+    }
+
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WithoutSearchPaths_ShouldNotThrow()
+    {
+        // SongManager starts with empty search paths.
+        // Refresh should be a no-op — no crash, no RootSongs mutation.
+        await _manager.RefreshSongListFromDatabaseAsync();
+        Assert.Empty(_manager.RootSongs);
+    }
+
+    [Fact]
     public async Task ParseBoxDefinitionAsync_WithMissingFile_ShouldReturnNull()
     {
         var task = ReflectionHelpers.InvokePrivateMethod<Task<BoxDefinition?>>(
