@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 
@@ -190,8 +192,8 @@ namespace DTXMania.Test.Song
         {
             // NX writes timestamps in the user's locale format. The most common real-world
             // format from the Japanese-locale user base is "2026/05/15 17:54:24".
-            // ParseDateTime tries CurrentCulture first, then InvariantCulture as fallback;
-            // both handle the unambiguous yyyy/MM/dd format correctly.
+            // ParseDateTime tries known NX cultures first (including ja-JP), then
+            // CurrentCulture, then InvariantCulture; all handle yyyy/MM/dd correctly.
             var path = Path.Combine(Path.GetTempPath(), $"jpdate_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\n" +
@@ -270,6 +272,35 @@ namespace DTXMania.Test.Song
                 Assert.Equal(new DateTime(2026, 6, 5, 17, 54, 24), data.LastPlayedAt!.Value);
             }
             finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void AmbiguousDate_UsCurrentCulture_ShouldNotPreemptKnownNxCultures()
+        {
+            // Regression: when CX runs under en-US (MM/dd) and imports an NX score.ini
+            // written under en-GB (dd/MM), "05/06/2026" must resolve as June 5 (dd/MM),
+            // not May 6 (MM/dd).  Known NX cultures must take priority over CurrentCulture
+            // so that the source locale wins for ambiguous dates.
+            var savedCulture = Thread.CurrentThread.CurrentCulture;
+            Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+            try
+            {
+                var path = Path.Combine(Path.GetTempPath(), $"uspreempt_{Guid.NewGuid()}.score.ini");
+                File.WriteAllText(path,
+                    "[File]\nPlayCountDrums=1\n" +
+                    "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                    "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=05/06/2026 17:54:24\n");
+                try
+                {
+                    var data = NxScoreIniParser.Parse(path);
+                    Assert.NotNull(data);
+                    Assert.NotNull(data!.LastPlayedAt);
+                    // Must be June 5 (dd/MM from en-GB in known NX cultures), NOT May 6.
+                    Assert.Equal(new DateTime(2026, 6, 5, 17, 54, 24), data.LastPlayedAt!.Value);
+                }
+                finally { File.Delete(path); }
+            }
+            finally { Thread.CurrentThread.CurrentCulture = savedCulture; }
         }
 
         [Fact]
