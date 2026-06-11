@@ -504,11 +504,12 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task DecreasedNxSnapshot_ShouldClampToZeroDelta()
+        public async Task DecreasedNxSnapshot_ShouldClampToZeroDeltaAndPreserveWatermark()
         {
             // If the NX file now reports fewer plays than the last import snapshot
             // (e.g. the user deleted and re-ran with an older backup), Math.Max(0,...)
-            // should prevent PlayCount from decreasing.
+            // should prevent PlayCount from decreasing AND the watermark must stay
+            // monotonic so re-importing the newer file does not double-count.
             var chart = SeedChart();
 
             // First import: NX says 79 plays, 72 clears.
@@ -524,9 +525,40 @@ namespace DTXMania.Test.Song
             // PlayCount must not go down — delta is max(0, 50-79) = 0.
             Assert.Equal(79, s.PlayCount);
             Assert.Equal(72, s.ClearCount);
-            // Snapshot is updated to the current NX value regardless.
-            Assert.Equal(50, s.NxImportedPlayCount);
-            Assert.Equal(40, s.NxImportedClearCount);
+            // Watermark stays at the highest value seen so far so that re-importing the
+            // newer file does not double-count the delta.
+            Assert.Equal(79, s.NxImportedPlayCount);
+            Assert.Equal(72, s.NxImportedClearCount);
+        }
+
+        [Fact]
+        public async Task ReimportNewerAfterOlder_ShouldNotDoubleCount()
+        {
+            // Regression: import newer (79), then older (50), then newer again (82).
+            // The watermark must stay monotonic so the final delta is 82-79=3, not
+            // 82-50=32 (which would double-count 29 plays already accounted for).
+            var chart = SeedChart();
+
+            // Import the latest NX file (79 plays).
+            await Merge(chart, Mas());
+
+            // Import an older backup (50 plays). Watermark must not drop.
+            var older = Mas();
+            older.PlayCount = 50;
+            older.ClearCount = 40;
+            await Merge(chart, older);
+
+            // Re-import the latest NX file with fresh data (82 plays).
+            var newer = Mas();
+            newer.PlayCount = 82;
+            newer.ClearCount = 76;
+            await Merge(chart, newer);
+
+            var s = Load(chart.Id);
+            Assert.Equal(82, s.PlayCount);   // 79 + 3 (not 79 + 32)
+            Assert.Equal(76, s.ClearCount);  // 72 + 4 (not 72 + 36)
+            Assert.Equal(82, s.NxImportedPlayCount);
+            Assert.Equal(76, s.NxImportedClearCount);
         }
 
         [Fact]

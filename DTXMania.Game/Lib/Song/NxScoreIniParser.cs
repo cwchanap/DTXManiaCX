@@ -115,12 +115,15 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrWhiteSpace(value)) return null;
 
             // NX writes timestamps via DateTime.Now.ToString() (no format specifier), so the
-            // output depends on the Windows user locale.  Try InvariantCulture first (covers
-            // Japanese yyyy/MM/dd and US-style formats), then fall back to the current culture
-            // for European/dd.mm.yyyy styles.  A null return means "no parsable date".
-            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            // output depends on the Windows user locale.  Try the current culture first so
+            // that ambiguous day/month slash locales (e.g. "05/06/2026" meaning June 5 in
+            // dd/MM cultures) are parsed as intended rather than misinterpreted by
+            // InvariantCulture (which reads them as May 6).  Fall back to InvariantCulture
+            // for Japanese yyyy/MM/dd and US-style formats.  A null return means "no
+            // parsable date".
+            if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
                 return dt;
-            if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out dt))
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
                 return dt;
             return null;
         }
