@@ -56,6 +56,19 @@ namespace DTXMania.Test.Song
             UsedMidi = true,
         };
 
+        /// <summary>
+        /// Same chart and BestMaxCombo as <see cref="Mas"/>, but TotalChips is smaller
+        /// than BestMaxCombo, so the play did not cover the whole chart and must
+        /// not be flagged as a full combo.  Mirrors the partial-play scenario the
+        /// old "sum of judgments" formula failed to reject.
+        /// </summary>
+        private static NxScoreData PartialPlay() => new()
+        {
+            BestScore = 500000, BestPerfect = 500, BestGreat = 0, BestGood = 0,
+            BestPoor = 0, BestMiss = 0, BestMaxCombo = 500, TotalChips = 1000,
+            BestAchievementRate = 50.0, PlayCount = 1, ClearCount = 0,
+        };
+
         private async Task Merge(SongChart chart, NxScoreData data)
         {
             using var ctx = new SongDbContext(_options);
@@ -81,6 +94,12 @@ namespace DTXMania.Test.Song
             Assert.Equal("S", SongScore.RankString(s.BestRank));
             Assert.Equal(154.77, s.SongSkill, 2);    // mirrors CX: SongSkill = last skill
             Assert.True(s.UsedMidi);
+            // Mas() does not set these flags, so the OR-merge must leave them at their default.
+            Assert.False(s.UsedKeyboard);
+            Assert.False(s.UsedJoypad);
+            Assert.False(s.UsedMouse);
+            // Mas() satisfies BestMaxCombo == TotalChips (2575 == 2575), so FullCombo must be set.
+            Assert.True(s.FullCombo);
         }
 
         [Fact]
@@ -355,6 +374,119 @@ namespace DTXMania.Test.Song
 
             var s = Load(chart.Id);
             Assert.False(s.FullCombo);
+        }
+
+        [Fact]
+        public async Task NxFullComboTrue_ShouldSetFullCombo()
+        {
+            // Mas() satisfies the new formula: BestMaxCombo (2575) == TotalChips (2575)
+            // and the BestPerfect + BestGreat + BestGood (2293+271+11 == 2575) is the
+            // whole chart, so the result is a legitimate full combo.
+            var chart = SeedChart();
+            await Merge(chart, Mas());
+
+            var s = Load(chart.Id);
+            Assert.True(s.FullCombo);
+        }
+
+        [Fact]
+        public async Task NxPartialPlayWithoutMisses_ShouldNotSetFullCombo()
+        {
+            // Regression guard: the old "sum of judgments" formula wrongly flagged
+            // a partial play (e.g. player quits with no misses) as full combo,
+            // because BestMaxCombo (500) equalled BestPerfect+BestGreat+...+BestMiss
+            // (500) while TotalChips was 1000.  The new formula rejects this.
+            var chart = SeedChart();
+            await Merge(chart, PartialPlay());
+
+            var s = Load(chart.Id);
+            Assert.False(s.FullCombo);
+            Assert.Equal(500, s.MaxCombo);    // NX combo is still recorded
+            Assert.Equal(1000, s.TotalNotes); // TotalChips still wins (it is the only TotalNotes source)
+        }
+
+        [Fact]
+        public async Task CxHigherScoreWithHigherNxAchievementRate_ShouldKeepCxRate()
+        {
+            // Regression guard for the BestAchievementRate consistency fix:
+            // achievement rate is a function of the note breakdown, so when CX's
+            // best play is retained, CX's rate must be retained too — we must not
+            // pair CX's note stats with NX's rate from a different play.
+            var chart = SeedChart();
+            using (var ctx = new SongDbContext(_options))
+            {
+                ctx.SongScores.Add(new SongScore
+                {
+                    ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS,
+                    BestScore = 999999, BestPerfect = 9, BestAchievementRate = 50.0,
+                });
+                ctx.SaveChanges();
+            }
+
+            // NX reports a lower score but a higher rate from a different play.
+            var data = Mas();
+            data.BestScore = 100000;
+            data.BestAchievementRate = 99.9;
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.Equal(999999, s.BestScore);   // CX best kept
+            Assert.Equal(9, s.BestPerfect);      // CX best block kept
+            Assert.Equal(50.0, s.BestAchievementRate, 4); // CX rate kept (NX's higher rate not independently maxed)
+        }
+
+        [Fact]
+        public async Task NxHigherScore_ShouldOverwriteAchievementRateAlongsideNoteStats()
+        {
+            // The other half of the consistency contract: when NX wins on BestScore,
+            // its BestAchievementRate replaces the CX rate, not the max of the two.
+            var chart = SeedChart();
+            using (var ctx = new SongDbContext(_options))
+            {
+                ctx.SongScores.Add(new SongScore
+                {
+                    ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS,
+                    BestScore = 100, BestAchievementRate = 99.0,
+                });
+                ctx.SaveChanges();
+            }
+
+            // NX has the higher BestScore, so its rate must replace (not max with) CX's.
+            var data = Mas(); // BestScore=958247, BestAchievementRate=94.37
+            await Merge(chart, data);
+
+            var s = Load(chart.Id);
+            Assert.Equal(958247, s.BestScore);
+            Assert.Equal(94.37, s.BestAchievementRate, 4);
+        }
+
+        [Fact]
+        public async Task InputFlags_ShouldOrMergeAcrossImports()
+        {
+            // Each import OR-merges the four flags: a flag set in any source stays set.
+            var chart = SeedChart();
+            var data1 = Mas();
+            data1.UsedKeyboard = true;
+            await Merge(chart, data1);
+
+            var s1 = Load(chart.Id);
+            Assert.True(s1.UsedKeyboard);
+            Assert.True(s1.UsedMidi);
+            Assert.False(s1.UsedJoypad);
+            Assert.False(s1.UsedMouse);
+
+            // A second import that sets a different flag should not clear the first.
+            var data2 = Mas();
+            data2.UsedKeyboard = false; // already set in CX; OR-merge must keep it
+            data2.UsedJoypad = true;
+            data2.UsedMouse = true;
+            await Merge(chart, data2);
+
+            var s2 = Load(chart.Id);
+            Assert.True(s2.UsedKeyboard);
+            Assert.True(s2.UsedMidi);
+            Assert.True(s2.UsedJoypad);
+            Assert.True(s2.UsedMouse);
         }
 
         [Fact]

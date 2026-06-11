@@ -875,33 +875,43 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// added here exactly once. Idempotent; a concurrent duplicate-column error is
         /// treated as success, a genuine failure propagates.
         /// </summary>
+        /// <remarks>
+        /// Each column is added by a hardcoded call to <see cref="EnsureNxImportColumnAsync"/>
+        /// below. The column name is a SQL identifier embedded into the DDL string;
+        /// SQLite (and standard SQL) does not allow parameterizing identifiers in DDL,
+        /// so the names are passed as hardcoded literals. Do not extend this method to
+        /// iterate over user-supplied names.
+        /// </remarks>
         private async Task EnsureNxImportColumnsAsync(SongDbContext context)
         {
-            foreach (var column in new[] { "NxImportedPlayCount", "NxImportedClearCount" })
+            await EnsureNxImportColumnAsync(context, "NxImportedPlayCount");
+            await EnsureNxImportColumnAsync(context, "NxImportedClearCount");
+        }
+
+        private static async Task EnsureNxImportColumnAsync(SongDbContext context, string column)
+        {
+            var columnCount = await context.Database.SqlQueryRaw<int>(
+                $"SELECT COUNT(*) FROM pragma_table_info('SongScores') WHERE name='{column}'"
+            ).ToListAsync();
+
+            if (columnCount.FirstOrDefault() != 0)
+                return;
+
+            try
             {
-                var columnCount = await context.Database.SqlQueryRaw<int>(
-                    $"SELECT COUNT(*) FROM pragma_table_info('SongScores') WHERE name='{column}'"
-                ).ToListAsync();
-
-                if (columnCount.FirstOrDefault() != 0)
-                    continue;
-
-                try
-                {
-                    await context.Database.ExecuteSqlRawAsync(
-                        $"ALTER TABLE SongScores ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0");
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Added SongScores.{column} column");
-                }
-                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
-                {
-                    // Concurrent initializer added it; nothing to do.
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: {column} column already exists (concurrent race)");
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        $"SongDatabaseService: Failed to add {column} column during schema migration.", ex);
-                }
+                await context.Database.ExecuteSqlRawAsync(
+                    $"ALTER TABLE SongScores ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0");
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Added SongScores.{column} column");
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
+            {
+                // Concurrent initializer added it; nothing to do.
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: {column} column already exists (concurrent race)");
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"SongDatabaseService: Failed to add {column} column during schema migration.", ex);
             }
         }
 
