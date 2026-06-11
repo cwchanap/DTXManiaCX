@@ -7,7 +7,7 @@ namespace DTXMania.Test.Song
     public class NxImportResultTests
     {
         [Fact]
-        public void NxImportResult_Properties_CanBeSetAndRead()
+        public void NxImportResult_WhenPropertiesAreSet_ShouldBeReadable()
         {
             var result = new NxImportResult
             {
@@ -24,7 +24,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void NxImportProgress_Properties_CanBeSetAndRead()
+        public void NxImportProgress_WhenPropertiesAreSet_ShouldBeReadable()
         {
             var progress = new NxImportProgress
             {
@@ -43,21 +43,21 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void NxImportProgress_DefaultCurrentFile_IsEmptyString()
+        public void NxImportProgress_WhenCreated_DefaultCurrentFileIsEmpty()
         {
             var progress = new NxImportProgress();
             Assert.Equal("", progress.CurrentFile);
         }
 
         [Fact]
-        public void NxImportResult_DbUnavailable_DefaultsFalse()
+        public void NxImportResult_WhenDbUnavailableNotSet_DefaultIsFalse()
         {
             var result = new NxImportResult();
             Assert.False(result.DbUnavailable);
         }
 
         [Fact]
-        public void NxImportResult_DbUnavailable_CanBeSet()
+        public void NxImportResult_WhenDbUnavailableSet_ShouldBeTrue()
         {
             var result = new NxImportResult { DbUnavailable = true, Scanned = 0 };
             Assert.True(result.DbUnavailable);

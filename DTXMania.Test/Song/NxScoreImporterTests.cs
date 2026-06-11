@@ -571,20 +571,26 @@ namespace DTXMania.Test.Song
             // Merge chart1 successfully.
             await Merge(chart1, Mas());
 
-            // Merge chart2 successfully.
-            var data2 = Mas();
-            data2.BestScore = 500000;
-            data2.PlayCount = 10;
-            data2.ClearCount = 5;
-            await Merge(chart2, data2);
+            // Force chart2's merge to fail by passing null data.
+            using (var ctx = new SongDbContext(_options))
+            {
+                var tracked2 = ctx.SongCharts.Include(c => c.Song).First(c => c.Id == chart2.Id);
+                await Assert.ThrowsAsync<ArgumentNullException>(
+                    () => _importer.MergeAsync(ctx, tracked2, null!));
+            }
 
-            // Verify both charts have their own data.
+            // Verify chart1's persisted data is unchanged.
             var s1 = Load(chart1.Id);
-            var s2 = Load(chart2.Id);
             Assert.Equal(958247, s1.BestScore);
             Assert.Equal(79, s1.PlayCount);
-            Assert.Equal(500000, s2.BestScore);
-            Assert.Equal(10, s2.PlayCount);
+
+            // Verify chart2 has no persisted score.
+            using (var verifyCtx = new SongDbContext(_options))
+            {
+                var chart2Score = verifyCtx.SongScores.AsNoTracking()
+                    .FirstOrDefault(s => s.ChartId == chart2.Id && s.Instrument == EInstrumentPart.DRUMS);
+                Assert.Null(chart2Score);
+            }
         }
     }
 }

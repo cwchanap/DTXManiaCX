@@ -58,10 +58,9 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
-    public void OnDeactivate_WhileImportRunning_ShouldCancelImport()
-    {
-        var manager = SongManager.Instance;
-        var (stage, _, inputManager) = CreateStage();
+        public void OnDeactivate_WhileImportRunning_ShouldCancelImport()
+        {
+            var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
