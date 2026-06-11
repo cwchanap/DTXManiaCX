@@ -121,6 +121,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(0, result.Imported);
             Assert.Equal(0, result.Skipped);
             Assert.Equal(0, result.Errors);
+            Assert.True(result.DbUnavailable);
         }
 
         [Fact]

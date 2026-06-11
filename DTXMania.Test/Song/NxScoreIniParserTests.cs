@@ -13,7 +13,7 @@ namespace DTXMania.Test.Song
             Path.Combine(AppContext.BaseDirectory, "TestData", "NxScores", name);
 
         [Fact]
-        public void Parse_Mas_ReadsDrumBestStats()
+        public void Mas_ShouldReadDrumBestStats()
         {
             var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
             Assert.NotNull(data);
@@ -34,7 +34,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_Mas_ReadsSkillAndLastPlay()
+        public void Mas_ShouldReadSkillAndLastPlay()
         {
             var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"))!;
             Assert.Equal(154.774601941748, data.HighSkill, 4);
@@ -45,7 +45,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_Mas_FirstHistoryLineParsesNewestDate()
+        public void Mas_FirstHistoryLine_ShouldParseNewestDate()
         {
             var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"))!;
             var newest = data.History.OrderByDescending(h => h.Date).First();
@@ -54,7 +54,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_Ext_ReadsNxVersionVariant()
+        public void Ext_ShouldReadNxVersionVariant()
         {
             var data = NxScoreIniParser.Parse(Fixture("ext.dtx.score.ini"));
             Assert.NotNull(data);
@@ -65,7 +65,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_Full_IgnoresMojibakeTitleAndReadsDrums()
+        public void Full_ShouldIgnoreMojibakeTitleAndReadDrums()
         {
             var data = NxScoreIniParser.Parse(Fixture("full.dtx.score.ini"));
             Assert.NotNull(data);
@@ -74,13 +74,13 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_MissingFile_ReturnsNull()
+        public void MissingFile_ShouldReturnNull()
         {
             Assert.Null(NxScoreIniParser.Parse(Fixture("does-not-exist.score.ini")));
         }
 
         [Fact]
-        public void Parse_NoDrumData_ReturnsNull()
+        public void NoDrumData_ShouldReturnNull()
         {
             var path = Path.Combine(Path.GetTempPath(), $"nodrum_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
@@ -90,19 +90,19 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_NullPath_ReturnsNull()
+        public void NullPath_ShouldReturnNull()
         {
             Assert.Null(NxScoreIniParser.Parse(null));
         }
 
         [Fact]
-        public void Parse_EmptyPath_ReturnsNull()
+        public void EmptyPath_ShouldReturnNull()
         {
             Assert.Null(NxScoreIniParser.Parse(""));
         }
 
         [Fact]
-        public void Parse_MissingKeys_ShouldUseDefaults()
+        public void MissingKeys_ShouldUseDefaults()
         {
             var path = Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
@@ -124,7 +124,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_InvalidDateTime_ReturnsNullDate()
+        public void InvalidDateTime_ShouldReturnNullDate()
         {
             var path = Path.Combine(Path.GetTempPath(), $"baddate_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
@@ -141,7 +141,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_HistoryWithInvalidDate_ShouldUseMinValue()
+        public void HistoryWithInvalidDate_ShouldUseMinValue()
         {
             var path = Path.Combine(Path.GetTempPath(), $"badhistory_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
@@ -158,7 +158,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_NoHistory_ShouldReturnEmptyList()
+        public void NoHistory_ShouldReturnEmptyList()
         {
             var path = Path.Combine(Path.GetTempPath(), $"nohist_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
@@ -174,15 +174,19 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_DoubleRegistration_ShouldNotThrow()
+        public void DoubleRegistration_ShouldNotThrow()
         {
             // A second parse after the first should reuse the already-registered encoding provider.
-            var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
-            Assert.NotNull(data);
+            var data1 = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
+            Assert.NotNull(data1);
+
+            // Exercise the idempotent encoding-provider registration path.
+            var data2 = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"));
+            Assert.NotNull(data2);
         }
 
         [Fact]
-        public void Parse_JapaneseLocaleDateTime_ShouldRoundTrip()
+        public void JapaneseLocaleDateTime_ShouldRoundTrip()
         {
             // NX writes timestamps in the user's locale format. The most common real-world
             // format from the Japanese-locale user base is "2026/05/15 17:54:24".
@@ -204,7 +208,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_EuropeanLocaleDateTime_ShouldTryCurrentCultureFirst()
+        public void EuropeanLocaleDateTime_ShouldFallbackToCurrentCulture()
         {
             // NX writes via DateTime.Now.ToString() which on German Windows produces
             // "15.05.2026 17:54:24". CurrentCulture is tried first so that ambiguous
@@ -231,7 +235,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_UnreadableFile_ShouldThrow()
+        public void UnreadableFile_ShouldThrow()
         {
             // I/O failures must propagate so the orchestrator counts them as errors,
             // not silently returning null (which would be counted as Skipped).
@@ -257,7 +261,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_Utf8BomFile_ShouldParseAllSections()
+        public void Utf8BomFile_ShouldParseAllSections()
         {
             // UTF-8 with BOM: .NET's StreamReader auto-detects the BOM and reads the file
             // as UTF-8 regardless of the Shift-JIS encoding passed to ReadAllLines.
