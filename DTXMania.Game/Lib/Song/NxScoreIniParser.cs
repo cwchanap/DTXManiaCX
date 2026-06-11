@@ -113,8 +113,16 @@ namespace DTXMania.Game.Lib.Song
         private static DateTime? ParseDateTime(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return null;
-            return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
-                ? dt : (DateTime?)null;
+
+            // NX writes timestamps via DateTime.Now.ToString() (no format specifier), so the
+            // output depends on the Windows user locale.  Try InvariantCulture first (covers
+            // Japanese yyyy/MM/dd and US-style formats), then fall back to the current culture
+            // for European/dd.mm.yyyy styles.  A null return means "no parsable date".
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                return dt;
+            if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out dt))
+                return dt;
+            return null;
         }
 
         private static IReadOnlyList<NxHistoryLine> ParseHistory(Dictionary<string, string> file)
