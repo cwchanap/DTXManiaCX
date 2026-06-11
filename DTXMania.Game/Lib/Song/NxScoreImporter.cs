@@ -89,11 +89,14 @@ namespace DTXMania.Game.Lib.Song
             score.UsedJoypad |= data.UsedJoypad;
             score.UsedMouse |= data.UsedMouse;
 
-            // Counters (snapshot delta).
+            // Counters (snapshot delta).  Watermarks are kept monotonic so that
+            // importing an older/restored .score.ini whose counts are lower does
+            // not reset the watermark; re-importing the newer file would then
+            // add the same plays/clears a second time (idempotent counter merge).
             score.PlayCount += Math.Max(0, data.PlayCount - score.NxImportedPlayCount);
-            score.NxImportedPlayCount = data.PlayCount;
+            score.NxImportedPlayCount = Math.Max(score.NxImportedPlayCount, data.PlayCount);
             score.ClearCount += Math.Max(0, data.ClearCount - score.NxImportedClearCount);
-            score.NxImportedClearCount = data.ClearCount;
+            score.NxImportedClearCount = Math.Max(score.NxImportedClearCount, data.ClearCount);
 
             // Last play (newest wins).  NX timestamps are local wall-clock (Unspecified);
             // CX timestamps are UTC.  Normalize both to UTC before comparing / storing so

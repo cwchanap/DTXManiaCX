@@ -186,8 +186,8 @@ namespace DTXMania.Test.Song
         {
             // NX writes timestamps in the user's locale format. The most common real-world
             // format from the Japanese-locale user base is "2026/05/15 17:54:24".
-            // ParseDateTime tries InvariantCulture first (handles this), then CurrentCulture
-            // as a fallback for European dot-delimited forms.
+            // ParseDateTime tries CurrentCulture first, then InvariantCulture as fallback;
+            // both handle the unambiguous yyyy/MM/dd format correctly.
             var path = Path.Combine(Path.GetTempPath(), $"jpdate_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\n" +
@@ -204,14 +204,14 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Parse_EuropeanLocaleDateTime_ShouldFallbackToCurrentCulture()
+        public void Parse_EuropeanLocaleDateTime_ShouldTryCurrentCultureFirst()
         {
             // NX writes via DateTime.Now.ToString() which on German Windows produces
-            // "15.05.2026 17:54:24". InvariantCulture cannot parse this, but the
-            // CurrentCulture fallback should handle it when running under a German locale.
-            // This test verifies the fallback path exists; actual German-locale parsing
-            // depends on the test runner's culture, so we test with an explicit dot-delimited
-            // format that InvariantCulture does NOT handle.
+            // "15.05.2026 17:54:24". CurrentCulture is tried first so that ambiguous
+            // dd/MM slash locales are not misinterpreted by InvariantCulture; the
+            // dot-delimited German format only works with a German locale, so on
+            // en-US runners the InvariantCulture fallback may or may not parse it.
+            // This test verifies the parser doesn't crash and returns sensible results.
             var path = Path.Combine(Path.GetTempPath(), $"eudate_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\n" +
@@ -221,11 +221,10 @@ namespace DTXMania.Test.Song
             {
                 var data = NxScoreIniParser.Parse(path);
                 Assert.NotNull(data);
-                // Whether this parses depends on the current culture. On most CI runners
-                // (en-US), InvariantCulture won't parse "15.05.2026" but CurrentCulture
-                // (en-US) also won't. So LastPlayedAt may be null on en-US runners. The
-                // important thing is that the parser doesn't crash.
-                // On a German-locale runner, this would parse correctly to 2026-05-15.
+                // Whether this parses depends on the current culture. On a German-locale
+                // runner CurrentCulture parses this correctly to 2026-05-15. On en-US
+                // runners neither CurrentCulture nor InvariantCulture can parse the
+                // German dot-delimited format, so LastPlayedAt may be null.
                 Assert.True(data!.LastPlayedAt == null || data.LastPlayedAt!.Value.Year == 2026);
             }
             finally { File.Delete(path); }
