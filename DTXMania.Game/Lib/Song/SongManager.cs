@@ -1643,7 +1643,7 @@ namespace DTXMania.Game.Lib.Song
                 result.Scanned++;
                 try
                 {
-                    if (string.IsNullOrEmpty(chart.FilePath))
+                    if (string.IsNullOrEmpty(chart.FilePath) || !File.Exists(chart.FilePath))
                     {
                         result.Skipped++;
                     }

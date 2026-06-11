@@ -145,6 +145,26 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task StaleChart_DeletedFileWithScoreIni_ShouldBeSkipped()
+        {
+            // Simulate a chart whose .dtx was deleted but .score.ini remains on disk.
+            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            var dtx = WriteChartAndScore("stale.dtx", playCount: 30, score: 70000);
+            await SeedChartAsync(dtx, "Deleted Song");
+
+            // Delete the chart file but leave the .score.ini
+            File.Delete(dtx);
+            Assert.False(File.Exists(dtx));
+            Assert.True(File.Exists(dtx + ".score.ini"));
+
+            var result = await _manager.ImportNxScoresAsync();
+
+            Assert.Equal(1, result.Scanned);
+            Assert.Equal(0, result.Imported);
+            Assert.Equal(1, result.Skipped);
+        }
+
+        [Fact]
         public async Task CanceledToken_ShouldThrowOperationCanceledException()
         {
             Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
