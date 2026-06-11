@@ -448,10 +448,11 @@ namespace DTXMania.Game.Lib.Stage
             _importCts = new CancellationTokenSource();
             var token = _importCts.Token;
 
-            // Progress<T> captures no SynchronizationContext here (MonoGame's loop has none),
-            // so this callback runs on a thread-pool thread. Safe because _importStatus is
-            // volatile and the payload is a plain string read by the draw thread.
-            var progress = new System.Progress<NxImportProgress>(p =>
+            // Use a synchronous IProgress<T> so the callback runs inline on the thread
+            // that calls Report(). Progress<T> would post asynchronously to the ThreadPool
+            // (no SynchronizationContext in MonoGame's loop), allowing a stale queued
+            // callback to overwrite the final status after the task completes.
+            IProgress<NxImportProgress> progress = new InlineProgress<NxImportProgress>(p =>
             {
                 _importStatus = $"Importing... {p.Imported} imported / {p.Scanned} scanned";
             });
@@ -879,5 +880,18 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         #endregion
+
+        /// <summary>
+        /// Synchronous <see cref="IProgress{T}"/> that invokes the callback inline
+        /// on the thread calling <see cref="Report"/>. Unlike <see cref="System.Progress{T}"/>,
+        /// this does not post asynchronously to the synchronization context, preventing
+        /// stale progress callbacks from overwriting the final import status.
+        /// </summary>
+        private sealed class InlineProgress<T> : IProgress<T>
+        {
+            private readonly Action<T> _callback;
+            public InlineProgress(Action<T> callback) => _callback = callback;
+            public void Report(T value) => _callback(value);
+        }
     }
 }
