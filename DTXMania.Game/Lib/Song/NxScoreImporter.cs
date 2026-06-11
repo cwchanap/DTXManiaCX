@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -35,15 +36,9 @@ namespace DTXMania.Game.Lib.Song
         /// Applies the merge using the caller's tracked context. The chart's Id and
         /// SongId are read for score lookup and history merge. Persists all changes
         /// via SaveChangesAsync.
-        /// <para>
-        /// Note: The design spec defines this as <c>Task&lt;bool&gt;</c> (returning true
-        /// when rows are written), but the current implementation returns <see cref="Task"/>
-        /// because no caller uses the boolean result. The orchestrator (SongManager) counts
-        /// success by the absence of exceptions. If a future consumer needs the write
-        /// indicator, the signature should be updated to match the spec.
-        /// </para>
         /// </summary>
-        public async Task MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data)
+        public async Task MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data,
+            CancellationToken cancellationToken = default)
         {
             if (ctx == null) throw new ArgumentNullException(nameof(ctx));
             if (chart == null) throw new ArgumentNullException(nameof(chart));
@@ -110,7 +105,7 @@ namespace DTXMania.Game.Lib.Song
 
             await MergeHistoryAsync(ctx, chart.SongId, data.History);
 
-            await ctx.SaveChangesAsync();
+            await ctx.SaveChangesAsync(cancellationToken);
         }
 
         private static async Task MergeHistoryAsync(SongDbContext ctx, int songId, IReadOnlyList<NxHistoryLine> nxHistory)

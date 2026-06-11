@@ -1606,6 +1606,8 @@ namespace DTXMania.Game.Lib.Song
             var importer = new NxScoreImporter();
             using var context = db.CreateContext();
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
             var charts = await context.SongCharts
                 .Include(c => c.Song)
                 .Where(c => c.HasDrumChart)
@@ -1632,7 +1634,7 @@ namespace DTXMania.Game.Lib.Song
                         }
                         else
                         {
-                            await importer.MergeAsync(context, chart, data).ConfigureAwait(false);
+                            await importer.MergeAsync(context, chart, data, cancellationToken).ConfigureAwait(false);
                             result.Imported++;
                         }
                     }
@@ -1659,7 +1661,7 @@ namespace DTXMania.Game.Lib.Song
                 });
             }
 
-            Debug.WriteLine($"SongManager: NX import complete — scanned {result.Scanned}, imported {result.Imported}, skipped {result.Skipped}, errors {result.Errors}.");
+            Debug.WriteLine($"SongManager: NX import complete — scanned {result.Scanned}, imported {result.Imported}, skipped {result.Skipped}, errors {result.Errors} in {sw.ElapsedMilliseconds}ms.");
             return result;
         }
 
