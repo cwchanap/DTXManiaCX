@@ -250,6 +250,50 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void BritishLocaleDateTime_ShouldPreferDdMmForAmbiguousSlashDate()
+        {
+            // NX writes via DateTime.Now.ToString() which on British Windows produces
+            // "05/06/2026 17:54:24" meaning June 5 (dd/MM). The parser must prefer
+            // dd/MM cultures over InvariantCulture (MM/dd) for ambiguous slash-form
+            // dates so that both parts ≤ 12 are interpreted as dd/MM, not MM/dd.
+            var path = Path.Combine(Path.GetTempPath(), $"gbdate_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=05/06/2026 17:54:24\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.NotNull(data!.LastPlayedAt);
+                // 05/06 in dd/MM = June 5; must NOT be May 6 (MM/dd from InvariantCulture).
+                Assert.Equal(new DateTime(2026, 6, 5, 17, 54, 24), data.LastPlayedAt!.Value);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void UnambiguousDdMmSlashDate_ShouldParseFromDdMmCulture()
+        {
+            // "15/05/2026" is unambiguous (day 15 > 12) so any culture that
+            // handles slash dates parses it correctly. Verifies the known-locale
+            // fallback path for dd/MM slash-form dates with day > 12.
+            var path = Path.Combine(Path.GetTempPath(), $"frdate_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=15/05/2026 17:54:24\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.NotNull(data!.LastPlayedAt);
+                Assert.Equal(new DateTime(2026, 5, 15, 17, 54, 24), data.LastPlayedAt!.Value);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
         public void UnreadableFile_ShouldThrow()
         {
             // I/O failures must propagate so the orchestrator counts them as errors,
