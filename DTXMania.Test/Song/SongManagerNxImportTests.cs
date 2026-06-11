@@ -178,5 +178,36 @@ namespace DTXMania.Test.Song
             Assert.Equal(0, last.Skipped);
             Assert.Equal("prog.dtx", last.CurrentFile);
         }
+
+        [Fact]
+        public async Task MultipleCharts_ShouldImportAllWithoutMemoryLeak()
+        {
+            // Verify that ChangeTracker.Clear() after each successful merge
+            // does not break multi-chart imports.
+            Assert.True(await _manager.InitializeDatabaseServiceAsync(_dbPath));
+            var dtx1 = WriteChartAndScore("chart1.dtx", playCount: 10, score: 50000);
+            var dtx2 = WriteChartAndScore("chart2.dtx", playCount: 20, score: 60000);
+            var dtx3 = WriteChartAndScore("chart3.dtx", playCount: 30, score: 70000);
+            var id1 = await SeedChartAsync(dtx1, "Song A");
+            var id2 = await SeedChartAsync(dtx2, "Song B");
+            var id3 = await SeedChartAsync(dtx3, "Song C");
+
+            var result = await _manager.ImportNxScoresAsync();
+
+            Assert.Equal(3, result.Scanned);
+            Assert.Equal(3, result.Imported);
+            Assert.Equal(0, result.Errors);
+
+            using var ctx = _manager.DatabaseService!.CreateContext();
+            var s1 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id1);
+            var s2 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id2);
+            var s3 = ctx.SongScores.AsNoTracking().First(x => x.ChartId == id3);
+            Assert.Equal(50000, s1.BestScore);
+            Assert.Equal(60000, s2.BestScore);
+            Assert.Equal(70000, s3.BestScore);
+            Assert.Equal(10, s1.PlayCount);
+            Assert.Equal(20, s2.PlayCount);
+            Assert.Equal(30, s3.PlayCount);
+        }
     }
 }

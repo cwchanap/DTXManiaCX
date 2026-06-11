@@ -14,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 
 
 namespace DTXMania.Game.Lib.Stage
@@ -59,6 +60,7 @@ namespace DTXMania.Game.Lib.Stage
         // NX score import status
         private volatile string _importStatus = "";
         private volatile bool _importRunning;
+        private CancellationTokenSource? _importCts;
 
         // DTXMania-style constants
         private const int MenuX = 100;
@@ -140,6 +142,9 @@ namespace DTXMania.Game.Lib.Stage
             if (_hasUnsavedChanges)
                 System.Diagnostics.Debug.WriteLine("Warning: Unsaved configuration changes will be lost");
 
+            // Cancel any in-flight NX score import so it doesn't continue on a deactivated stage.
+            _importCts?.Cancel();
+
             _activePanel?.Deactivate();
             _activePanel = null;
 
@@ -158,6 +163,11 @@ namespace DTXMania.Game.Lib.Stage
             if (disposing)
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
+
+                // Cancel and dispose import cancellation token
+                _importCts?.Cancel();
+                _importCts?.Dispose();
+                _importCts = null;
 
                 // Cleanup MonoGame resources
                 _whitePixel?.Dispose();
@@ -432,6 +442,12 @@ namespace DTXMania.Game.Lib.Stage
             _importRunning = true;
             _importStatus = "Importing NX scores...";
 
+            // Cancel any previous import (e.g. if stage was re-activated).
+            _importCts?.Cancel();
+            _importCts?.Dispose();
+            _importCts = new CancellationTokenSource();
+            var token = _importCts.Token;
+
             // Progress<T> captures no SynchronizationContext here (MonoGame's loop has none),
             // so this callback runs on a thread-pool thread. Safe because _importStatus is
             // volatile and the payload is a plain string read by the draw thread.
@@ -444,11 +460,15 @@ namespace DTXMania.Game.Lib.Stage
             {
                 try
                 {
-                    var result = await SongManager.Instance.ImportNxScoresAsync(progress);
+                    var result = await SongManager.Instance.ImportNxScoresAsync(progress, token);
                     _importStatus = result.DbUnavailable
                         ? "NX import unavailable (no database)"
                         : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
                           (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
+                }
+                catch (System.OperationCanceledException)
+                {
+                    _importStatus = "NX import cancelled";
                 }
                 catch (System.Exception ex)
                 {

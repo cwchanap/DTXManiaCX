@@ -1636,6 +1636,9 @@ namespace DTXMania.Game.Lib.Song
                         {
                             await importer.MergeAsync(context, chart, data, cancellationToken).ConfigureAwait(false);
                             result.Imported++;
+                            // Clear tracked entities after each successful merge to prevent
+                            // memory accumulation when importing large libraries.
+                            context.ChangeTracker.Clear();
                         }
                     }
                 }
