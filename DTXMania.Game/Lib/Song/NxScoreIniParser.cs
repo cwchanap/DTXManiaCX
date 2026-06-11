@@ -116,24 +116,28 @@ namespace DTXMania.Game.Lib.Song
 
             // NX writes timestamps via DateTime.Now.ToString() (no format specifier), so the
             // output depends on the Windows user locale.  Try the current culture first so
-            // that ambiguous day/month slash locales (e.g. "05/06/2026" meaning June 5 in
-            // dd/MM cultures) are parsed as intended rather than misinterpreted by
-            // InvariantCulture (which reads them as May 6).  Then try common NX locales
-            // whose date separators (dots, dashes) won't parse under InvariantCulture.
+            // that a user importing their own NX files gets the right result when the locale
+            // matches.  Then try known NX locales BEFORE InvariantCulture so that ambiguous
+            // slash-form dates from dd/MM cultures (e.g. "05/06/2026" meaning June 5 in
+            // en-GB) are parsed correctly rather than misinterpreted by InvariantCulture
+            // (which reads them as May 6 in MM/dd).  InvariantCulture is the last resort.
             // A null return means "no parsable date".
             if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
                 return dt;
-            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
-                return dt;
 
-            // Try known NX locales that produce formats not handled above:
+            // Try known NX locales before InvariantCulture.  The majority of NX users run
+            // under dd/MM or yyyy/MM/dd locales; trying these first ensures ambiguous
+            // slash-form dates (both parts ≤ 12) resolve as dd/MM rather than MM/dd.
             // de-DE → "15.05.2026 17:54:24", en-GB → "15/05/2026 17:54:24",
-            // ja-JP → already covered by InvariantCulture above but included for safety.
+            // ja-JP → "2026/05/15 17:54:24", fr-FR/it-IT/es-ES → dd/MM/yyyy.
             foreach (var culture in _knownNxCultures)
             {
                 if (DateTime.TryParse(value, culture, DateTimeStyles.None, out dt))
                     return dt;
             }
+
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
+                return dt;
 
             return null;
         }
