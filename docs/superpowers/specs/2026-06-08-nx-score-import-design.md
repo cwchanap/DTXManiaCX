@@ -135,8 +135,9 @@ dedup and storage); `Date` is parsed from the `yy/m/d` token for sorting.
 
 #### `NxScoreImporter`
 
-`public Task<bool> MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data)`
-— merges one chart's drum data; returns `true` if any row was written. Caller wraps in
+`public Task MergeAsync(SongDbContext ctx, SongChart chart, NxScoreData data,
+CancellationToken cancellationToken = default)`
+— merges one chart's drum data and persists via `SaveChangesAsync`. Caller wraps in
 the shared context/transaction. Steps:
 
 1. Load or create the `SongScore` for `(chart.Id, DRUMS)`.
