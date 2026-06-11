@@ -115,29 +115,26 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrWhiteSpace(value)) return null;
 
             // NX writes timestamps via DateTime.Now.ToString() (no format specifier), so the
-            // output depends on the Windows user locale.  Try the current culture first so
-            // that a user importing their own NX files gets the right result when the locale
-            // matches.  Then try known NX locales BEFORE InvariantCulture so that ambiguous
-            // slash-form dates from dd/MM cultures (e.g. "05/06/2026" meaning June 5 in
-            // en-GB) are parsed correctly rather than misinterpreted by InvariantCulture
-            // (which reads them as May 6 in MM/dd).  InvariantCulture is the last resort.
-            // A null return means "no parsable date".
-            if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
-                return dt;
-
-            // Try known NX locales before InvariantCulture.  The majority of NX users run
-            // under dd/MM or yyyy/MM/dd locales; trying these first ensures ambiguous
-            // slash-form dates (both parts ≤ 12) resolve as dd/MM rather than MM/dd.
-            // de-DE → "15.05.2026 17:54:24", en-GB → "15/05/2026 17:54:24",
-            // ja-JP → "2026/05/15 17:54:24", fr-FR/it-IT/es-ES → dd/MM/yyyy.
+            // output depends on the Windows user locale.  Try known NX locales FIRST because
+            // the file was written by NX under one of these locales.  This avoids current-culture
+            // preemption: if CX runs under an MM/dd culture (e.g. en-US) but the NX file was
+            // written under a dd/MM locale (e.g. en-GB), an ambiguous date like "05/06/2026"
+            // must resolve as dd/MM (June 5), not MM/dd (May 6).  CurrentCulture is tried after
+            // known NX locales to cover unusual locales not in the list.  InvariantCulture is
+            // the last resort.  A null return means "no parsable date".
             foreach (var culture in _knownNxCultures)
             {
-                if (DateTime.TryParse(value, culture, DateTimeStyles.None, out dt))
+                if (DateTime.TryParse(value, culture, DateTimeStyles.None, out var dt))
                     return dt;
             }
 
-            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
-                return dt;
+            // CurrentCulture covers locales not in the known list (e.g. pt-BR, pl-PL) where
+            // the user imported their own NX files written under that same locale.
+            if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt2))
+                return dt2;
+
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt3))
+                return dt3;
 
             return null;
         }
