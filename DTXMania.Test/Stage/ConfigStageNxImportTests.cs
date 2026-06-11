@@ -55,6 +55,49 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
+    public void OnDeactivate_WhileImportRunning_ShouldCancelImport()
+    {
+        var manager = SongManager.Instance;
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            // Start the import — this creates and stores a CancellationTokenSource.
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+
+            // The CTS should have been created.
+            var cts = ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts");
+            Assert.NotNull(cts);
+
+            // Deactivate should cancel the token.
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+            Assert.True(cts.IsCancellationRequested);
+        }
+    }
+
+    [Fact]
+    public void StartNxScoreImport_ShouldCreateCancellationTokenSource()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            // Before starting, no CTS.
+            Assert.Null(ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts"));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+
+            // After starting, CTS should exist and not be cancelled.
+            var cts = ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts");
+            Assert.NotNull(cts);
+            Assert.False(cts.IsCancellationRequested);
+        }
+    }
+
+    [Fact]
     public void StartNxScoreImport_WhenAlreadyRunning_ShouldReturnEarly()
     {
         var (stage, _, inputManager) = CreateStage();
