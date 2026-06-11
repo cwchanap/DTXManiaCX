@@ -118,15 +118,39 @@ namespace DTXMania.Game.Lib.Song
             // output depends on the Windows user locale.  Try the current culture first so
             // that ambiguous day/month slash locales (e.g. "05/06/2026" meaning June 5 in
             // dd/MM cultures) are parsed as intended rather than misinterpreted by
-            // InvariantCulture (which reads them as May 6).  Fall back to InvariantCulture
-            // for Japanese yyyy/MM/dd and US-style formats.  A null return means "no
-            // parsable date".
+            // InvariantCulture (which reads them as May 6).  Then try common NX locales
+            // whose date separators (dots, dashes) won't parse under InvariantCulture.
+            // A null return means "no parsable date".
             if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
                 return dt;
             if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
                 return dt;
+
+            // Try known NX locales that produce formats not handled above:
+            // de-DE → "15.05.2026 17:54:24", en-GB → "15/05/2026 17:54:24",
+            // ja-JP → already covered by InvariantCulture above but included for safety.
+            foreach (var culture in _knownNxCultures)
+            {
+                if (DateTime.TryParse(value, culture, DateTimeStyles.None, out dt))
+                    return dt;
+            }
+
             return null;
         }
+
+        // Pre-resolved cultures for common DTXManiaNX Windows locales.  Cached as static
+        // fields to avoid repeated allocation on every parse call.
+        private static readonly CultureInfo[] _knownNxCultures =
+        {
+            CultureInfo.GetCultureInfo("de-DE"),  // German:   dd.MM.yyyy HH:mm:ss
+            CultureInfo.GetCultureInfo("en-GB"),  // British:  dd/MM/yyyy HH:mm:ss
+            CultureInfo.GetCultureInfo("ja-JP"),  // Japanese: yyyy/MM/dd HH:mm:ss
+            CultureInfo.GetCultureInfo("fr-FR"),  // French:   dd/MM/yyyy HH:mm:ss
+            CultureInfo.GetCultureInfo("it-IT"),  // Italian:  dd/MM/yyyy HH:mm:ss
+            CultureInfo.GetCultureInfo("es-ES"),  // Spanish:  dd/MM/yyyy HH:mm:ss
+            CultureInfo.GetCultureInfo("ko-KR"),  // Korean:   yyyy-MM-dd HH:mm:ss
+            CultureInfo.GetCultureInfo("zh-CN"),  // Chinese:  yyyy/M/d H:mm:ss
+        };
 
         private static IReadOnlyList<NxHistoryLine> ParseHistory(Dictionary<string, string> file)
         {

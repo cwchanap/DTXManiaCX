@@ -208,14 +208,11 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void EuropeanLocaleDateTime_ShouldFallbackToCurrentCulture()
+        public void EuropeanLocaleDateTime_ShouldParseGermanDotFormat()
         {
             // NX writes via DateTime.Now.ToString() which on German Windows produces
-            // "15.05.2026 17:54:24". CurrentCulture is tried first so that ambiguous
-            // dd/MM slash locales are not misinterpreted by InvariantCulture; the
-            // dot-delimited German format only works with a German locale, so on
-            // en-US runners the InvariantCulture fallback may or may not parse it.
-            // This test verifies the parser doesn't crash and returns sensible results.
+            // "15.05.2026 17:54:24". The parser now tries known NX locales, so this
+            // should parse correctly regardless of the runner's current culture.
             var path = Path.Combine(Path.GetTempPath(), $"eudate_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\n" +
@@ -225,11 +222,29 @@ namespace DTXMania.Test.Song
             {
                 var data = NxScoreIniParser.Parse(path);
                 Assert.NotNull(data);
-                // Whether this parses depends on the current culture. On a German-locale
-                // runner CurrentCulture parses this correctly to 2026-05-15. On en-US
-                // runners neither CurrentCulture nor InvariantCulture can parse the
-                // German dot-delimited format, so LastPlayedAt may be null.
-                Assert.True(data!.LastPlayedAt == null || data.LastPlayedAt!.Value.Year == 2026);
+                Assert.NotNull(data!.LastPlayedAt);
+                Assert.Equal(new DateTime(2026, 5, 15, 17, 54, 24), data.LastPlayedAt!.Value);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void KoreanLocaleDateTime_ShouldParseDashFormat()
+        {
+            // Korean Windows produces "2026-05-15 오후 5:54:24" but the ASCII-safe
+            // subset that NX actually writes for the DateTime key is typically
+            // "2026-05-15 17:54:24" (sortable format). Verify it round-trips.
+            var path = Path.Combine(Path.GetTempPath(), $"krdate_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n" +
+                "[LastPlay.Drums]\nScore=1000\nSkill=50.0\nDateTime=2026-05-15 17:54:24\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.NotNull(data!.LastPlayedAt);
+                Assert.Equal(new DateTime(2026, 5, 15, 17, 54, 24), data.LastPlayedAt!.Value);
             }
             finally { File.Delete(path); }
         }
