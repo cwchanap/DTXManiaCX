@@ -52,7 +52,12 @@ namespace DTXMania.Game.Lib.Song
                 ctx.SongScores.Add(score);
             }
 
-            // Best fields (idempotent max).
+            // Best fields (idempotent max).  Note stat block + BestAchievementRate are
+            // written together: achievement rate is a function of the note breakdown,
+            // so pairing a different play's rate with these note stats would produce
+            // an inconsistent "best".  HighSkill stays as Math.Max because it is
+            // computed from a different formula and is not derivable from the
+            // note breakdown.
             if (data.BestScore > score.BestScore)
             {
                 score.BestScore = data.BestScore;
@@ -61,18 +66,22 @@ namespace DTXMania.Game.Lib.Song
                 score.BestGood = data.BestGood;
                 score.BestPoor = data.BestPoor;
                 score.BestMiss = data.BestMiss;
+                score.BestAchievementRate = data.BestAchievementRate;
             }
             score.TotalNotes = Math.Max(score.TotalNotes, data.TotalChips);
             score.MaxCombo = Math.Max(score.MaxCombo, data.BestMaxCombo);
-            score.BestAchievementRate = Math.Max(score.BestAchievementRate, data.BestAchievementRate);
             score.HighSkill = Math.Max(score.HighSkill, data.HighSkill);
 
             int existingNorm = SongScore.NormalizeStoredBestRank(score.BestRank);
             int nxBucket = MapNxRankToBucket(data.BestRankOrdinal);
             score.BestRank = nxBucket >= 0 ? Math.Max(existingNorm, nxBucket) : existingNorm;
 
-            bool nxFullCombo = data.BestMaxCombo > 0 &&
-                data.BestMaxCombo == data.BestPerfect + data.BestGreat + data.BestGood + data.BestPoor + data.BestMiss;
+            // Full combo means the player hit every chip in the chart without missing.
+            // Comparing BestMaxCombo against the sum of the judgment counts is wrong:
+            // a partial play (e.g. 500/1000 chips with no misses) would satisfy
+            // BestMaxCombo == (Perfect+Great+Good+Poor+Miss) even though TotalChips
+            // is larger, incorrectly flagging the chart as full-comboed.
+            bool nxFullCombo = data.BestMaxCombo > 0 && data.BestMaxCombo == data.TotalChips;
             score.FullCombo = score.FullCombo || nxFullCombo;
 
             score.UsedKeyboard |= data.UsedKeyboard;
@@ -114,6 +123,12 @@ namespace DTXMania.Game.Lib.Song
 
             var existing = await ctx.PerformanceHistory.Where(p => p.SongId == songId).ToListAsync();
 
+            // Dedup strategy: existing DB rows are added first, then NX rows. On a
+            // HistoryLine text collision the existing (CX) entry wins because the
+            // NX text is the same, so the NX add is a no-op rather than a date
+            // overwrite. In practice the NX text encodes a date and a difficulty
+            // bucket, so collisions are rare; if a collision ever does occur the
+            // result is "first-seen wins" with no warning.
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var candidates = new List<(string Text, DateTime Date)>();
             foreach (var e in existing)
