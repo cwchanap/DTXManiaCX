@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
@@ -9,9 +10,11 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Stage;
 
@@ -213,6 +216,59 @@ public class ConfigStageNxImportTests : IDisposable
             var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawImportStatus"));
 
             Assert.Null(exception);
+        }
+    }
+
+    [Fact]
+    public async Task StartNxScoreImport_WhenScoresImported_ShouldRefreshRootSongs()
+    {
+        // Seed a drum chart + score.ini so the importer has something to import,
+        // then verify that RootSongs is rebuilt from the database afterward.
+        var songRoot = Path.Combine(Path.GetDirectoryName(_dbPath)!, "nxrefresh");
+        Directory.CreateDirectory(songRoot);
+
+        var dtxPath = Path.Combine(songRoot, "refresh.dtx");
+        var iniPath = dtxPath + ".score.ini";
+        await File.WriteAllTextAsync(dtxPath, "; dummy chart\n");
+        await File.WriteAllTextAsync(iniPath,
+            "[File]\nPlayCountDrums=5\nClearCountDrums=5\nBestRankDrums=1\n" +
+            "[HiScore.Drums]\nScore=100000\nPerfect=10\nMaxCombo=10\nTotalChips=10\nUseMIDIIN=1\n" +
+            "[HiSkill.Drums]\nSkill=100.0\n" +
+            "[LastPlay.Drums]\nScore=100000\nSkill=100.0\nDateTime=5/15/2026 5:54:24 PM\n");
+
+        var manager = SongManager.Instance;
+        Assert.True(await manager.InitializeDatabaseServiceAsync(_dbPath));
+
+        using (var ctx = manager.DatabaseService!.CreateContext())
+        {
+            ctx.SongCharts.Add(new SongChart
+            {
+                Song = new SongEntity { Title = "Refresh Test" },
+                FilePath = dtxPath, HasDrumChart = true, DrumLevel = 50
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        // Set search paths so RefreshSongListFromDatabaseAsync can find the chart.
+        ReflectionHelpers.SetPrivateField(manager, "_currentSearchPaths", new[] { songRoot });
+
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            Assert.Empty(manager.RootSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            Assert.True(completed, "Import did not complete within timeout");
+
+            // After import + refresh, RootSongs should contain the chart.
+            Assert.NotEmpty(manager.RootSongs);
+            var node = Assert.Single(manager.RootSongs);
+            Assert.Equal("Refresh Test", node.Title);
+            Assert.Equal(NodeType.Score, node.Type);
+            Assert.Equal(5, node.Scores[0].PlayCount);
         }
     }
 

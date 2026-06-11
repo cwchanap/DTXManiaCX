@@ -455,6 +455,29 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        /// <summary>
+        /// Refreshes the in-memory <see cref="RootSongs"/> list from the database using
+        /// the current search paths. Call this after database mutations (e.g. NX score
+        /// import, score updates) to keep the song list in sync without a full restart.
+        /// </summary>
+        public async Task RefreshSongListFromDatabaseAsync()
+        {
+            string[] searchPaths;
+            lock (_lockObject)
+            {
+                searchPaths = _currentSearchPaths.ToArray();
+            }
+
+            if (searchPaths.Length > 0)
+            {
+                await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
+            }
+            else
+            {
+                Debug.WriteLine("SongManager: RefreshSongListFromDatabaseAsync skipped — no current search paths.");
+            }
+        }
+
         #endregion
 
         #region Initialization and Database Management
