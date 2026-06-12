@@ -2189,7 +2189,7 @@ namespace DTXMania.Game.Lib.Stage
             // load and discard its stale result.
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
             _ = SongManager.Instance.GetBookmarkedNodesAsync()
-                .ContinueWith(task =>
+                .ContinueWith((Task<List<SongListNode>> task) =>
                 {
                     if (task.IsFaulted || task.IsCanceled)
                     {
@@ -2229,7 +2229,7 @@ namespace DTXMania.Game.Lib.Stage
                     // refresh via SwitchToNextTab and rely on this load to populate the list.
                     if (_activeTab == SongSelectionTab.Bookmarks)
                         _tabListNeedsRefresh = true;
-                }, TaskScheduler.Default);
+                }, CancellationToken.None, TaskContinuationOptions.RunContinuationsAsynchronously, TaskScheduler.Default);
         }
 
         /// <summary>
