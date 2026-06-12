@@ -2188,48 +2188,52 @@ namespace DTXMania.Game.Lib.Stage
             // switches to the Bookmarks tab) can detect it has been superseded by a newer
             // load and discard its stale result.
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
-            _ = SongManager.Instance.GetBookmarkedNodesAsync()
-                .ContinueWith((Task<List<SongListNode>> task) =>
+            _ = Task.Run(async () =>
+            {
+                List<SongListNode>? nodes = null;
+                try
                 {
-                    if (task.IsFaulted || task.IsCanceled)
+                    nodes = await SongManager.Instance.GetBookmarkedNodesAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Log the full exception (type + stack), not just the base message,
+                    // so DB/IO failures are diagnosable from the debug output.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SongSelectionStage: bookmarks load failed:\n{ex}");
+                    // Discard stale completions from a prior activation or a newer
+                    // same-activation load.
+                    if (capturedVersion == _activationVersion
+                        && capturedLoadVersion == _bookmarksLoadVersion)
                     {
-                        // Log the full exception (type + stack), not just the base message,
-                        // so DB/IO failures are diagnosable from the debug output.
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: bookmarks load failed:\n{task.Exception}");
-                        // Discard stale completions from a prior activation or a newer
-                        // same-activation load.
-                        if (capturedVersion == _activationVersion
-                            && capturedLoadVersion == _bookmarksLoadVersion)
-                        {
-                            _bookmarksLoadFailed = true;
-                            if (_activeTab == SongSelectionTab.Bookmarks)
-                                _tabListNeedsRefresh = true;
-                        }
-                        return;
+                        _bookmarksLoadFailed = true;
+                        if (_activeTab == SongSelectionTab.Bookmarks)
+                            _tabListNeedsRefresh = true;
                     }
-                    // Discard stale completions from a prior activation. Without this guard,
-                    // a slow load from activation N can overwrite the _bookmarkNodes that
-                    // activation N+1 already populated, and trigger an unwanted list rebuild.
-                    if (capturedVersion != _activationVersion)
-                        return;
-                    // Discard completions from an older same-activation load. Without this
-                    // guard, the activation-time warm load (which queried the DB before a
-                    // bookmark toggle committed) can complete after a newer load triggered
-                    // by a tab switch, overwriting _bookmarkNodes with a stale pre-toggle
-                    // result that omits the just-bookmarked song.
-                    if (capturedLoadVersion != _bookmarksLoadVersion)
-                        return;
-                    _bookmarksLoadFailed = false;
-                    _bookmarkNodes = task.Result;
-                    // Only request a list repopulate when the user is actually viewing the
-                    // Bookmarks tab. Activate() warms the cache while the user is on All Songs;
-                    // flagging a refresh there would spuriously rebuild the All Songs list
-                    // and reset selection/scroll. Tab switches into Bookmarks already request a
-                    // refresh via SwitchToNextTab and rely on this load to populate the list.
-                    if (_activeTab == SongSelectionTab.Bookmarks)
-                        _tabListNeedsRefresh = true;
-                }, CancellationToken.None, TaskContinuationOptions.RunContinuationsAsynchronously, TaskScheduler.Default);
+                    return;
+                }
+                // Discard stale completions from a prior activation. Without this guard,
+                // a slow load from activation N can overwrite the _bookmarkNodes that
+                // activation N+1 already populated, and trigger an unwanted list rebuild.
+                if (capturedVersion != _activationVersion)
+                    return;
+                // Discard completions from an older same-activation load. Without this
+                // guard, the activation-time warm load (which queried the DB before a
+                // bookmark toggle committed) can complete after a newer load triggered
+                // by a tab switch, overwriting _bookmarkNodes with a stale pre-toggle
+                // result that omits the just-bookmarked song.
+                if (capturedLoadVersion != _bookmarksLoadVersion)
+                    return;
+                _bookmarksLoadFailed = false;
+                _bookmarkNodes = nodes;
+                // Only request a list repopulate when the user is actually viewing the
+                // Bookmarks tab. Activate() warms the cache while the user is on All Songs;
+                // flagging a refresh there would spuriously rebuild the All Songs list
+                // and reset selection/scroll. Tab switches into Bookmarks already request a
+                // refresh via SwitchToNextTab and rely on this load to populate the list.
+                if (_activeTab == SongSelectionTab.Bookmarks)
+                    _tabListNeedsRefresh = true;
+            });
         }
 
         /// <summary>
