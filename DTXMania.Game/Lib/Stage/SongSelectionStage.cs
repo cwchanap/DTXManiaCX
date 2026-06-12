@@ -2190,6 +2190,11 @@ namespace DTXMania.Game.Lib.Stage
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
             _ = Task.Run(async () =>
             {
+                // Force a genuine async yield so the caller has a chance to update
+                // _bookmarksLoadVersion before we check it (avoids a race in tests
+                // where GetBookmarkedNodesAsync completes synchronously).
+                await Task.Yield();
+
                 List<SongListNode>? nodes = null;
                 try
                 {
