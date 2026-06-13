@@ -160,6 +160,38 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void FailedHistoryWithScore_ShouldNormalizeToCleared()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"failedscore_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\nHistory0=9.26/5/28 Failed (B: 70.10)\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Equal("9.26/5/28 Cleared (B: 70.10)", data!.History[0].Text);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public void BareFailedHistory_ShouldRemainFailed()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"barefailed_{Guid.NewGuid()}.score.ini");
+            File.WriteAllText(path,
+                "[File]\nPlayCountDrums=1\nHistory0=9.26/5/28 Failed\n" +
+                "[HiScore.Drums]\nScore=1000\nPerfect=10\nMaxCombo=10\nTotalChips=10\n");
+            try
+            {
+                var data = NxScoreIniParser.Parse(path);
+                Assert.NotNull(data);
+                Assert.Equal("9.26/5/28 Failed", data!.History[0].Text);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
         public void NoHistory_ShouldReturnEmptyList()
         {
             var path = Path.Combine(Path.GetTempPath(), $"nohist_{Guid.NewGuid()}.score.ini");

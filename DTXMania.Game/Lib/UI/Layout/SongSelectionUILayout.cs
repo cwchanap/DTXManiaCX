@@ -168,6 +168,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int TextOffsetY = 32;
             public const int RowSpacing = 18;
             public const int MaxRows = 5;
+            public const float FontScale = 0.8f;
 
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);

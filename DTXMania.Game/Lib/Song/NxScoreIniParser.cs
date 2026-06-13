@@ -160,7 +160,11 @@ namespace DTXMania.Game.Lib.Song
             {
                 var text = GetString(file, $"History{i}");
                 if (string.IsNullOrWhiteSpace(text)) continue;
-                list.Add(new NxHistoryLine { Text = text, Date = ParseHistoryDate(text) });
+                list.Add(new NxHistoryLine
+                {
+                    Text = PlayHistoryLineFormatter.Normalize(text),
+                    Date = ParseHistoryDate(text)
+                });
             }
             return list;
         }

@@ -42,6 +42,8 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        public float TextScale { get; set; } = SongSelectionUILayout.PlayHistoryPanel.FontScale;
+
         public void Initialize(IResourceManager resourceManager)
         {
             ReleaseTexture();
@@ -77,6 +79,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             _historyLines = score.PlayHistoryLines?
                 .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Select(PlayHistoryLineFormatter.Normalize)
                 .Take(SongSelectionUILayout.PlayHistoryPanel.MaxRows)
                 .ToArray() ?? Array.Empty<string>();
 
@@ -145,15 +148,20 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
 
             var shadow = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
+            var scale = new Vector2(TextScale);
             if (_font != null)
             {
-                spriteBatch.DrawString(_font, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
-                spriteBatch.DrawString(_font, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor);
+                spriteBatch.DrawString(_font, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                spriteBatch.DrawString(_font, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
             else if (_managedFont != null)
             {
-                _managedFont.DrawString(spriteBatch, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
-                _managedFont.DrawString(spriteBatch, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor);
+                _managedFont.DrawString(spriteBatch, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+                _managedFont.DrawString(spriteBatch, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor,
+                    0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
         }
     }

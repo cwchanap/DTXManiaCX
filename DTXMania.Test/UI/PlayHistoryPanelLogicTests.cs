@@ -25,7 +25,43 @@ public class PlayHistoryPanelLogicTests
         panel.UpdateSongInfo(node, 1);
 
         Assert.True(panel.Visible);
-        Assert.Equal(new[] { "2.26/6/12 Failed (B: 70.00)" }, GetRows(panel));
+        Assert.Equal(new[] { "2.26/6/12 Cleared (B: 70.00)" }, GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithFailedHistoryThatHasScore_ShouldDisplayAsCleared()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[1] = new SongScore { PlayHistoryLines = ["9.26/5/28 Failed (B: 70.10)"] };
+
+        panel.UpdateSongInfo(node, 1);
+
+        Assert.Equal(new[] { "9.26/5/28 Cleared (B: 70.10)" }, GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithBareFailedHistory_ShouldKeepFailed()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[1] = new SongScore { PlayHistoryLines = ["9.26/5/28 Failed"] };
+
+        panel.UpdateSongInfo(node, 1);
+
+        Assert.Equal(new[] { "9.26/5/28 Failed" }, GetRows(panel));
+    }
+
+    [Fact]
+    public void DefaultTextScale_ShouldBeSmallerThanSharedUiFont()
+    {
+        var panel = new PlayHistoryPanel();
+
+        var property = typeof(PlayHistoryPanel).GetProperty("TextScale");
+
+        Assert.NotNull(property);
+        var scale = Assert.IsType<float>(property!.GetValue(panel));
+        Assert.InRange(scale, 0.1f, 0.99f);
     }
 
     [Fact]
