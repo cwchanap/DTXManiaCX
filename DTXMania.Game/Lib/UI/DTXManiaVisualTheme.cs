@@ -66,6 +66,9 @@ namespace DTXMania.Game.Lib.UI
             public static readonly Vector2 DefaultShadowOffset = new Vector2(2, 2);
             public static readonly Color DefaultShadowColor = Color.Black * 0.8f;
 
+            // Text color (pairs with DefaultShadowColor)
+            public static readonly Color DefaultTextColor = Color.Yellow;
+
             // Outline settings
             public static readonly Color DefaultOutlineColor = Color.Black;
             public static readonly int DefaultOutlineThickness = 1;
