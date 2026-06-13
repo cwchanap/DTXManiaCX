@@ -68,7 +68,7 @@ public class ConfigStageLogicTests
 
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
-            Assert.Equal(10, configItems!.Count);
+            Assert.Equal(11, configItems!.Count);
             Assert.Collection(configItems,
                 item => Assert.Equal("Screen Resolution", item.Name),
                 item => Assert.Equal("Fullscreen", item.Name),
@@ -77,10 +77,47 @@ public class ConfigStageLogicTests
                 item => Assert.Equal("Auto Play", item.Name),
                 item => Assert.Equal("Scroll Speed", item.Name),
                 item => Assert.Equal("Audio Latency Offset", item.Name),
+                item => Assert.Equal("DTX Folder", item.Name),
                 item => Assert.Equal("Drum Key Mapping", item.Name),
                 item => Assert.Equal("System Key Mapping", item.Name),
                 item => Assert.Equal("Import NX Scores", item.Name));
             Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+        }
+    }
+
+    [Fact]
+    public void SetupConfigItems_ShouldShowConfiguredDtxFolder()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.DTXPath = "/tmp/custom dtx";
+            InitializeStageMenu(stage, includePanels: false);
+
+            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            var item = Assert.Single(configItems!, item => item.Name == "DTX Folder");
+
+            Assert.Equal("DTX Folder: /tmp/custom dtx", item.GetDisplayText());
+        }
+    }
+
+    [Fact]
+    public void DtxFolderItem_WhenActivated_ShouldNotMarkUnsavedChanges()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.DTXPath = "/tmp/custom dtx";
+            InitializeStageMenu(stage, includePanels: false);
+            var dtxFolderIndex = GetConfigItemIndex(stage, "DTX Folder");
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", dtxFolderIndex);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            var workingConfig = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig");
+            Assert.Equal("/tmp/custom dtx", workingConfig!.DTXPath);
         }
     }
 
@@ -189,7 +226,7 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -603,7 +640,7 @@ public class ConfigStageLogicTests
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.NotNull(configItems);
-            Assert.Equal(10, configItems!.Count);
+            Assert.Equal(11, configItems!.Count);
             Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
         }
@@ -802,6 +839,15 @@ public class ConfigStageLogicTests
         }
     }
 
+    private static int GetConfigItemIndex(ConfigStage stage, string itemName)
+    {
+        var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+        Assert.NotNull(configItems);
+        var index = configItems!.FindIndex(item => item.Name == itemName);
+        Assert.True(index >= 0, $"Config item '{itemName}' should exist.");
+        return index;
+    }
+
     private static void SetKeyboardStates(ConfigStage stage, KeyboardState current, KeyboardState previous)
     {
         ReflectionHelpers.SetPrivateField(stage, "_currentKeyboardState", current);
@@ -969,7 +1015,7 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             // Drum Key Mapping is a NavigationConfigItem; Left should not change anything
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -986,7 +1032,7 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             // System Key Mapping is a NavigationConfigItem; Right should not change anything
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 8);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "System Key Mapping"));
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -1359,14 +1405,15 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: true);
             var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
             Assert.NotNull(systemPanel);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 8);
+            var systemKeyMappingIndex = GetConfigItemIndex(stage, "System Key Mapping");
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", systemKeyMappingIndex);
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
 
             systemPanel!.Update(0.016, new KeyboardState(Keys.Escape), new KeyboardState());
 
             Assert.False(systemPanel.IsActive);
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            Assert.Equal(8, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(systemKeyMappingIndex, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }

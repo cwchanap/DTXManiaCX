@@ -29,6 +29,37 @@ namespace DTXMania.Game.Lib.Config
     }
 
     /// <summary>
+    /// Configuration item for display-only values.
+    /// </summary>
+    public class ReadOnlyConfigItem : BaseConfigItem
+    {
+        private readonly Func<string> _getCurrentValue;
+
+        public ReadOnlyConfigItem(string name, Func<string> getCurrentValue)
+            : base(name)
+        {
+            _getCurrentValue = getCurrentValue ?? throw new ArgumentNullException(nameof(getCurrentValue));
+        }
+
+        public override string GetDisplayText()
+        {
+            return $"{Name}: {_getCurrentValue()}";
+        }
+
+        public override void PreviousValue()
+        {
+        }
+
+        public override void NextValue()
+        {
+        }
+
+        public override void ToggleValue()
+        {
+        }
+    }
+
+    /// <summary>
     /// Configuration item for dropdown/list selection
     /// Similar to DTXManiaNX List type config items
     /// </summary>
