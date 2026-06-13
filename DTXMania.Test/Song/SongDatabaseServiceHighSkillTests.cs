@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -242,6 +244,69 @@ namespace DTXMania.Test.Song
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(3, saved.ClearCount);
             Assert.Equal(4, saved.PlayCount);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_WithPerformanceSummary_ShouldAppendScopedPlayHistory()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore { PlayCount = 0 });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 800000,
+                ClearFlag = true,
+                TotalNotes = 100,
+                PerfectCount = 80,
+                GreatCount = 10,
+                MaxCombo = 90,
+                PlayingSkill = 91.25,
+                GameSkill = 142.0
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            using var ctx = new SongDbContext(_options);
+            var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
+            var row = await ctx.PerformanceHistory.AsNoTracking().SingleAsync(p => p.SongScoreId == score.Id);
+
+            Assert.Equal(chart.SongId, row.SongId);
+            Assert.Equal(1, row.DisplayOrder);
+            Assert.Contains("Cleared (S: 91.25)", row.HistoryLine);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_WithSixPerformanceSummaries_ShouldKeepNewestFiveHistoryRows()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore { PlayCount = 0 });
+
+            for (int i = 0; i < 6; i++)
+            {
+                await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, new PerformanceSummary
+                {
+                    Score = 100000 + i,
+                    ClearFlag = i % 2 == 0,
+                    TotalNotes = 100,
+                    PerfectCount = 50 + i,
+                    GreatCount = 10,
+                    MaxCombo = 60 + i,
+                    PlayingSkill = 70 + i,
+                    GameSkill = 100 + i
+                });
+            }
+
+            using var ctx = new SongDbContext(_options);
+            var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
+            var rows = await ctx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score.Id)
+                .OrderBy(p => p.DisplayOrder)
+                .ToListAsync();
+
+            Assert.Equal(5, rows.Count);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, rows.Select(r => r.DisplayOrder).ToArray());
+            Assert.DoesNotContain(rows, r => r.HistoryLine.StartsWith("1.", StringComparison.Ordinal));
+            Assert.Contains(rows, r => r.HistoryLine.StartsWith("6.", StringComparison.Ordinal));
         }
     }
 }
