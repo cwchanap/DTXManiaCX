@@ -1,0 +1,154 @@
+using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
+using DTXMania.Game.Lib.UI.Layout;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+
+namespace DTXMania.Game.Lib.Song.Components
+{
+    /// <summary>
+    /// DTXManiaNX-style five-row play history panel for song selection.
+    /// </summary>
+    public sealed class PlayHistoryPanel : UIElement
+    {
+        private ITexture _panelTexture;
+        private SpriteFont _font;
+        private IFont _managedFont;
+        private string[] _historyLines = Array.Empty<string>();
+
+        public PlayHistoryPanel()
+        {
+            Position = SongSelectionUILayout.PlayHistoryPanel.Position;
+            Size = SongSelectionUILayout.PlayHistoryPanel.Size;
+            Visible = false;
+        }
+
+        public SpriteFont Font
+        {
+            get => _font;
+            set => _font = value;
+        }
+
+        public IFont ManagedFont
+        {
+            get => _managedFont;
+            set
+            {
+                _managedFont = value;
+                _font = value?.SpriteFont;
+            }
+        }
+
+        public void Initialize(IResourceManager resourceManager)
+        {
+            ReleaseTexture();
+
+            if (resourceManager == null)
+                return;
+
+            try
+            {
+                _panelTexture = resourceManager.LoadTexture(TexturePath.PlayHistoryPanel);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"PlayHistoryPanel: Failed to load panel texture: {ex.Message}");
+                _panelTexture = null;
+            }
+        }
+
+        public void UpdateSongInfo(SongListNode song, int difficulty)
+        {
+            if (song == null || song.Type != NodeType.Score)
+            {
+                ClearHistory();
+                return;
+            }
+
+            var score = song.GetScore(difficulty);
+            _historyLines = score?.PlayHistoryLines?
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Take(SongSelectionUILayout.PlayHistoryPanel.MaxRows)
+                .ToArray() ?? Array.Empty<string>();
+
+            Visible = _historyLines.Length > 0;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                ReleaseTexture();
+
+            base.Dispose(disposing);
+        }
+
+        private void ClearHistory()
+        {
+            _historyLines = Array.Empty<string>();
+            Visible = false;
+        }
+
+        private void ReleaseTexture()
+        {
+            _panelTexture?.RemoveReference();
+            _panelTexture = null;
+        }
+
+        [ExcludeFromCodeCoverage]
+        protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
+        {
+            if (!Visible || _historyLines.Length == 0)
+                return;
+
+            var origin = AbsolutePosition;
+
+            if (_panelTexture != null)
+            {
+                try
+                {
+                    _panelTexture.Draw(spriteBatch, origin);
+                }
+                catch (ObjectDisposedException)
+                {
+                    ReleaseTexture();
+                }
+            }
+
+            var textOrigin = new Vector2(
+                origin.X + SongSelectionUILayout.PlayHistoryPanel.TextOffsetX,
+                origin.Y + SongSelectionUILayout.PlayHistoryPanel.TextOffsetY);
+
+            for (int i = 0; i < _historyLines.Length; i++)
+            {
+                DrawText(
+                    spriteBatch,
+                    _historyLines[i],
+                    textOrigin + new Vector2(0, i * SongSelectionUILayout.PlayHistoryPanel.RowSpacing));
+            }
+
+            base.OnDraw(spriteBatch, deltaTime);
+        }
+
+        [ExcludeFromCodeCoverage]
+        private void DrawText(SpriteBatch spriteBatch, string text, Vector2 position)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            var shadow = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
+            if (_font != null)
+            {
+                spriteBatch.DrawString(_font, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
+                spriteBatch.DrawString(_font, text, position, Color.Yellow);
+            }
+            else if (_managedFont != null)
+            {
+                _managedFont.DrawString(spriteBatch, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
+                _managedFont.DrawString(spriteBatch, text, position, Color.Yellow);
+            }
+        }
+    }
+}

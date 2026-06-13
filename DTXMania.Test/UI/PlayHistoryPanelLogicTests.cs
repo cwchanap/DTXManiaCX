@@ -1,0 +1,136 @@
+using System.Linq;
+using System.Reflection;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
+using Xunit;
+
+namespace DTXMania.Test.UI;
+
+[Trait("Category", "UI")]
+public class PlayHistoryPanelLogicTests
+{
+    [Fact]
+    public void UpdateSongInfo_WithHistoryForSelectedDifficulty_ShouldShowRows()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore { PlayHistoryLines = ["1.26/6/13 Cleared (S: 90.00)"] };
+        node.Scores[1] = new SongScore { PlayHistoryLines = ["2.26/6/12 Failed (B: 70.00)"] };
+
+        panel.UpdateSongInfo(node, 1);
+
+        Assert.True(panel.Visible);
+        Assert.Equal(new[] { "2.26/6/12 Failed (B: 70.00)" }, GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithMoreThanFiveHistoryRows_ShouldKeepFirstFive()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore
+        {
+            PlayHistoryLines =
+            [
+                "1.26/6/13 Cleared (S: 90.00)",
+                "2.26/6/12 Cleared (A: 88.00)",
+                "3.26/6/11 Failed (B: 75.00)",
+                "4.26/6/10 Cleared (C: 65.00)",
+                "5.26/6/9 Failed (D: 55.00)",
+                "6.26/6/8 Failed (E: 45.00)"
+            ]
+        };
+
+        panel.UpdateSongInfo(node, 0);
+
+        Assert.Equal(5, GetRows(panel).Length);
+        Assert.DoesNotContain("6.26/6/8 Failed (E: 45.00)", GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithNoHistory_ShouldHide()
+    {
+        var panel = new PlayHistoryPanel { Visible = true };
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore();
+
+        panel.UpdateSongInfo(node, 0);
+
+        Assert.False(panel.Visible);
+        Assert.Empty(GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithFolder_ShouldHide()
+    {
+        var panel = new PlayHistoryPanel { Visible = true };
+
+        panel.UpdateSongInfo(new SongListNode { Type = NodeType.Box }, 0);
+
+        Assert.False(panel.Visible);
+        Assert.Empty(GetRows(panel));
+    }
+
+    [Fact]
+    public void Initialize_WhenTextureLoadFails_ShouldNotThrow()
+    {
+        var panel = new PlayHistoryPanel();
+        var rm = new Mock<IResourceManager>();
+        rm.Setup(r => r.LoadTexture(TexturePath.PlayHistoryPanel)).Throws(new System.Exception("missing"));
+
+        var ex = Record.Exception(() => panel.Initialize(rm.Object));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Dispose_AfterInitialize_ShouldReleasePanelTexture()
+    {
+        var panel = new PlayHistoryPanel();
+        var rm = new Mock<IResourceManager>();
+        var texture = new Mock<ITexture>();
+        rm.Setup(r => r.LoadTexture(TexturePath.PlayHistoryPanel)).Returns(texture.Object);
+
+        panel.Initialize(rm.Object);
+        panel.Dispose();
+
+        texture.Verify(t => t.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Draw_WhenPanelTextureDisposed_ShouldReleasePanelTextureReference()
+    {
+        var panel = new PlayHistoryPanel();
+        var rm = new Mock<IResourceManager>();
+        var texture = new Mock<ITexture>();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore { PlayHistoryLines = ["1.26/6/13 Cleared (S: 90.00)"] };
+
+        texture
+            .Setup(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>()))
+            .Throws(new System.ObjectDisposedException("texture"));
+        rm.Setup(r => r.LoadTexture(TexturePath.PlayHistoryPanel)).Returns(texture.Object);
+
+        panel.Initialize(rm.Object);
+        panel.UpdateSongInfo(node, 0);
+        panel.Activate();
+        panel.Draw(null!, 0.0);
+
+        texture.Verify(t => t.RemoveReference(), Times.Once);
+        Assert.Null(typeof(PlayHistoryPanel)
+            .GetField("_panelTexture", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(panel));
+    }
+
+    private static string[] GetRows(PlayHistoryPanel panel)
+    {
+        var field = typeof(PlayHistoryPanel).GetField("_historyLines", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return ((string[])field!.GetValue(panel)!).ToArray();
+    }
+}
