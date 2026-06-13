@@ -392,6 +392,14 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void PlayHistoryPanel_ShouldUseNXPathAndBeIncludedInPanelTextures()
+        {
+            Assert.Equal("Graphics/5_play history panel.png", TexturePath.PlayHistoryPanel);
+            Assert.Contains(TexturePath.PlayHistoryPanel, TexturePath.GetAllTexturePaths());
+            Assert.Contains(TexturePath.PlayHistoryPanel, TexturePath.GetPanelTextures());
+        }
+
+        [Fact]
         public void GetPanelTextures_AllEntriesShouldStartWithGraphics()
         {
             var paths = TexturePath.GetPanelTextures();
