@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -498,11 +499,14 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (summary == null) throw new ArgumentNullException(nameof(summary));
 
             using var context = CreateContext();
+            await using var transaction = await context.Database.BeginTransactionAsync();
             var score = await context.SongScores
+                .Include(s => s.Chart)
                 .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
             if (score == null)
             {
-                score = new SongScoreEntity { ChartId = chartId, Instrument = instrument };
+                var chart = await context.SongCharts.FirstAsync(c => c.Id == chartId);
+                score = new SongScoreEntity { ChartId = chartId, Chart = chart, Instrument = instrument };
                 context.SongScores.Add(score);
             }
 
@@ -527,11 +531,33 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             score.LastScore = summary.Score;
             score.LastSkillPoint = summary.GameSkill;
-            score.LastPlayedAt = DateTime.UtcNow;
+            var nowUtc = DateTime.UtcNow;
+            score.LastPlayedAt = nowUtc;
             score.PlayCount++;
             if (summary.ClearFlag) score.ClearCount++;
 
             await context.SaveChangesAsync();
+
+            var localDate = nowUtc.ToLocalTime();
+            var rank = SongScoreEntity.RankString((int)Math.Floor(summary.PlayingSkill));
+            var status = summary.ClearFlag ? "Cleared" : "Failed";
+            var line = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}.{1:yy/M/d} {2} ({3}: {4:F2})",
+                score.PlayCount,
+                localDate,
+                status,
+                rank,
+                summary.PlayingSkill);
+
+            await PerformanceHistoryMerger.MergeAsync(
+                context,
+                score.Chart.SongId,
+                score.Id,
+                new[] { new PerformanceHistoryCandidate(line, nowUtc) });
+
+            await context.SaveChangesAsync();
+            await transaction.CommitAsync();
         }
 
         /// Get top scores for a specific instrument
