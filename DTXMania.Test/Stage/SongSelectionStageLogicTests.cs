@@ -231,6 +231,38 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnSongSelectionChanged_WhenScore_ShouldUpdatePlayHistoryForSelectedDifficultyOnly()
+        {
+            var stage = CreateStage();
+            var scores = CreateScores(0, 2);
+            scores[0].PlayHistoryLines = ["1.26/6/13 Cleared (A: 80.00)"];
+            scores[2].PlayHistoryLines = ["2.26/6/12 Failed (S: 92.00)"];
+            var selectedSong = CreateScoreNode("Selected", scores);
+            var display = new SongListDisplay
+            {
+                CurrentList = [selectedSong]
+            };
+            var statusPanel = new SongStatusPanel();
+            var historyPanel = new PlayHistoryPanel();
+            var previewPanel = new PreviewImagePanel();
+            var breadcrumbLabel = new UILabel();
+
+            AttachCoreUi(stage, display, statusPanel, previewPanel, breadcrumbLabel);
+            SetPrivateField(stage, "_playHistoryPanel", historyPanel);
+
+            InvokePrivateMethod(
+                stage,
+                "OnSongSelectionChanged",
+                display,
+                new SongSelectionChangedEventArgs(selectedSong, 2, isScrollComplete: true));
+
+            Assert.True(historyPanel.Visible);
+            Assert.Equal(
+                new[] { "2.26/6/12 Failed (S: 92.00)" },
+                GetPrivateField<string[]>(historyPanel, "_historyLines"));
+        }
+
+        [Fact]
         public void OnSongSelectionChanged_WhenNonScore_ShouldExitStatusPanelAndHideStatus()
         {
             var stage = CreateStage();
@@ -303,15 +335,23 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var statusPanel = new SongStatusPanel();
+            var historyPanel = new PlayHistoryPanel();
             var song = CreateScoreNode("Song", CreateScores(0, 3));
+            song.Scores[0].PlayHistoryLines = ["1.26/6/13 Cleared (B: 70.00)"];
+            song.Scores[3].PlayHistoryLines = ["2.26/6/12 Cleared (SS: 98.00)"];
 
             AttachCoreUi(stage, statusPanel: statusPanel);
+            SetPrivateField(stage, "_playHistoryPanel", historyPanel);
 
             InvokePrivateMethod(stage, "OnDifficultyChanged", stage, new DifficultyChangedEventArgs(song, 3));
 
             Assert.Equal(3, GetPrivateField<int>(stage, "_currentDifficulty"));
             Assert.Same(song, GetPrivateField<SongListNode>(statusPanel, "_currentSong"));
             Assert.Equal(3, GetPrivateField<int>(statusPanel, "_currentDifficulty"));
+            Assert.True(historyPanel.Visible);
+            Assert.Equal(
+                new[] { "2.26/6/12 Cleared (SS: 98.00)" },
+                GetPrivateField<string[]>(historyPanel, "_historyLines"));
         }
 
         [Fact]
@@ -721,19 +761,23 @@ namespace DTXMania.Test.Stage
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
         }
 
-    [Fact]
-    public void ExecuteInputCommand_MoveLeftInStatusPanel_ShouldCycleBackwardDifficulty()
-    {
-        var stage = CreateStage();
-        var song = CreateScoreNode("Song", CreateScores(0, 2, 4));
+        [Fact]
+        public void ExecuteInputCommand_MoveLeftInStatusPanel_ShouldCycleBackwardDifficulty()
+        {
+            var stage = CreateStage();
+            var song = CreateScoreNode("Song", CreateScores(0, 2, 4));
+            song.Scores[2].PlayHistoryLines = ["1.26/6/13 Cleared (A: 85.00)"];
+            song.Scores[4].PlayHistoryLines = ["2.26/6/12 Cleared (S: 92.00)"];
             var display = new SongListDisplay
             {
                 CurrentList = [song]
             };
             var statusPanel = new SongStatusPanel();
+            var historyPanel = new PlayHistoryPanel();
             var cursorSound = new Mock<ISound>();
 
             AttachCoreUi(stage, display: display, statusPanel: statusPanel);
+            SetPrivateField(stage, "_playHistoryPanel", historyPanel);
             SetPrivateField(stage, "_isInStatusPanel", true);
             SetPrivateField(stage, "_selectedSong", song);
             SetPrivateField(stage, "_currentDifficulty", 4);
@@ -745,6 +789,10 @@ namespace DTXMania.Test.Stage
             Assert.Equal(2, GetPrivateField<int>(stage, "_currentDifficulty"));
             Assert.Equal(2, display.CurrentDifficulty);
             Assert.Equal(2, GetPrivateField<int>(statusPanel, "_currentDifficulty"));
+            Assert.True(historyPanel.Visible);
+            Assert.Equal(
+                new[] { "1.26/6/13 Cleared (A: 85.00)" },
+                GetPrivateField<string[]>(historyPanel, "_historyLines"));
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
         }
 
@@ -1323,6 +1371,7 @@ namespace DTXMania.Test.Stage
             var breadcrumbLabel = GetPrivateField<UILabel>(stage, "_breadcrumbLabel");
             var songListDisplay = GetPrivateField<SongListDisplay>(stage, "_songListDisplay");
             var statusPanel = GetPrivateField<SongStatusPanel>(stage, "_statusPanel");
+            var playHistoryPanel = GetPrivateField<PlayHistoryPanel>(stage, "_playHistoryPanel");
             var previewImagePanel = GetPrivateField<PreviewImagePanel>(stage, "_previewImagePanel");
 
             Assert.NotNull(uiManager);
@@ -1331,6 +1380,7 @@ namespace DTXMania.Test.Stage
             Assert.NotNull(breadcrumbLabel);
             Assert.NotNull(songListDisplay);
             Assert.NotNull(statusPanel);
+            Assert.NotNull(playHistoryPanel);
             Assert.NotNull(previewImagePanel);
             Assert.Equal(Vector2.Zero, mainPanel!.Position);
             Assert.Equal(new Vector2(SongSelectionUILayout.SongListDisplay.Width, SongSelectionUILayout.SongListDisplay.Height), mainPanel.Size);
@@ -1352,12 +1402,17 @@ namespace DTXMania.Test.Stage
             Assert.Equal(SongSelectionUILayout.SongListDisplay.Position, songListDisplay.Position);
             Assert.Equal(SongSelectionUILayout.SongListDisplay.Size, songListDisplay.Size);
             Assert.False(statusPanel!.Visible);
+            Assert.False(playHistoryPanel!.Visible);
+            Assert.Same(uiFont.Object, playHistoryPanel.ManagedFont);
             Assert.True(previewImagePanel!.Visible);
             Assert.Equal("SongsRoot", GetPrivateField<string>(previewImagePanel, "_songsRootPath"));
-            Assert.Equal(5, mainPanel.Children.Count);
+            Assert.Equal(6, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
             Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
             Assert.Same(songListDisplay, mainPanel.Children[2]);
+            Assert.Same(statusPanel, mainPanel.Children[3]);
+            Assert.Same(playHistoryPanel, mainPanel.Children[4]);
+            Assert.Same(previewImagePanel, mainPanel.Children[5]);
             Assert.True(mainPanel.IsActive);
             Assert.Single(uiManager.RootContainers);
             Assert.Same(mainPanel, uiManager.RootContainers[0]);

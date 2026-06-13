@@ -127,6 +127,7 @@ namespace DTXMania.Game.Lib.Stage
         private UIManager _uiManager;
         private SongListDisplay _songListDisplay;
         private SongStatusPanel _statusPanel;
+        private PlayHistoryPanel _playHistoryPanel;
         private PreviewImagePanel _previewImagePanel;
         private UILabel _titleLabel;
         private UILabel _breadcrumbLabel;
@@ -593,6 +594,13 @@ namespace DTXMania.Game.Lib.Stage
             // Status panel starts hidden and will be shown when a song is selected
             _statusPanel.Visible = false;
 
+            _playHistoryPanel = new PlayHistoryPanel
+            {
+                Font = uiFont?.SpriteFont,
+                ManagedFont = uiFont
+            };
+            _playHistoryPanel.Initialize(_resourceManager);
+
             // Initialize preview image panel
             try
             {
@@ -615,6 +623,7 @@ namespace DTXMania.Game.Lib.Stage
             _mainPanel.AddChild(_breadcrumbLabel);
             _mainPanel.AddChild(_songListDisplay);
             _mainPanel.AddChild(_statusPanel);
+            _mainPanel.AddChild(_playHistoryPanel);
             _mainPanel.AddChild(_previewImagePanel);
 
             // Search/filter modal (guarded: Window is unavailable in headless/test environments)
@@ -805,6 +814,7 @@ namespace DTXMania.Game.Lib.Stage
             
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
+            _playHistoryPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
 
             // Handle preview sound on selection change
             StopCurrentPreview();
@@ -883,6 +893,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Update status panel
             _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty);
+            _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty);
         }
 
         private void HandleSongActivation(SongListNode node)
@@ -1589,6 +1600,7 @@ namespace DTXMania.Game.Lib.Stage
 
                             // Update status panel
                             _statusPanel.UpdateSongInfo(_selectedSong, _currentDifficulty);
+                            _playHistoryPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty);
 
                             // Difficulty changed - play navigation sound
                             PlayCursorMoveSound();
