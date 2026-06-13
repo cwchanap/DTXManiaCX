@@ -152,6 +152,29 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
         
         #endregion
+
+        #region Play History Panel
+
+        /// <summary>
+        /// DTXManiaNX play history panel layout.
+        /// </summary>
+        public static class PlayHistoryPanel
+        {
+            public const int X = 700;
+            public const int Y = 570;
+            public const int Width = 458;
+            public const int Height = 151;
+            public const int TextOffsetX = 18;
+            public const int TextOffsetY = 32;
+            public const int RowSpacing = 18;
+            public const int MaxRows = 5;
+
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Vector2 Size => new Vector2(Width, Height);
+            public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
+        }
+
+        #endregion
         
         #region Graph Panel Section
         

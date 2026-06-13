@@ -109,6 +109,12 @@ namespace DTXMania.Game.Lib.Resources
         /// NX: drawn at (32,180); skill value text at (32+60, 200).
         /// </summary>
         public const string SkillPointPanel = "Graphics/5_skill point panel.png";
+
+        /// <summary>
+        /// Play history panel background texture (458x151 natural size).
+        /// NX: drawn at (700,570) on song selection.
+        /// </summary>
+        public const string PlayHistoryPanel = "Graphics/5_play history panel.png";
         
         /// <summary>
         /// Difficulty panel texture for song status panel
@@ -467,6 +473,7 @@ namespace DTXMania.Game.Lib.Resources
                 SongStatusPanel,
                 BpmBackground,
                 SkillPointPanel,
+                PlayHistoryPanel,
                 DifficultyPanel,
                 DifficultyFrame,
                 GraphPanelDrums,
@@ -577,6 +584,7 @@ namespace DTXMania.Game.Lib.Resources
                 SongStatusPanel,
                 BpmBackground,
                 SkillPointPanel,
+                PlayHistoryPanel,
                 DifficultyPanel,
                 DifficultyFrame,
                 GraphPanelDrums,

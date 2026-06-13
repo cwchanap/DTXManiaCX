@@ -60,6 +60,18 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void PlayHistoryPanel_Bounds_ShouldMatchNXTexturePlacement()
+        {
+            Assert.Equal(new Vector2(700, 570), SongSelectionUILayout.PlayHistoryPanel.Position);
+            Assert.Equal(new Vector2(458, 151), SongSelectionUILayout.PlayHistoryPanel.Size);
+            Assert.Equal(new Rectangle(700, 570, 458, 151), SongSelectionUILayout.PlayHistoryPanel.Bounds);
+            Assert.Equal(18, SongSelectionUILayout.PlayHistoryPanel.TextOffsetX);
+            Assert.Equal(32, SongSelectionUILayout.PlayHistoryPanel.TextOffsetY);
+            Assert.Equal(18, SongSelectionUILayout.PlayHistoryPanel.RowSpacing);
+            Assert.Equal(5, SongSelectionUILayout.PlayHistoryPanel.MaxRows);
+        }
+
+        [Fact]
         public void GraphPanel_BasePosition_ShouldMatchConstants()
         {
             Assert.Equal(new Vector2(SongSelectionUILayout.GraphPanel.BaseX, SongSelectionUILayout.GraphPanel.BaseY),
