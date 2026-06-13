@@ -308,5 +308,42 @@ namespace DTXMania.Test.Song
             Assert.DoesNotContain(rows, r => r.HistoryLine.StartsWith("1.", StringComparison.Ordinal));
             Assert.Contains(rows, r => r.HistoryLine.StartsWith("6.", StringComparison.Ordinal));
         }
+
+        [Fact]
+        public async Task UpdateScoreAsync_NewBestScoreWithoutFullCombo_ShouldPreserveExistingFullCombo()
+        {
+            // Regression: previously the code unconditionally assigned FullCombo on new best,
+            // erasing a previously-earned full combo when the higher score had misses/poors.
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 800_000,
+                FullCombo = true,
+                PlayCount = 3
+            });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 950_000,           // new best → enters the if-block
+                ClearFlag = true,
+                PerfectCount = 90,
+                GreatCount = 5,
+                GoodCount = 0,
+                PoorCount = 3,             // not a full combo
+                MissCount = 2,             // not a full combo
+                MaxCombo = 90,
+                TotalNotes = 100,
+                PlayingSkill = 85.0,
+                GameSkill = 140.0,
+                ChartLevel = 78,
+                ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(950_000, saved.BestScore);
+            Assert.True(saved.FullCombo);   // preserved, not overwritten
+        }
     }
 }

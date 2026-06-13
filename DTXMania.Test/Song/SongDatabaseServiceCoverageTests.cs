@@ -228,6 +228,22 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateScoreAsync_NewBestScoreWithoutFullCombo_ShouldPreserveExistingFullCombo()
+    {
+        // Regression: the older overload also unconditionally overwrote FullCombo on new best.
+        await _databaseService.InitializeDatabaseAsync();
+        var (_, chart) = await AddSongAsync("FC Regression", "Coverage Bot", "fc-regression.dtx", drumLevel: 70);
+
+        await _databaseService.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, 900_000, 95.5, fullCombo: true);
+        await _databaseService.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, 950_000, 96.0, fullCombo: false);
+
+        var score = await LoadScoreAsync(chart.Id, EInstrumentPart.DRUMS);
+
+        Assert.Equal(950_000, score.BestScore);
+        Assert.True(score.FullCombo);  // preserved from the first clear, not overwritten
+    }
+
+    [Fact]
     public async Task GetTopScoresAsync_ShouldReturnScoresSortedByBestScoreAndRespectLimit()
     {
         await _databaseService.InitializeDatabaseAsync();

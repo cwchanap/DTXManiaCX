@@ -141,19 +141,19 @@ namespace DTXMania.Game.Lib.Song.Components
         [ExcludeFromCodeCoverage]
         private void DrawText(SpriteBatch spriteBatch, string text, Vector2 position)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            if (spriteBatch == null || string.IsNullOrWhiteSpace(text))
                 return;
 
             var shadow = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
             if (_font != null)
             {
                 spriteBatch.DrawString(_font, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
-                spriteBatch.DrawString(_font, text, position, Color.Yellow);
+                spriteBatch.DrawString(_font, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor);
             }
             else if (_managedFont != null)
             {
                 _managedFont.DrawString(spriteBatch, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor);
-                _managedFont.DrawString(spriteBatch, text, position, Color.Yellow);
+                _managedFont.DrawString(spriteBatch, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor);
             }
         }
     }

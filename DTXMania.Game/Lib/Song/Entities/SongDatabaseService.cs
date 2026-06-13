@@ -474,7 +474,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 {
                     score.BestScore = newScore;
                     score.BestAchievementRate = achievementRate;
-                    score.FullCombo = fullCombo;
+                    score.FullCombo = score.FullCombo || fullCombo;
                 }
 
                 score.LastScore = newScore;
@@ -522,7 +522,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 score.BestPoor = summary.PoorCount;
                 score.BestMiss = summary.MissCount;
                 score.MaxCombo = summary.MaxCombo;
-                score.FullCombo = summary.ClearFlag && summary.MissCount == 0 && summary.PoorCount == 0;
+                score.FullCombo = score.FullCombo || (summary.ClearFlag && summary.MissCount == 0 && summary.PoorCount == 0);
                 score.TotalNotes = summary.TotalNotes;
             }
 
