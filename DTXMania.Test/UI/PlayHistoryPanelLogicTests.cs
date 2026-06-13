@@ -53,15 +53,15 @@ public class PlayHistoryPanelLogicTests
     }
 
     [Fact]
-    public void UpdateSongInfo_WithNoHistory_ShouldHide()
+    public void UpdateSongInfo_WithNoHistoryForSelectedScore_ShouldShowEmptyBadge()
     {
-        var panel = new PlayHistoryPanel { Visible = true };
+        var panel = new PlayHistoryPanel();
         var node = new SongListNode { Type = NodeType.Score };
         node.Scores[0] = new SongScore();
 
         panel.UpdateSongInfo(node, 0);
 
-        Assert.False(panel.Visible);
+        Assert.True(panel.Visible);
         Assert.Empty(GetRows(panel));
     }
 
@@ -125,6 +125,25 @@ public class PlayHistoryPanelLogicTests
         Assert.Null(typeof(PlayHistoryPanel)
             .GetField("_panelTexture", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(panel));
+    }
+
+    [Fact]
+    public void Draw_WithNoHistoryForSelectedScore_ShouldDrawBadgeTexture()
+    {
+        var panel = new PlayHistoryPanel();
+        var rm = new Mock<IResourceManager>();
+        var texture = new Mock<ITexture>();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore();
+
+        rm.Setup(r => r.LoadTexture(TexturePath.PlayHistoryPanel)).Returns(texture.Object);
+
+        panel.Initialize(rm.Object);
+        panel.UpdateSongInfo(node, 0);
+        panel.Activate();
+        panel.Draw(null!, 0.0);
+
+        texture.Verify(t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
     }
 
     private static string[] GetRows(PlayHistoryPanel panel)

@@ -50,7 +50,7 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 var score = await ctx.SongScores
-                    .FirstOrDefaultAsync(s => s.ChartId == chart.Id && s.Instrument == EInstrumentPart.DRUMS);
+                    .FirstOrDefaultAsync(s => s.ChartId == chart.Id && s.Instrument == EInstrumentPart.DRUMS, cancellationToken);
                 if (score == null)
                 {
                     score = new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS };

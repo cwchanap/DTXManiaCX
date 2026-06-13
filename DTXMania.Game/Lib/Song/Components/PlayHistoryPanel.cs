@@ -69,12 +69,18 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             var score = song.GetScore(difficulty);
-            _historyLines = score?.PlayHistoryLines?
+            if (score == null)
+            {
+                ClearHistory();
+                return;
+            }
+
+            _historyLines = score.PlayHistoryLines?
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Take(SongSelectionUILayout.PlayHistoryPanel.MaxRows)
                 .ToArray() ?? Array.Empty<string>();
 
-            Visible = _historyLines.Length > 0;
+            Visible = true;
         }
 
         protected override void Dispose(bool disposing)
@@ -100,7 +106,7 @@ namespace DTXMania.Game.Lib.Song.Components
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
         {
-            if (!Visible || _historyLines.Length == 0)
+            if (!Visible)
                 return;
 
             var origin = AbsolutePosition;

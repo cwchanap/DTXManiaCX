@@ -99,7 +99,8 @@ The component:
 - Draws five max rows, yellow, newest first.
 - Uses the stage UI font/managed font path and shadow style consistent with nearby selection UI.
 - Hides when the selected node is not a score.
-- Hides when the selected difficulty has no scoped history.
+- Shows the badge background for the selected difficulty even when it has no scoped history rows yet.
+- Hides when the selected difficulty slot itself is empty.
 - Updates on both song selection change and difficulty change.
 
 The panel should be independent of `SongStatusPanel` internals. `SongSelectionStage` owns both components and sends them the same selected song/difficulty updates.
@@ -108,7 +109,7 @@ The panel should be independent of `SongStatusPanel` internals. `SongSelectionSt
 
 - Missing `5_play history panel.png`: draw no background, but keep text rendering if a font exists.
 - Missing font: no-op draw.
-- Missing/empty history rows: hide the component.
+- Missing/empty history rows: draw the badge background without text rows.
 - Disposed texture: clear the cached reference and skip background drawing.
 - Database schema upgrade failure: skip history badge data rather than blocking song selection.
 
@@ -134,7 +135,7 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
 
 1. Selecting a song difficulty with scoped history shows the play history badge.
 2. Changing difficulty changes the five rows to that difficulty's history.
-3. Folders, back entries, random entries, and no-history difficulties show no badge.
+3. Folders, back entries, random entries, and unavailable difficulty slots show no badge.
 4. NX-imported rows display their original text.
 5. A newly completed CX play appears in that difficulty's badge after returning to song selection and reloading data.
 6. Legacy song-wide rows with no `SongScoreId` do not render.
