@@ -507,7 +507,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
             if (score == null)
             {
-                var chart = await context.SongCharts.FirstAsync(c => c.Id == chartId);
+                var chart = await context.SongCharts.FirstOrDefaultAsync(c => c.Id == chartId)
+                    ?? throw new KeyNotFoundException($"Chart with Id {chartId} was not found.");
                 score = new SongScoreEntity { ChartId = chartId, Chart = chart, Instrument = instrument };
                 context.SongScores.Add(score);
             }

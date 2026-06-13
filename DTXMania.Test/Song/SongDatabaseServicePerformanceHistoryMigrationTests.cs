@@ -7,7 +7,7 @@ using Xunit;
 
 namespace DTXMania.Test.Song
 {
-    [Trait("Category", "Unit")]
+    [Trait("Category", "Integration")]
     public class SongDatabaseServicePerformanceHistoryMigrationTests : IDisposable
     {
         private readonly string _dbPath;

@@ -506,8 +506,18 @@ namespace DTXMania.Test.Song
                     .ToList();
                 Assert.Collection(
                     rows,
-                    p => Assert.Equal(0, p.DisplayOrder),
-                    p => Assert.Equal(0, p.DisplayOrder));
+                    p =>
+                    {
+                        Assert.Equal(0, p.DisplayOrder);
+                        Assert.Equal(score1.Id, p.SongScoreId);
+                    },
+                    p =>
+                    {
+                        Assert.Equal(0, p.DisplayOrder);
+                        Assert.Equal(score2.Id, p.SongScoreId);
+                    });
+                // Both rows share DisplayOrder == 0 but reference distinct SongScore entities.
+                Assert.NotEqual(rows[0].SongScoreId, rows[1].SongScoreId);
             }
             finally
             {
