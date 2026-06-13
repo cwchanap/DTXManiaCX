@@ -354,6 +354,10 @@ namespace DTXMania.Game.Lib.Stage
                 step: 10,
                 valueFormatter: v => $"{v} ms");
 
+            var dtxFolderItem = new ReadOnlyConfigItem(
+                "DTX Folder",
+                () => _workingConfig.DTXPath);
+
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
             _configItems.Add(vsyncItem);
@@ -361,6 +365,7 @@ namespace DTXMania.Game.Lib.Stage
             _configItems.Add(autoPlayItem);
             _configItems.Add(scrollSpeedItem);
             _configItems.Add(audioLatencyItem);
+            _configItems.Add(dtxFolderItem);
 
             // Drum and system key mapping navigation items
             _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
