@@ -793,6 +793,9 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // Additive schema upgrade: NX-import snapshot columns.
             await EnsureNxImportColumnsAsync(context);
+
+            // Additive schema upgrade: score-scoped play history.
+            await EnsurePerformanceHistoryScoreScopeAsync(context);
         }
 
         /// <summary>
@@ -912,6 +915,93 @@ namespace DTXMania.Game.Lib.Song.Entities
             {
                 throw new InvalidOperationException(
                     $"SongDatabaseService: Failed to add {column} column during schema migration.", ex);
+            }
+        }
+
+        private static async Task EnsurePerformanceHistoryScoreScopeAsync(SongDbContext context)
+        {
+            var columnCount = await context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'"
+            ).ToListAsync();
+
+            if (columnCount.FirstOrDefault() == 0)
+            {
+                try
+                {
+                    await context.Database.ExecuteSqlRawAsync(
+                        "ALTER TABLE PerformanceHistory ADD COLUMN SongScoreId INTEGER NULL");
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added PerformanceHistory.SongScoreId column");
+                }
+                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
+                {
+                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: PerformanceHistory.SongScoreId already exists");
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        "SongDatabaseService: Failed to add PerformanceHistory.SongScoreId during schema migration.", ex);
+                }
+            }
+
+            var scoreSetNullFkCount = await context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"
+            ).ToListAsync();
+
+            if (scoreSetNullFkCount.FirstOrDefault() == 0)
+            {
+                await RebuildPerformanceHistoryTableWithScoreScopeAsync(context);
+            }
+
+            await context.Database.ExecuteSqlRawAsync(
+                "DROP INDEX IF EXISTS IX_PerformanceHistory_SongId_DisplayOrder");
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IF NOT EXISTS IX_PerformanceHistory_SongId ON PerformanceHistory(SongId)");
+            await context.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS IX_PerformanceHistory_SongScoreId_DisplayOrder " +
+                "ON PerformanceHistory(SongScoreId, DisplayOrder) WHERE SongScoreId IS NOT NULL");
+        }
+
+        private static async Task RebuildPerformanceHistoryTableWithScoreScopeAsync(SongDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF");
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS PerformanceHistory_new");
+                await context.Database.ExecuteSqlRawAsync(@"
+                    CREATE TABLE PerformanceHistory_new (
+                        Id INTEGER NOT NULL CONSTRAINT PK_PerformanceHistory PRIMARY KEY AUTOINCREMENT,
+                        SongId INTEGER NOT NULL,
+                        SongScoreId INTEGER NULL,
+                        PerformedAt TEXT NOT NULL,
+                        HistoryLine TEXT NOT NULL,
+                        DisplayOrder INTEGER NOT NULL,
+                        CONSTRAINT FK_PerformanceHistory_Songs_SongId
+                            FOREIGN KEY (SongId) REFERENCES Songs (Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_PerformanceHistory_SongScores_SongScoreId
+                            FOREIGN KEY (SongScoreId) REFERENCES SongScores (Id) ON DELETE SET NULL
+                    )");
+                await context.Database.ExecuteSqlRawAsync(@"
+                    INSERT INTO PerformanceHistory_new (Id, SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder)
+                    SELECT
+                        Id,
+                        SongId,
+                        CASE
+                            WHEN SongScoreId IS NOT NULL
+                                AND EXISTS (SELECT 1 FROM SongScores WHERE SongScores.Id = PerformanceHistory.SongScoreId)
+                            THEN SongScoreId
+                            ELSE NULL
+                        END,
+                        PerformedAt,
+                        HistoryLine,
+                        DisplayOrder
+                    FROM PerformanceHistory");
+                await context.Database.ExecuteSqlRawAsync("DROP TABLE PerformanceHistory");
+                await context.Database.ExecuteSqlRawAsync("ALTER TABLE PerformanceHistory_new RENAME TO PerformanceHistory");
+            }
+            finally
+            {
+                await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON");
             }
         }
 

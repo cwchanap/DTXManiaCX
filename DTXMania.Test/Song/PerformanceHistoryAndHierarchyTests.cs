@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 
@@ -8,6 +9,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Tests for PerformanceHistory, SongHierarchy, and DatabaseStats entities
     /// </summary>
+    [Trait("Category", "Unit")]
     public class PerformanceHistoryTests
     {
         [Fact]
@@ -51,6 +53,33 @@ namespace DTXMania.Test.Song
                 var history = new PerformanceHistory { DisplayOrder = i };
                 Assert.Equal(i, history.DisplayOrder);
             }
+        }
+
+        [Fact]
+        public void PerformanceHistory_ScoreScopeProperties_ShouldRetainValues()
+        {
+            var score = new SongScore { Id = 42, ChartId = 7, Instrument = EInstrumentPart.DRUMS };
+            var history = new PerformanceHistory
+            {
+                SongId = 9,
+                SongScoreId = 42,
+                SongScore = score,
+                DisplayOrder = 3,
+                HistoryLine = "3.26/6/13 Cleared (S: 91.23)"
+            };
+
+            Assert.Equal(42, history.SongScoreId);
+            Assert.Same(score, history.SongScore);
+            Assert.Equal("3.26/6/13 Cleared (S: 91.23)", history.HistoryLine);
+        }
+
+        [Fact]
+        public void SongScore_PlayHistoryLines_ShouldDefaultToEmptyList()
+        {
+            var score = new SongScore();
+
+            Assert.NotNull(score.PlayHistoryLines);
+            Assert.Empty(score.PlayHistoryLines);
         }
     }
 

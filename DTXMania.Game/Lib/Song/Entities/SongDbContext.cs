@@ -112,14 +112,24 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // PerformanceHistory constraints
             modelBuilder.Entity<PerformanceHistory>()
-                .HasIndex(p => new { p.SongId, p.DisplayOrder })
-                .IsUnique();
+                .HasIndex(p => p.SongId);
+
+            modelBuilder.Entity<PerformanceHistory>()
+                .HasIndex(p => new { p.SongScoreId, p.DisplayOrder })
+                .IsUnique()
+                .HasFilter("SongScoreId IS NOT NULL");
 
             modelBuilder.Entity<PerformanceHistory>()
                 .HasOne(p => p.Song)
                 .WithMany()
                 .HasForeignKey(p => p.SongId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PerformanceHistory>()
+                .HasOne(p => p.SongScore)
+                .WithMany(s => s.PerformanceHistory)
+                .HasForeignKey(p => p.SongScoreId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Enum configurations
             modelBuilder.Entity<SongScore>()
