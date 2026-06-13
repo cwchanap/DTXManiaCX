@@ -229,6 +229,42 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void PopulatePlayHistoryFromCharts_PersistedMatch_ShouldCopyScopedHistoryLines()
+        {
+            var node = new SongListNode();
+            node.Scores[0] = new SongScore
+            {
+                ChartId = 7,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 78
+            };
+
+            var persisted = new SongScore
+            {
+                Id = 42,
+                ChartId = 7,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 78,
+                PerformanceHistory = new List<PerformanceHistory>
+                {
+                    new() { SongScoreId = 42, DisplayOrder = 2, HistoryLine = "2.26/6/12 Cleared (A: 80.00)" },
+                    new() { SongScoreId = 42, DisplayOrder = 1, HistoryLine = "3.26/6/13 Cleared (S: 90.00)" },
+                    new() { SongScoreId = 99, DisplayOrder = 1, HistoryLine = "different score row" },
+                    new() { SongScoreId = null, DisplayOrder = 1, HistoryLine = "legacy song-wide row" },
+                }
+            };
+            var chart = new SongChart { Id = 7, Scores = new List<SongScore> { persisted } };
+
+            node.PopulatePlayHistoryFromCharts(new[] { chart });
+
+            Assert.Equal(new[]
+            {
+                "3.26/6/13 Cleared (S: 90.00)",
+                "2.26/6/12 Cleared (A: 80.00)"
+            }, node.Scores[0].PlayHistoryLines);
+        }
+
+        [Fact]
         public void PopulateScoresFromDatabase_NullDatabaseSongId_ShouldReturnImmediately()
         {
             var node = new SongListNode();

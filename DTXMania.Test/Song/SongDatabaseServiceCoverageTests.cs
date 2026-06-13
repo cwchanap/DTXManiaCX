@@ -157,6 +157,39 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSongsAsync_ShouldIncludeScoreScopedPerformanceHistory()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+
+        var (songId, chart) = await AddSongAsync("History Song", "Coverage Bot", "history-song.dtx", drumLevel: 55);
+
+        await _databaseService.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, 850_000, 88.0, fullCombo: false);
+        var savedScore = await LoadScoreAsync(chart.Id, EInstrumentPart.DRUMS);
+
+        using (var context = _databaseService.CreateContext())
+        {
+            context.PerformanceHistory.Add(new PerformanceHistory
+            {
+                SongId = songId,
+                SongScoreId = savedScore.Id,
+                PerformedAt = new DateTime(2026, 6, 13, 12, 0, 0, DateTimeKind.Utc),
+                DisplayOrder = 1,
+                HistoryLine = "1.26/6/13 Cleared (A: 88.00)"
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var songs = await _databaseService.GetSongsAsync();
+
+        var loadedSong = Assert.Single(songs, song => song.Id == songId);
+        var loadedChart = Assert.Single(loadedSong.Charts);
+        var loadedScore = Assert.Single(loadedChart.Scores);
+        var history = Assert.Single(loadedScore.PerformanceHistory);
+        Assert.Equal(savedScore.Id, history.SongScoreId);
+        Assert.Equal("1.26/6/13 Cleared (A: 88.00)", history.HistoryLine);
+    }
+
+    [Fact]
     public async Task UpdateScoreAsync_WhenNewBestScoreSubmitted_ShouldUpdateBestLastAndCounters()
     {
         await _databaseService.InitializeDatabaseAsync();

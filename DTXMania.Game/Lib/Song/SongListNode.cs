@@ -236,6 +236,13 @@ namespace DTXMania.Game.Lib.Song
                 score.LastPlayedAt    = persisted.LastPlayedAt;
                 score.LastScore       = persisted.LastScore;
                 score.LastSkillPoint  = persisted.LastSkillPoint;
+                score.PlayHistoryLines = persisted.PerformanceHistory
+                    .Where(h => h.SongScoreId == persisted.Id)
+                    .OrderBy(h => h.DisplayOrder)
+                    .Select(h => h.HistoryLine)
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .Take(5)
+                    .ToList();
             }
         }
 
