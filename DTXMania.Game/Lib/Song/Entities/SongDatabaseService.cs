@@ -425,6 +425,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             return await context.Songs
                 .Include(s => s.Charts)
                     .ThenInclude(c => c.Scores)
+                        .ThenInclude(sc => sc.PerformanceHistory)
                 .OrderBy(s => s.Title)
                 .ToListAsync();
         }
@@ -449,6 +450,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             var song = await context.Songs
                 .Include(s => s.Charts)
                     .ThenInclude(c => c.Scores)
+                        .ThenInclude(sc => sc.PerformanceHistory)
                 .FirstOrDefaultAsync(s => s.Id == songId);
 
             if (song == null)
@@ -608,6 +610,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Where(s => orderedIds.Contains(s.Id))
                 .Include(s => s.Charts)
                     .ThenInclude(c => c.Scores)
+                        .ThenInclude(sc => sc.PerformanceHistory)
                 .ToListAsync();
 
             // Re-order the loaded songs to match the recency ordering (the IN query does
@@ -648,6 +651,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Where(s => s.IsBookmarked)
                 .Include(s => s.Charts)
                     .ThenInclude(c => c.Scores)
+                        .ThenInclude(sc => sc.PerformanceHistory)
                 .OrderBy(s => s.Title)
                 .ThenBy(s => s.Id)
                 .ToListAsync();
