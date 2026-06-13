@@ -436,6 +436,86 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void PerformanceHistory_DeleteSongScore_ShouldRetainHistoryAndClearScoreReference()
+        {
+            var song = new SongEntity { Title = "Score History", Artist = "A" };
+            var chart = new SongChart { Song = song, FilePath = "score-history.dtx" };
+            var score = new SongScore { Chart = chart, Instrument = EInstrumentPart.DRUMS };
+            _context.SongScores.Add(score);
+            _context.SaveChanges();
+
+            _context.PerformanceHistory.Add(new PerformanceHistory
+            {
+                SongId = song.Id,
+                SongScoreId = score.Id,
+                DisplayOrder = 0,
+                HistoryLine = "Score scoped run"
+            });
+            _context.SaveChanges();
+
+            _context.SongScores.Remove(score);
+            _context.SaveChanges();
+
+            var ctx2 = NewContext();
+            try
+            {
+                var history = ctx2.PerformanceHistory.AsNoTracking().Single(p => p.SongId == song.Id);
+                Assert.Null(history.SongScoreId);
+                Assert.Equal("Score scoped run", history.HistoryLine);
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
+        }
+
+        [Fact]
+        public void PerformanceHistory_SameDisplayOrderForDifferentScores_ShouldPersist()
+        {
+            var song = new SongEntity { Title = "Scoped History", Artist = "A" };
+            var chart1 = new SongChart { Song = song, FilePath = "scoped-history-1.dtx" };
+            var chart2 = new SongChart { Song = song, FilePath = "scoped-history-2.dtx" };
+            var score1 = new SongScore { Chart = chart1, Instrument = EInstrumentPart.DRUMS };
+            var score2 = new SongScore { Chart = chart2, Instrument = EInstrumentPart.DRUMS };
+            _context.SongScores.AddRange(score1, score2);
+            _context.SaveChanges();
+
+            _context.PerformanceHistory.AddRange(
+                new PerformanceHistory
+                {
+                    SongId = song.Id,
+                    SongScoreId = score1.Id,
+                    DisplayOrder = 0,
+                    HistoryLine = "Score 1"
+                },
+                new PerformanceHistory
+                {
+                    SongId = song.Id,
+                    SongScoreId = score2.Id,
+                    DisplayOrder = 0,
+                    HistoryLine = "Score 2"
+                });
+            _context.SaveChanges();
+
+            var ctx2 = NewContext();
+            try
+            {
+                var rows = ctx2.PerformanceHistory.AsNoTracking()
+                    .Where(p => p.SongId == song.Id)
+                    .OrderBy(p => p.HistoryLine)
+                    .ToList();
+                Assert.Collection(
+                    rows,
+                    p => Assert.Equal(0, p.DisplayOrder),
+                    p => Assert.Equal(0, p.DisplayOrder));
+            }
+            finally
+            {
+                ctx2.Dispose();
+            }
+        }
+
+        [Fact]
         public void PerformanceHistory_AddWithInvalidSongId_ShouldFail()
         {
             // SongId references a non-existent Song.

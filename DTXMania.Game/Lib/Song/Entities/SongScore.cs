@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using DTXMania.Game.Lib.Song;
 
@@ -19,6 +20,8 @@ namespace DTXMania.Game.Lib.Song.Entities
         public virtual SongChart Chart { get; set; } = null!;
         
         public EInstrumentPart Instrument { get; set; }
+
+        public virtual ICollection<PerformanceHistory> PerformanceHistory { get; set; } = new List<PerformanceHistory>();
         
         #endregion
         
@@ -55,6 +58,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         [MaxLength(50)]
         public string DifficultyLabel { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public List<string> PlayHistoryLines { get; set; } = new();
         
         #endregion
         
@@ -470,7 +476,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 UsedJoypad = UsedJoypad,
                 UsedMouse = UsedMouse,
                 NxImportedPlayCount = NxImportedPlayCount,
-                NxImportedClearCount = NxImportedClearCount
+                NxImportedClearCount = NxImportedClearCount,
+                PlayHistoryLines = new List<string>(PlayHistoryLines)
             };
         }
         
