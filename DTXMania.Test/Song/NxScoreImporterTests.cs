@@ -204,19 +204,16 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task TwoChartsSameSong_ShouldMergeNewestFiveHistoryAcrossCharts()
+        public async Task TwoChartsSameSong_ShouldKeepHistoryPerChartScore()
         {
             var chart1 = SeedChart(title: "Shared", file: "mas.dtx");
             var chart2 = SeedChart(file: "ext.dtx", songId: chart1.SongId);
 
-            // 4 lines from chart1 + 2 from chart2 = 6 distinct candidates -> top 5 drops the oldest.
             var d1 = Mas();
             d1.History = new[]
             {
                 new NxHistoryLine { Text = "4.26/5/15 Cleared (S: 90)", Date = new DateTime(2026, 5, 15) },
                 new NxHistoryLine { Text = "3.26/5/10 Cleared (A: 80)", Date = new DateTime(2026, 5, 10) },
-                new NxHistoryLine { Text = "2.26/5/5 Cleared (A: 79)", Date = new DateTime(2026, 5, 5) },
-                new NxHistoryLine { Text = "1.26/5/1 Cleared (A: 78)", Date = new DateTime(2026, 5, 1) },
             };
             var d2 = Mas();
             d2.History = new[]
@@ -229,15 +226,54 @@ namespace DTXMania.Test.Song
             await Merge(chart2, d2);
 
             using var ctx = new SongDbContext(_options);
-            var rows = ctx.PerformanceHistory.AsNoTracking()
-                .Where(p => p.SongId == chart1.SongId)
-                .OrderBy(p => p.DisplayOrder).ToList();
+            var score1 = ctx.SongScores.AsNoTracking().Single(s => s.ChartId == chart1.Id);
+            var score2 = ctx.SongScores.AsNoTracking().Single(s => s.ChartId == chart2.Id);
 
-            Assert.Equal(5, rows.Count);                       // capped at 5 of 6
-            Assert.Equal("2.26/6/5 Cleared (B: 70)", rows[0].HistoryLine); // newest first
+            var rows1 = ctx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score1.Id)
+                .OrderBy(p => p.DisplayOrder)
+                .ToList();
+            var rows2 = ctx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score2.Id)
+                .OrderBy(p => p.DisplayOrder)
+                .ToList();
+
+            Assert.Equal(new[] { "4.26/5/15 Cleared (S: 90)", "3.26/5/10 Cleared (A: 80)" },
+                rows1.Select(r => r.HistoryLine).ToArray());
+            Assert.Equal(new[] { "2.26/6/5 Cleared (B: 70)", "1.26/6/1 Cleared (B: 68)" },
+                rows2.Select(r => r.HistoryLine).ToArray());
+            Assert.All(rows1, row => Assert.Equal(score1.Id, row.SongScoreId));
+            Assert.All(rows2, row => Assert.Equal(score2.Id, row.SongScoreId));
+        }
+
+        [Fact]
+        public async Task SixHistoryRowsForOneScore_ShouldKeepNewestFive()
+        {
+            var chart = SeedChart();
+            var data = Mas();
+            data.History = Enumerable.Range(1, 6)
+                .Select(i => new NxHistoryLine
+                {
+                    Text = $"{i}.26/6/{i} Cleared (A: {70 + i})",
+                    Date = new DateTime(2026, 6, i)
+                })
+                .ToArray();
+
+            await Merge(chart, data);
+
+            using var ctx = new SongDbContext(_options);
+            var score = ctx.SongScores.AsNoTracking().Single(s => s.ChartId == chart.Id);
+            var rows = ctx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score.Id)
+                .OrderBy(p => p.DisplayOrder)
+                .ToList();
+
+            Assert.Equal(5, rows.Count);
+            Assert.Equal("6.26/6/6 Cleared (A: 76)", rows[0].HistoryLine);
             Assert.Equal(1, rows[0].DisplayOrder);
             Assert.Equal(5, rows[4].DisplayOrder);
-            Assert.DoesNotContain(rows, r => r.HistoryLine == "1.26/5/1 Cleared (A: 78)"); // oldest dropped
+            Assert.DoesNotContain(rows, r => r.HistoryLine == "1.26/6/1 Cleared (A: 71)");
+            Assert.All(rows, row => Assert.Equal(score.Id, row.SongScoreId));
         }
 
         [Fact]
@@ -254,8 +290,94 @@ namespace DTXMania.Test.Song
             await Merge(chart, data);
 
             using var ctx = new SongDbContext(_options);
-            var rows = ctx.PerformanceHistory.AsNoTracking().Where(p => p.SongId == chart.SongId).ToList();
+            var score = ctx.SongScores.AsNoTracking().Single(s => s.ChartId == chart.Id);
+            var rows = ctx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score.Id)
+                .ToList();
+
             Assert.Single(rows);
+            Assert.Equal(score.Id, rows[0].SongScoreId);
+        }
+
+        [Fact]
+        public async Task ExistingScoreScopedHistoryWithSameLine_ShouldWinOverIncomingNxLine()
+        {
+            var chart = SeedChart();
+            var historyLine = "1.26/5/15 Cleared (S: 90)";
+            int scoreId;
+
+            using (var ctx = new SongDbContext(_options))
+            {
+                var score = new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS };
+                ctx.SongScores.Add(score);
+                ctx.SaveChanges();
+
+                scoreId = score.Id;
+                ctx.PerformanceHistory.Add(new PerformanceHistory
+                {
+                    SongId = chart.SongId,
+                    SongScoreId = scoreId,
+                    HistoryLine = historyLine,
+                    PerformedAt = new DateTime(2026, 5, 1),
+                    DisplayOrder = 1,
+                });
+                ctx.SaveChanges();
+            }
+
+            var data = Mas();
+            data.History = new[]
+            {
+                new NxHistoryLine { Text = historyLine, Date = new DateTime(2026, 6, 1) },
+            };
+
+            await Merge(chart, data);
+
+            using var verifyCtx = new SongDbContext(_options);
+            var row = verifyCtx.PerformanceHistory.AsNoTracking()
+                .Single(p => p.SongScoreId == scoreId);
+
+            Assert.Equal(historyLine, row.HistoryLine);
+            Assert.Equal(new DateTime(2026, 5, 1), row.PerformedAt);
+        }
+
+        [Fact]
+        public async Task LegacySongLevelHistory_ShouldNotMergeIntoScoreScopedHistory()
+        {
+            var chart = SeedChart();
+            using (var ctx = new SongDbContext(_options))
+            {
+                ctx.PerformanceHistory.Add(new PerformanceHistory
+                {
+                    SongId = chart.SongId,
+                    SongScoreId = null,
+                    HistoryLine = "legacy song-level row",
+                    PerformedAt = new DateTime(2030, 1, 1),
+                    DisplayOrder = 1,
+                });
+                ctx.SaveChanges();
+            }
+
+            var data = Mas();
+            data.History = new[]
+            {
+                new NxHistoryLine { Text = "1.26/5/15 Cleared (S: 90)", Date = new DateTime(2026, 5, 15) },
+            };
+
+            await Merge(chart, data);
+
+            using var verifyCtx = new SongDbContext(_options);
+            var score = verifyCtx.SongScores.AsNoTracking().Single(s => s.ChartId == chart.Id);
+            var scopedRows = verifyCtx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == score.Id)
+                .Select(p => p.HistoryLine)
+                .ToList();
+            var legacyRows = verifyCtx.PerformanceHistory.AsNoTracking()
+                .Where(p => p.SongScoreId == null)
+                .Select(p => p.HistoryLine)
+                .ToList();
+
+            Assert.Equal(new[] { "1.26/5/15 Cleared (S: 90)" }, scopedRows);
+            Assert.Equal(new[] { "legacy song-level row" }, legacyRows);
         }
 
         [Fact]
@@ -559,6 +681,31 @@ namespace DTXMania.Test.Song
             Assert.Equal(76, s.ClearCount);  // 72 + 4 (not 72 + 36)
             Assert.Equal(82, s.NxImportedPlayCount);
             Assert.Equal(76, s.NxImportedClearCount);
+        }
+
+        [Fact]
+        public async Task HistorySaveFailureForNewScore_ShouldRollbackScoreImport()
+        {
+            var chart = SeedChart();
+            var invalidSongChart = new SongChart { Id = chart.Id, SongId = 999999, FilePath = chart.FilePath };
+            var data = Mas();
+            data.History = new[]
+            {
+                new NxHistoryLine { Text = "1.26/6/13 Cleared (S: 90)", Date = new DateTime(2026, 6, 13) },
+            };
+
+            using (var ctx = new SongDbContext(_options))
+            {
+                await Assert.ThrowsAsync<DbUpdateException>(
+                    () => _importer.MergeAsync(ctx, invalidSongChart, data));
+            }
+
+            using (var verifyCtx = new SongDbContext(_options))
+            {
+                var score = verifyCtx.SongScores.AsNoTracking()
+                    .FirstOrDefault(s => s.ChartId == chart.Id && s.Instrument == EInstrumentPart.DRUMS);
+                Assert.Null(score);
+            }
         }
 
         [Fact]
