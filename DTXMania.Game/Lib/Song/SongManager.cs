@@ -1657,12 +1657,23 @@ namespace DTXMania.Game.Lib.Song
         /// DB field values onto that entry in-place. Returns true when a match was found.
         /// When the in-memory score carries a zero ChartId (legacy set.def nodes),
         /// falls back to matching by Instrument + DifficultyLevel, mirroring the logic
-        /// in <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>.
+        /// in <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>. Unlike that
+        /// node-scoped method, this walk spans the entire tree, so the legacy fallback
+        /// is additionally scoped to the owning song (via <see cref="SongListNode.DatabaseSongId"/>
+        /// vs. <paramref name="fresh"/>'s chart song) to prevent a difficulty collision
+        /// with a different legacy node from hijacking the refresh and stamping the
+        /// wrong song's cached score/history with this chart id.
         /// </summary>
         private static bool TryUpdateNodeScore(SongListNode node, int chartId, EInstrumentPart instrument, SongScore fresh)
         {
             if (node.Type == NodeType.Score)
             {
+                // Owning song of the just-played chart, resolved from the eagerly-loaded
+                // Chart navigation. Used to scope the legacy (ChartId == 0) fallback so
+                // the tree-wide walk cannot match a different song that happens to share
+                // the same instrument + numeric difficulty level.
+                int? owningSongId = fresh.Chart?.SongId;
+
                 foreach (var score in node.Scores)
                 {
                     if (score == null) continue;
@@ -1670,10 +1681,21 @@ namespace DTXMania.Game.Lib.Song
 
                     // Primary match: ChartId (set for individual-file nodes built via
                     // CreateSongNodeFromDatabaseEntities). Fallback: Instrument +
-                    // DifficultyLevel (for legacy set.def nodes where ChartId is 0).
-                    bool match = score.ChartId != 0
-                        ? score.ChartId == chartId
-                        : score.DifficultyLevel == fresh.DifficultyLevel;
+                    // DifficultyLevel, scoped to the owning song (for legacy set.def
+                    // nodes where ChartId is 0). If the song identity is unavailable on
+                    // either side, skip rather than risk updating the wrong node.
+                    bool match;
+                    if (score.ChartId != 0)
+                    {
+                        match = score.ChartId == chartId;
+                    }
+                    else
+                    {
+                        match = owningSongId.HasValue
+                            && node.DatabaseSongId.HasValue
+                            && node.DatabaseSongId == owningSongId
+                            && score.DifficultyLevel == fresh.DifficultyLevel;
+                    }
 
                     if (match)
                     {
