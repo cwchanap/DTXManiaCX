@@ -175,6 +175,8 @@ namespace DTXMania.Game.Lib.Song
 
         // Format: "{playIndex}.{yy}/{m}/{d} {status} ({rank}: {skill})"
         // e.g. "79.26/5/15 Cleared (S: 94.37)" -> 2026-05-15
+        // Unparseable dates return DateTime.MinValue, which sorts below every real
+        // date and is therefore effectively excluded from the top-5 recent display.
         private static DateTime ParseHistoryDate(string text)
         {
             try
@@ -189,6 +191,8 @@ namespace DTXMania.Game.Lib.Song
                 int yy = int.Parse(parts[0], CultureInfo.InvariantCulture);
                 int m = int.Parse(parts[1], CultureInfo.InvariantCulture);
                 int d = int.Parse(parts[2], CultureInfo.InvariantCulture);
+                // Assumes 21st century; NX score.ini uses 2-digit years and the NX
+                // lineage is a 2000s-era product, so this is valid for 2000-2099.
                 return new DateTime(2000 + yy, m, d);
             }
             catch

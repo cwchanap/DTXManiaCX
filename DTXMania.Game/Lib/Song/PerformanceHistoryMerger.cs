@@ -32,6 +32,11 @@ namespace DTXMania.Game.Lib.Song
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            // Dedup by full line text. This is safe because every history line is
+            // formatted as "{playIndex}.{date} {status} ({rank}: {skill})" — the
+            // monotonically-increasing PlayCount prefix means identical text can only
+            // arise from re-importing the same play, which is exactly the idempotent
+            // case we want to collapse. Distinct plays always carry distinct prefixes.
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var candidates = new List<PerformanceHistoryCandidate>();
 

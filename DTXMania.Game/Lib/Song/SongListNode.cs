@@ -236,6 +236,11 @@ namespace DTXMania.Game.Lib.Song
                 score.LastPlayedAt    = persisted.LastPlayedAt;
                 score.LastScore       = persisted.LastScore;
                 score.LastSkillPoint  = persisted.LastSkillPoint;
+                // The PerformanceHistory collection is NOT assumed to be purely scoped to
+                // this SongScore. Legacy/song-wide rows (SongScoreId == null) and rows
+                // belonging to other scores can appear in the collection (e.g. when the
+                // graph is built outside EF Core's FK-scoped load path). The explicit
+                // SongScoreId filter is what keeps the displayed top-5 correct.
                 score.PlayHistoryLines = (persisted.PerformanceHistory ?? Enumerable.Empty<PerformanceHistory>())
                     .Where(h => h.SongScoreId == persisted.Id)
                     .OrderBy(h => h.DisplayOrder)
