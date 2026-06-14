@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Config;
 using Microsoft.Xna.Framework;
 
 namespace DTXMania.Game.Lib.UI.Layout
@@ -167,7 +168,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int TextOffsetX = 18;
             public const int TextOffsetY = 32;
             public const int RowSpacing = 18;
-            public const int MaxRows = 5;
+            // Delegates to the domain constant so the panel, the DB merge, and the
+            // projection in SongListNode all share one source of truth.
+            public const int MaxRows = GameConstants.PlayHistory.MaxRecentPlays;
             public const float FontScale = 0.8f;
 
             public static Vector2 Position => new Vector2(X, Y);

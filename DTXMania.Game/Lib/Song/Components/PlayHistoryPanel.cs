@@ -130,6 +130,12 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
                 catch (ObjectDisposedException)
                 {
+                    // The background texture was disposed out from under us (texture-
+                    // lifecycle defect). Release our handle so we stop trying to draw a
+                    // dead texture, and surface the condition so it isn't invisible.
+                    System.Diagnostics.Debug.WriteLine(
+                        "PlayHistoryPanel: Panel texture was disposed unexpectedly during draw; " +
+                        "releasing handle. This signals a texture-lifecycle defect upstream.");
                     ReleaseTexture();
                 }
             }

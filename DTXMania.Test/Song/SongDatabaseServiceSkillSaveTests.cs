@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -206,6 +208,53 @@ namespace DTXMania.Test.Song
 
             var saved = await LoadSavedScoreAsync(chart.Id);
             Assert.False(saved.FullCombo); // had misses, so not full combo despite clearing
+        }
+
+        /// <summary>
+        /// Regression guard: when the PerformanceHistory insert in MergeAsync fails
+        /// mid-transaction, the score changes from the first SaveChangesAsync must be
+        /// rolled back. This exercises the transaction boundary in UpdateScoreAsync — a
+        /// separate code path from the NxImporter rollback tested in NxScoreImporterTests.
+        /// </summary>
+        [Fact]
+        public async Task UpdateScoreAsync_WhenHistorySaveFails_ShouldRollbackScoreChanges()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 900000,
+                PlayCount = 3,
+            });
+
+            // Delete the Song row (with FK temporarily off) so that the PerformanceHistory
+            // insert inside MergeAsync hits a FK violation. The score was already loaded
+            // and its first SaveChangesAsync succeeded, so only the transaction rollback
+            // can undo the PlayCount increment.
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA foreign_keys = OFF";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = $"DELETE FROM Songs WHERE Id = {chart.SongId}";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "PRAGMA foreign_keys = ON";
+                cmd.ExecuteNonQuery();
+            }
+
+            var summary = new PerformanceSummary
+            {
+                Score = 950000, MaxCombo = 100, ClearFlag = true, TotalNotes = 100,
+                PerfectCount = 95, GreatCount = 5,
+                PlayingSkill = 95.0, GameSkill = 155.0,
+                ChartLevel = 78, ChartLevelDec = 33
+            };
+
+            // The MergeAsync call should throw due to the dangling SongId FK.
+            await Assert.ThrowsAnyAsync<DbUpdateException>(
+                () => _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary));
+
+            // Verify the score's PlayCount was NOT incremented (transaction rolled back).
+            var score = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(3, score.PlayCount);
         }
     }
 }

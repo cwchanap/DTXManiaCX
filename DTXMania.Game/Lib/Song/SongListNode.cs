@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 
 // Type aliases for EF Core entities
@@ -246,7 +247,7 @@ namespace DTXMania.Game.Lib.Song
                     .OrderBy(h => h.DisplayOrder)
                     .Select(h => h.HistoryLine)
                     .Where(line => !string.IsNullOrWhiteSpace(line))
-                    .Take(5)
+                    .Take(GameConstants.PlayHistory.MaxRecentPlays)
                     .ToList();
             }
         }
