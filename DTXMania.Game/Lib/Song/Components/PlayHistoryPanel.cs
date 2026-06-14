@@ -27,12 +27,13 @@ namespace DTXMania.Game.Lib.Song.Components
             Visible = false;
         }
 
-        public SpriteFont? Font
-        {
-            get => _font;
-            set => _font = value;
-        }
-
+        /// <summary>
+        /// Font used for rendering history rows. Assigning this also derives the
+        /// underlying <c>SpriteFont</c>, so this is the single source of truth for
+        /// text rendering. There is intentionally no separate raw <c>Font</c>
+        /// setter to avoid a dual-source-of-truth where one setter could silently
+        /// shadow the other.
+        /// </summary>
         public IFont? ManagedFont
         {
             get => _managedFont;
@@ -63,7 +64,13 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        public void UpdateSongInfo(SongListNode song, int difficulty)
+        /// <summary>
+        /// Refreshes the displayed history for the given song/difficulty. Passing
+        /// <c>null</c> (or a non-score node) clears and hides the panel. The
+        /// parameter is nullable by contract because the selection pipeline can
+        /// signal "nothing selected" with null.
+        /// </summary>
+        public void UpdateSongInfo(SongListNode? song, int difficulty)
         {
             if (song == null || song.Type != NodeType.Score)
             {

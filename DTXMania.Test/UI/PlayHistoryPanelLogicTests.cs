@@ -114,6 +114,57 @@ public class PlayHistoryPanelLogicTests
     }
 
     [Fact]
+    public void UpdateSongInfo_WithNull_ShouldClearAndHide()
+    {
+        // Null is a supported, contract-level input (the selection pipeline signals
+        // "nothing selected" with null). It must clear rows and hide, not throw.
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.Scores[0] = new SongScore { PlayHistoryLines = ["1.26/6/13 Cleared (S: 90.00)"] };
+        panel.UpdateSongInfo(node, 0);
+        Assert.True(panel.Visible);
+
+        panel.UpdateSongInfo(null, 0);
+
+        Assert.False(panel.Visible);
+        Assert.Empty(GetRows(panel));
+    }
+
+    [Fact]
+    public void ManagedFontSetter_AloneDerivesBackingFont()
+    {
+        // After removing the redundant raw Font property, ManagedFont is the single
+        // source of truth: assigning it must populate the backing _font used at
+        // draw time, with no separate Font setter required.
+        var panel = new PlayHistoryPanel();
+
+        Assert.Null(GetBackingFont(panel));
+
+        var font = new Mock<IFont>();
+        font.SetupGet(f => f.SpriteFont).Returns(null as SpriteFont);
+        panel.ManagedFont = font.Object;
+
+        // Assigning ManagedFont wires the backing field through to the derived
+        // SpriteFont (null here, but the assignment path is exercised). Clearing
+        // it returns the backing field to null.
+        Assert.NotNull(typeof(PlayHistoryPanel)
+            .GetField("_managedFont", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(panel));
+        Assert.Same(font.Object, panel.ManagedFont);
+
+        panel.ManagedFont = null;
+        Assert.Null(panel.ManagedFont);
+        Assert.Null(GetBackingFont(panel));
+    }
+
+    private static object? GetBackingFont(PlayHistoryPanel panel)
+    {
+        return typeof(PlayHistoryPanel)
+            .GetField("_font", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(panel);
+    }
+
+    [Fact]
     public void Initialize_WhenTextureLoadFails_ShouldNotThrow()
     {
         var panel = new PlayHistoryPanel();
