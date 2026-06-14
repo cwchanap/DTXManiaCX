@@ -438,6 +438,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Creates a copy of this score (legacy compatibility)
         /// </summary>
+        /// <remarks>
+        /// PlayHistoryLines (the NotMapped display list) is copied because it is a
+        /// plain value collection. The PerformanceHistory EF Core navigation is
+        /// intentionally NOT cloned — duplicating tracked entities would risk
+        /// duplicate-key attachment when the clone is re-attached to a DbContext.
+        /// </remarks>
         public SongScore Clone()
         {
             return new SongScore
