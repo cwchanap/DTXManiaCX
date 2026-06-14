@@ -146,6 +146,147 @@ public class SongManagerUpdateScoreTests : IDisposable
         Assert.True(result);
     }
 
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummary_ShouldRefreshInMemoryPlayHistoryBadge()
+    {
+        // Regression: after saving a CX play, the in-memory SongListNode's
+        // PlayHistoryLines cache must reflect the just-finished play so the
+        // play-history badge is correct when the user returns to SongSelect
+        // without a full song-database reload.
+        var songsRoot = Path.Combine(_testRoot, "BadgeSongs");
+        var songFolder = Path.Combine(songsRoot, "Badge Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "badge.dtx"), "Badge Song", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var songs = await db.GetSongsAsync();
+        var chart = Assert.Single(songs).Charts.First();
+
+        // Find the in-memory score node and capture a reference to its score object.
+        var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(scoreNode);
+        Assert.NotNull(drumScore);
+        Assert.Empty(drumScore!.PlayHistoryLines);
+        Assert.Equal(0, drumScore.PlayCount);
+
+        var summary = new PerformanceSummary
+        {
+            Score = 950_000,
+            MaxCombo = 100,
+            ClearFlag = true,
+            PerfectCount = 95,
+            GreatCount = 5,
+            GoodCount = 0,
+            PoorCount = 0,
+            MissCount = 0,
+            TotalNotes = 100,
+            PlayingSkill = 95.0,
+            GameSkill = 150.0,
+            ChartLevel = 50,
+            ChartLevelDec = 0
+        };
+
+        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+        Assert.True(result);
+
+        // The same in-memory score object (by reference) should now reflect the play.
+        Assert.Equal(1, drumScore.PlayCount);
+        Assert.NotEmpty(drumScore.PlayHistoryLines);
+        Assert.Contains(drumScore.PlayHistoryLines, line => line.Contains("Cleared"));
+        Assert.Equal(950_000, drumScore.BestScore);
+    }
+
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummary_ShouldRefreshInMemoryPlayHistoryOnSecondPlay()
+    {
+        // Two consecutive plays: the badge should show both, newest-first.
+        var songsRoot = Path.Combine(_testRoot, "BadgeSongs2");
+        var songFolder = Path.Combine(songsRoot, "Badge Song 2");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "badge2.dtx"), "Badge Song 2", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var songs = await db.GetSongsAsync();
+        var chart = Assert.Single(songs).Charts.First();
+
+        var (_, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(drumScore);
+
+        var summary1 = new PerformanceSummary
+        {
+            Score = 800_000, MaxCombo = 80, ClearFlag = true,
+            PerfectCount = 80, GreatCount = 20, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = 80.0, GameSkill = 120.0,
+            ChartLevel = 50, ChartLevelDec = 0
+        };
+        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
+
+        Assert.Single(drumScore!.PlayHistoryLines);
+        Assert.Equal(1, drumScore.PlayCount);
+
+        var summary2 = new PerformanceSummary
+        {
+            Score = 900_000, MaxCombo = 90, ClearFlag = false,
+            PerfectCount = 90, GreatCount = 10, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 135.0,
+            ChartLevel = 50, ChartLevelDec = 0
+        };
+        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
+
+        Assert.Equal(2, drumScore.PlayCount);
+        Assert.Equal(2, drumScore.PlayHistoryLines.Count);
+        // The most-recent play (DisplayOrder ascending after merger's newest-first
+        // re-order) should mention "Failed" since summary2 had ClearFlag=false.
+        Assert.Contains(drumScore.PlayHistoryLines, line => line.Contains("Failed"));
+    }
+
+    /// <summary>
+    /// Walks the song-list tree to find the NodeType.Score node whose Scores array
+    /// contains a drum entry matching <paramref name="chartId"/>. Returns the node
+    /// and the score object (by reference) so the caller can assert on in-place
+    /// mutations.
+    /// </summary>
+    private static (SongListNode? Node, SongScore? Score) FindScoreByChartId(
+        System.Collections.Generic.IReadOnlyList<SongListNode> roots, int chartId)
+    {
+        foreach (var root in roots)
+        {
+            var found = FindScoreByChartIdRecursive(root, chartId);
+            if (found.Node != null)
+                return found;
+        }
+        return (null, null);
+    }
+
+    private static (SongListNode? Node, SongScore? Score) FindScoreByChartIdRecursive(
+        SongListNode node, int chartId)
+    {
+        if (node.Type == NodeType.Score)
+        {
+            foreach (var score in node.Scores)
+            {
+                if (score != null && score.ChartId == chartId)
+                    return (node, score);
+            }
+        }
+
+        if (node.Children != null)
+        {
+            foreach (var child in node.Children)
+            {
+                var found = FindScoreByChartIdRecursive(child, chartId);
+                if (found.Node != null)
+                    return found;
+            }
+        }
+
+        return (null, null);
+    }
+
     private async Task InitializeAndEnumerateAsync(string songsRoot)
     {
         var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);

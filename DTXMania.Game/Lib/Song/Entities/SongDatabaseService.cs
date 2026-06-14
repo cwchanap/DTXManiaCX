@@ -578,6 +578,24 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
+        /// Loads a single <see cref="SongScore"/> with its <see cref="SongScore.PerformanceHistory"/>
+        /// collection eagerly loaded. Used by <see cref="SongManager"/> to refresh the
+        /// in-memory score cache after a score update without rebuilding the entire
+        /// song-list tree. Returns null when no score row exists for the given chart+instrument.
+        /// </summary>
+        public async Task<SongScoreEntity?> GetScoreWithHistoryAsync(int chartId, EInstrumentPart instrument)
+        {
+            using var context = CreateContext();
+
+            return await context.SongScores
+                .Include(s => s.Chart)
+                .Include(s => s.PerformanceHistory)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Returns the most-recently-played songs, one row per song. A song with multiple
         /// difficulty charts is collapsed to a single entry using the maximum LastPlayedAt
         /// across its charts. Songs that have never been played (no score with a LastPlayedAt)

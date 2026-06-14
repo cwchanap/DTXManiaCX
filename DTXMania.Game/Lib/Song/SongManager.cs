@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -1591,7 +1592,10 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Persists a complete PerformanceSummary (score + skill + judgement counts) for a
-        /// specific chart and instrument. Forwards to SongDatabaseService.
+        /// specific chart and instrument. Forwards to SongDatabaseService, then refreshes
+        /// the in-memory score cache for that chart so the play-history badge and score
+        /// fields on the song-list node reflect the just-saved play without a full
+        /// song-database reload.
         /// </summary>
         public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
         {
@@ -1600,6 +1604,7 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 await _databaseService.UpdateScoreAsync(chartId, instrument, summary);
+                await RefreshInMemoryScoreForChartAsync(chartId, instrument).ConfigureAwait(false);
                 return true;
             }
             catch (Exception ex)
@@ -1607,6 +1612,122 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Error updating score (summary): {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Refreshes the in-memory score cache for a single chart+instrument after a
+        /// database write. Re-queries the fresh <see cref="SongScore"/> (with
+        /// <see cref="SongScore.PerformanceHistory"/> eagerly loaded) and copies its
+        /// fields onto the matching <see cref="SongListNode.Scores"/> entry in-place,
+        /// preserving node identity so song-selection navigation state is not orphaned.
+        /// Silently no-ops when the DB service is unavailable or the node cannot be found.
+        /// </summary>
+        private async Task RefreshInMemoryScoreForChartAsync(int chartId, EInstrumentPart instrument)
+        {
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return;
+
+            SongScore? fresh;
+            try
+            {
+                fresh = await db.GetScoreWithHistoryAsync(chartId, instrument).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SongManager: Failed to refresh in-memory score cache for chart {chartId}: {ex.Message}");
+                return;
+            }
+
+            if (fresh == null) return;
+
+            lock (_lockObject)
+            {
+                foreach (var root in _rootSongs)
+                {
+                    if (TryUpdateNodeScore(root, chartId, instrument, fresh))
+                        return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Recursively walks the song-list tree looking for a Score node whose
+        /// <see cref="SongListNode.Scores"/> array contains an entry matching
+        /// <paramref name="chartId"/> + <paramref name="instrument"/>. Copies the fresh
+        /// DB field values onto that entry in-place. Returns true when a match was found.
+        /// When the in-memory score carries a zero ChartId (legacy set.def nodes),
+        /// falls back to matching by Instrument + DifficultyLevel, mirroring the logic
+        /// in <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>.
+        /// </summary>
+        private static bool TryUpdateNodeScore(SongListNode node, int chartId, EInstrumentPart instrument, SongScore fresh)
+        {
+            if (node.Type == NodeType.Score)
+            {
+                foreach (var score in node.Scores)
+                {
+                    if (score == null) continue;
+                    if (score.Instrument != instrument) continue;
+
+                    // Primary match: ChartId (set for individual-file nodes built via
+                    // CreateSongNodeFromDatabaseEntities). Fallback: Instrument +
+                    // DifficultyLevel (for legacy set.def nodes where ChartId is 0).
+                    bool match = score.ChartId != 0
+                        ? score.ChartId == chartId
+                        : score.DifficultyLevel == fresh.DifficultyLevel;
+
+                    if (match)
+                    {
+                        CopyScoreFieldsToCache(score, fresh);
+                        // Stamp the ChartId so subsequent refreshes hit the fast path.
+                        score.ChartId = chartId;
+                        return true;
+                    }
+                }
+            }
+
+            if (node.Children != null)
+            {
+                foreach (var child in node.Children)
+                {
+                    if (TryUpdateNodeScore(child, chartId, instrument, fresh))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Copies the mutable display fields from <paramref name="source"/> (a fresh,
+        /// AsNoTracking DB read) onto <paramref name="target"/> (the in-memory cache
+        /// entry), matching the field set used by
+        /// <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>. Rebuilds
+        /// <see cref="SongScore.PlayHistoryLines"/> from the scoped
+        /// <see cref="PerformanceHistory"/> rows.
+        /// </summary>
+        private static void CopyScoreFieldsToCache(SongScore target, SongScore source)
+        {
+            target.PlayCount          = source.PlayCount;
+            target.BestRank           = source.BestRank;
+            target.BestScore          = source.BestScore;
+            target.BestSkillPoint     = source.BestSkillPoint;
+            target.BestAchievementRate = source.BestAchievementRate;
+            target.FullCombo          = source.FullCombo;
+            target.Excellent          = source.Excellent;
+            target.ClearCount         = source.ClearCount;
+            target.MaxCombo           = source.MaxCombo;
+            target.HighSkill          = source.HighSkill;
+            target.SongSkill          = source.SongSkill;
+            target.LastPlayedAt       = source.LastPlayedAt;
+            target.LastScore          = source.LastScore;
+            target.LastSkillPoint     = source.LastSkillPoint;
+            target.PlayHistoryLines   = (source.PerformanceHistory ?? Enumerable.Empty<PerformanceHistory>())
+                .Where(h => h.SongScoreId == source.Id)
+                .OrderBy(h => h.DisplayOrder)
+                .Select(h => h.HistoryLine)
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Take(GameConstants.PlayHistory.MaxRecentPlays)
+                .ToList();
         }
 
         /// <summary>
