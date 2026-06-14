@@ -244,6 +244,58 @@ public class SongManagerUpdateScoreTests : IDisposable
         Assert.Contains(drumScore.PlayHistoryLines, line => line.Contains("Failed"));
     }
 
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummary_OnLegacySetDefNode_ShouldNotUpdateDifferentSongWithSameDifficulty()
+    {
+        // Regression: two legacy set.def songs sharing the same drum difficulty level.
+        // The in-memory refresh walks the entire tree and, for ChartId == 0 nodes,
+        // must scope the Instrument + DifficultyLevel fallback to the owning song.
+        // Without that scope, whichever set.def node appears first in tree order gets
+        // its cached score/history overwritten and stamped with the other chart's id.
+        var songsRoot = Path.Combine(_testRoot, "SetDefSongs");
+
+        // Two set.def folders, each with a single chart at DLEVEL 50 (collision).
+        await CreateSetDefSongAsync(songsRoot, "First SetDef Song", "first.dtx");
+        await CreateSetDefSongAsync(songsRoot, "Second SetDef Song", "second.dtx");
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        // Both in-memory nodes should be legacy (ChartId == 0) before any play.
+        var firstNode = FindScoreNodeByTitle(_manager.RootSongs, "First SetDef Song");
+        var secondNode = FindScoreNodeByTitle(_manager.RootSongs, "Second SetDef Song");
+        Assert.NotNull(firstNode);
+        Assert.NotNull(secondNode);
+        var firstScore = Assert.Single(firstNode!.Scores.Where(s => s != null && s.Instrument == EInstrumentPart.DRUMS))!;
+        var secondScore = Assert.Single(secondNode!.Scores.Where(s => s != null && s.Instrument == EInstrumentPart.DRUMS))!;
+        Assert.Equal(0, firstScore.ChartId);
+        Assert.Equal(0, secondScore.ChartId);
+
+        // Play the SECOND song's chart. Resolve its chart id + owning song from the DB.
+        var db = _manager.DatabaseService!;
+        var secondSong = (await db.GetSongsAsync()).Single(s => s.Title == "Second SetDef Song");
+        var secondChart = secondSong.Charts.First();
+
+        var summary = new PerformanceSummary
+        {
+            Score = 910_000, MaxCombo = 90, ClearFlag = true,
+            PerfectCount = 90, GreatCount = 10, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 140.0,
+            ChartLevel = 50, ChartLevelDec = 0
+        };
+        var result = await _manager.UpdateScoreAsync(secondChart.Id, EInstrumentPart.DRUMS, summary);
+        Assert.True(result);
+
+        // The played song's cached score must reflect the play ...
+        Assert.Equal(1, secondScore.PlayCount);
+        Assert.Equal(910_000, secondScore.BestScore);
+        Assert.Equal(secondChart.Id, secondScore.ChartId); // stamped onto the correct node
+
+        // ... and the OTHER song's cache must remain untouched (the bug would have
+        // overwritten firstScore and stamped it with secondChart.Id).
+        Assert.Equal(0, firstScore.PlayCount);
+        Assert.Equal(0, firstScore.BestScore);
+        Assert.Equal(0, firstScore.ChartId);
+    }
+
     /// <summary>
     /// Walks the song-list tree to find the NodeType.Score node whose Scores array
     /// contains a drum entry matching <paramref name="chartId"/>. Returns the node
@@ -287,6 +339,40 @@ public class SongManagerUpdateScoreTests : IDisposable
         return (null, null);
     }
 
+    /// <summary>
+    /// Walks the song-list tree to find the first NodeType.Score node whose Title
+    /// matches. Used to locate legacy (ChartId == 0) set.def nodes that cannot be
+    /// keyed by chart id.
+    /// </summary>
+    private static SongListNode? FindScoreNodeByTitle(
+        System.Collections.Generic.IReadOnlyList<SongListNode> roots, string title)
+    {
+        foreach (var root in roots)
+        {
+            var found = FindScoreNodeByTitleRecursive(root, title);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    private static SongListNode? FindScoreNodeByTitleRecursive(SongListNode node, string title)
+    {
+        if (node.Type == NodeType.Score && string.Equals(node.Title, title, StringComparison.Ordinal))
+            return node;
+
+        if (node.Children != null)
+        {
+            foreach (var child in node.Children)
+            {
+                var found = FindScoreNodeByTitleRecursive(child, title);
+                if (found != null)
+                    return found;
+            }
+        }
+        return null;
+    }
+
     private async Task InitializeAndEnumerateAsync(string songsRoot)
     {
         var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
@@ -306,6 +392,33 @@ public class SongManagerUpdateScoreTests : IDisposable
 #GENRE: {genre}
 #BPM: 120
 #DLEVEL: {drumLevel}
+#00002:11111111
+#00011:01010101
+""");
+    }
+
+    /// <summary>
+    /// Creates a set.def-backed song folder with a single difficulty chart. The
+    /// resulting in-memory node is a legacy set.def node whose cached SongScore
+    /// entries carry ChartId == 0 (the code path exercised by the regression test).
+    /// All such songs use the same drum level (50) so a difficulty-only fallback
+    /// would collide across songs.
+    /// </summary>
+    private static async Task CreateSetDefSongAsync(string root, string title, string dtxFileName)
+    {
+        var folder = Path.Combine(root, title);
+        Directory.CreateDirectory(folder);
+
+        await File.WriteAllTextAsync(Path.Combine(folder, "set.def"), $"""
+#TITLE {title}
+#L1FILE {dtxFileName}
+""");
+
+        await File.WriteAllTextAsync(Path.Combine(folder, dtxFileName), $"""
+#TITLE: {title}
+#ARTIST: SetDef Artist
+#BPM: 120
+#DLEVEL: 50
 #00002:11111111
 #00011:01010101
 """);
