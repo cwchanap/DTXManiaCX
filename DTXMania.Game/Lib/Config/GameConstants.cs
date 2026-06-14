@@ -98,5 +98,20 @@ namespace DTXMania.Game.Lib.Config
             /// </summary>
             public const int CleanupTimeoutMs = 1000;
         }
+
+        /// <summary>
+        /// Play history display and persistence constants.
+        /// These values are the single source of truth for how many recent-play
+        /// rows are kept in the database, projected onto SongScore.PlayHistoryLines,
+        /// and rendered by the play-history badge panel. Changing this constant
+        /// automatically adjusts all three layers so they cannot desync.
+        /// </summary>
+        public static class PlayHistory
+        {
+            /// <summary>
+            /// Maximum number of recent-play rows to persist, project, and display.
+            /// </summary>
+            public const int MaxRecentPlays = 5;
+        }
     }
 }

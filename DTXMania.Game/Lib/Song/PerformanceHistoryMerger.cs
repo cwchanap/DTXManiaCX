@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -56,15 +57,15 @@ namespace DTXMania.Game.Lib.Song
                 }
             }
 
-            var topFive = candidates
+            var topN = candidates
                 .OrderByDescending(c => c.Date)
-                .Take(5)
+                .Take(GameConstants.PlayHistory.MaxRecentPlays)
                 .ToList();
 
             context.PerformanceHistory.RemoveRange(existing);
 
             var displayOrder = 1;
-            foreach (var row in topFive)
+            foreach (var row in topN)
             {
                 context.PerformanceHistory.Add(new PerformanceHistory
                 {

@@ -1,8 +1,11 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -115,6 +118,110 @@ namespace DTXMania.Test.Song
             await Assert.ThrowsAsync<SqliteException>(() => ExecuteAsync(
                 "INSERT INTO PerformanceHistory (SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder) " +
                 "VALUES (1, 1, '2026-06-17 00:00:00', 'Duplicate scoped run', 1)"));
+        }
+
+        /// <summary>
+        /// Simulates a crashed migration: the SongScoreId column was already added
+        /// (ALTER TABLE succeeded) but the SET NULL FK rebuild did not run (process
+        /// crashed before or during RebuildPerformanceHistoryTableWithScoreScopeAsync).
+        /// InitializeDatabaseAsync must detect the missing FK and rebuild the table
+        /// without losing the existing rows.
+        /// </summary>
+        [Fact]
+        public async Task InitializeDatabaseAsync_OnPartialMigration_ColumnPresentButFkMissing_RebuildsAndPreservesRows()
+        {
+            await CreateLegacyDatabaseAsync();
+
+            // Simulate the intermediate state: the first migration step (ALTER TABLE ADD
+            // COLUMN SongScoreId) already ran, and a scoped row was written, but the FK
+            // rebuild step never ran.
+            await ExecuteAsync(
+                "ALTER TABLE PerformanceHistory ADD COLUMN SongScoreId INTEGER NULL");
+            await ExecuteAsync(
+                "INSERT INTO PerformanceHistory (SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder) " +
+                "VALUES (1, 1, '2026-06-14 00:00:00', 'Scoped run pre-crash', 1)");
+
+            // Before migration: column exists, no SET NULL FK.
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'"));
+            Assert.Equal(0, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"));
+
+            var service = new SongDatabaseService(_dbPath);
+            await service.InitializeDatabaseAsync();
+            service.Dispose();
+
+            // After migration: FK was added via rebuild, both rows preserved.
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"));
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM PerformanceHistory WHERE SongId=1 AND SongScoreId IS NULL AND HistoryLine='Legacy run'"));
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM PerformanceHistory WHERE SongId=1 AND SongScoreId=1 AND HistoryLine='Scoped run pre-crash'"));
+        }
+
+        /// <summary>
+        /// A fresh database created by the first InitializeDatabaseAsync call must NOT
+        /// be rebuilt on the second startup. This guards against the FK-detection query
+        /// drifting from what EnsureCreated or the rebuild produces, which would cause
+        /// the table to be dropped and recreated on every app launch.
+        /// 
+        /// Scenario: first startup creates the DB; second startup (new process, same file)
+        /// must be a complete no-op for PerformanceHistory.
+        /// </summary>
+        [Fact]
+        public async Task InitializeDatabaseAsync_SecondStartupOnFreshDatabase_ShouldNotRebuildHistoryTable()
+        {
+            // First startup: create the database from scratch.
+            var first = new SongDatabaseService(_dbPath);
+            await first.InitializeDatabaseAsync();
+            first.Dispose();
+
+            // Seed a scoped PerformanceHistory row via DbContext so all NOT NULL
+            // columns and FK relationships are satisfied.
+            SqliteConnection.ClearAllPools();
+            var seedOptions = new DbContextOptionsBuilder<SongDbContext>()
+                .UseSqlite($"Data Source={_dbPath}")
+                .Options;
+            int scoreId;
+            using (var seed = new SongDbContext(seedOptions))
+            {
+                var song = new SongEntity { Title = "Fresh" };
+                var chart = new SongChart { Song = song, FilePath = "a.dtx", HasDrumChart = true, DrumLevel = 50 };
+                seed.SongCharts.Add(chart);
+                await seed.SaveChangesAsync();
+                var score = new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS };
+                seed.SongScores.Add(score);
+                await seed.SaveChangesAsync();
+                scoreId = score.Id;
+                seed.PerformanceHistory.Add(new PerformanceHistory
+                {
+                    SongId = song.Id, SongScoreId = scoreId,
+                    PerformedAt = new DateTime(2026, 6, 14), HistoryLine = "Fresh scoped run", DisplayOrder = 1
+                });
+                await seed.SaveChangesAsync();
+            }
+
+            int rowsBefore = await ScalarAsync("SELECT COUNT(*) FROM PerformanceHistory");
+
+            // Second startup: new service instance, same database file.
+            var second = new SongDatabaseService(_dbPath);
+            await second.InitializeDatabaseAsync();
+            second.Dispose();
+
+            // The table must NOT have been rebuilt — the row is preserved.
+            Assert.Equal(rowsBefore, await ScalarAsync("SELECT COUNT(*) FROM PerformanceHistory"));
+
+            // The SET NULL FK must still be present.
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"));
+
+            // The seeded row survived.
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM PerformanceHistory WHERE HistoryLine='Fresh scoped run'"));
         }
 
         private async Task CreateLegacyDatabaseAsync()

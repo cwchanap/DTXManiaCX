@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Xunit;
@@ -68,7 +69,9 @@ namespace DTXMania.Test.UI
             Assert.Equal(18, SongSelectionUILayout.PlayHistoryPanel.TextOffsetX);
             Assert.Equal(32, SongSelectionUILayout.PlayHistoryPanel.TextOffsetY);
             Assert.Equal(18, SongSelectionUILayout.PlayHistoryPanel.RowSpacing);
-            Assert.Equal(5, SongSelectionUILayout.PlayHistoryPanel.MaxRows);
+            // MaxRows delegates to the domain constant so the panel, DB merge, and
+            // SongListNode projection all share one source of truth.
+            Assert.Equal(GameConstants.PlayHistory.MaxRecentPlays, SongSelectionUILayout.PlayHistoryPanel.MaxRows);
         }
 
         [Fact]

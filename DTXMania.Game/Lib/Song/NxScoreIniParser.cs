@@ -156,6 +156,9 @@ namespace DTXMania.Game.Lib.Song
         private static IReadOnlyList<NxHistoryLine> ParseHistory(Dictionary<string, string> file)
         {
             var list = new List<NxHistoryLine>();
+            // NX score.ini always has exactly 5 history slots (History0..History4).
+            // This is a fixed DTXManiaNX file-format constraint, not our display cap —
+            // see GameConstants.PlayHistory.MaxRecentPlays for the display/top-N limit.
             for (int i = 0; i < 5; i++)
             {
                 var text = GetString(file, $"History{i}");
@@ -177,6 +180,13 @@ namespace DTXMania.Game.Lib.Song
         // e.g. "79.26/5/15 Cleared (S: 94.37)" -> 2026-05-15
         // Unparseable dates return DateTime.MinValue, which sorts below every real
         // date and is therefore effectively excluded from the top-5 recent display.
+        // The Kind is explicitly set to Utc so CX (DateTime.UtcNow) and NX history
+        // dates share the same DateTimeKind, even though .NET compares raw ticks
+        // regardless of Kind. This documents intent and avoids DateTimeKind-mismatch
+        // surprises if any consumer ever uses ToUniversalTime()/ToBinary() on the value.
+        // Note: NX history dates are date-only (midnight) so we intentionally do NOT
+        // apply the Local->UTC conversion that LastPlayedAt uses — shifting a date-only
+        // value across timezone offsets would move it to a different calendar day.
         private static DateTime ParseHistoryDate(string text)
         {
             try
@@ -193,10 +203,16 @@ namespace DTXMania.Game.Lib.Song
                 int d = int.Parse(parts[2], CultureInfo.InvariantCulture);
                 // Assumes 21st century; NX score.ini uses 2-digit years and the NX
                 // lineage is a 2000s-era product, so this is valid for 2000-2099.
-                return new DateTime(2000 + yy, m, d);
+                return DateTime.SpecifyKind(new DateTime(2000 + yy, m, d), DateTimeKind.Utc);
             }
-            catch
+            catch (Exception ex)
             {
+                // Log the offending text so a malformed import is visible during
+                // debugging instead of silently collapsing to DateTime.MinValue.
+                // The row text is preserved verbatim by the caller, so the display
+                // is unaffected — this only surfaces the parse failure for diagnosis.
+                System.Diagnostics.Debug.WriteLine(
+                    $"NxScoreIniParser: Failed to parse history date from '{text}': {ex.Message}");
                 return DateTime.MinValue;
             }
         }
