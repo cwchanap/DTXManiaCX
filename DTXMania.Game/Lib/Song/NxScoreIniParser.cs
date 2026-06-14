@@ -160,9 +160,13 @@ namespace DTXMania.Game.Lib.Song
             {
                 var text = GetString(file, $"History{i}");
                 if (string.IsNullOrWhiteSpace(text)) continue;
+                // Preserve the imported NX row text verbatim (design goal #3 of the
+                // play-history badge spec). NX legitimately writes "Failed" alongside a
+                // grade/skill for runs where the life gauge hit zero, so the status must
+                // not be rewritten on import.
                 list.Add(new NxHistoryLine
                 {
-                    Text = PlayHistoryLineFormatter.Normalize(text),
+                    Text = text,
                     Date = ParseHistoryDate(text)
                 });
             }

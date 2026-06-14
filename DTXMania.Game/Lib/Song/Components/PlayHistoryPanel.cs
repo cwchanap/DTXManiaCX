@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -14,9 +15,9 @@ namespace DTXMania.Game.Lib.Song.Components
     /// </summary>
     public sealed class PlayHistoryPanel : UIElement
     {
-        private ITexture _panelTexture;
-        private SpriteFont _font;
-        private IFont _managedFont;
+        private ITexture? _panelTexture;
+        private SpriteFont? _font;
+        private IFont? _managedFont;
         private string[] _historyLines = Array.Empty<string>();
 
         public PlayHistoryPanel()
@@ -26,13 +27,13 @@ namespace DTXMania.Game.Lib.Song.Components
             Visible = false;
         }
 
-        public SpriteFont Font
+        public SpriteFont? Font
         {
             get => _font;
             set => _font = value;
         }
 
-        public IFont ManagedFont
+        public IFont? ManagedFont
         {
             get => _managedFont;
             set
@@ -77,9 +78,9 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
+            // Render imported/CX history rows verbatim; do not rewrite the status text.
             _historyLines = score.PlayHistoryLines?
                 .Where(line => !string.IsNullOrWhiteSpace(line))
-                .Select(PlayHistoryLineFormatter.Normalize)
                 .Take(SongSelectionUILayout.PlayHistoryPanel.MaxRows)
                 .ToArray() ?? Array.Empty<string>();
 

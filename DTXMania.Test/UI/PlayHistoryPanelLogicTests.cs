@@ -25,11 +25,12 @@ public class PlayHistoryPanelLogicTests
         panel.UpdateSongInfo(node, 1);
 
         Assert.True(panel.Visible);
-        Assert.Equal(new[] { "2.26/6/12 Cleared (B: 70.00)" }, GetRows(panel));
+        // NX row text is rendered verbatim; a "Failed" run with a grade is not rewritten.
+        Assert.Equal(new[] { "2.26/6/12 Failed (B: 70.00)" }, GetRows(panel));
     }
 
     [Fact]
-    public void UpdateSongInfo_WithFailedHistoryThatHasScore_ShouldDisplayAsCleared()
+    public void UpdateSongInfo_WithFailedHistoryThatHasScore_ShouldPreserveFailedText()
     {
         var panel = new PlayHistoryPanel();
         var node = new SongListNode { Type = NodeType.Score };
@@ -37,7 +38,7 @@ public class PlayHistoryPanelLogicTests
 
         panel.UpdateSongInfo(node, 1);
 
-        Assert.Equal(new[] { "9.26/5/28 Cleared (B: 70.10)" }, GetRows(panel));
+        Assert.Equal(new[] { "9.26/5/28 Failed (B: 70.10)" }, GetRows(panel));
     }
 
     [Fact]

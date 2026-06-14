@@ -160,8 +160,11 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void FailedHistoryWithScore_ShouldNormalizeToCleared()
+        public void FailedHistoryWithScore_ShouldPreserveOriginalText()
         {
+            // NX legitimately writes "Failed" with a grade/skill for runs where the life
+            // gauge hit zero. The imported row text must be preserved verbatim (design
+            // goal #3) so CX's database matches what NX recorded.
             var path = Path.Combine(Path.GetTempPath(), $"failedscore_{Guid.NewGuid()}.score.ini");
             File.WriteAllText(path,
                 "[File]\nPlayCountDrums=1\nHistory0=9.26/5/28 Failed (B: 70.10)\n" +
@@ -170,7 +173,7 @@ namespace DTXMania.Test.Song
             {
                 var data = NxScoreIniParser.Parse(path);
                 Assert.NotNull(data);
-                Assert.Equal("9.26/5/28 Cleared (B: 70.10)", data!.History[0].Text);
+                Assert.Equal("9.26/5/28 Failed (B: 70.10)", data!.History[0].Text);
             }
             finally { File.Delete(path); }
         }

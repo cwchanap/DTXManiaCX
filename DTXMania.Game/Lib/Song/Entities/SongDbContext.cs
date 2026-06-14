@@ -129,6 +129,11 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .HasOne(p => p.SongScore)
                 .WithMany(s => s.PerformanceHistory)
                 .HasForeignKey(p => p.SongScoreId)
+                // SetNull (not Cascade): deleting a SongScore demotes its history rows to
+                // legacy song-wide rows (SongScoreId -> null) instead of destroying them.
+                // This preserves imported NX play history that could be re-associated with a
+                // recreated score, and the panel renderer already filters out null-SongScoreId
+                // rows from the difficulty-scoped badge (see design spec "Data Model").
                 .OnDelete(DeleteBehavior.SetNull);
 
             // Enum configurations
