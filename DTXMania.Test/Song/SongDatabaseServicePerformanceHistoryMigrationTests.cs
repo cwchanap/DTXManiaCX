@@ -61,6 +61,62 @@ namespace DTXMania.Test.Song
                 "VALUES (1, 1, '2026-06-16 00:00:00', 'Duplicate scoped run', 1)"));
         }
 
+        [Fact]
+        public async Task InitializeDatabaseAsync_CalledTwiceOnMigratedDatabase_IsIdempotent()
+        {
+            // First pass migrates a legacy schema into the score-scoped shape.
+            await CreateLegacyDatabaseAsync();
+            var service = new SongDatabaseService(_dbPath);
+            await service.InitializeDatabaseAsync();
+            service.Dispose();
+
+            // Seed post-migration rows so we can detect data loss on the second pass.
+            await ExecuteAsync(
+                "INSERT INTO PerformanceHistory (SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder) " +
+                "VALUES (1, 1, '2026-06-15 00:00:00', 'Scoped run', 1)");
+
+            const int expectedRows = 2; // 'Legacy run' + 'Scoped run'
+
+            // Capture the schema fingerprint after the first migration.
+            int songScoreIdColumnBefore = await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'");
+            int setNullFkBefore = await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'");
+            int scopedUniqueIndexBefore = await ScalarAsync(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' " +
+                "AND name='IX_PerformanceHistory_SongScoreId_DisplayOrder'");
+            int legacyIndexDroppedBefore = await ScalarAsync(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' " +
+                "AND name='IX_PerformanceHistory_SongId_DisplayOrder'");
+
+            // Second pass on an already-migrated database must be a no-op.
+            var second = new SongDatabaseService(_dbPath);
+            await second.InitializeDatabaseAsync();
+            second.Dispose();
+
+            // Row count unchanged: no duplication, no truncation, no throw.
+            Assert.Equal(expectedRows, await ScalarAsync("SELECT COUNT(*) FROM PerformanceHistory"));
+
+            // Schema unchanged.
+            Assert.Equal(songScoreIdColumnBefore, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'"));
+            Assert.Equal(setNullFkBefore, await ScalarAsync(
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
+                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"));
+            Assert.Equal(scopedUniqueIndexBefore, await ScalarAsync(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' " +
+                "AND name='IX_PerformanceHistory_SongScoreId_DisplayOrder'"));
+            Assert.Equal(legacyIndexDroppedBefore, await ScalarAsync(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' " +
+                "AND name='IX_PerformanceHistory_SongId_DisplayOrder'"));
+
+            // The scoped uniqueness invariant still holds after the second pass.
+            await Assert.ThrowsAsync<SqliteException>(() => ExecuteAsync(
+                "INSERT INTO PerformanceHistory (SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder) " +
+                "VALUES (1, 1, '2026-06-17 00:00:00', 'Duplicate scoped run', 1)"));
+        }
+
         private async Task CreateLegacyDatabaseAsync()
         {
             SqliteConnection.ClearAllPools();

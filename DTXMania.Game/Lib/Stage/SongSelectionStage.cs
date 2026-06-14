@@ -596,7 +596,6 @@ namespace DTXMania.Game.Lib.Stage
 
             _playHistoryPanel = new PlayHistoryPanel
             {
-                Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont
             };
             _playHistoryPanel.Initialize(_resourceManager);
