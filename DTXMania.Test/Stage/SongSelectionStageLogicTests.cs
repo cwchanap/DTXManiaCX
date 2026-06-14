@@ -258,7 +258,7 @@ namespace DTXMania.Test.Stage
 
             Assert.True(historyPanel.Visible);
             Assert.Equal(
-                new[] { "2.26/6/12 Cleared (S: 92.00)" },
+                new[] { "2.26/6/12 Failed (S: 92.00)" },
                 GetPrivateField<string[]>(historyPanel, "_historyLines"));
         }
 
