@@ -52,6 +52,9 @@ namespace DTXMania.Test.Song
             var data = NxScoreIniParser.Parse(Fixture("mas.dtx.score.ini"))!;
             var newest = data.History.OrderByDescending(h => h.Date).First();
             Assert.Equal(new DateTime(2026, 5, 15), newest.Date);
+            // History dates use Utc kind so they share DateTimeKind with CX's
+            // DateTime.UtcNow-based dates (see ParseHistoryDate comment).
+            Assert.Equal(DateTimeKind.Utc, newest.Date.Kind);
             Assert.Contains("Cleared", newest.Text);
         }
 
@@ -155,6 +158,10 @@ namespace DTXMania.Test.Song
                 Assert.NotNull(data);
                 Assert.Single(data!.History);
                 Assert.Equal(DateTime.MinValue, data.History[0].Date);
+                // Kind must match the success path (Utc) per the documented intent in
+                // ParseHistoryDate: avoids DateTimeKind-mismatch surprises if any consumer
+                // ever uses ToUniversalTime()/ToBinary() on the value.
+                Assert.Equal(DateTimeKind.Utc, data.History[0].Date.Kind);
             }
             finally { File.Delete(path); }
         }

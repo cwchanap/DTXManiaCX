@@ -192,12 +192,12 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 int dot = text.IndexOf('.');
-                if (dot < 0) return DateTime.MinValue;
+                if (dot < 0) return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
                 var afterDot = text.Substring(dot + 1);
                 int space = afterDot.IndexOf(' ');
                 var dateToken = (space < 0 ? afterDot : afterDot.Substring(0, space)).Trim();
                 var parts = dateToken.Split('/');
-                if (parts.Length != 3) return DateTime.MinValue;
+                if (parts.Length != 3) return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
                 int yy = int.Parse(parts[0], CultureInfo.InvariantCulture);
                 int m = int.Parse(parts[1], CultureInfo.InvariantCulture);
                 int d = int.Parse(parts[2], CultureInfo.InvariantCulture);
@@ -213,7 +213,7 @@ namespace DTXMania.Game.Lib.Song
                 // is unaffected — this only surfaces the parse failure for diagnosis.
                 System.Diagnostics.Debug.WriteLine(
                     $"NxScoreIniParser: Failed to parse history date from '{text}': {ex.Message}");
-                return DateTime.MinValue;
+                return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
             }
         }
     }
