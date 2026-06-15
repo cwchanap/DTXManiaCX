@@ -206,6 +206,22 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void Update_WhenSourceYieldsPressedButton_RaisesOnButtonPressed()
+        {
+            var source = new Mock<IInputSource>();
+            source.Setup(s => s.Update()).Returns(new[] { new ButtonState("MIDI.38", true) });
+            _router.AddInputSource(source.Object);
+
+            ButtonState? captured = null;
+            _router.OnButtonPressed += (_, b) => captured = b;
+
+            _router.Update();
+
+            Assert.NotNull(captured);
+            Assert.Equal("MIDI.38", captured.Id);
+        }
+
+        [Fact]
         public void Update_MultipleSources_ShouldProcessAllSources()
         {
             // Arrange

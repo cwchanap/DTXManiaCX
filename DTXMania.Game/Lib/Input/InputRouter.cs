@@ -20,6 +20,12 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         public event EventHandler<LaneHitEventArgs>? OnLaneHit;
 
+        /// <summary>
+        /// Raised for every button that transitioned to pressed this frame, from any source.
+        /// Device-agnostic feed used by key-binding capture UIs. May be null if no subscribers.
+        /// </summary>
+        public event EventHandler<ButtonState>? OnButtonPressed;
+
         public InputRouter(KeyBindings keyBindings)
         {
             _inputSources = new List<IInputSource>();
@@ -61,6 +67,7 @@ namespace DTXMania.Game.Lib.Input
                 {
                     if (buttonState.IsPressed)
                     {
+                        OnButtonPressed?.Invoke(this, buttonState);
                         ProcessButtonState(buttonState);
                     }
                 }
@@ -121,6 +128,7 @@ namespace DTXMania.Game.Lib.Input
 
                 // Clear event handlers
                 OnLaneHit = null;
+                OnButtonPressed = null;
             }
 
             _disposed = true;
