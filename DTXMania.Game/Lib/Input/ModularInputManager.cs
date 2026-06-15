@@ -31,6 +31,10 @@ namespace DTXMania.Game.Lib.Input
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
         // ConcurrentQueue used for thread safety when ClearInjectedState is called from stage transitions.
         private readonly ConcurrentQueue<int> _injectedPressEvents;
+
+        // Buttons that transitioned to pressed this frame (any source + injected).
+        // Rebuilt every Update(); drained by ConsumePressedButtons() for binding-capture UIs.
+        private readonly List<ButtonState> _pressedThisFrame = new();
         private bool _disposed = false;
 
         // Legacy compatibility fields
@@ -102,6 +106,7 @@ namespace DTXMania.Game.Lib.Input
             // Set up event handlers
             _keyBindings.BindingsChanged += OnKeyBindingsChanged;
             _inputRouter.OnLaneHit += OnInputRouterLaneHit;
+            _inputRouter.OnButtonPressed += OnInputRouterButtonPressed;
 
             // Initialize input sources
             InitializeInputSources();
@@ -154,6 +159,11 @@ namespace DTXMania.Game.Lib.Input
 
             // Start performance measurement
             _updateStopwatch.Restart();
+
+            // Reset the per-frame pressed-buttons buffer before the router/injected processing
+            // below (re)populate it, so synchronously-raised OnButtonPressed events this frame
+            // aren't wiped out.
+            _pressedThisFrame.Clear();
 
             // Update previous key states for legacy compatibility
             UpdateLegacyKeyStates();
@@ -327,6 +337,17 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Returns the buttons that transitioned to pressed during the most recent Update(),
+        /// from any input source (keyboard now; MIDI/gamepad once those sources exist) plus
+        /// injected inputs. The buffer is rebuilt each Update(), so callers should read it once
+        /// per frame. Device-agnostic: each entry's Id is a "Key.*"/"MIDI.*"/"Pad.*" string.
+        /// </summary>
+        public IReadOnlyList<ButtonState> ConsumePressedButtons()
+        {
+            return _pressedThisFrame.ToArray();
+        }
+
+        /// <summary>
         /// Legacy method: Checks if a key is currently down
         /// </summary>
         /// <param name="keyCode">Key code (cast from Keys enum)</param>
@@ -413,6 +434,15 @@ namespace DTXMania.Game.Lib.Input
         private void OnInputRouterLaneHit(object sender, LaneHitEventArgs e)
         {
             OnLaneHit?.Invoke(this, e);
+        }
+
+        /// <summary>
+        /// Records buttons that transitioned to pressed this frame, reported synchronously
+        /// from InputRouter.Update().
+        /// </summary>
+        private void OnInputRouterButtonPressed(object sender, ButtonState button)
+        {
+            _pressedThisFrame.Add(button);
         }
 
         #endregion
@@ -503,6 +533,9 @@ namespace DTXMania.Game.Lib.Input
 
             while (_injectedButtonQueue.TryDequeue(out var injected))
             {
+                if (injected.IsPressed)
+                    _pressedThisFrame.Add(injected);
+
                 // Map to lane with current bindings
                 var lane = _keyBindings.GetLane(injected.Id);
                 if (lane >= 0)
@@ -573,6 +606,7 @@ namespace DTXMania.Game.Lib.Input
                     // Unsubscribe from events
                     _keyBindings.BindingsChanged -= OnKeyBindingsChanged;
                     _inputRouter.OnLaneHit -= OnInputRouterLaneHit;
+                    _inputRouter.OnButtonPressed -= OnInputRouterButtonPressed;
 
                     // Dispose input router and sources
                     _inputRouter?.Dispose();
