@@ -110,5 +110,58 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(DrumCaptureState.Listening, popup.State);
             Assert.Null(popup.ConflictMessage);
         }
+
+        [Fact]
+        public void Tick_BeforeConflictExpires_StaysShowingConflict()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Enter", true)); // -> ShowingConflict (2.0s notice)
+
+            popup.Tick(1.0); // less than the 2.0s conflict duration
+
+            Assert.Equal(DrumCaptureState.ShowingConflict, popup.State);
+            Assert.NotNull(popup.ConflictMessage);
+        }
+
+        [Fact]
+        public void TryCapture_WhileShowingConflict_ReturnsIgnored()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Enter", true)); // -> ShowingConflict
+
+            var outcome = popup.TryCapture(new ButtonState("Key.Q", true));
+
+            Assert.Equal(DrumCaptureOutcome.Ignored, outcome);
+            Assert.DoesNotContain("Key.Q", _bindings.GetButtonsForLane(4));
+        }
+
+        [Fact]
+        public void Close_ResetsToClosedState()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            popup.Close();
+
+            Assert.False(popup.IsOpen);
+            Assert.Equal(DrumCaptureState.Closed, popup.State);
+            Assert.Equal(-1, popup.Lane);
+            Assert.Null(popup.ConflictMessage);
+        }
+
+        [Fact]
+        public void CurrentBindings_ReflectsWorkingBindingsForLane()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            Assert.Contains("Key.S", popup.CurrentBindings); // default snare binding
+
+            popup.TryCapture(new ButtonState("Key.Q", true));
+
+            Assert.Contains("Key.Q", popup.CurrentBindings);
+        }
     }
 }
