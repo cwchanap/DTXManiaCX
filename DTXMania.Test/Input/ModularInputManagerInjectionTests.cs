@@ -93,4 +93,27 @@ public class ModularInputManagerInjectionTests : IDisposable
         Assert.False(_manager.InjectButton("", isPressed: true));
         Assert.False(_manager.InjectButton("   ", isPressed: true));
     }
+
+    [Fact]
+    public void ConsumePressedButtons_AfterInjectedPress_ReturnsThatButton()
+    {
+        _manager.InjectButton("Key.Q", isPressed: true);
+        _manager.Update(0.016);
+
+        var pressed = _manager.ConsumePressedButtons();
+
+        Assert.Contains(pressed, b => b.Id == "Key.Q");
+    }
+
+    [Fact]
+    public void ConsumePressedButtons_FrameAfterPress_ReturnsEmpty()
+    {
+        _manager.InjectButton("Key.Q", isPressed: true);
+        _manager.Update(0.016);
+        _manager.ConsumePressedButtons();
+
+        _manager.Update(0.016); // no new input this frame
+
+        Assert.Empty(_manager.ConsumePressedButtons());
+    }
 }
