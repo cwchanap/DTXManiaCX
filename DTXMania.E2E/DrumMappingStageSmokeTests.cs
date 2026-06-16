@@ -111,6 +111,100 @@ public sealed class DrumMappingStageSmokeTests
         }
     }
 
+    /// <summary>
+    /// Black-box smoke for the keyboard-reachable Reset-to-defaults flow on the drum-mapping
+    /// stage: bind a non-default key to lane 0, advance keyboard focus onto the Reset action,
+    /// Activate to reset the working copy, then Back (= save &amp; exit) and assert the custom
+    /// binding was NOT persisted (i.e. Reset wiped it before the save). Exercises the live
+    /// focus + Activate-dispatch + reset + save round-trip the headless unit suite cannot reach.
+    /// </summary>
+    [Fact(Timeout = 180_000)]
+    public async Task DrumMapping_ResetViaKeyboard_WipesCustomBindingOnSave()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        var repoRoot = FindRepoRoot();
+        var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-reset-" + Guid.NewGuid().ToString("N"));
+        var apiPort = GetPortFromEnvironmentOrDefault();
+        var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
+        await using var process = new GameProcessDriver();
+
+        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
+        {
+            BaseAddress = fixture.ApiBaseUri,
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+        var client = new JsonRpcGameClient(httpClient, fixture.ApiKey);
+
+        try
+        {
+            var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
+                ?? (OperatingSystem.IsWindows()
+                    ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
+                    : "DTXMania.Game/DTXMania.Game.Mac.csproj");
+
+            process.Start(repoRoot, projectPath, fixture);
+
+            await Eventually.UntilAsync(
+                _ => client.IsHealthyAsync(cancellation.Token),
+                healthy => healthy,
+                TimeSpan.FromSeconds(60),
+                TimeSpan.FromMilliseconds(500),
+                "JSON-RPC health",
+                cancellation.Token);
+
+            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
+
+            // Jump straight to the drum-mapping stage via the API (menu wiring is unit-tested).
+            await client.ChangeStageAsync("DrumConfig", cancellation.Token);
+            await WaitForStageAsync(client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
+            // Settle past the fade + OnActivate (focus/skip-flag init) before sending input.
+            await Task.Delay(500, cancellation.Token);
+
+            // Focus starts on lane 0. Open its capture popup and bind the non-default key.
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(700, cancellation.Token);
+            await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(700, cancellation.Token);
+            // First Back closes the popup (acts as "Done"); focus stays on lane 0.
+            await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(700, cancellation.Token);
+
+            // Advance focus from lane 0 through every zone onto the Reset action (index 10):
+            // lane 0 -> 1 -> ... -> 9 -> Reset. Tab is read via IsKeyPressed, which surfaces
+            // API-injected keys, and parses server-side via Enum.TryParse<Keys> ("Tab").
+            for (int i = 0; i < 10; i++)
+            {
+                await client.SendKeyAsync("Tab", TimeSpan.FromMilliseconds(40), cancellation.Token);
+                await Task.Delay(60, cancellation.Token);
+            }
+
+            // Activate on the focused Reset action restores defaults on the working copy.
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(500, cancellation.Token);
+
+            // Back = Save & exit: persists the (now reset) working copy.
+            await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
+
+            // Reset wiped the custom binding before the save, so it must not be on disk.
+            var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "drum-reset-config.ini", configText);
+            Assert.DoesNotContain($"{ExpectedBindingId}=0", configText);
+        }
+        catch (Exception ex)
+        {
+            await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", ex.ToString());
+            await TryWriteScreenshotAsync(client, fixture);
+            throw;
+        }
+        finally
+        {
+            E2EArtifactWriter.CopyFixtureFiles(fixture);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout.log", process.StandardOutput);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr.log", process.StandardError);
+        }
+    }
+
     private static async Task<E2EGameState> WaitForStageAsync(
         JsonRpcGameClient client,
         string expectedStageType,

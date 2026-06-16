@@ -20,8 +20,6 @@ namespace DTXMania.Game.Lib.Stage
     /// </summary>
     public class DrumConfigStage : BaseStage
     {
-        private const int LaneCount = 10;
-
         private IConfigManager _configManager = null!;
         private InputManagerCompat? _input;
 
@@ -35,7 +33,7 @@ namespace DTXMania.Game.Lib.Stage
         private DrumKitRenderer? _renderer;
         private DrumCapturePopup? _popup;
 
-        private int _focusedLane;
+        private int _focusIndex;
         private int _hoveredLane = -1;
         private int _selectedLane = -1;
         private bool _skipCaptureThisFrame;
@@ -77,7 +75,7 @@ namespace DTXMania.Game.Lib.Stage
                 () => _workingSystemBindings,
                 key => _workingSystemBindings.Remove(key));
 
-            _focusedLane = 0;
+            _focusIndex = 0;
             _selectedLane = -1;
             _hoveredLane = -1;
             _skipCaptureThisFrame = false;
@@ -161,11 +159,18 @@ namespace DTXMania.Game.Lib.Stage
             float designY = mouse.Y * DrumKitLayout.DesignHeight / (float)vp.Height;
             _hoveredLane = DrumKitLayout.HitTest(designX, designY);
 
-            // Keyboard focus navigation (left/right cycles lanes).
-            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true)
-                _focusedLane = (_focusedLane + 1) % LaneCount;
+            // Keyboard focus navigation: arrows or Tab cycle through the zones and the Reset
+            // action (design: "arrows/Tab focus + Enter" over zones + Reset). Tab is read via
+            // IsKeyPressed so MCP/E2E-injected keys register (raw Keyboard.GetState would not).
+            int focusDelta = 0;
+            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true
+                || _input?.IsKeyPressed((int)Keys.Tab) == true)
+                focusDelta = 1;
             else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true)
-                _focusedLane = (_focusedLane - 1 + LaneCount) % LaneCount;
+                focusDelta = -1;
+
+            if (focusDelta != 0)
+                _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, focusDelta);
 
             // Back exits the stage (Back = Save: commit the working copy).
             if (_input?.IsBackActionTriggered() == true)
@@ -175,26 +180,41 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Reset-to-defaults button: check before zone hit-test so a click there
-            // doesn't also open a lane popup.
+            // doesn't also open a lane popup. Move focus onto the action so the highlight
+            // reflects the click (matches keyboard focus landing here).
             if (leftClick && GetResetButtonRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
             {
+                _focusIndex = DrumKitLayout.ResetActionIndex;
                 _workingBindings.LoadDefaultBindings();
                 return;
             }
 
-            // Open popup via click on a zone, or Activate on the focused lane.
+            // Open popup via click on a zone, or Activate on the focused element (zone or Reset).
             if (leftClick && _hoveredLane >= 0)
                 OpenPopup(_hoveredLane);
             else if (_input?.IsCommandPressed(InputCommandType.Activate) == true)
-                OpenPopup(_focusedLane);
+                ActivateFocusedElement();
         }
 
         private void OpenPopup(int lane)
         {
             _selectedLane = lane;
-            _focusedLane = lane;
+            _focusIndex = lane;
             _popup!.Open(lane);
             _skipCaptureThisFrame = true;
+        }
+
+        /// <summary>
+        /// Dispatches Activate (Enter) on the focused element: the Reset action restores default
+        /// bindings on the working copy; a zone opens its capture popup. GraphicsDevice-free so
+        /// the dispatch is unit-testable headlessly — <see cref="UpdateSelection"/> calls only this.
+        /// </summary>
+        private void ActivateFocusedElement()
+        {
+            if (DrumKitLayout.IsResetAction(_focusIndex))
+                _workingBindings.LoadDefaultBindings();
+            else
+                OpenPopup(_focusIndex);
         }
 
         // "Reset to defaults" button (viewport space), top-right of the screen.
@@ -215,12 +235,24 @@ namespace DTXMania.Game.Lib.Stage
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), Color.White);
 
+            // Reset focus is not a lane, so pass -1 to avoid highlighting a zone in that case.
+            int focusedLaneForRender = DrumKitLayout.IsResetAction(_focusIndex) ? -1 : _focusIndex;
             _renderer.Draw(_spriteBatch, _font, _whitePixel, _workingBindings,
-                vp.Width, vp.Height, _selectedLane, _focusedLane, _hoveredLane);
+                vp.Width, vp.Height, _selectedLane, focusedLaneForRender, _hoveredLane);
 
             var resetRect = GetResetButtonRect(vp.Width, vp.Height);
             if (_whitePixel != null)
+            {
+                // Focus ring first (yellow, inflated) so the fill sits inside it, mirroring the
+                // zone focus highlight and giving keyboard users a visible "Reset is focused" cue.
+                if (DrumKitLayout.IsResetAction(_focusIndex))
+                {
+                    var ring = resetRect;
+                    ring.Inflate(4, 4);
+                    _spriteBatch.Draw(_whitePixel, ring, new Color(255, 216, 77));
+                }
                 _spriteBatch.Draw(_whitePixel, resetRect, new Color(58, 70, 90));
+            }
             if (_font != null)
                 _font.DrawString(_spriteBatch, "Reset to defaults",
                     new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
