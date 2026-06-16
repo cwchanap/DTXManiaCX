@@ -198,10 +198,29 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>Persists the working bindings and returns to ConfigStage.</summary>
         private void Save()
         {
+            // Without a live input manager the working copy is just defaults, not the
+            // user's bindings — committing it would clobber the real config. Skip the save.
+            if (_input == null)
+            {
+                ChangeStage(StageType.Config, new InstantTransition());
+                return;
+            }
+
+            bool persisted = true;
             if (_configManager is ConfigManager concrete)
             {
+                var config = _configManager.Config;
+
+                // Snapshot the binding-related config so we can roll back if the disk write fails,
+                // keeping live input state consistent with what is on disk (mirrors ConfigStage).
+                var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
+                var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
+                var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
+                var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
+
                 concrete.SaveKeyBindings(_workingBindings);
                 concrete.SaveSystemKeyBindings(_workingSystemBindings);
+
                 try
                 {
                     _configManager.SaveConfig(AppPaths.GetConfigFilePath());
@@ -209,10 +228,22 @@ namespace DTXMania.Game.Lib.Stage
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"DrumConfigStage: save failed: {ex.Message}");
+
+                    config.KeyBindings.Clear();
+                    foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
+                    config.UnboundDrumLanes.Clear();
+                    foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
+                    config.UnboundDrumButtons.Clear();
+                    foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
+                    config.SystemKeyBindings.Clear();
+                    foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+
+                    persisted = false;
                 }
             }
 
-            if (_input != null)
+            // Apply to live input state only if the disk write succeeded.
+            if (persisted)
             {
                 _input.ModularInputManager.ReloadKeyBindings();
                 ApplySystemBindings(_input, _workingSystemBindings);
