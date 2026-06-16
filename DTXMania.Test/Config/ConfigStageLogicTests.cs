@@ -220,23 +220,27 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void ActivatePressedOnDrumKeyMapping_ShouldOpenAndActivatePanel()
+    public void ActivatePressedOnDrumKeyMapping_ShouldChangeToDrumConfigStage()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.DrumConfig,
+                    Moq.It.Is<IStageTransition>(transition => transition is InstantTransition)),
+                Moq.Times.Once);
+
             var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(activePanel);
-            Assert.NotNull(drumPanel);
-            Assert.Same(drumPanel, activePanel);
-            Assert.True(activePanel!.IsActive);
+            Assert.Null(activePanel);
         }
     }
 

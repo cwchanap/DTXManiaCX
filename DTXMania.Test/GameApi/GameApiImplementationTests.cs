@@ -458,7 +458,7 @@ namespace DTXMania.Test.GameApi
         [InlineData("99")]
         [InlineData("100")]
         [InlineData("-1")]
-        [InlineData("7")]
+        [InlineData("8")]
         public async Task ChangeStageAsync_WithNumericString_ShouldReturnFalse(string numericStageName)
         {
             // Enum.TryParse accepts numeric strings even when the value is not a defined enum member.
