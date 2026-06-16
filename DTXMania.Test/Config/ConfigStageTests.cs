@@ -3,8 +3,6 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System.Collections.Generic;
 using System.Reflection;
