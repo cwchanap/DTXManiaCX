@@ -63,18 +63,23 @@ public sealed class DrumMappingStageSmokeTests
             // covered by unit tests); this keeps the smoke independent of menu ordering.
             await client.ChangeStageAsync("DrumConfig", cancellation.Token);
             await WaitForStageAsync(client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
-            await Task.Delay(500, cancellation.Token); // settle after the stage transition
+            // The stage reports its type as soon as the transition is queued; this settle covers
+            // the fade transition + OnActivate (popup/focus/skip-flag init) before we send input.
+            await Task.Delay(500, cancellation.Token);
 
             // Activate the focused lane (lane 0) to open its capture popup.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            // Let the popup open and the one-frame capture-skip clear before sending the bind key.
             await Task.Delay(700, cancellation.Token);
 
             // Hit the key to bind — captured and appended to lane 0.
             await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
+            // Let the capture register before closing the popup.
             await Task.Delay(700, cancellation.Token);
 
             // First Back closes the popup (acts as "Done")...
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            // Let the popup Close() propagate before the second Back triggers save-and-exit.
             await Task.Delay(700, cancellation.Token);
 
             // ...second Back exits the stage; Back = Save, so the working copy is committed.
@@ -88,7 +93,9 @@ public sealed class DrumMappingStageSmokeTests
             var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
             await E2EArtifactWriter.WriteTextAsync(fixture, "drum-config.ini", configText);
 
-            Assert.Contains(ExpectedBindingId, configText);
+            // [KeyBindings] serializes entries as "<buttonId>=<lane>"; assert the lane too so an
+            // unbound-button entry that merely contains the id can't pass.
+            Assert.Contains($"{ExpectedBindingId}=0", configText);
         }
         catch (Exception ex)
         {
@@ -144,12 +151,15 @@ public sealed class DrumMappingStageSmokeTests
         if (int.TryParse(raw, out var port))
             return port;
 
+        // Bind an ephemeral port and verify it is usable to avoid TOCTOU races.
         const int maxAttempts = 5;
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+            // Quick bind check: release and immediately re-bind to confirm availability.
             listener.Stop();
 
             try
@@ -165,6 +175,7 @@ public sealed class DrumMappingStageSmokeTests
             }
         }
 
+        // Fallback: just return a fresh ephemeral port.
         using var fallback = new TcpListener(IPAddress.Loopback, 0);
         fallback.Start();
         return ((IPEndPoint)fallback.LocalEndpoint).Port;
