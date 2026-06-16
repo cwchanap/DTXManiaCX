@@ -157,6 +157,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private const int ChipPadX = 8;
         private const int ChipCharWidth = 8;   // rough per-char width estimate for layout
         private const int RemoveBoxSize = 14;
+        private const int ChipTextRemoveGap = 6; // gap between the label text and the ✕ box
 
         /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
         private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
@@ -180,7 +181,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             foreach (var id in CurrentBindings)
             {
                 int textWidth = id.Length * ChipCharWidth;
-                int chipWidth = ChipPadX + textWidth + 6 + RemoveBoxSize + ChipPadX;
+                int chipWidth = ChipPadX + textWidth + ChipTextRemoveGap + RemoveBoxSize + ChipPadX;
                 if (x + chipWidth > maxRight && x > left)
                 {
                     x = left;
@@ -206,6 +207,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             if (!IsOpen || spriteBatch == null)
                 return;
 
+            // Single source of geometry for both the background pass and the label pass below.
+            var chips = GetBindingChips(viewportWidth, viewportHeight);
+
             if (whitePixel != null)
             {
                 spriteBatch.Draw(whitePixel, new Rectangle(0, 0, viewportWidth, viewportHeight),
@@ -216,7 +220,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 spriteBatch.Draw(whitePixel, GetDoneRect(viewportWidth, viewportHeight), new Color(58, 70, 90));
 
                 // Draw chips backgrounds
-                foreach (var chip in GetBindingChips(viewportWidth, viewportHeight))
+                foreach (var chip in chips)
                 {
                     spriteBatch.Draw(whitePixel, chip.Bounds, new Color(35, 42, 54));
                     spriteBatch.Draw(whitePixel, chip.Remove, new Color(120, 50, 60));
@@ -233,8 +237,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             font.DrawString(spriteBatch, $"Configure: {KeyBindings.GetLaneName(Lane)}",
                 new Vector2(x, y), Color.White);
 
-            // Draw binding chips (labels and ✕ markers)
-            var chips = GetBindingChips(viewportWidth, viewportHeight);
+            // Draw binding chips (labels and ✕ markers). ASCII 'x' stands in for ✕ at this font size.
             int promptY;
             if (chips.Count == 0)
             {
@@ -251,8 +254,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     font.DrawString(spriteBatch, "x",
                         new Vector2(chip.Remove.X + 3, chip.Remove.Y + 1), Color.White);
                 }
-                var lastChip = chips[chips.Count - 1];
-                promptY = lastChip.Bounds.Bottom + 12;
+                promptY = chips[^1].Bounds.Bottom + 12;
             }
 
             var prompt = State == DrumCaptureState.ShowingConflict

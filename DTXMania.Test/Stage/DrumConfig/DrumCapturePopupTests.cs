@@ -221,5 +221,19 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.Empty(popup.GetBindingChips(1280, 720));
         }
+
+        [Fact]
+        public void GetBindingChips_ManyBindings_WrapsToSecondRow()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            foreach (var id in new[] { "MIDI.1", "MIDI.2", "MIDI.3", "MIDI.4", "MIDI.5" })
+                popup.TryCapture(new ButtonState(id, true));
+
+            var chips = popup.GetBindingChips(400, 300); // narrow viewport forces a wrap
+            var rows = chips.Select(c => c.Bounds.Y).Distinct().Count();
+
+            Assert.True(rows > 1, "Expected chips to wrap onto a second row");
+        }
     }
 }
