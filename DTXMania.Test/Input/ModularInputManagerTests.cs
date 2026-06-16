@@ -414,6 +414,53 @@ namespace DTXMania.Test.Input
             Assert.True((DateTime.UtcNow - eventArgs.Timestamp).TotalSeconds < 1);
         }
 
+        [Fact]
+        public void InjectButton_WithLaneMapping_ShouldAddToPressedThisFrame()
+        {
+            // Arrange
+            var buttonId = "Key.A"; // Maps to lane 0 by default
+            
+            // Act
+            _inputManager.InjectButton(buttonId, true, 1.0f);
+            _inputManager.Update();
+
+            // Assert
+            var pressedButtons = _inputManager.ConsumePressedButtons();
+            Assert.Contains(pressedButtons, b => b.Id == buttonId && b.IsPressed);
+        }
+
+        [Fact]
+        public void InjectButton_WithKeyCode_ShouldUpdateInjectedKeyStates()
+        {
+            // Arrange
+            var buttonId = "Key.Q";
+            
+            // Act
+            _inputManager.InjectButton(buttonId, true, 1.0f);
+            _inputManager.Update();
+
+            // Assert - The key should be in the pressed events queue
+            var pressEvents = _inputManager.DrainInjectedPressEvents();
+            Assert.Contains((int)Keys.Q, pressEvents);
+        }
+
+        [Fact]
+        public void InjectButton_WithRelease_ShouldRemoveFromInjectedKeyStates()
+        {
+            // Arrange
+            var buttonId = "Key.Q";
+            _inputManager.InjectButton(buttonId, true, 1.0f);
+            _inputManager.Update();
+            
+            // Act - Release the button
+            _inputManager.InjectButton(buttonId, false, 0.0f);
+            _inputManager.Update();
+
+            // Assert - The key should no longer be in pressed events after release
+            var pressEvents = _inputManager.DrainInjectedPressEvents();
+            Assert.DoesNotContain((int)Keys.Q, pressEvents);
+        }
+
         public void Dispose()
         {
             _inputManager?.Dispose();

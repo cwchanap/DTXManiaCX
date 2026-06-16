@@ -185,6 +185,19 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void DrawTransition_WhenCurrentStageIsNull_ShouldNotThrow()
+        {
+            // Set up a transition state with null current stage
+            ReflectionHelpers.SetPrivateField(_stageManager, "_currentStage", null);
+            ReflectionHelpers.SetPrivateField(_stageManager, "_isTransitioning", true);
+            ReflectionHelpers.SetPrivateField(_stageManager, "_currentTransition", new TestTransition(isComplete: false, fadeOutAlpha: 0.5f));
+
+            // Should not throw
+            var exception = Record.Exception(() => _stageManager.Draw(0.1));
+            Assert.Null(exception);
+        }
+
+        [Fact]
         public void Dispose_ShouldDeactivateCurrentStageAndDisposeCachedStages()
         {
             SetCurrentStage(_titleStage);

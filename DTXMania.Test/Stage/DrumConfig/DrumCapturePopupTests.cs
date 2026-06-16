@@ -1,9 +1,13 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.DrumConfig;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 using Xunit;
 using ButtonState = DTXMania.Game.Lib.Input.ButtonState;
 
@@ -22,6 +26,30 @@ namespace DTXMania.Test.Stage.DrumConfig
 
         private DrumCapturePopup NewPopup() =>
             new(_bindings, () => _system, key => _evicted.Add(key));
+
+        [Fact]
+        public void Constructor_WithNullBindings_ShouldThrowArgumentNullException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => 
+                new DrumCapturePopup(null!, () => _system, key => _evicted.Add(key)));
+        }
+
+        [Fact]
+        public void Constructor_WithNullSystemMappingProvider_ShouldThrowArgumentNullException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => 
+                new DrumCapturePopup(_bindings, null!, key => _evicted.Add(key)));
+        }
+
+        [Fact]
+        public void Constructor_WithNullEvictSystemBinding_ShouldThrowArgumentNullException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => 
+                new DrumCapturePopup(_bindings, () => _system, null!));
+        }
 
         [Fact]
         public void Open_SetsListeningStateAndLane()
@@ -234,6 +262,118 @@ namespace DTXMania.Test.Stage.DrumConfig
             var rows = chips.Select(c => c.Bounds.Y).Distinct().Count();
 
             Assert.True(rows > 1, "Expected chips to wrap onto a second row");
+        }
+
+        [Fact]
+        public void GetPanelRect_ReturnsCenteredRectangle()
+        {
+            var popup = NewPopup();
+            var rect = popup.GetPanelRect(1280, 720);
+
+            // Should be centered
+            Assert.Equal((1280 - DrumCapturePopup.PopupWidth) / 2, rect.X);
+            Assert.Equal((720 - DrumCapturePopup.PopupHeight) / 2, rect.Y);
+            Assert.Equal(DrumCapturePopup.PopupWidth, rect.Width);
+            Assert.Equal(DrumCapturePopup.PopupHeight, rect.Height);
+        }
+
+        [Fact]
+        public void GetDoneRect_ReturnsCorrectPosition()
+        {
+            var popup = NewPopup();
+            var panelRect = popup.GetPanelRect(1280, 720);
+            var doneRect = popup.GetDoneRect(1280, 720);
+
+            // Done button should be in bottom-right of panel
+            Assert.True(doneRect.X > panelRect.X);
+            Assert.True(doneRect.Y > panelRect.Y);
+            Assert.True(doneRect.Right <= panelRect.Right);
+            Assert.True(doneRect.Bottom <= panelRect.Bottom);
+        }
+
+        [Fact]
+        public void GetClearRect_ReturnsCorrectPosition()
+        {
+            var popup = NewPopup();
+            var panelRect = popup.GetPanelRect(1280, 720);
+            var clearRect = popup.GetClearRect(1280, 720);
+
+            // Clear button should be in bottom-left of panel
+            Assert.True(clearRect.X >= panelRect.X);
+            Assert.True(clearRect.Y > panelRect.Y);
+            Assert.True(clearRect.Right <= panelRect.Right);
+            Assert.True(clearRect.Bottom <= panelRect.Bottom);
+        }
+
+        [Fact]
+        public void TryCapture_WithNullButton_ShouldReturnIgnored()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            var outcome = popup.TryCapture(null!);
+
+            Assert.Equal(DrumCaptureOutcome.Ignored, outcome);
+        }
+
+        [Fact]
+        public void TryCapture_WithWhitespaceButtonId_ShouldReturnIgnored()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            var outcome = popup.TryCapture(new ButtonState("   ", true));
+
+            Assert.Equal(DrumCaptureOutcome.Ignored, outcome);
+        }
+
+        [Fact]
+        public void TryCapture_WhenNotListening_ShouldReturnIgnored()
+        {
+            var popup = NewPopup();
+            // Don't open the popup, so it's not in listening state
+
+            var outcome = popup.TryCapture(new ButtonState("Key.Q", true));
+
+            Assert.Equal(DrumCaptureOutcome.Ignored, outcome);
+        }
+
+        [Fact]
+        public void Tick_WhenClosed_ShouldReturnEarly()
+        {
+            var popup = NewPopup();
+            // Don't open the popup
+
+            var exception = Record.Exception(() => popup.Tick(1.0));
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void Tick_WhenListening_ShouldNotChangeState()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            popup.Tick(1.0);
+
+            Assert.Equal(DrumCaptureState.Listening, popup.State);
+        }
+
+        [Fact]
+        public void GetBindingChips_WithDifferentViewportSizes_ShouldReturnValidChips()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Q", true));
+
+            var chips1 = popup.GetBindingChips(1280, 720);
+            var chips2 = popup.GetBindingChips(800, 600);
+
+            // Should return chips for both viewport sizes
+            Assert.NotEmpty(chips1);
+            Assert.NotEmpty(chips2);
+            Assert.Equal(2, chips1.Count); // Default + Q
+            Assert.Equal(2, chips2.Count);
         }
     }
 }
