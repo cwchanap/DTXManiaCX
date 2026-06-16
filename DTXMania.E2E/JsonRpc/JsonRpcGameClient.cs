@@ -58,6 +58,12 @@ public sealed class JsonRpcGameClient
         await SendInputAsync((int)InputType.KeyRelease, key, cancellationToken);
     }
 
+    public async Task ChangeStageAsync(string stageName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stageName);
+        await SendAsync("changeStage", new { stageName }, cancellationToken);
+    }
+
     public async Task<string?> TakeScreenshotBase64Async(CancellationToken cancellationToken)
     {
         var result = await SendAsync("takeScreenshot", null, cancellationToken);
