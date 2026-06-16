@@ -29,7 +29,8 @@ namespace DTXMania.Game.Lib.Stage
         SongSelect,
         SongTransition,
         Performance,
-        Result
+        Result,
+        DrumConfig
     }
 
     /// <summary>

@@ -369,7 +369,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Drum and system key mapping navigation items
             _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
-                () => OpenPanel(_drumPanel)));
+                () => ChangeStage(StageType.DrumConfig, new InstantTransition())));
             _configItems.Add(new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel)));
 
