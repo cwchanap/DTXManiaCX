@@ -34,5 +34,20 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             Assert.Equal(-1, DrumKitLayout.HitTest(2f, 2f));
         }
+
+        [Fact]
+        public void Zone_Contains_EllipseContainmentInDesignSpace()
+        {
+            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 4);
+            
+            // Center should be contained
+            Assert.True(snare.Contains(snare.CenterX, snare.CenterY));
+            
+            // Point just outside should not be contained
+            Assert.False(snare.Contains(snare.CenterX + snare.RadiusX + 1, snare.CenterY));
+            
+            // Point far outside should not be contained
+            Assert.False(snare.Contains(0f, 0f));
+        }
     }
 }
