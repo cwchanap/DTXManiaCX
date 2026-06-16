@@ -118,7 +118,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return Enum.TryParse(buttonId.Substring(prefix.Length), out key);
         }
 
-        // ---- Geometry shared by rendering and mouse hit-testing (design space) ----
+        // ---- Geometry shared by rendering and mouse hit-testing (viewport space) ----
 
         public const int PopupWidth = 380;
         public const int PopupHeight = 230;
