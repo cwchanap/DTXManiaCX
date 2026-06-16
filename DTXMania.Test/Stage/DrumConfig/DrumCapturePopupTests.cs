@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.DrumConfig;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
 using ButtonState = DTXMania.Game.Lib.Input.ButtonState;
@@ -162,6 +163,63 @@ namespace DTXMania.Test.Stage.DrumConfig
             popup.TryCapture(new ButtonState("Key.Q", true));
 
             Assert.Contains("Key.Q", popup.CurrentBindings);
+        }
+
+        [Fact]
+        public void GetBindingChips_ReturnsOneChipPerCurrentBinding()
+        {
+            var popup = NewPopup();
+            popup.Open(4);                                  // default lane 4 contains "Key.S"
+            popup.TryCapture(new ButtonState("Key.Q", true)); // now "Key.S" + "Key.Q"
+
+            var chips = popup.GetBindingChips(1280, 720);
+
+            Assert.Equal(2, chips.Count);
+            Assert.Equal(
+                new HashSet<string> { "Key.S", "Key.Q" },
+                chips.Select(c => c.ButtonId).ToHashSet());
+        }
+
+        [Fact]
+        public void GetBindingChips_RemoveRects_AreNonEmptyAndDoNotOverlap()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Q", true));
+
+            var chips = popup.GetBindingChips(1280, 720);
+
+            foreach (var c in chips)
+            {
+                Assert.True(c.Remove.Width > 0 && c.Remove.Height > 0);
+                Assert.True(c.Bounds.Contains(c.Remove)); // remove ✕ sits inside its chip
+            }
+            Assert.False(chips[0].Remove.Intersects(chips[1].Remove));
+        }
+
+        [Fact]
+        public void RemovingChipById_RemovesOnlyThatBinding()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Q", true));
+
+            var chips = popup.GetBindingChips(1280, 720);
+            var sChip = chips.Single(c => c.ButtonId == "Key.S");
+            popup.RemoveBinding(sChip.ButtonId);
+
+            Assert.DoesNotContain("Key.S", popup.CurrentBindings);
+            Assert.Contains("Key.Q", popup.CurrentBindings);
+        }
+
+        [Fact]
+        public void GetBindingChips_WhenLaneEmpty_ReturnsNoChips()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.ClearLane();
+
+            Assert.Empty(popup.GetBindingChips(1280, 720));
         }
     }
 }

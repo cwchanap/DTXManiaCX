@@ -138,6 +138,65 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return new Rectangle(p.Left + 12, p.Bottom - 44, 90, 30);
         }
 
+        /// <summary>One drawn binding chip: the whole chip box and the inner ✕ remove hit-area.</summary>
+        public readonly struct DrumBindingChip
+        {
+            public string ButtonId { get; }
+            public Rectangle Bounds { get; }
+            public Rectangle Remove { get; }
+            public DrumBindingChip(string buttonId, Rectangle bounds, Rectangle remove)
+            {
+                ButtonId = buttonId;
+                Bounds = bounds;
+                Remove = remove;
+            }
+        }
+
+        private const int ChipHeight = 22;
+        private const int ChipGap = 6;
+        private const int ChipPadX = 8;
+        private const int ChipCharWidth = 8;   // rough per-char width estimate for layout
+        private const int RemoveBoxSize = 14;
+
+        /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
+        private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
+            GetPanelRect(viewportWidth, viewportHeight).Y + 14 + 30;
+
+        /// <summary>
+        /// Layout (viewport space) of one chip per current binding, each with an inner ✕ remove
+        /// hit-area. Chips flow left-to-right and wrap within the panel. Deterministic and unit-tested;
+        /// the stage hit-tests <see cref="DrumBindingChip.Remove"/> against the mouse and calls
+        /// <see cref="RemoveBinding"/>.
+        /// </summary>
+        public IReadOnlyList<DrumBindingChip> GetBindingChips(int viewportWidth, int viewportHeight)
+        {
+            var panel = GetPanelRect(viewportWidth, viewportHeight);
+            int left = panel.X + 16;
+            int maxRight = panel.Right - 16;
+            int x = left;
+            int y = GetChipsRowTop(viewportWidth, viewportHeight);
+
+            var chips = new List<DrumBindingChip>();
+            foreach (var id in CurrentBindings)
+            {
+                int textWidth = id.Length * ChipCharWidth;
+                int chipWidth = ChipPadX + textWidth + 6 + RemoveBoxSize + ChipPadX;
+                if (x + chipWidth > maxRight && x > left)
+                {
+                    x = left;
+                    y += ChipHeight + ChipGap;
+                }
+                var bounds = new Rectangle(x, y, chipWidth, ChipHeight);
+                var remove = new Rectangle(
+                    bounds.Right - ChipPadX - RemoveBoxSize,
+                    y + ((ChipHeight - RemoveBoxSize) / 2),
+                    RemoveBoxSize, RemoveBoxSize);
+                chips.Add(new DrumBindingChip(id, bounds, remove));
+                x += chipWidth + ChipGap;
+            }
+            return chips;
+        }
+
         /// <summary>
         /// Draws the popup. Called only by the stage (graphics). No unit test.
         /// </summary>
@@ -155,6 +214,13 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 spriteBatch.Draw(whitePixel, panel, new Color(27, 31, 41));
                 spriteBatch.Draw(whitePixel, GetClearRect(viewportWidth, viewportHeight), new Color(58, 35, 48));
                 spriteBatch.Draw(whitePixel, GetDoneRect(viewportWidth, viewportHeight), new Color(58, 70, 90));
+
+                // Draw chips backgrounds
+                foreach (var chip in GetBindingChips(viewportWidth, viewportHeight))
+                {
+                    spriteBatch.Draw(whitePixel, chip.Bounds, new Color(35, 42, 54));
+                    spriteBatch.Draw(whitePixel, chip.Remove, new Color(120, 50, 60));
+                }
             }
 
             if (font == null)
@@ -166,16 +232,34 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
             font.DrawString(spriteBatch, $"Configure: {KeyBindings.GetLaneName(Lane)}",
                 new Vector2(x, y), Color.White);
-            y += 30;
-            font.DrawString(spriteBatch, $"Bound: {_workingBindings.GetLaneDescription(Lane)}",
-                new Vector2(x, y), new Color(180, 200, 220));
-            y += 34;
+
+            // Draw binding chips (labels and ✕ markers)
+            var chips = GetBindingChips(viewportWidth, viewportHeight);
+            int promptY;
+            if (chips.Count == 0)
+            {
+                font.DrawString(spriteBatch, "(no bindings)", new Vector2(x, GetChipsRowTop(viewportWidth, viewportHeight)),
+                    new Color(120, 130, 140));
+                promptY = GetChipsRowTop(viewportWidth, viewportHeight) + ChipHeight + 12;
+            }
+            else
+            {
+                foreach (var chip in chips)
+                {
+                    font.DrawString(spriteBatch, chip.ButtonId,
+                        new Vector2(chip.Bounds.X + ChipPadX, chip.Bounds.Y + 3), Color.White);
+                    font.DrawString(spriteBatch, "x",
+                        new Vector2(chip.Remove.X + 3, chip.Remove.Y + 1), Color.White);
+                }
+                var lastChip = chips[chips.Count - 1];
+                promptY = lastChip.Bounds.Bottom + 12;
+            }
 
             var prompt = State == DrumCaptureState.ShowingConflict
                 ? (ConflictMessage ?? "Conflict")
                 : "Listening - hit any key, pad, or MIDI note";
             var promptColor = State == DrumCaptureState.ShowingConflict ? Color.Red : new Color(255, 216, 77);
-            font.DrawString(spriteBatch, prompt, new Vector2(x, y), promptColor);
+            font.DrawString(spriteBatch, prompt, new Vector2(x, promptY), promptColor);
 
             font.DrawString(spriteBatch, "Clear", new Vector2(GetClearRect(viewportWidth, viewportHeight).X + 14,
                 GetClearRect(viewportWidth, viewportHeight).Y + 6), Color.White);

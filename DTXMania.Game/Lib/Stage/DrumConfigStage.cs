@@ -110,6 +110,14 @@ namespace DTXMania.Game.Lib.Stage
             var vp = _game.GraphicsDevice.Viewport;
             if (leftClick)
             {
+                foreach (var chip in _popup.GetBindingChips(vp.Width, vp.Height))
+                {
+                    if (chip.Remove.Contains(mouse.X, mouse.Y))
+                    {
+                        _popup.RemoveBinding(chip.ButtonId);
+                        return;
+                    }
+                }
                 if (_popup.GetDoneRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
                 {
                     _popup.Close();
