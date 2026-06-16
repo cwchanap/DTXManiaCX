@@ -80,11 +80,14 @@ namespace DTXMania.Test.Stage.DrumConfig
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
             try
             {
-                ReflectionHelpers.InvokePrivateMethod(stage, "Save");
+                var exited = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "Save");
 
+                // A successful save exits the stage (Back = Save & exit) and clears any prior error.
+                Assert.True(exited);
                 var configPath = AppPaths.GetConfigFilePath();
                 Assert.True(File.Exists(configPath));
                 Assert.Equal(2, input.ModularInputManager.KeyBindings.GetLane("Key.X"));
+                Assert.Null(ReflectionHelpers.GetPrivateField<string?>(stage, "_saveError"));
             }
             finally
             {
@@ -115,10 +118,20 @@ namespace DTXMania.Test.Stage.DrumConfig
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempFile);
             try
             {
-                ReflectionHelpers.InvokePrivateMethod(stage, "Save");
+                var exited = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "Save");
 
+                // On failure the stage must NOT exit, the config must be rolled back, and the live
+                // bindings must not reflect the unsaved working copy.
+                Assert.False(exited);
                 Assert.Equal(-1, input.ModularInputManager.KeyBindings.GetLane("Key.X"));
                 Assert.False(configManager.Config.KeyBindings.ContainsKey("Key.X"));
+
+                // The stage surfaces the failure so the user knows nothing was persisted, and it
+                // keeps the working copy intact so a retry (Back again) can succeed.
+                var saveError = ReflectionHelpers.GetPrivateField<string?>(stage, "_saveError");
+                Assert.False(string.IsNullOrEmpty(saveError));
+                var retainedWorking = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingBindings");
+                Assert.Equal(2, retainedWorking.GetLane("Key.X"));
             }
             finally
             {
