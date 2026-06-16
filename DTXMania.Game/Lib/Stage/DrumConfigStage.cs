@@ -235,7 +235,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            bool persisted = true;
+            bool persisted = false;
             if (_configManager is ConfigManager concrete)
             {
                 var config = _configManager.Config;
@@ -253,6 +253,7 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     _configManager.SaveConfig(AppPaths.GetConfigFilePath());
+                    persisted = true;
                 }
                 catch (Exception ex)
                 {
