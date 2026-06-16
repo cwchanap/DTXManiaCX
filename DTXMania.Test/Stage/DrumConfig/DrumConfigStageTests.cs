@@ -6,6 +6,7 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.DrumConfig;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -20,7 +21,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void GetResetButtonRect_ReturnsCorrectPosition()
         {
-            // Act - Use reflection to test the private static method
+            // Act - use reflection to test the private static method
             var method = typeof(DrumConfigStage).GetMethod("GetResetButtonRect",
                 BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
@@ -32,6 +33,49 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(12, rect.Y);
             Assert.Equal(190, rect.Width);
             Assert.Equal(30, rect.Height);
+        }
+
+        [Fact]
+        public void ActivateFocusedElement_WhenResetFocused_ResetsWorkingBindingsToDefault()
+        {
+            // Keyboard-reachable Reset (design: zones + Reset in one focus order). Activate while
+            // Reset holds focus must restore defaults on the working copy. GraphicsDevice-free, so
+            // this exercises the dispatch headlessly without OnActivate.
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
+            var stage = new DrumConfigStage(game);
+
+            var working = new KeyBindings();
+            working.BindButton("Key.Z", 3); // non-default binding that Reset must clear
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", DrumKitLayout.ResetActionIndex);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
+
+            // "Z" is not a default key, so resetting the working copy drops it.
+            Assert.Equal(-1, working.GetLane("Key.Z"));
+        }
+
+        [Fact]
+        public void ActivateFocusedElement_WhenZoneFocused_OpensPopupForThatLane()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
+            var stage = new DrumConfigStage(game);
+
+            var working = new KeyBindings();
+            var popup = new DrumCapturePopup(
+                working,
+                () => new Dictionary<Keys, InputCommandType>(),
+                _ => { });
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 4); // Snare Drum
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
+
+            Assert.True(popup.IsOpen);
+            Assert.Equal(4, popup.Lane);
         }
 
         [Fact]

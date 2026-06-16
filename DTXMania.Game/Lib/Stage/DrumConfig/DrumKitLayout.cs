@@ -77,5 +77,30 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             }
             return -1;
         }
+
+        // ---- Keyboard focus order (zones 0..ZoneCount-1, then the Reset action) ----
+        // The design specifies a "stable focus sequence over the 10 zones plus the Reset action"
+        // that is unit-testable and Mac-safe. Kept here, as pure data/math, so the stage wires
+        // input to focus without owning the geometry or order.
+
+        /// <summary>Number of drum zones (lanes 0-9). Mirrors <see cref="Zones"/>'s count.</summary>
+        public const int ZoneCount = 10;
+
+        /// <summary>Focus index of the Reset-to-defaults action (immediately after the last zone).</summary>
+        public const int ResetActionIndex = ZoneCount;
+
+        /// <summary>Total keyboard-focusable elements: the zones plus the Reset action.</summary>
+        public const int FocusableCount = ZoneCount + 1;
+
+        /// <summary>True when <paramref name="focusIndex"/> points at the Reset-to-defaults action.</summary>
+        public static bool IsResetAction(int focusIndex) => focusIndex == ResetActionIndex;
+
+        /// <summary>
+        /// Advances the keyboard focus by <paramref name="delta"/> (+1 forward / -1 back) with
+        /// wraparound across every focusable element (zones 0..ZoneCount-1 then Reset). Pure math
+        /// so the focus order is unit-testable without a GraphicsDevice.
+        /// </summary>
+        public static int AdvanceFocus(int currentIndex, int delta)
+            => ((currentIndex % FocusableCount) + (delta % FocusableCount) + FocusableCount) % FocusableCount;
     }
 }

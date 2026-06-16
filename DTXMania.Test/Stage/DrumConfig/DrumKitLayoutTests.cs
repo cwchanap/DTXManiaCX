@@ -49,5 +49,34 @@ namespace DTXMania.Test.Stage.DrumConfig
             // Point far outside should not be contained
             Assert.False(snare.Contains(0f, 0f));
         }
+
+        [Fact]
+        public void AdvanceFocus_ForwardFromLastZone_LandsOnResetAction()
+        {
+            // The Reset action sits right after the last zone in the focus sequence.
+            Assert.Equal(DrumKitLayout.ResetActionIndex,
+                DrumKitLayout.AdvanceFocus(DrumKitLayout.ZoneCount - 1, +1));
+        }
+
+        [Fact]
+        public void AdvanceFocus_ForwardFromResetAction_WrapsToFirstZone()
+        {
+            Assert.Equal(0, DrumKitLayout.AdvanceFocus(DrumKitLayout.ResetActionIndex, +1));
+        }
+
+        [Fact]
+        public void AdvanceFocus_BackwardFromFirstZone_WrapsToResetAction()
+        {
+            // Left/Shift navigation from the first zone wraps back to the Reset action.
+            Assert.Equal(DrumKitLayout.ResetActionIndex, DrumKitLayout.AdvanceFocus(0, -1));
+        }
+
+        [Fact]
+        public void IsResetAction_OnlyTrueForResetActionIndex()
+        {
+            Assert.True(DrumKitLayout.IsResetAction(DrumKitLayout.ResetActionIndex));
+            Assert.False(DrumKitLayout.IsResetAction(0));
+            Assert.False(DrumKitLayout.IsResetAction(DrumKitLayout.ZoneCount - 1));
+        }
     }
 }
