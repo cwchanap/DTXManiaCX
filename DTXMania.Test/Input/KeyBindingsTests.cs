@@ -369,6 +369,26 @@ namespace DTXMania.Test.Input
             Assert.True(bindings.ButtonToLane.Count > 0);
         }
 
+        [Fact]
+        public void LoadDefaultBindings_AfterMutation_ShouldRestoreDefaultLaneAssignments()
+        {
+            var bindings = new KeyBindings();
+            // Mutate: rebind and clear a few lanes
+            bindings.BindButton("Key.S", 9);     // move snare key to a different lane
+            bindings.UnbindButton("Key.Space");   // remove bass drum key
+
+            // Precondition: mutations are in effect
+            Assert.NotEqual(4, bindings.GetLane("Key.S"));
+            Assert.Equal(-1, bindings.GetLane("Key.Space"));
+
+            bindings.LoadDefaultBindings();
+
+            // Lane 4 (Snare Drum) should map to "Key.S"
+            Assert.Equal(4, bindings.GetLane("Key.S"));
+            // Lane 6 (Bass Drum) should map to "Key.Space"
+            Assert.Equal(6, bindings.GetLane("Key.Space"));
+        }
+
         #endregion
     }
 }

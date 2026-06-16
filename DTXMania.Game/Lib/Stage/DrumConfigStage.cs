@@ -168,6 +168,14 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
+            // Reset-to-defaults button: check before zone hit-test so a click there
+            // doesn't also open a lane popup.
+            if (leftClick && GetResetButtonRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
+            {
+                _workingBindings.LoadDefaultBindings();
+                return;
+            }
+
             // Open popup via click on a zone, or Activate on the focused lane.
             if (leftClick && _hoveredLane >= 0)
                 OpenPopup(_hoveredLane);
@@ -183,6 +191,12 @@ namespace DTXMania.Game.Lib.Stage
             _skipCaptureThisFrame = true;
         }
 
+        // "Reset to defaults" button (viewport space), top-right of the screen.
+        // viewportHeight is unused (button is top-anchored); kept for call-symmetry with the
+        // other (viewportWidth, viewportHeight) rect getters.
+        private static Rectangle GetResetButtonRect(int viewportWidth, int viewportHeight) =>
+            new Rectangle(viewportWidth - 210, 12, 190, 30);
+
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null || _renderer == null)
@@ -197,6 +211,13 @@ namespace DTXMania.Game.Lib.Stage
 
             _renderer.Draw(_spriteBatch, _font, _whitePixel, _workingBindings,
                 vp.Width, vp.Height, _selectedLane, _focusedLane, _hoveredLane);
+
+            var resetRect = GetResetButtonRect(vp.Width, vp.Height);
+            if (_whitePixel != null)
+                _spriteBatch.Draw(_whitePixel, resetRect, new Color(58, 70, 90));
+            if (_font != null)
+                _font.DrawString(_spriteBatch, "Reset to defaults",
+                    new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
 
             _popup?.Draw(_spriteBatch, _font, _whitePixel, vp.Width, vp.Height);
 
