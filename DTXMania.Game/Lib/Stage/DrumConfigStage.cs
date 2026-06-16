@@ -75,6 +75,7 @@ namespace DTXMania.Game.Lib.Stage
             _focusedLane = 0;
             _selectedLane = -1;
             _hoveredLane = -1;
+            _skipCaptureThisFrame = false;
             _previousMouse = Mouse.GetState();
         }
 
@@ -155,7 +156,7 @@ namespace DTXMania.Game.Lib.Stage
             // Back exits the stage (Back = Save: commit the working copy).
             if (_input?.IsBackActionTriggered() == true)
             {
-                Cancel();
+                CommitAndExit();
                 return;
             }
 
@@ -220,8 +221,8 @@ namespace DTXMania.Game.Lib.Stage
             ChangeStage(StageType.Config, new InstantTransition());
         }
 
-        /// <summary>Back exits with save (the stage's Save model: Back commits, like other config screens).</summary>
-        private void Cancel()
+        /// <summary>Commits the working bindings and exits to ConfigStage. Back = Save: pressing Back commits changes, like other config screens.</summary>
+        private void CommitAndExit()
         {
             Save();
         }
@@ -243,6 +244,10 @@ namespace DTXMania.Game.Lib.Stage
             _popup = null;
             _font?.RemoveReference();
             _font = null;
+            _spriteBatch?.Dispose();
+            _spriteBatch = null!;
+            _whitePixel?.Dispose();
+            _whitePixel = null!;
         }
 
         protected override void Dispose(bool disposing)
