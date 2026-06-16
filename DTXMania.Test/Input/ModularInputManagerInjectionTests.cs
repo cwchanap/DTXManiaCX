@@ -95,7 +95,7 @@ public class ModularInputManagerInjectionTests : IDisposable
     }
 
     [Fact]
-    public void ConsumePressedButtons_AfterInjectedPress_ReturnsThatButton()
+    public void ConsumePressedButtons_AfterInjectedPress_ShouldReturnThatButton()
     {
         _manager.InjectButton("Key.Q", isPressed: true);
         _manager.Update(0.016);
@@ -106,7 +106,7 @@ public class ModularInputManagerInjectionTests : IDisposable
     }
 
     [Fact]
-    public void ConsumePressedButtons_FrameAfterPress_ReturnsEmpty()
+    public void ConsumePressedButtons_FrameAfterPress_ShouldReturnEmpty()
     {
         _manager.InjectButton("Key.Q", isPressed: true);
         _manager.Update(0.016);

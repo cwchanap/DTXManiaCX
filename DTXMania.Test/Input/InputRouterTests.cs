@@ -206,7 +206,7 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
-        public void Update_WhenSourceYieldsPressedButton_RaisesOnButtonPressed()
+        public void Update_WhenSourceYieldsPressedButton_ShouldRaiseOnButtonPressed()
         {
             var source = new Mock<IInputSource>();
             source.Setup(s => s.Update()).Returns(new[] { new ButtonState("MIDI.38", true) });
