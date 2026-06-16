@@ -19,7 +19,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
     /// Modal capture for a single drum lane: listens for the next input from any device and
     /// appends it to the lane's bindings. Keyboard keys are checked against system bindings —
     /// required navigation keys are rejected; non-required system keys are auto-evicted
-    /// (mirrors DrumKeyAssignPanel). Pure state/geometry; <see cref="Draw"/> is the only
+    /// (mirrors the legacy panel's deferred-eviction behavior). Pure state/geometry; <see cref="Draw"/> is the only
     /// graphics method and is exercised only by the stage.
     /// </summary>
     public class DrumCapturePopup

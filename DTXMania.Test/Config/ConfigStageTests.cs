@@ -237,48 +237,6 @@ public class ConfigStageTests
     }
 
     [Fact]
-    public void ConfigStage_RemappedWorkingBack_ShouldAllowEscapeAssignmentInDrumPanel()
-    {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
-
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "InitializePanels");
-        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
-        {
-            [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
-            [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
-            [Microsoft.Xna.Framework.Input.Keys.A] = InputCommandType.MoveLeft,
-            [Microsoft.Xna.Framework.Input.Keys.D] = InputCommandType.MoveRight,
-            [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
-            [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
-        });
-
-        var panel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-        Assert.NotNull(panel);
-
-        panel!.Activate();
-
-        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
-
-        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
-        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.F));
-        panel.Update(0.0,
-            new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.F),
-            new Microsoft.Xna.Framework.Input.KeyboardState());
-
-        SetPrivateField(stage, "_previousKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState());
-        SetPrivateField(stage, "_currentKeyboardState", new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape));
-        panel.Update(0.0,
-            new Microsoft.Xna.Framework.Input.KeyboardState(Microsoft.Xna.Framework.Input.Keys.Escape),
-            new Microsoft.Xna.Framework.Input.KeyboardState());
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.True(panel.IsActive);
-        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Microsoft.Xna.Framework.Input.Keys.Escape)));
-    }
-
-    [Fact]
     public void ConfigStage_SystemPanel_ShouldNavigateAndSaveFromInjectedCommandsWithoutKeyboardStateChange()
     {
         using var inputManager = new InputManagerCompat(new ConfigManager());
@@ -304,28 +262,6 @@ public class ConfigStageTests
         DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Enter");
 
         Assert.True(savedFired);
-        Assert.True(closedFired);
-        Assert.False(panel.IsActive);
-    }
-
-    [Fact]
-    public void ConfigStage_DrumPanel_ShouldCloseFromInjectedBackCommandWithoutKeyboardStateChange()
-    {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
-
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "InitializePanels");
-
-        var panel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-        Assert.NotNull(panel);
-
-        bool closedFired = false;
-        panel!.Closed += (_, _) => closedFired = true;
-        panel.Activate();
-
-        DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Escape");
-
         Assert.True(closedFired);
         Assert.False(panel.IsActive);
     }
@@ -363,46 +299,6 @@ public class ConfigStageTests
 
         Assert.False(closedFired);
         Assert.True(panel.IsActive);
-    }
-
-    [Fact]
-    public void ConfigStage_DrumPanel_RemappedWorkingBack_ShouldAllowInjectedOldBackKeyAssignmentInCapture()
-    {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
-
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "InitializePanels");
-        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
-        {
-            [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
-            [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
-            [Microsoft.Xna.Framework.Input.Keys.A] = InputCommandType.MoveLeft,
-            [Microsoft.Xna.Framework.Input.Keys.D] = InputCommandType.MoveRight,
-            [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
-            [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
-        });
-
-        var panel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-        Assert.NotNull(panel);
-
-        panel!.Activate();
-
-        DispatchInjectedPanelInput(
-            stage,
-            inputManager,
-            panel,
-            Microsoft.Xna.Framework.Input.Keys.F);
-
-        DispatchInjectedPanelInput(
-            stage,
-            inputManager,
-            panel,
-            Microsoft.Xna.Framework.Input.Keys.Escape);
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.True(panel.IsActive);
-        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Microsoft.Xna.Framework.Input.Keys.Escape)));
     }
 
     private static ConfigStage CreateConfigStage(InputManagerCompat inputManager)

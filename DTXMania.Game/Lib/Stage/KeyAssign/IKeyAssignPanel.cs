@@ -20,7 +20,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         /// Implementers must raise <see cref="Saved"/> before <see cref="Closed"/> on a save operation,
         /// because <c>ConfigStage.OnPanelSaved</c> captures the working bindings in the <see cref="Saved"/>
         /// handler before the panel is torn down.
-        /// <para>See <c>DrumKeyAssignPanel</c> and <c>SystemKeyAssignPanel</c> for reference implementations.</para>
+        /// <para>See <c>SystemKeyAssignPanel</c> for a reference implementation.</para>
         /// </summary>
         event EventHandler Closed;
 

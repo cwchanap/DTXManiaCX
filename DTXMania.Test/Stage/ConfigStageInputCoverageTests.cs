@@ -1,16 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
-using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -296,25 +293,6 @@ public class ConfigStageInputCoverageTests
 
             Assert.Null(exception);
             Assert.Null(GetPrivateField<IKeyAssignPanel?>(stage, "_activePanel"));
-        }
-    }
-
-    [Fact]
-    public void OnPanelSaved_WhenDrumPanel_ShouldUpdateWorkingBindings()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: true);
-
-            var drumPanel = GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(drumPanel);
-
-            var bindingsBefore = GetPrivateField<KeyBindings>(stage, "_workingDrumBindings").Clone();
-
-            InvokePrivateMethod(stage, "OnPanelSaved", drumPanel, EventArgs.Empty);
-
-            Assert.True(GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
         }
     }
 

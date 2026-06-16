@@ -152,47 +152,6 @@ public class KeyAssignPanelCoverageTests
     }
 
     [Fact]
-    public void DrumPanel_Draw_WithFont_ShouldCallDrawString()
-    {
-        var panel = CreateDrumPanel();
-        panel.Activate();
-        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", 0);
-
-        var spriteBatch = FakeSpriteBatch.Create();
-        var fontMock = new Mock<IFont>();
-        var boldFontMock = new Mock<IFont>();
-
-        panel.Draw(spriteBatch, fontMock.Object, boldFontMock.Object, null, 1280, 720);
-
-        boldFontMock.Verify(
-            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
-            Times.AtLeastOnce);
-        fontMock.Verify(
-            f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
-            Times.AtLeastOnce);
-    }
-
-    [Fact]
-    public void DrumPanel_Draw_WhenInactive_ShouldNotDraw()
-    {
-        var panel = CreateDrumPanel();
-        panel.Activate();
-        panel.Deactivate();
-
-        var fontMock = new Mock<IFont>();
-        var boldFontMock = new Mock<IFont>();
-
-        panel.Draw(null!, fontMock.Object, boldFontMock.Object, null, 1280, 720);
-
-        fontMock.Verify(
-            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
-            Times.Never);
-        boldFontMock.Verify(
-            f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
-            Times.Never);
-    }
-
-    [Fact]
     public void SystemPanel_ConflictTimeoutAndDraw_ShouldRecoverWithoutResources()
     {
         using var inputManager = new InputManager();
@@ -210,119 +169,6 @@ public class KeyAssignPanelCoverageTests
         Assert.Null(ReflectionHelpers.GetPrivateField<string>(panel, "_conflictMessage"));
     }
 
-    [Fact]
-    public void DrumPanel_MoveUpFromTop_ShouldWrapToFooterCancel()
-    {
-        var panel = CreateDrumPanel();
-        panel.Activate();
-
-        PressKey(panel, Keys.Up);
-
-        Assert.Equal(GetStaticIntField(typeof(DrumKeyAssignPanel), "FooterCancel"), ReflectionHelpers.GetPrivateField<int>(panel, "_selectedIndex"));
-    }
-
-    [Fact]
-    public void DrumPanel_ActivateFooterCancel_ShouldCloseWithoutSaving()
-    {
-        var panel = CreateDrumPanel();
-        bool saved = false;
-        bool closed = false;
-
-        panel.Saved += (_, _) => saved = true;
-        panel.Closed += (_, _) => closed = true;
-        panel.Activate();
-
-        for (int i = 0; i < GetStaticIntField(typeof(DrumKeyAssignPanel), "FooterCancel"); i++)
-        {
-            PressKey(panel, Keys.Down);
-        }
-
-        PressKey(panel, Keys.Enter);
-
-        Assert.False(saved);
-        Assert.True(closed);
-        Assert.False(panel.IsActive);
-    }
-
-    [Fact]
-    public void DrumPanel_HeldKeyDuringCapture_ShouldRemainAwaitingKey()
-    {
-        var panel = CreateDrumPanel();
-        panel.Activate();
-
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.H), new KeyboardState(Keys.H));
-
-        Assert.Equal("AwaitingKey", GetStateName(panel));
-    }
-
-    [Fact]
-    public void DrumPanel_AssigningConflictingKey_ShouldShowConflict()
-    {
-        var panel = CreateDrumPanel();
-        panel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>
-        {
-            [Keys.H] = InputCommandType.MoveUp
-        };
-        panel.Activate();
-
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.H), new KeyboardState());
-
-        Assert.Equal("ShowingConflict", GetStateName(panel));
-        Assert.NotNull(ReflectionHelpers.GetPrivateField<string>(panel, "_conflictMessage"));
-    }
-
-    [Fact]
-    public void DrumPanel_CaptureCancelLabel_ShouldUseBackBindingOrFallback()
-    {
-        var panelWithBack = CreateDrumPanel();
-        panelWithBack._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>
-        {
-            [Keys.Q] = InputCommandType.Back
-        };
-        panelWithBack.Activate();
-
-        var boundLabel = ReflectionHelpers.InvokePrivateMethod<string>(panelWithBack, "GetCaptureCancelLabel");
-        Assert.Equal("Q", boundLabel);
-
-        var panelWithoutBack = CreateDrumPanel();
-        panelWithoutBack._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>
-        {
-            [Keys.W] = InputCommandType.MoveUp,
-            [Keys.S] = InputCommandType.MoveDown,
-            [Keys.F] = InputCommandType.Activate,
-        };
-        panelWithoutBack.Activate();
-
-        var fallbackLabel = ReflectionHelpers.InvokePrivateMethod<string>(panelWithoutBack, "GetCaptureCancelLabel");
-        Assert.Equal("BACK", fallbackLabel);
-    }
-
-    [Fact]
-    public void DrumPanel_ConflictTimeoutAndDraw_ShouldRecoverWithoutResources()
-    {
-        var panel = CreateDrumPanel();
-        panel.Activate();
-
-        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", GetStaticIntField(typeof(DrumKeyAssignPanel), "FooterCancel"));
-        ReflectionHelpers.InvokePrivateMethod(panel, "ShowConflict", "Drum conflict");
-
-        var drawException = Record.Exception(() => panel.Draw(null!, null, null, null, 1280, 720));
-        panel.Update(2.1, new KeyboardState(), new KeyboardState());
-
-        Assert.Null(drawException);
-        Assert.Equal("Browsing", GetStateName(panel));
-        Assert.Null(ReflectionHelpers.GetPrivateField<string>(panel, "_conflictMessage"));
-    }
-
-    private static DrumKeyAssignPanel CreateDrumPanel()
-    {
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(new KeyBindings()));
-        panel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>();
-        return panel;
-    }
-
     private static void PressKey(IKeyAssignPanel panel, Keys key)
     {
         panel.Update(0.0, new KeyboardState(key), new KeyboardState());
@@ -338,21 +184,6 @@ public class KeyAssignPanelCoverageTests
         var field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (int)field!.GetValue(null)!;
-    }
-
-    // Uses FormatterServices.GetUninitializedObject to bypass ModularInputManager's constructor,
-    // which requires complex dependency/initialization unsuitable for unit tests. The private
-    // _keyBindings field is then injected via reflection. SYSLIB0050 suppression is intentional.
-    private static ModularInputManager CreateUnusedModularInputManager(KeyBindings liveBindings)
-    {
-#pragma warning disable SYSLIB0050
-        var manager = (ModularInputManager)FormatterServices.GetUninitializedObject(typeof(ModularInputManager));
-#pragma warning restore SYSLIB0050
-
-        var keyBindingsField = typeof(ModularInputManager).GetField("_keyBindings", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(keyBindingsField);
-        keyBindingsField!.SetValue(manager, liveBindings);
-        return manager;
     }
 
     private sealed class FakeSpriteBatch

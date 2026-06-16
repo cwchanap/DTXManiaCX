@@ -46,7 +46,6 @@ namespace DTXMania.Game.Lib.Stage
         private KeyboardState _currentKeyboardState;
 
         // Key-assign sub-panels
-        private DrumKeyAssignPanel? _drumPanel;
         private SystemKeyAssignPanel? _systemPanel;
         private IKeyAssignPanel? _activePanel;
 
@@ -388,15 +387,6 @@ namespace DTXMania.Game.Lib.Stage
             var inputManagerCompat = _game.InputManager
                 ?? throw new InvalidOperationException("InputManager not available");
 
-            _drumPanel = new DrumKeyAssignPanel(inputManagerCompat.ModularInputManager);
-            _drumPanel._workingBindingsProvider = () => _workingDrumBindings.Clone();
-            _drumPanel._liveSystemMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
-            _drumPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
-            _drumPanel._commandPressedProvider = IsPanelCommandPressed;
-            _drumPanel.EvictSystemBinding = key => _workingSystemBindings.Remove(key);
-            _drumPanel.Saved += OnPanelSaved;
-            _drumPanel.Closed += OnPanelClosed;
-
             _systemPanel = new SystemKeyAssignPanel(inputManagerCompat);
             _systemPanel._workingMappingProvider =
                 () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
@@ -417,11 +407,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnPanelSaved(object? sender, EventArgs e)
         {
-            if (sender == _drumPanel)
-            {
-                _workingDrumBindings = _drumPanel.GetWorkingBindingsSnapshot();
-            }
-            else if (sender == _systemPanel)
+            if (sender == _systemPanel)
             {
                 _workingSystemBindings = new Dictionary<Keys, InputCommandType>(_systemPanel.GetWorkingMappingSnapshot());
             }
