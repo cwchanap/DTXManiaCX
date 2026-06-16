@@ -337,14 +337,17 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
-        /// Returns the buttons that transitioned to pressed during the most recent Update(),
-        /// from any input source (keyboard now; MIDI/gamepad once those sources exist) plus
-        /// injected inputs. The buffer is rebuilt each Update(), so callers should read it once
-        /// per frame. Device-agnostic: each entry's Id is a "Key.*"/"MIDI.*"/"Pad.*" string.
+        /// Drains and returns the buttons that transitioned to pressed during the most recent
+        /// Update(), from any input source (keyboard now; MIDI/gamepad once those sources exist)
+        /// plus injected inputs. The internal buffer is cleared, so a second call in the same
+        /// frame returns empty — callers that read it once per frame see each press exactly once.
+        /// Device-agnostic: each entry's Id is a "Key.*"/"MIDI.*"/"Pad.*" string.
         /// </summary>
         public IReadOnlyList<ButtonState> ConsumePressedButtons()
         {
-            return _pressedThisFrame.ToArray();
+            var snapshot = _pressedThisFrame.ToArray();
+            _pressedThisFrame.Clear();
+            return snapshot;
         }
 
         /// <summary>

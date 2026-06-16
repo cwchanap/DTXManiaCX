@@ -106,7 +106,7 @@ public class ModularInputManagerInjectionTests : IDisposable
     }
 
     [Fact]
-    public void ConsumePressedButtons_FrameAfterPress_ShouldReturnEmpty()
+    public void ConsumePressedButtons_FrameAfterPress_ReturnsEmpty()
     {
         _manager.InjectButton("Key.Q", isPressed: true);
         _manager.Update(0.016);
@@ -115,5 +115,21 @@ public class ModularInputManagerInjectionTests : IDisposable
         _manager.Update(0.016); // no new input this frame
 
         Assert.Empty(_manager.ConsumePressedButtons());
+    }
+
+    [Fact]
+    public void ConsumePressedButtons_SecondCallSameFrame_ReturnsEmpty()
+    {
+        // ConsumePressedButtons must drain its buffer: a second read in the same frame
+        // must not re-yield presses that were already consumed. Without draining, two
+        // consumers (or a re-check) would double-count a single press.
+        _manager.InjectButton("Key.Q", isPressed: true);
+        _manager.Update(0.016);
+
+        var first = _manager.ConsumePressedButtons();
+        var second = _manager.ConsumePressedButtons();
+
+        Assert.Contains(first, b => b.Id == "Key.Q");
+        Assert.Empty(second);
     }
 }

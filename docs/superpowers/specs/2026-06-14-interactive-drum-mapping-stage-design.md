@@ -44,7 +44,7 @@ whatever input device fires" — keyboard now, MIDI/gamepad later.
 | Graphic fidelity | Drawn shapes (primitives) in a realistic kit arrangement. |
 | Binding display | Each zone shows current bindings; MIDI shown only once bound. |
 | Capture model | Hitting an input **appends** a binding (multiple per piece). |
-| Save model | Edit a working copy; commit on Save, discard on Cancel/Back. |
+| Save model | Edit a working copy; **Back commits** (Back = save & exit). No discard path: every exit persists. (Revised 2026-06-16: an earlier draft proposed "discard on Back"; user decision is Back = Save, matching other config screens.) |
 
 ## Architecture
 
@@ -120,8 +120,10 @@ The popup consumes this feed and binds the first **non-navigation** button.
 4. **Save** → replace the live `KeyBindings` contents with the working copy, apply
    the deferred system-key evictions, call `ModularInputManager.SaveKeyBindings()`
    (persists to `Config.ini`), then return to `StageType.Config`.
-   **Cancel / Back** (Esc at stage level with no popup open) → discard the working
-   copy and return to Config.
+   **Back** (Esc at stage level with no popup open) = **Save & exit**: commits the
+   working copy and returns to Config (same as Save). There is no discard path —
+   every exit persists. If the disk write fails, the stage stays open, surfaces an
+   error, and preserves the working copy so the user can retry.
 5. **Reset to defaults** → reset the working copy via the existing
    `ResetKeyBindingsToDefaults` path (still requires Save to persist).
 
@@ -177,8 +179,8 @@ full lane name. A lane may hold multiple bindings; the chip lists all of them.
 
 - No capture timeout: listening continues until an input is hit or the popup is
   cancelled (matches the current panel).
-- Esc / right-click closes the popup; Esc at stage level (no popup) cancels back to
-  Config.
+- Esc / right-click closes the popup; Esc at stage level (no popup) saves & exits
+  to Config (Back = Save).
 - Selection works by mouse click and by keyboard focus (arrows/Tab + Enter); the
   focused zone is highlighted for mouse-less use.
 

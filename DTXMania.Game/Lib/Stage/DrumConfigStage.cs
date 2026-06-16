@@ -40,6 +40,11 @@ namespace DTXMania.Game.Lib.Stage
         private int _selectedLane = -1;
         private bool _skipCaptureThisFrame;
 
+        // Set when a Save() disk write fails; rendered in red so the user knows their
+        // changes were not persisted and they can retry (Back saves again). Cleared on
+        // the next successful save. Null when there is no outstanding error.
+        private string? _saveError;
+
         private MouseState _previousMouse;
 
         public override StageType Type => StageType.DrumConfig;
@@ -76,6 +81,7 @@ namespace DTXMania.Game.Lib.Stage
             _selectedLane = -1;
             _hoveredLane = -1;
             _skipCaptureThisFrame = false;
+            _saveError = null;
             _previousMouse = Mouse.GetState();
         }
 
@@ -219,70 +225,87 @@ namespace DTXMania.Game.Lib.Stage
                 _font.DrawString(_spriteBatch, "Reset to defaults",
                     new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
 
+            // Surface a save failure so the user knows changes were not persisted and can retry.
+            // Matches the popup's conflict-notice color so error states read consistently.
+            if (_font != null && !string.IsNullOrEmpty(_saveError))
+                _font.DrawString(_spriteBatch, _saveError,
+                    new Vector2(20, vp.Height - 34), new Color(220, 70, 70));
+
             _popup?.Draw(_spriteBatch, _font, _whitePixel, vp.Width, vp.Height);
 
             _spriteBatch.End();
         }
 
-        /// <summary>Persists the working bindings and returns to ConfigStage.</summary>
-        private void Save()
+        /// <summary>
+        /// Persists the working bindings and returns to ConfigStage. Back = Save: pressing Back
+        /// commits changes, like other config screens. Returns true if the stage exited (success
+        /// or nothing-to-do); returns false if the disk write failed — in that case the stage
+        /// stays open, the working copy is preserved, and <see cref="_saveError"/> is set so the
+        /// user can retry by pressing Back again.
+        /// </summary>
+        private bool Save()
         {
             // Without a live input manager the working copy is just defaults, not the
             // user's bindings — committing it would clobber the real config. Skip the save.
             if (_input == null)
             {
                 ChangeStage(StageType.Config, new InstantTransition());
-                return;
+                return true;
             }
 
-            bool persisted = false;
-            if (_configManager is ConfigManager concrete)
+            // Non-concrete ConfigManager (e.g. a test stub): nothing to persist and nothing to
+            // apply to live input. Exit without touching disk or live bindings.
+            if (_configManager is not ConfigManager concrete)
             {
-                var config = _configManager.Config;
-
-                // Snapshot the binding-related config so we can roll back if the disk write fails,
-                // keeping live input state consistent with what is on disk (mirrors ConfigStage).
-                var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
-                var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
-                var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
-                var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
-
-                concrete.SaveKeyBindings(_workingBindings);
-                concrete.SaveSystemKeyBindings(_workingSystemBindings);
-
-                try
-                {
-                    _configManager.SaveConfig(AppPaths.GetConfigFilePath());
-                    persisted = true;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"DrumConfigStage: save failed: {ex.Message}");
-
-                    config.KeyBindings.Clear();
-                    foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
-                    config.UnboundDrumLanes.Clear();
-                    foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
-                    config.UnboundDrumButtons.Clear();
-                    foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
-                    config.SystemKeyBindings.Clear();
-                    foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
-
-                    persisted = false;
-                }
+                ChangeStage(StageType.Config, new InstantTransition());
+                return true;
             }
 
-            // Apply to live input state only if the disk write succeeded.
-            if (persisted)
+            var config = _configManager.Config;
+
+            // Snapshot the binding-related config so we can roll back if the disk write fails,
+            // keeping live input state consistent with what is on disk (mirrors ConfigStage).
+            var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
+            var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
+            var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
+            var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
+
+            concrete.SaveKeyBindings(_workingBindings);
+            concrete.SaveSystemKeyBindings(_workingSystemBindings);
+
+            try
             {
-                _input.ModularInputManager.ReloadKeyBindings();
-                ApplySystemBindings(_input, _workingSystemBindings);
+                _configManager.SaveConfig(AppPaths.GetConfigFilePath());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DrumConfigStage: save failed: {ex.Message}");
+
+                config.KeyBindings.Clear();
+                foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
+                config.UnboundDrumLanes.Clear();
+                foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
+                config.UnboundDrumButtons.Clear();
+                foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
+                config.SystemKeyBindings.Clear();
+                foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+
+                // Stay on stage: preserve the working copy and surface the error so the user
+                // knows the changes were not persisted and can retry (Back saves again).
+                _saveError = $"Failed to save config: {ex.Message}";
+                return false;
             }
 
+            // Disk write succeeded: apply to live input state, clear any prior error, and exit.
+            _input.ModularInputManager.ReloadKeyBindings();
+            ApplySystemBindings(_input, _workingSystemBindings);
+            _saveError = null;
             ChangeStage(StageType.Config, new InstantTransition());
+            return true;
         }
 
-        /// <summary>Commits the working bindings and exits to ConfigStage. Back = Save: pressing Back commits changes, like other config screens.</summary>
+        /// <summary>Back = Save &amp; exit. Save() transitions only on success; on failure it
+        /// stays on the stage and surfaces an error so the user can retry.</summary>
         private void CommitAndExit()
         {
             Save();

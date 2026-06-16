@@ -209,6 +209,22 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void GetBindingChips_LabelsAreFormattedNotRawIds()
+        {
+            // Chips must show human-readable labels (FormatButtonId), matching the per-zone
+            // labels in DrumKitRenderer — not raw ids like "Key.OemSemicolon".
+            var popup = NewPopup();
+            popup.Open(4); // default lane 4 binding is "Key.S"
+            popup.TryCapture(new ButtonState("Key.Space", true));
+
+            var chips = popup.GetBindingChips(1280, 720);
+            var byId = chips.ToDictionary(c => c.ButtonId, c => c.Label);
+
+            Assert.Equal("S", byId["Key.S"]);
+            Assert.Equal("Space", byId["Key.Space"]);
+        }
+
+        [Fact]
         public void GetBindingChips_RemoveRects_AreNonEmptyAndDoNotOverlap()
         {
             var popup = NewPopup();

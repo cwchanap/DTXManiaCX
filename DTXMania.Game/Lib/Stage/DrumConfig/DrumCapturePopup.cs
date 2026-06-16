@@ -141,12 +141,16 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         /// <summary>One drawn binding chip: the whole chip box and the inner ✕ remove hit-area.</summary>
         public readonly struct DrumBindingChip
         {
+            /// <summary>Raw button id (e.g. "Key.A"), used for removal lookups.</summary>
             public string ButtonId { get; }
+            /// <summary>Human-readable label (via <see cref="KeyBindings.FormatButtonId"/>), drawn on the chip.</summary>
+            public string Label { get; }
             public Rectangle Bounds { get; }
             public Rectangle Remove { get; }
-            public DrumBindingChip(string buttonId, Rectangle bounds, Rectangle remove)
+            public DrumBindingChip(string buttonId, string label, Rectangle bounds, Rectangle remove)
             {
                 ButtonId = buttonId;
+                Label = label;
                 Bounds = bounds;
                 Remove = remove;
             }
@@ -180,7 +184,11 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             var chips = new List<DrumBindingChip>();
             foreach (var id in CurrentBindings)
             {
-                int textWidth = id.Length * ChipCharWidth;
+                // Chip width and drawn text use the formatted label (e.g. "A", "Space", ";",
+                // "MIDI 36") rather than the raw id, so chips match the per-zone labels rendered
+                // by DrumKitRenderer (which uses GetLaneDescription / FormatButtonId).
+                var label = KeyBindings.FormatButtonId(id);
+                int textWidth = label.Length * ChipCharWidth;
                 int chipWidth = ChipPadX + textWidth + ChipTextRemoveGap + RemoveBoxSize + ChipPadX;
                 if (x + chipWidth > maxRight && x > left)
                 {
@@ -192,7 +200,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     bounds.Right - ChipPadX - RemoveBoxSize,
                     y + ((ChipHeight - RemoveBoxSize) / 2),
                     RemoveBoxSize, RemoveBoxSize);
-                chips.Add(new DrumBindingChip(id, bounds, remove));
+                chips.Add(new DrumBindingChip(id, label, bounds, remove));
                 x += chipWidth + ChipGap;
             }
             return chips;
@@ -249,7 +257,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             {
                 foreach (var chip in chips)
                 {
-                    font.DrawString(spriteBatch, chip.ButtonId,
+                    font.DrawString(spriteBatch, chip.Label,
                         new Vector2(chip.Bounds.X + ChipPadX, chip.Bounds.Y + 3), Color.White);
                     font.DrawString(spriteBatch, "x",
                         new Vector2(chip.Remove.X + 3, chip.Remove.Y + 1), Color.White);
