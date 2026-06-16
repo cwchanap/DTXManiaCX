@@ -244,29 +244,6 @@ public class ConfigStageLogicTests
         }
     }
 
-    [Fact]
-    public void DrumPanelSaves_ShouldCaptureWorkingBindingsAndMarkUnsavedChanges()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: true);
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(drumPanel);
-
-            var updatedBindings = new KeyBindings();
-            updatedBindings.ClearAllBindings();
-            updatedBindings.BindButton("Key.Z", 6);
-            ReflectionHelpers.SetPrivateField(drumPanel!, "_workingBindings", updatedBindings);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelSaved", drumPanel!, EventArgs.Empty);
-
-            var workingBindings = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings");
-            Assert.NotNull(workingBindings);
-            Assert.Equal(6, workingBindings!.GetLane("Key.Z"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
 
     [Fact]
     public void InputManagerReportsPressed_ShouldReturnTrueForConfigNavigationCommand()
@@ -567,14 +544,14 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: true);
 
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(drumPanel);
-            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", drumPanel!);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            Assert.NotNull(systemPanel);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState(Keys.Down));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
 
-            Assert.False(drumPanel!.IsActive);
+            Assert.False(systemPanel!.IsActive);
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
             Assert.False(ReflectionHelpers.GetPrivateField<KeyboardState>(stage, "_currentKeyboardState").IsKeyDown(Keys.Enter));
             Assert.False(ReflectionHelpers.GetPrivateField<KeyboardState>(stage, "_previousKeyboardState").IsKeyDown(Keys.Down));
@@ -645,7 +622,6 @@ public class ConfigStageLogicTests
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.NotNull(configItems);
             Assert.Equal(11, configItems!.Count);
-            Assert.NotNull(ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
         }
     }
@@ -1332,8 +1308,8 @@ public class ConfigStageLogicTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            ReflectionHelpers.SetPrivateField(stage, "_activePanel", drumPanel);
+            var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+            ReflectionHelpers.SetPrivateField(stage, "_activePanel", systemPanel);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", null, EventArgs.Empty);
 
@@ -1360,45 +1336,6 @@ public class ConfigStageLogicTests
         }
     }
 
-    [Fact]
-    public void OnPanelClosed_WithDrumPanelSender_ShouldClearActivePanelAndPreserveUnsavedChanges()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: true);
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(drumPanel);
-            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", drumPanel!);
-            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnPanelClosed", drumPanel, EventArgs.Empty);
-
-            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
-
-    [Fact]
-    public void DrumPanelBackCommand_ShouldClosePanelAndClearActivePanel()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: true);
-            var drumPanel = ReflectionHelpers.GetPrivateField<DrumKeyAssignPanel>(stage, "_drumPanel");
-            Assert.NotNull(drumPanel);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 5);
-            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", drumPanel!);
-
-            drumPanel!.Update(0.016, new KeyboardState(Keys.Escape), new KeyboardState());
-
-            Assert.False(drumPanel.IsActive);
-            Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
 
     [Fact]
     public void SystemPanelBackCommand_ShouldClosePanelWithoutMarkingUnsavedChanges()

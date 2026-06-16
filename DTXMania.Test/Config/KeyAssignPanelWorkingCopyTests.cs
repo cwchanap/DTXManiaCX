@@ -1,8 +1,6 @@
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using Microsoft.Xna.Framework.Input;
-using System.Reflection;
-using System.Runtime.Serialization;
 
 namespace DTXMania.Test.Config;
 
@@ -11,7 +9,7 @@ public class KeyAssignPanelWorkingCopyTests
 {
     [Trait("Category", "Unit")]
     [Fact]
-    public void KeyAssignPanels_Save_ShouldLeaveLiveStateUntouchedUntilStageApplies()
+    public void SystemPanel_Save_ShouldLeaveLiveStateUntouched()
     {
         using var inputManager = new InputManager();
         var systemPanel = new SystemKeyAssignPanel(inputManager);
@@ -29,70 +27,6 @@ public class KeyAssignPanelWorkingCopyTests
 
         var liveSnapshot = inputManager.GetKeyMappingSnapshot();
         Assert.Equal(InputCommandType.Back, liveSnapshot[Keys.Escape]);
-
-        var liveBindings = new KeyBindings();
-        var drumPanel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        drumPanel.Activate();
-        PressKey(drumPanel, Keys.Delete);
-        for (int i = 0; i < 10; i++)
-        {
-            PressKey(drumPanel, Keys.Down);
-        }
-
-        PressKey(drumPanel, Keys.Enter);
-
-        Assert.Equal(0, liveBindings.GetLane("Key.A"));
-    }
-
-    // ─── DrumKeyAssignPanel event sequencing ─────────────────────────────────
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_CommitAndClose_ShouldRaiseSavedThenClosed()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel.Activate();
-
-        bool savedFired = false;
-        bool closedFired = false;
-        bool savedBeforeClosed = false;
-
-        panel.Saved += (_, _) => savedFired = true;
-        panel.Closed += (_, _) => { closedFired = true; savedBeforeClosed = savedFired; };
-
-        // Navigate to FooterSave (index 10 = LaneCount)
-        for (int i = 0; i < 10; i++)
-            PressKey(panel, Keys.Down);
-        PressKey(panel, Keys.Enter);
-
-        Assert.True(savedFired, "Saved event should fire on commit");
-        Assert.True(closedFired, "Closed event should fire on commit");
-        Assert.True(savedBeforeClosed, "Saved must fire before Closed");
-        Assert.False(panel.IsActive);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_CancelAndClose_ShouldRaiseOnlyClosedNotSaved()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel.Activate();
-
-        bool savedFired = false;
-        bool closedFired = false;
-
-        panel.Saved += (_, _) => savedFired = true;
-        panel.Closed += (_, _) => closedFired = true;
-
-        PressKey(panel, Keys.Escape);
-
-        Assert.False(savedFired, "Saved must NOT fire on cancel");
-        Assert.True(closedFired, "Closed must fire on cancel");
-        Assert.False(panel.IsActive);
     }
 
     // ─── SystemKeyAssignPanel event sequencing ────────────────────────────────
@@ -141,134 +75,6 @@ public class KeyAssignPanelWorkingCopyTests
         PressKey(panel, Keys.Escape);
 
         Assert.False(savedFired);
-        Assert.True(closedFired);
-        Assert.False(panel.IsActive);
-    }
-
-    // ─── DrumKeyAssignPanel AwaitingKey capture ───────────────────────────────
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_AwaitingKey_ShouldBindPressedKeyToSelectedLane()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel.Activate();
-
-        // Lane 0 selected by default; Enter to enter AwaitingKey
-        PressKey(panel, Keys.Enter);
-
-        // Press H — first frame counts as just-pressed (previous is empty)
-        panel.Update(0.0, new KeyboardState(Keys.H), new KeyboardState());
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.H)));
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_AwaitingKey_EscapeShouldCancelCapture()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel.Activate();
-
-        PressKey(panel, Keys.Enter);   // Enter AwaitingKey
-        PressKey(panel, Keys.Escape);  // Cancel — should return to Browsing
-
-        Assert.True(panel.IsActive, "Panel should remain active after Escape cancels capture");
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        var buttonId = KeyBindings.CreateKeyButtonId(Keys.Escape);
-        Assert.False(snapshot.ButtonToLane.ContainsKey(buttonId),
-            "Escape must not be bound to any lane when it cancels capture");
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_AwaitingKey_RemappedBackShouldAllowEscapeAssignment()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel._navigationMappingProvider = CreateNavigationMapping;
-        panel.Activate();
-
-        PressKey(panel, Keys.F);
-        PressKey(panel, Keys.Escape);
-
-        Assert.True(panel.IsActive, "Panel should remain active after Escape binds when Back is remapped");
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.Escape)));
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_Clear_ShouldPreserveNonKeyboardBindingsOnSelectedLane()
-    {
-        var liveBindings = new KeyBindings();
-        liveBindings.BindButton("MIDI.36", 0);
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        panel.Activate();
-        PressKey(panel, Keys.Delete);
-
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.Equal(-1, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.A)));
-        Assert.Equal(0, snapshot.GetLane("MIDI.36"));
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_RemappedNavigation_ShouldSaveAndClearLane()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel._navigationMappingProvider = CreateNavigationMapping;
-
-        bool savedFired = false;
-        panel.Saved += (_, _) => savedFired = true;
-
-        panel.Activate();
-
-        PressKey(panel, Keys.A);
-
-        var clearedSnapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.Equal(-1, clearedSnapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.A)));
-
-        for (int i = 0; i < 10; i++)
-            PressKey(panel, Keys.S);
-
-        PressKey(panel, Keys.F);
-
-        Assert.True(savedFired);
-        Assert.False(panel.IsActive);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_RemappedBack_ShouldCancelPanelAndCapture()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel._navigationMappingProvider = CreateNavigationMapping;
-
-        bool closedFired = false;
-        panel.Closed += (_, _) => closedFired = true;
-
-        panel.Activate();
-        PressKey(panel, Keys.F);
-        PressKey(panel, Keys.Q);
-
-        Assert.True(panel.IsActive);
-
-        PressKey(panel, Keys.Q);
-
         Assert.True(closedFired);
         Assert.False(panel.IsActive);
     }
@@ -384,94 +190,6 @@ public class KeyAssignPanelWorkingCopyTests
         var after = panel.GetWorkingMappingSnapshot();
         Assert.False(after.ContainsKey(expectedKey),
             $"{command} is non-required and should be clearable via Delete");
-    }
-
-    /// <summary>
-    /// Shared setup helper for the four EvictSystemBinding tests:
-    /// creates a DrumKeyAssignPanel with PageUp mapped to IncreaseScrollSpeed,
-    /// wires up the eviction callback, activates the panel, and assigns PageUp to lane 0.
-    /// </summary>
-    private static (DrumKeyAssignPanel panel, List<Keys> evictedKeys) SetupDrumPanelWithPageUpAssigned()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-
-        var systemMap = new System.Collections.Generic.Dictionary<Keys, InputCommandType>
-        {
-            [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
-        };
-        panel._liveSystemMappingProvider = () => systemMap;
-
-        var evictedKeys = new System.Collections.Generic.List<Keys>();
-        panel.EvictSystemBinding = key => evictedKeys.Add(key);
-
-        panel.Activate();
-
-        // Enter key capture for lane 0 and assign PageUp
-        PressKey(panel, Keys.Enter);
-        panel.Update(0.0, new KeyboardState(Keys.PageUp), new KeyboardState());
-
-        return (panel, evictedKeys);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_EvictSystemBinding_ShouldBeDeferredUntilSave()
-    {
-        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
-
-        // Eviction should NOT have happened yet (deferred)
-        Assert.Empty(evictedKeys);
-
-        // Drum binding should be recorded in working copy
-        var snapshot = panel.GetWorkingBindingsSnapshot();
-        Assert.Equal(0, snapshot.GetLane(KeyBindings.CreateKeyButtonId(Keys.PageUp)));
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_EvictSystemBinding_ShouldApplyOnSave()
-    {
-        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
-
-        // Navigate to SAVE and commit
-        for (int i = 0; i < 10; i++)
-            PressKey(panel, Keys.Down);
-        PressKey(panel, Keys.Enter);
-
-        // Now eviction should have been applied
-        Assert.Single(evictedKeys);
-        Assert.Equal(Keys.PageUp, evictedKeys[0]);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_EvictSystemBinding_ShouldNotApplyOnCancel()
-    {
-        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
-
-        // Cancel the panel
-        PressKey(panel, Keys.Escape);
-
-        // Eviction should NOT have been applied
-        Assert.Empty(evictedKeys);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_EvictSystemBinding_ShouldNotEvictClearedLane()
-    {
-        var (panel, evictedKeys) = SetupDrumPanelWithPageUpAssigned();
-
-        // Clear lane 0
-        PressKey(panel, Keys.Delete);
-
-        // Save — eviction should NOT apply because PageUp is no longer bound to any lane
-        for (int i = 0; i < 10; i++)
-            PressKey(panel, Keys.Down);
-        PressKey(panel, Keys.Enter);
-
-        Assert.Empty(evictedKeys);
     }
 
     [Trait("Category", "Unit")]
@@ -609,37 +327,6 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void DrumPanel_CommandProvider_ShouldNavigateAndSaveWithoutKeyboardState()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-
-        InputCommandType? pressedCommand = null;
-        panel._commandPressedProvider = command => pressedCommand == command;
-
-        bool savedFired = false;
-        panel.Saved += (_, _) => savedFired = true;
-
-        panel.Activate();
-
-        for (int i = 0; i < 10; i++)
-        {
-            pressedCommand = InputCommandType.MoveDown;
-            panel.Update(0.0, new KeyboardState(), new KeyboardState());
-            pressedCommand = null;
-        }
-
-        pressedCommand = InputCommandType.Activate;
-        panel.Update(0.0, new KeyboardState(), new KeyboardState());
-        pressedCommand = null;
-
-        Assert.True(savedFired);
-        Assert.False(panel.IsActive);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
     public void SystemPanel_CommandProvider_ShouldNavigateAndSaveWithoutKeyboardState()
     {
         using var inputManager = new InputManager();
@@ -669,41 +356,6 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_RemappedBack_ShouldExposeFooterAndInstructionLabelsFromNavigationMapping()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel._navigationMappingProvider = CreateNavigationMapping;
-
-        panel.Activate();
-
-        Assert.Equal("CANCEL (Q)", panel.GetFooterCancelLabel());
-        Assert.Equal("W/S: Navigate | F: Assign | DELETE: Clear lane | Q: Cancel", panel.GetInstructionText());
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void DrumPanel_WithoutBackBinding_ShouldExposeGenericCancelLabels()
-    {
-        var liveBindings = new KeyBindings();
-        var panel = new DrumKeyAssignPanel(CreateUnusedModularInputManager(liveBindings));
-        panel._liveSystemMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>();
-        panel._navigationMappingProvider = () => new System.Collections.Generic.Dictionary<Keys, InputCommandType>
-        {
-            [Keys.W] = InputCommandType.MoveUp,
-            [Keys.S] = InputCommandType.MoveDown,
-            [Keys.F] = InputCommandType.Activate,
-        };
-
-        panel.Activate();
-
-        Assert.Equal("CANCEL", panel.GetFooterCancelLabel());
-        Assert.Equal("W/S: Navigate | F: Assign | DELETE: Clear lane | BACK: Cancel", panel.GetInstructionText());
-    }
-
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static void PressKey(IKeyAssignPanel panel, Keys key)
@@ -722,28 +374,5 @@ public class KeyAssignPanelWorkingCopyTests
             [Keys.F] = InputCommandType.Activate,
             [Keys.Q] = InputCommandType.Back,
         };
-    }
-
-    // Creates a ModularInputManager with a pre-set _keyBindings field, bypassing the constructor so
-    // that no real input sources or threads are initialised during tests (test-isolation requirement).
-    // FormatterServices.GetUninitializedObject (SYSLIB0050) is used intentionally here; the suppression
-    // is test-only code and must never appear in production paths.  If SYSLIB0050 is eventually removed,
-    // replace this with a test-only factory constructor or a protected virtual hook on ModularInputManager
-    // that allows _keyBindings to be injected without the full initialisation sequence.
-    private static ModularInputManager CreateUnusedModularInputManager(KeyBindings liveBindings)
-    {
-#pragma warning disable SYSLIB0050
-        var manager = (ModularInputManager)FormatterServices.GetUninitializedObject(typeof(ModularInputManager));
-#pragma warning restore SYSLIB0050
-        var keyBindingsField = typeof(ModularInputManager)
-            .GetField("_keyBindings", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        if (keyBindingsField == null)
-        {
-            throw new InvalidOperationException("Failed to locate ModularInputManager._keyBindings for test setup.");
-        }
-
-        keyBindingsField.SetValue(manager, liveBindings);
-        return manager;
     }
 }
