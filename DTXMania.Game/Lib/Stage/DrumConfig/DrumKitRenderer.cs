@@ -9,16 +9,16 @@ using DTXMania.Game.Lib.Resources;
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
     /// <summary>
-    /// Draws the drum-kit pieces and their selection/focus/hover highlights. Each piece is black
-    /// line-art (loaded from the skin, one image per <see cref="DrumZoneShape"/>) with a transparent
-    /// interior; the renderer fills a light "head" behind it so the black detail reads on the dark
-    /// stage, and lights that head yellow when the piece is highlighted. Coordinates are scaled from
-    /// <see cref="DrumKitLayout"/> design space to the viewport. If the skin lacks the art, each
-    /// piece falls back to a plain filled disc in the same body colour.
+    /// Draws the drum-kit pieces and their selection/focus/hover highlights. Each piece is a
+    /// photorealistic 3D render (loaded from the skin, one image per <see cref="DrumZoneShape"/>)
+    /// on a transparent background. A highlighted piece gets a yellow glow behind it. Pieces are
+    /// fit, without distortion, into a square box centered on each zone (sized to the zone), with
+    /// coordinates scaled from <see cref="DrumKitLayout"/> design space to the viewport. If the skin
+    /// lacks the art, each piece falls back to a plain filled disc.
     /// </summary>
     public sealed class DrumKitRenderer : IDisposable
     {
-        // Near-white head so the black line-art is visible on the black stage.
+        // Fallback-disc colour when the 3D art is missing.
         private static readonly Color BodyColor = new(232, 235, 240);
         // Yellow selection accent, matching the focus ring used elsewhere on the stage.
         private static readonly Color HighlightColor = new(255, 216, 77);
@@ -54,7 +54,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             }
         }
 
-        /// <summary>Body colour drawn behind a piece: yellow when highlighted, else the near-white head.</summary>
+        /// <summary>Fallback-disc colour: yellow when highlighted, else the neutral body colour.</summary>
         private static Color BodyColorFor(bool highlighted) => highlighted ? HighlightColor : BodyColor;
 
         private ITexture? ShapeTexture(DrumZoneShape shape) => shape switch
@@ -75,32 +75,37 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
             foreach (var zone in DrumKitLayout.Zones)
             {
-                var dest = new Rectangle(
-                    (int)((zone.CenterX - zone.RadiusX) * sx),
-                    (int)((zone.CenterY - zone.RadiusY) * sy),
-                    (int)(zone.RadiusX * 2 * sx),
-                    (int)(zone.RadiusY * 2 * sy));
+                // Square draw box centered on the zone (sized to its larger radius) so the 3D
+                // pieces sit at a sensible size and aspect regardless of the zone's hit-ellipse.
+                float half = Math.Max(zone.RadiusX, zone.RadiusY);
+                var box = new Rectangle(
+                    (int)((zone.CenterX - half) * sx),
+                    (int)((zone.CenterY - half) * sy),
+                    (int)(half * 2 * sx),
+                    (int)(half * 2 * sy));
 
                 bool highlight = zone.Lane == selectedLane || zone.Lane == focusedLane || zone.Lane == hoveredLane;
-                var bodyColor = BodyColorFor(highlight);
 
                 var tex = ShapeTexture(zone.Shape);
                 if (tex?.Texture != null)
                 {
-                    // Pedals are tall art in wide/short zones, so fit them without distortion;
-                    // the rounder pieces fill the zone (a stretched cymbal reads as perspective).
-                    var imgRect = zone.Shape == DrumZoneShape.Pedal
-                        ? FitCentered(dest, tex.Width, tex.Height)
-                        : dest;
+                    // Fit the piece into the box without distortion.
+                    var imgRect = FitCentered(box, tex.Width, tex.Height);
 
-                    // Light/yellow head behind the transparent interior, then the black detail.
-                    spriteBatch.Draw(_circle, imgRect, bodyColor);
+                    if (highlight)
+                    {
+                        // Soft yellow glow behind the selected/focused/hovered piece.
+                        var glow = imgRect;
+                        glow.Inflate((int)(imgRect.Width * 0.16f), (int)(imgRect.Height * 0.16f));
+                        spriteBatch.Draw(_circle, glow, HighlightColor * 0.6f);
+                    }
+
                     tex.Draw(spriteBatch, imgRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 }
                 else
                 {
                     // Skin lacks the art: plain disc in the body colour.
-                    spriteBatch.Draw(_circle, dest, bodyColor);
+                    spriteBatch.Draw(_circle, box, BodyColorFor(highlight));
                 }
             }
         }
