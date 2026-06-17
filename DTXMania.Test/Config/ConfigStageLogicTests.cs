@@ -712,7 +712,7 @@ public class ConfigStageLogicTests
 
             var drawCall = Assert.Single(stage.RectangleDrawCalls);
             Assert.Equal(new Rectangle(100, 50, "CONFIGURATION".Length * 12, 20), drawCall.Rectangle);
-            Assert.Equal(Color.White, drawCall.Color);
+            Assert.Equal(new Color(26, 30, 46), drawCall.Color);
         }
     }
 

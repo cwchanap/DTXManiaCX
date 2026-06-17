@@ -32,6 +32,10 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager = null!;
         private DrumKitRenderer? _renderer;
         private DrumCapturePopup? _popup;
+        private ITexture? _background;
+
+        // Dark UI text, for legibility on the bright background image.
+        private static readonly Color DarkText = new(26, 30, 46);
 
         private int _focusIndex;
         private int _hoveredLane = -1;
@@ -61,6 +65,10 @@ namespace DTXMania.Game.Lib.Stage
             _resourceManager = _game.ResourceManager;
             _font = _resourceManager.LoadFont("NotoSerifJP", 14);
             _renderer = new DrumKitRenderer(graphicsDevice, _resourceManager);
+
+            // Reuse the startup stage's bright artwork as this stage's background.
+            try { _background = _resourceManager.LoadTexture(TexturePath.StartupBackground); }
+            catch { _background = null; }
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
@@ -231,9 +239,20 @@ namespace DTXMania.Game.Lib.Stage
             var vp = _game.GraphicsDevice.Viewport;
             _spriteBatch.Begin();
 
+            // Background: the bright startup artwork, calmed by a translucent light scrim so the
+            // dark UI text and the kit read clearly against it.
+            if (_background?.Texture != null && _whitePixel != null)
+            {
+                var full = new Rectangle(0, 0, vp.Width, vp.Height);
+                _spriteBatch.Draw(_background.Texture, full, Color.White);
+                // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
+                // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
+                _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
+            }
+
             if (_font != null)
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
-                    new Vector2(20, 16), Color.White);
+                    new Vector2(20, 16), DarkText);
 
             // Reset focus is not a lane, so pass -1 to avoid highlighting a zone in that case.
             int focusedLaneForRender = DrumKitLayout.IsResetAction(_focusIndex) ? -1 : _focusIndex;
@@ -358,6 +377,8 @@ namespace DTXMania.Game.Lib.Stage
             _renderer?.Dispose();
             _renderer = null;
             _popup = null;
+            _background?.RemoveReference();
+            _background = null;
             _font?.RemoveReference();
             _font = null;
             _spriteBatch?.Dispose();
@@ -374,6 +395,8 @@ namespace DTXMania.Game.Lib.Stage
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
                 _font?.RemoveReference();
+                _background?.RemoveReference();
+                _background = null;
                 _renderer = null;
                 _whitePixel = null!;
                 _spriteBatch = null!;
