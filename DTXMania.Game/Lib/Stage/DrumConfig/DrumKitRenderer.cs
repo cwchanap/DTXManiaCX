@@ -9,26 +9,61 @@ using DTXMania.Game.Lib.Resources;
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
     /// <summary>
-    /// Draws the drum-kit zones (ellipses), their current binding text, and selection/focus/hover
-    /// highlights. Coordinates are scaled from DrumKitLayout design space to the viewport.
+    /// Draws the drum-kit pieces and their selection/focus/hover highlights. Each piece is black
+    /// line-art (loaded from the skin, one image per <see cref="DrumZoneShape"/>) with a transparent
+    /// interior; the renderer fills a light "head" behind it so the black detail reads on the dark
+    /// stage, and lights that head yellow when the piece is highlighted. Coordinates are scaled from
+    /// <see cref="DrumKitLayout"/> design space to the viewport. If the skin lacks the art, each
+    /// piece falls back to a plain filled disc in the same body colour.
     /// </summary>
     public sealed class DrumKitRenderer : IDisposable
     {
+        // Near-white head so the black line-art is visible on the black stage.
+        private static readonly Color BodyColor = new(232, 235, 240);
+        // Yellow selection accent, matching the focus ring used elsewhere on the stage.
+        private static readonly Color HighlightColor = new(255, 216, 77);
+
         private readonly Texture2D _circle;
+        private readonly ITexture? _cymbal;
+        private readonly ITexture? _drum;
+        private readonly ITexture? _kick;
+        private readonly ITexture? _pedal;
         private bool _disposed;
 
-        public DrumKitRenderer(GraphicsDevice graphicsDevice)
+        public DrumKitRenderer(GraphicsDevice graphicsDevice, IResourceManager? resourceManager = null)
         {
             _circle = CreateCircleTexture(graphicsDevice, 128);
+            _cymbal = TryLoad(resourceManager, TexturePath.DrumPadCymbal);
+            _drum = TryLoad(resourceManager, TexturePath.DrumPadDrum);
+            _kick = TryLoad(resourceManager, TexturePath.DrumPadKick);
+            _pedal = TryLoad(resourceManager, TexturePath.DrumPadPedal);
         }
 
-        private static Color ZoneColor(DrumZoneShape shape) => shape switch
+        private static ITexture? TryLoad(IResourceManager? resourceManager, string path)
         {
-            DrumZoneShape.Cymbal => new Color(214, 177, 60),
-            DrumZoneShape.Drum => new Color(60, 110, 170),
-            DrumZoneShape.Kick => new Color(40, 44, 56),
-            DrumZoneShape.Pedal => new Color(74, 79, 90),
-            _ => Color.Gray
+            if (resourceManager == null)
+                return null;
+            try
+            {
+                return resourceManager.LoadTexture(path);
+            }
+            catch
+            {
+                // Missing/invalid art is non-fatal: the zone falls back to a plain disc.
+                return null;
+            }
+        }
+
+        /// <summary>Body colour drawn behind a piece: yellow when highlighted, else the near-white head.</summary>
+        private static Color BodyColorFor(bool highlighted) => highlighted ? HighlightColor : BodyColor;
+
+        private ITexture? ShapeTexture(DrumZoneShape shape) => shape switch
+        {
+            DrumZoneShape.Cymbal => _cymbal,
+            DrumZoneShape.Drum => _drum,
+            DrumZoneShape.Kick => _kick,
+            DrumZoneShape.Pedal => _pedal,
+            _ => null
         };
 
         public void Draw(SpriteBatch spriteBatch, IFont? font, Texture2D whitePixel,
@@ -47,24 +82,38 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     (int)(zone.RadiusY * 2 * sy));
 
                 bool highlight = zone.Lane == selectedLane || zone.Lane == focusedLane || zone.Lane == hoveredLane;
-                if (highlight)
+                var bodyColor = BodyColorFor(highlight);
+
+                var tex = ShapeTexture(zone.Shape);
+                if (tex?.Texture != null)
                 {
-                    var ring = dest;
-                    ring.Inflate(5, 5);
-                    spriteBatch.Draw(_circle, ring, new Color(255, 216, 77));
+                    // Pedals are tall art in wide/short zones, so fit them without distortion;
+                    // the rounder pieces fill the zone (a stretched cymbal reads as perspective).
+                    var imgRect = zone.Shape == DrumZoneShape.Pedal
+                        ? FitCentered(dest, tex.Width, tex.Height)
+                        : dest;
+
+                    // Light/yellow head behind the transparent interior, then the black detail.
+                    spriteBatch.Draw(_circle, imgRect, bodyColor);
+                    tex.Draw(spriteBatch, imgRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 }
-
-                spriteBatch.Draw(_circle, dest, ZoneColor(zone.Shape));
-
-                if (font != null)
+                else
                 {
-                    var labelPos = new Vector2(dest.Center.X - 28, dest.Center.Y - 8);
-                    font.DrawString(spriteBatch, KeyBindings.GetLaneName(zone.Lane), labelPos, Color.White);
-                    var chipPos = new Vector2(dest.Center.X - 28, dest.Bottom + 2);
-                    font.DrawString(spriteBatch, bindings.GetLaneDescription(zone.Lane), chipPos,
-                        new Color(200, 220, 235));
+                    // Skin lacks the art: plain disc in the body colour.
+                    spriteBatch.Draw(_circle, dest, bodyColor);
                 }
             }
+        }
+
+        /// <summary>Largest rectangle of the source's aspect ratio that fits inside <paramref name="bounds"/>, centered.</summary>
+        private static Rectangle FitCentered(Rectangle bounds, int srcWidth, int srcHeight)
+        {
+            if (srcWidth <= 0 || srcHeight <= 0)
+                return bounds;
+            float scale = Math.Min(bounds.Width / (float)srcWidth, bounds.Height / (float)srcHeight);
+            int w = Math.Max(1, (int)(srcWidth * scale));
+            int h = Math.Max(1, (int)(srcHeight * scale));
+            return new Rectangle(bounds.Center.X - (w / 2), bounds.Center.Y - (h / 2), w, h);
         }
 
         private static Texture2D CreateCircleTexture(GraphicsDevice device, int size)
@@ -91,6 +140,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             if (_disposed)
                 return;
             _circle.Dispose();
+            _cymbal?.RemoveReference();
+            _drum?.RemoveReference();
+            _kick?.RemoveReference();
+            _pedal?.RemoveReference();
             _disposed = true;
         }
     }

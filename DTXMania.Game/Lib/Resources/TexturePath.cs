@@ -50,6 +50,16 @@ namespace DTXMania.Game.Lib.Resources
         public const string ResultBackgroundRankE = "Graphics/8_background rankE.png";
 
         /// <summary>
+        /// Drum-mapping (DrumConfig) stage piece art: black line-art on a transparent
+        /// background, one per <c>DrumZoneShape</c>. The renderer draws a light body behind
+        /// the transparent interior so the black detail reads on the dark stage.
+        /// </summary>
+        public const string DrumPadCymbal = "Graphics/drumkit_cymbal.png";
+        public const string DrumPadDrum = "Graphics/drumkit_drum.png";
+        public const string DrumPadKick = "Graphics/drumkit_kick.png";
+        public const string DrumPadPedal = "Graphics/drumkit_pedal.png";
+
+        /// <summary>
         /// Result stage rank badge textures.
         /// </summary>
         public const string ResultRankSS = "Graphics/8_rankSS.png";

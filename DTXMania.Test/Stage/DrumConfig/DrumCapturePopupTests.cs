@@ -281,6 +281,41 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void GetBindingChips_AreLargeBoxes()
+        {
+            // Bindings render as large boxes (not thin inline pills), so the corner ✕ reads naturally.
+            var popup = NewPopup();
+            popup.Open(4); // default "Key.S"
+
+            var chip = popup.GetBindingChips(1280, 720).Single();
+
+            Assert.True(chip.Bounds.Height >= 40, "Chips should be large boxes");
+            Assert.True(chip.Bounds.Width >= 60, "Chips should be wide enough to read");
+        }
+
+        [Fact]
+        public void GetBindingChips_RemoveBox_SitsInTopRightCorner()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Q", true));
+
+            foreach (var c in popup.GetBindingChips(1280, 720))
+            {
+                // Hugs the top edge (top quarter of the chip) ...
+                Assert.True(c.Remove.Top - c.Bounds.Top <= c.Bounds.Height / 4,
+                    "Remove box should hug the chip's top edge");
+                // ... and the right edge ...
+                Assert.True(c.Bounds.Right - c.Remove.Right <= 8,
+                    "Remove box should hug the chip's right edge");
+                // ... and is a small corner box, not a full-height strip.
+                Assert.True(c.Remove.Height < c.Bounds.Height,
+                    "Remove box should be smaller than the chip");
+                Assert.True(c.Bounds.Contains(c.Remove));
+            }
+        }
+
+        [Fact]
         public void GetPanelRect_ReturnsCenteredRectangle()
         {
             var popup = NewPopup();
