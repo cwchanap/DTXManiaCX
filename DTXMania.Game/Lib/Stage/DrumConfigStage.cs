@@ -34,6 +34,7 @@ namespace DTXMania.Game.Lib.Stage
         private DrumCapturePopup? _popup;
         private ITexture? _background;
         private ITexture? _skeleton;
+        private ITexture? _bassDrum;   // decorative only; the bass pedal (lane 6) is the click target
 
         // Dark UI text, for legibility on the bright background image.
         private static readonly Color DarkText = new(26, 30, 46);
@@ -74,6 +75,10 @@ namespace DTXMania.Game.Lib.Stage
             // Bare drum-kit hardware drawn behind the pieces so the stage reads as a whole kit.
             try { _skeleton = _resourceManager.LoadTexture(TexturePath.DrumKitSkeleton); }
             catch { _skeleton = null; }
+
+            // Decorative bass drum (the clickable target for lane 6 is the bass pedal in front of it).
+            try { _bassDrum = _resourceManager.LoadTexture(TexturePath.DrumPadKick); }
+            catch { _bassDrum = null; }
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
@@ -259,6 +264,15 @@ namespace DTXMania.Game.Lib.Stage
             if (_skeleton?.Texture != null)
                 _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vp.Width, vp.Height), Color.White * 0.9f);
 
+            // Decorative bass drum at the kit's center, behind the (clickable) bass pedals.
+            if (_bassDrum?.Texture != null)
+            {
+                float dsx = vp.Width / 1280f, dsy = vp.Height / 720f;
+                int bw = (int)(240 * dsx), bh = (int)(220 * dsy);
+                _spriteBatch.Draw(_bassDrum.Texture,
+                    new Rectangle((int)(640 * dsx) - (bw / 2), (int)(486 * dsy) - (bh / 2), bw, bh), Color.White);
+            }
+
             if (_font != null)
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), DarkText);
@@ -390,6 +404,8 @@ namespace DTXMania.Game.Lib.Stage
             _background = null;
             _skeleton?.RemoveReference();
             _skeleton = null;
+            _bassDrum?.RemoveReference();
+            _bassDrum = null;
             _font?.RemoveReference();
             _font = null;
             _spriteBatch?.Dispose();
@@ -410,6 +426,8 @@ namespace DTXMania.Game.Lib.Stage
                 _background = null;
                 _skeleton?.RemoveReference();
                 _skeleton = null;
+                _bassDrum?.RemoveReference();
+                _bassDrum = null;
                 _renderer = null;
                 _whitePixel = null!;
                 _spriteBatch = null!;
