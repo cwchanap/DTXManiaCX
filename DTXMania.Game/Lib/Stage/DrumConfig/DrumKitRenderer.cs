@@ -103,7 +103,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                         spriteBatch.Draw(_circle, glow, HighlightColor * 0.6f);
                     }
 
-                    tex.Draw(spriteBatch, imgRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    var effects = zone.FlipHorizontal ? SpriteEffects.FlipHorizontally : SpriteEffects.None;
+                    tex.Draw(spriteBatch, imgRect, null, Color.White, 0f, Vector2.Zero, effects, 0f);
                 }
                 else
                 {
