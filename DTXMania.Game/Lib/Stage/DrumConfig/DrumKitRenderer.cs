@@ -28,6 +28,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly ITexture? _drum;
         private readonly ITexture? _kick;
         private readonly ITexture? _pedal;
+        private readonly ITexture? _hihat;
         private bool _disposed;
 
         public DrumKitRenderer(GraphicsDevice graphicsDevice, IResourceManager? resourceManager = null)
@@ -37,6 +38,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _drum = TryLoad(resourceManager, TexturePath.DrumPadDrum);
             _kick = TryLoad(resourceManager, TexturePath.DrumPadKick);
             _pedal = TryLoad(resourceManager, TexturePath.DrumPadPedal);
+            _hihat = TryLoad(resourceManager, TexturePath.DrumPadHiHat);
         }
 
         private static ITexture? TryLoad(IResourceManager? resourceManager, string path)
@@ -63,6 +65,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             DrumZoneShape.Drum => _drum,
             DrumZoneShape.Kick => _kick,
             DrumZoneShape.Pedal => _pedal,
+            DrumZoneShape.HiHatPedal => _hihat,
             _ => null
         };
 
@@ -149,6 +152,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _drum?.RemoveReference();
             _kick?.RemoveReference();
             _pedal?.RemoveReference();
+            _hihat?.RemoveReference();
             _disposed = true;
         }
     }
