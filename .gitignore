@@ -2,13 +2,21 @@ obj
 bin
 
 Config.ini
-System
+
+# Skin assets: track the committed art under System/Graphics, ignore the rest of System/.
+System/*
+!System/Graphics/
+# ...but never the non-asset junk that collects inside it.
+System/Graphics/desktop.ini
+System/Graphics/debug.log
+System/Graphics/*.log
 
 Font/
 /DTXManiaNX
 /DTXFiles
 .mgstats
 *.db
+.DS_Store
 
 TestResults*/
 CoverageReport*/
