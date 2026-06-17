@@ -55,6 +55,10 @@ namespace DTXMania.Game.Lib.Stage
         private IFont _font;
         private IFont _boldFont;
         private IResourceManager _resourceManager;
+        private ITexture? _backgroundTexture;
+
+        // Dark UI text, for legibility on the bright background image.
+        private static readonly Color DarkText = new(26, 30, 46);
 
         // NX score import status
         private volatile string _importStatus = "";
@@ -152,6 +156,8 @@ namespace DTXMania.Game.Lib.Stage
             _font = null;
             _boldFont?.RemoveReference();
             _boldFont = null;
+            _backgroundTexture?.RemoveReference();
+            _backgroundTexture = null;
 
             _previousKeyboardState = default;
             _currentKeyboardState = default;
@@ -175,11 +181,13 @@ namespace DTXMania.Game.Lib.Stage
                 // Release font references if still held (e.g. stage disposed without deactivation)
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
+                _backgroundTexture?.RemoveReference();
 
                 _whitePixel = null;
                 _spriteBatch = null;
                 _font = null;
                 _boldFont = null;
+                _backgroundTexture = null;
                 _resourceManager = null; // Do NOT dispose — shared game-wide instance
             }
 
@@ -217,6 +225,17 @@ namespace DTXMania.Game.Lib.Stage
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
                 throw;
+            }
+
+            // Background: the bright startup artwork (best-effort; DrawBackground falls back to a
+            // dark fill if it is unavailable).
+            try
+            {
+                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.StartupBackground);
+            }
+            catch
+            {
+                _backgroundTexture = null;
             }
         }
 
@@ -692,9 +711,21 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawBackground()
         {
             var viewport = GetViewport();
-            DrawFilledRectangle(
-                new Rectangle(0, 0, viewport.Width, viewport.Height),
-                new Color(16, 16, 32));
+            var full = new Rectangle(0, 0, viewport.Width, viewport.Height);
+
+            // Bright startup artwork, calmed by a translucent light scrim so the dark text reads;
+            // a dark fill covers the case where the texture could not be loaded.
+            if (_backgroundTexture?.Texture != null)
+            {
+                _spriteBatch.Draw(_backgroundTexture.Texture, full, Color.White);
+                // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
+                // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
+                _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
+            }
+            else
+            {
+                DrawFilledRectangle(full, new Color(16, 16, 32));
+            }
         }
 
         private void DrawTitle()
@@ -708,12 +739,12 @@ namespace DTXMania.Game.Lib.Stage
                 // Center the title
                 var textSize = _font.MeasureString(titleText);
                 x = (1280 - (int)textSize.X) / 2; // Assume 1280 width for centering
-                _font.DrawString(_spriteBatch, titleText, new Vector2(x, y), Color.White);
+                _font.DrawString(_spriteBatch, titleText, new Vector2(x, y), DarkText);
             }
             else
             {
                 // Fallback to rectangle
-                DrawTextRect(x, y, titleText.Length * 12, 20, Color.White);
+                DrawTextRect(x, y, titleText.Length * 12, 20, DarkText);
             }
         }
 
@@ -737,14 +768,14 @@ namespace DTXMania.Game.Lib.Stage
                 // Draw text
                 if (_font != null)
                 {
-                    var textColor = isSelected ? Color.Yellow : Color.White;
+                    var textColor = isSelected ? Color.Yellow : DarkText;
                     var font = isSelected ? _boldFont : _font;
                     font.DrawString(_spriteBatch, displayText, new Vector2(x, y + 10), textColor);
                 }
                 else
                 {
                     // Fallback to rectangle
-                    var color = isSelected ? Color.Yellow : Color.White;
+                    var color = isSelected ? Color.Yellow : DarkText;
                     DrawTextRect(x, y + 10, displayText.Length * 8, 16, color);
                 }
 
@@ -766,13 +797,13 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_font != null)
             {
-                var textColor = backSelected ? Color.Yellow : Color.White;
+                var textColor = backSelected ? Color.Yellow : DarkText;
                 var font = backSelected ? _boldFont : _font;
                 font.DrawString(_spriteBatch, "BACK", new Vector2(x, y + 5), textColor);
             }
             else
             {
-                var color = backSelected ? Color.Yellow : Color.Gray;
+                var color = backSelected ? Color.Yellow : DarkText;
                 DrawTextRect(x, y + 5, 32, 16, color);
             }
 
@@ -786,7 +817,7 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_font != null)
             {
-                var textColor = saveSelected ? Color.Yellow : Color.White;
+                var textColor = saveSelected ? Color.Yellow : DarkText;
                 var font = saveSelected ? _boldFont : _font;
                 font.DrawString(_spriteBatch, "SAVE & EXIT", new Vector2(x, y + 5), textColor);
             }
@@ -804,7 +835,7 @@ namespace DTXMania.Game.Lib.Stage
 
             int x = MenuX;
             int y = MenuY + (_configItems.Count * MenuItemHeight) + 60;
-            _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), Color.Cyan);
+            _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), new Color(18, 64, 132));
         }
 
         private void DrawInstructions()
@@ -815,12 +846,12 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_font != null)
             {
-                _font.DrawString(_spriteBatch, instructions, new Vector2(x, y), Color.White);
+                _font.DrawString(_spriteBatch, instructions, new Vector2(x, y), DarkText);
             }
             else
             {
                 // Fallback to rectangle
-                DrawTextRect(x, y, instructions.Length * 6, 12, Color.Gray);
+                DrawTextRect(x, y, instructions.Length * 6, 12, DarkText);
             }
         }
 

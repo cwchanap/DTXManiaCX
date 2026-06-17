@@ -302,12 +302,12 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             foreach (var c in popup.GetBindingChips(1280, 720))
             {
-                // Hugs the top edge (top quarter of the chip) ...
-                Assert.True(c.Remove.Top - c.Bounds.Top <= c.Bounds.Height / 4,
-                    "Remove box should hug the chip's top edge");
-                // ... and the right edge ...
-                Assert.True(c.Bounds.Right - c.Remove.Right <= 8,
-                    "Remove box should hug the chip's right edge");
+                // In the top-right region, but clearly inset on every side so it reads as INSIDE
+                // the box (a flush/edge ✕ looked like it was outside the chip).
+                int topMargin = c.Remove.Top - c.Bounds.Top;
+                int rightMargin = c.Bounds.Right - c.Remove.Right;
+                Assert.InRange(topMargin, 4, c.Bounds.Height / 2);   // top half, with a visible border
+                Assert.InRange(rightMargin, 4, c.Bounds.Width / 2);  // right half, with a visible border
                 // ... and is a small corner box, not a full-height strip.
                 Assert.True(c.Remove.Height < c.Bounds.Height,
                     "Remove box should be smaller than the chip");

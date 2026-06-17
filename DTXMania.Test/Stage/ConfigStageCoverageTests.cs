@@ -435,7 +435,7 @@ public class ConfigStageCoverageTests
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle");
 
             font.Verify(f => f.MeasureString("CONFIGURATION"), Times.Once);
-            font.Verify(f => f.DrawString(spriteBatch, "CONFIGURATION", new Vector2(540, 50), Color.White), Times.Once);
+            font.Verify(f => f.DrawString(spriteBatch, "CONFIGURATION", new Vector2(540, 50), new Color(26, 30, 46)), Times.Once);
         }
     }
 
@@ -494,7 +494,7 @@ public class ConfigStageCoverageTests
                 .OrderBy(width => width)
                 .ToArray();
             var actualWidths = stage.RectangleDrawCalls
-                .FindAll(call => call.Rectangle.Height == 16 && call.Color == Color.White)
+                .FindAll(call => call.Rectangle.Height == 16 && call.Color == new Color(26, 30, 46))
                 .ConvertAll(call => call.Rectangle.Width)
                 .OrderBy(width => width)
                 .ToArray();
@@ -522,7 +522,7 @@ public class ConfigStageCoverageTests
                 .ToArray();
             var expectedButtonRects = new[]
             {
-                (Width: "BACK".Length * 8, Color: Color.Gray),
+                (Width: "BACK".Length * 8, Color: new Color(26, 30, 46)),
                 (Width: "SAVE & EXIT".Length * 8, Color: Color.Green)
             }
             .OrderBy(call => call.Width)
@@ -544,7 +544,7 @@ public class ConfigStageCoverageTests
             Assert.Null(exception);
             Assert.Contains(
                 stage.RectangleDrawCalls,
-                call => call.Rectangle.Height == 12 && call.Rectangle.Width > 0 && call.Color == Color.Gray);
+                call => call.Rectangle.Height == 12 && call.Rectangle.Width > 0 && call.Color == new Color(26, 30, 46));
         }
     }
 
@@ -605,7 +605,7 @@ public class ConfigStageCoverageTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions");
 
-            font.Verify(f => f.DrawString(spriteBatch, It.Is<string>(s => s.Contains("UP/DOWN")), It.IsAny<Vector2>(), Color.White), Times.Once);
+            font.Verify(f => f.DrawString(spriteBatch, It.Is<string>(s => s.Contains("UP/DOWN")), It.IsAny<Vector2>(), new Color(26, 30, 46)), Times.Once);
         }
     }
 

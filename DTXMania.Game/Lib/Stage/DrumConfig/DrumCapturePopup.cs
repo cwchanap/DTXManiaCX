@@ -156,13 +156,13 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             }
         }
 
-        private const int ChipHeight = 46;      // large box so the corner ✕ reads naturally
+        private const int ChipHeight = 48;      // large box so the corner ✕ reads as clearly inside
         private const int ChipGap = 8;
         private const int ChipPadX = 10;
         private const int ChipCharWidth = 8;    // rough per-char width estimate for layout
         private const int ChipMinWidth = 64;
         private const int RemoveBoxSize = 18;
-        private const int RemoveMargin = 5;     // inset of the ✕ box from the chip's top-right corner
+        private const int RemoveMargin = 9;     // inset of the ✕ box from the chip's top-right corner
 
         /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
         private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
@@ -230,11 +230,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 spriteBatch.Draw(whitePixel, GetClearRect(viewportWidth, viewportHeight), new Color(58, 35, 48));
                 spriteBatch.Draw(whitePixel, GetDoneRect(viewportWidth, viewportHeight), new Color(58, 70, 90));
 
-                // Draw chip boxes and their top-right ✕ remove squares.
+                // Draw chip boxes (clearly lighter than the panel so they read as boxes) and
+                // their inset top-right ✕ remove squares.
                 foreach (var chip in chips)
                 {
-                    spriteBatch.Draw(whitePixel, chip.Bounds, new Color(35, 42, 54));
-                    spriteBatch.Draw(whitePixel, chip.Remove, new Color(150, 55, 62));
+                    spriteBatch.Draw(whitePixel, chip.Bounds, new Color(66, 74, 92));
+                    spriteBatch.Draw(whitePixel, chip.Remove, new Color(176, 72, 78));
                 }
             }
 
@@ -260,12 +261,19 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             {
                 foreach (var chip in chips)
                 {
-                    // Label vertically centered in the tall box; ✕ centered in its corner square.
+                    // Label vertically centered in the tall box; ✕ centered inside its corner square
+                    // via MeasureString so the glyph lands within the box (a fixed offset rendered
+                    // the glyph below the box, which read as "x outside the box").
                     int labelY = chip.Bounds.Y + ((ChipHeight - 14) / 2);
                     font.DrawString(spriteBatch, chip.Label,
                         new Vector2(chip.Bounds.X + ChipPadX, labelY), Color.White);
-                    font.DrawString(spriteBatch, "x",
-                        new Vector2(chip.Remove.X + 5, chip.Remove.Y + 2), Color.White);
+
+                    const string mark = "X";
+                    var ms = font.MeasureString(mark);
+                    font.DrawString(spriteBatch, mark,
+                        new Vector2(chip.Remove.X + ((RemoveBoxSize - ms.X) / 2f),
+                                    chip.Remove.Y + ((RemoveBoxSize - ms.Y) / 2f)),
+                        Color.White);
                 }
                 promptY = chips[^1].Bounds.Bottom + 12;
             }
