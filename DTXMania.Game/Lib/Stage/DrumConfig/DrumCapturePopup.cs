@@ -121,7 +121,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         // ---- Geometry shared by rendering and mouse hit-testing (viewport space) ----
 
         public const int PopupWidth = 380;
-        public const int PopupHeight = 230;
+        public const int PopupHeight = 250;
 
         public Rectangle GetPanelRect(int viewportWidth, int viewportHeight) =>
             new((viewportWidth - PopupWidth) / 2, (viewportHeight - PopupHeight) / 2, PopupWidth, PopupHeight);
@@ -156,22 +156,23 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             }
         }
 
-        private const int ChipHeight = 22;
-        private const int ChipGap = 6;
-        private const int ChipPadX = 8;
-        private const int ChipCharWidth = 8;   // rough per-char width estimate for layout
-        private const int RemoveBoxSize = 14;
-        private const int ChipTextRemoveGap = 6; // gap between the label text and the ✕ box
+        private const int ChipHeight = 46;      // large box so the corner ✕ reads naturally
+        private const int ChipGap = 8;
+        private const int ChipPadX = 10;
+        private const int ChipCharWidth = 8;    // rough per-char width estimate for layout
+        private const int ChipMinWidth = 64;
+        private const int RemoveBoxSize = 18;
+        private const int RemoveMargin = 5;     // inset of the ✕ box from the chip's top-right corner
 
         /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
         private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
             GetPanelRect(viewportWidth, viewportHeight).Y + 14 + 30;
 
         /// <summary>
-        /// Layout (viewport space) of one chip per current binding, each with an inner ✕ remove
-        /// hit-area. Chips flow left-to-right and wrap within the panel. Deterministic and unit-tested;
-        /// the stage hit-tests <see cref="DrumBindingChip.Remove"/> against the mouse and calls
-        /// <see cref="RemoveBinding"/>.
+        /// Layout (viewport space) of one chip per current binding: a large box with a small ✕
+        /// remove hit-area in its top-right corner. Chips flow left-to-right and wrap within the
+        /// panel. Deterministic and unit-tested; the stage hit-tests <see cref="DrumBindingChip.Remove"/>
+        /// against the mouse and calls <see cref="RemoveBinding"/>.
         /// </summary>
         public IReadOnlyList<DrumBindingChip> GetBindingChips(int viewportWidth, int viewportHeight)
         {
@@ -186,10 +187,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             {
                 // Chip width and drawn text use the formatted label (e.g. "A", "Space", ";",
                 // "MIDI 36") rather than the raw id, so chips match the per-zone labels rendered
-                // by DrumKitRenderer (which uses GetLaneDescription / FormatButtonId).
+                // by DrumKitRenderer (which uses GetLaneDescription / FormatButtonId). Reserve room
+                // on the right for the corner ✕ so it never sits on top of the label.
                 var label = KeyBindings.FormatButtonId(id);
                 int textWidth = label.Length * ChipCharWidth;
-                int chipWidth = ChipPadX + textWidth + ChipTextRemoveGap + RemoveBoxSize + ChipPadX;
+                int chipWidth = Math.Max(ChipMinWidth,
+                    ChipPadX + textWidth + RemoveMargin + RemoveBoxSize + RemoveMargin);
                 if (x + chipWidth > maxRight && x > left)
                 {
                     x = left;
@@ -197,8 +200,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 }
                 var bounds = new Rectangle(x, y, chipWidth, ChipHeight);
                 var remove = new Rectangle(
-                    bounds.Right - ChipPadX - RemoveBoxSize,
-                    y + ((ChipHeight - RemoveBoxSize) / 2),
+                    bounds.Right - RemoveMargin - RemoveBoxSize,
+                    bounds.Y + RemoveMargin,
                     RemoveBoxSize, RemoveBoxSize);
                 chips.Add(new DrumBindingChip(id, label, bounds, remove));
                 x += chipWidth + ChipGap;
@@ -227,11 +230,11 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 spriteBatch.Draw(whitePixel, GetClearRect(viewportWidth, viewportHeight), new Color(58, 35, 48));
                 spriteBatch.Draw(whitePixel, GetDoneRect(viewportWidth, viewportHeight), new Color(58, 70, 90));
 
-                // Draw chips backgrounds
+                // Draw chip boxes and their top-right ✕ remove squares.
                 foreach (var chip in chips)
                 {
                     spriteBatch.Draw(whitePixel, chip.Bounds, new Color(35, 42, 54));
-                    spriteBatch.Draw(whitePixel, chip.Remove, new Color(120, 50, 60));
+                    spriteBatch.Draw(whitePixel, chip.Remove, new Color(150, 55, 62));
                 }
             }
 
@@ -257,10 +260,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             {
                 foreach (var chip in chips)
                 {
+                    // Label vertically centered in the tall box; ✕ centered in its corner square.
+                    int labelY = chip.Bounds.Y + ((ChipHeight - 14) / 2);
                     font.DrawString(spriteBatch, chip.Label,
-                        new Vector2(chip.Bounds.X + ChipPadX, chip.Bounds.Y + 3), Color.White);
+                        new Vector2(chip.Bounds.X + ChipPadX, labelY), Color.White);
                     font.DrawString(spriteBatch, "x",
-                        new Vector2(chip.Remove.X + 3, chip.Remove.Y + 1), Color.White);
+                        new Vector2(chip.Remove.X + 5, chip.Remove.Y + 2), Color.White);
                 }
                 promptY = chips[^1].Bounds.Bottom + 12;
             }

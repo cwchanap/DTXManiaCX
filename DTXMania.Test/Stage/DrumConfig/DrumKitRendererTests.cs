@@ -1,6 +1,6 @@
 using System.Reflection;
-using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.DrumConfig;
+using Microsoft.Xna.Framework;
 using Xunit;
 
 namespace DTXMania.Test.Stage.DrumConfig
@@ -8,82 +8,41 @@ namespace DTXMania.Test.Stage.DrumConfig
     [Trait("Category", "Unit")]
     public class DrumKitRendererTests
     {
-        [Fact]
-        public void ZoneColor_ForCymbalShape_ReturnsCorrectColor()
+        // The drum pieces are black line-art with transparent interiors. The renderer fills a
+        // light "body" behind each pad so the black detail reads on the black stage, and lights
+        // that body yellow when the pad is selected/focused/hovered. BodyColorFor is the pure
+        // color-selection helper behind that behaviour; the rest of the renderer is graphics.
+        private static Color BodyColorFor(bool highlighted)
         {
-            // Act - Use reflection to test the private static method
-            var method = typeof(DrumKitRenderer).GetMethod("ZoneColor", 
+            var method = typeof(DrumKitRenderer).GetMethod("BodyColorFor",
                 BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
-            
-            var color = (Microsoft.Xna.Framework.Color)method!.Invoke(null, new object[] { DrumZoneShape.Cymbal });
-
-            // Assert
-            Assert.Equal(214, color.R);
-            Assert.Equal(177, color.G);
-            Assert.Equal(60, color.B);
+            return (Color)method!.Invoke(null, new object[] { highlighted })!;
         }
 
         [Fact]
-        public void ZoneColor_ForDrumShape_ReturnsCorrectColor()
+        public void BodyColorFor_WhenNotHighlighted_ReturnsLightHead()
         {
-            // Act - Use reflection to test the private static method
-            var method = typeof(DrumKitRenderer).GetMethod("ZoneColor", 
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            
-            var color = (Microsoft.Xna.Framework.Color)method!.Invoke(null, new object[] { DrumZoneShape.Drum });
+            var color = BodyColorFor(false);
 
-            // Assert
-            Assert.Equal(60, color.R);
-            Assert.Equal(110, color.G);
-            Assert.Equal(170, color.B);
+            // A near-white head so the black line-art is visible on the black stage.
+            Assert.True(color.R > 200 && color.G > 200 && color.B > 200,
+                "Unhighlighted pad body should be near-white");
         }
 
         [Fact]
-        public void ZoneColor_ForKickShape_ReturnsCorrectColor()
+        public void BodyColorFor_WhenHighlighted_ReturnsSelectionYellow()
         {
-            // Act - Use reflection to test the private static method
-            var method = typeof(DrumKitRenderer).GetMethod("ZoneColor", 
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            
-            var color = (Microsoft.Xna.Framework.Color)method!.Invoke(null, new object[] { DrumZoneShape.Kick });
+            var color = BodyColorFor(true);
 
-            // Assert
-            Assert.Equal(40, color.R);
-            Assert.Equal(44, color.G);
-            Assert.Equal(56, color.B);
+            // Matches the yellow selection accent used elsewhere on the stage.
+            Assert.Equal(new Color(255, 216, 77), color);
         }
 
         [Fact]
-        public void ZoneColor_ForPedalShape_ReturnsCorrectColor()
+        public void BodyColorFor_HighlightDiffersFromNormal()
         {
-            // Act - Use reflection to test the private static method
-            var method = typeof(DrumKitRenderer).GetMethod("ZoneColor", 
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            
-            var color = (Microsoft.Xna.Framework.Color)method!.Invoke(null, new object[] { DrumZoneShape.Pedal });
-
-            // Assert
-            Assert.Equal(74, color.R);
-            Assert.Equal(79, color.G);
-            Assert.Equal(90, color.B);
-        }
-
-        [Fact]
-        public void ZoneColor_ForUnknownShape_ReturnsGray()
-        {
-            // Act - Use reflection to test the private static method
-            var method = typeof(DrumKitRenderer).GetMethod("ZoneColor", 
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            
-            var color = (Microsoft.Xna.Framework.Color)method!.Invoke(null, new object[] { (DrumZoneShape)999 });
-
-            // Assert
-            Assert.Equal(Microsoft.Xna.Framework.Color.Gray, color);
+            Assert.NotEqual(BodyColorFor(false), BodyColorFor(true));
         }
     }
 }

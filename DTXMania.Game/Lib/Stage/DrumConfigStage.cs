@@ -60,7 +60,7 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel.SetData(new[] { Color.White });
             _resourceManager = _game.ResourceManager;
             _font = _resourceManager.LoadFont("NotoSerifJP", 14);
-            _renderer = new DrumKitRenderer(graphicsDevice);
+            _renderer = new DrumKitRenderer(graphicsDevice, _resourceManager);
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
