@@ -120,8 +120,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         // ---- Geometry shared by rendering and mouse hit-testing (viewport space) ----
 
-        public const int PopupWidth = 380;
-        public const int PopupHeight = 250;
+        public const int PopupWidth = 560;
+        public const int PopupHeight = 380;
 
         public Rectangle GetPanelRect(int viewportWidth, int viewportHeight) =>
             new((viewportWidth - PopupWidth) / 2, (viewportHeight - PopupHeight) / 2, PopupWidth, PopupHeight);
@@ -129,13 +129,13 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         public Rectangle GetDoneRect(int viewportWidth, int viewportHeight)
         {
             var p = GetPanelRect(viewportWidth, viewportHeight);
-            return new Rectangle(p.Right - 92, p.Bottom - 44, 80, 30);
+            return new Rectangle(p.Right - 140, p.Bottom - 60, 122, 42);
         }
 
         public Rectangle GetClearRect(int viewportWidth, int viewportHeight)
         {
             var p = GetPanelRect(viewportWidth, viewportHeight);
-            return new Rectangle(p.Left + 12, p.Bottom - 44, 90, 30);
+            return new Rectangle(p.Left + 18, p.Bottom - 60, 122, 42);
         }
 
         /// <summary>One drawn binding chip: the whole chip box and the inner ✕ remove hit-area.</summary>
@@ -156,7 +156,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             }
         }
 
-        private const int ChipHeight = 48;      // large box so the corner ✕ reads as clearly inside
+        private const int ChipHeight = 52;      // large box so the corner ✕ reads as clearly inside
         private const int ChipGap = 8;
         private const int ChipPadX = 10;
         private const int ChipCharWidth = 8;    // rough per-char width estimate for layout
@@ -166,7 +166,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
         private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
-            GetPanelRect(viewportWidth, viewportHeight).Y + 14 + 30;
+            GetPanelRect(viewportWidth, viewportHeight).Y + 18 + 38;
 
         /// <summary>
         /// Layout (viewport space) of one chip per current binding: a large box with a small ✕
@@ -243,8 +243,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 return;
 
             var panelRect = GetPanelRect(viewportWidth, viewportHeight);
-            int x = panelRect.X + 16;
-            int y = panelRect.Y + 14;
+            int x = panelRect.X + 20;
+            int y = panelRect.Y + 18;
 
             font.DrawString(spriteBatch, $"Configure: {KeyBindings.GetLaneName(Lane)}",
                 new Vector2(x, y), Color.White);
@@ -284,10 +284,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             var promptColor = State == DrumCaptureState.ShowingConflict ? Color.Red : new Color(255, 216, 77);
             font.DrawString(spriteBatch, prompt, new Vector2(x, promptY), promptColor);
 
-            font.DrawString(spriteBatch, "Clear", new Vector2(GetClearRect(viewportWidth, viewportHeight).X + 14,
-                GetClearRect(viewportWidth, viewportHeight).Y + 6), Color.White);
-            font.DrawString(spriteBatch, "Done", new Vector2(GetDoneRect(viewportWidth, viewportHeight).X + 18,
-                GetDoneRect(viewportWidth, viewportHeight).Y + 6), Color.White);
+            var clearRect = GetClearRect(viewportWidth, viewportHeight);
+            var doneRect = GetDoneRect(viewportWidth, viewportHeight);
+            font.DrawString(spriteBatch, "Clear", new Vector2(clearRect.X + 38, clearRect.Y + 14), Color.White);
+            font.DrawString(spriteBatch, "Done", new Vector2(doneRect.X + 42, doneRect.Y + 14), Color.White);
         }
     }
 }

@@ -6,7 +6,7 @@ using DTXMania.Game.Lib.Input;
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
     /// <summary>Visual shape used when drawing a drum zone.</summary>
-    public enum DrumZoneShape { Cymbal, Drum, Pedal, Kick }
+    public enum DrumZoneShape { Cymbal, Drum, Pedal, Kick, HiHatPedal }
 
     /// <summary>
     /// One clickable drum-kit zone, mapped 1:1 to a drum lane (0-9).
@@ -63,7 +63,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             new DrumZone(4, KeyBindings.GetLaneName(4), DrumZoneShape.Drum,   346f, 432f, 50f, 50f),
             new DrumZone(1, KeyBindings.GetLaneName(1), DrumZoneShape.Drum,  1037f, 418f, 56f, 56f),
             new DrumZone(6, KeyBindings.GetLaneName(6), DrumZoneShape.Kick,   627f, 526f, 80f, 80f),
-            new DrumZone(2, KeyBindings.GetLaneName(2), DrumZoneShape.Pedal,  179f, 619f, 48f, 18f),
+            new DrumZone(2, KeyBindings.GetLaneName(2), DrumZoneShape.HiHatPedal, 179f, 619f, 48f, 18f),
             new DrumZone(3, KeyBindings.GetLaneName(3), DrumZoneShape.Pedal,  422f, 641f, 48f, 18f),
         };
 

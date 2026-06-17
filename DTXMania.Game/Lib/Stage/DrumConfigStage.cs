@@ -33,6 +33,7 @@ namespace DTXMania.Game.Lib.Stage
         private DrumKitRenderer? _renderer;
         private DrumCapturePopup? _popup;
         private ITexture? _background;
+        private ITexture? _skeleton;
 
         // Dark UI text, for legibility on the bright background image.
         private static readonly Color DarkText = new(26, 30, 46);
@@ -69,6 +70,10 @@ namespace DTXMania.Game.Lib.Stage
             // Reuse the startup stage's bright artwork as this stage's background.
             try { _background = _resourceManager.LoadTexture(TexturePath.StartupBackground); }
             catch { _background = null; }
+
+            // Bare drum-kit hardware drawn behind the pieces so the stage reads as a whole kit.
+            try { _skeleton = _resourceManager.LoadTexture(TexturePath.DrumKitSkeleton); }
+            catch { _skeleton = null; }
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
@@ -250,6 +255,10 @@ namespace DTXMania.Game.Lib.Stage
                 _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
             }
 
+            // Drum-kit hardware skeleton behind the pieces, so the kit reads as one assembled set.
+            if (_skeleton?.Texture != null)
+                _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vp.Width, vp.Height), Color.White * 0.9f);
+
             if (_font != null)
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), DarkText);
@@ -379,6 +388,8 @@ namespace DTXMania.Game.Lib.Stage
             _popup = null;
             _background?.RemoveReference();
             _background = null;
+            _skeleton?.RemoveReference();
+            _skeleton = null;
             _font?.RemoveReference();
             _font = null;
             _spriteBatch?.Dispose();
@@ -397,6 +408,8 @@ namespace DTXMania.Game.Lib.Stage
                 _font?.RemoveReference();
                 _background?.RemoveReference();
                 _background = null;
+                _skeleton?.RemoveReference();
+                _skeleton = null;
                 _renderer = null;
                 _whitePixel = null!;
                 _spriteBatch = null!;

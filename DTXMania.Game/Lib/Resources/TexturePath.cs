@@ -58,6 +58,10 @@ namespace DTXMania.Game.Lib.Resources
         public const string DrumPadDrum = "Graphics/drumkit_drum.png";
         public const string DrumPadKick = "Graphics/drumkit_kick.png";
         public const string DrumPadPedal = "Graphics/drumkit_pedal.png";
+        public const string DrumPadHiHat = "Graphics/drumkit_hihat.png";
+
+        /// <summary>Bare drum-kit hardware/stands drawn behind the pieces so the stage reads as a whole kit.</summary>
+        public const string DrumKitSkeleton = "Graphics/drumkit_skeleton.png";
 
         /// <summary>
         /// Result stage rank badge textures.
