@@ -9,6 +9,35 @@ using DTXMania.Game.Lib.Resources;
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
     /// <summary>
+    /// The three "highlight a zone" lanes the renderer draws a yellow glow for: the selected
+    /// (popup-open), keyboard-focused, and mouse-hovered lane. Each defaults to -1 (no highlight).
+    /// </summary>
+    /// <remarks>
+    /// Bundled as a struct with <c>init</c>-only properties (not a positional constructor) so the
+    /// caller must name each lane at construction — eliminating the transposition hazard that three
+    /// adjacent <c>int</c> parameters on <see cref="DrumKitRenderer.Draw"/> carried (swapping, say,
+    /// focused and hovered would compile silently). <see cref="IsHighlighted"/> co-locates the
+    /// glow test so the three lanes are read in exactly one place.
+    /// </remarks>
+    public readonly struct LaneHighlights
+    {
+        // Explicit parameterless constructor is required (CS8983) because the init properties have
+        // initializers; it runs them so every LaneHighlights starts with all three lanes at -1.
+        public LaneHighlights() { }
+
+        /// <summary>Lane whose piece popup is open, or -1 for none.</summary>
+        public int SelectedLane { get; init; } = -1;
+        /// <summary>Lane under keyboard focus, or -1 for none.</summary>
+        public int FocusedLane { get; init; } = -1;
+        /// <summary>Lane under the mouse cursor, or -1 for none.</summary>
+        public int HoveredLane { get; init; } = -1;
+
+        /// <summary>True when <paramref name="lane"/> matches any of the three highlight lanes.</summary>
+        public bool IsHighlighted(int lane)
+            => lane == SelectedLane || lane == FocusedLane || lane == HoveredLane;
+    }
+
+    /// <summary>
     /// Draws the drum-kit pieces and their selection/focus/hover highlights. Each piece is a
     /// photorealistic 3D render (loaded from the skin, one image per <see cref="DrumZoneShape"/>)
     /// on a transparent background. A highlighted piece gets a yellow glow behind it. Pieces are
@@ -69,9 +98,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _ => null
         };
 
-        public void Draw(SpriteBatch spriteBatch, IFont? font, Texture2D whitePixel,
-                         KeyBindings bindings, int viewportWidth, int viewportHeight,
-                         int selectedLane, int focusedLane, int hoveredLane)
+        public void Draw(SpriteBatch spriteBatch, KeyBindings bindings, int viewportWidth,
+                         int viewportHeight, in LaneHighlights highlights)
         {
             float sx = viewportWidth / (float)DrumKitLayout.DesignWidth;
             float sy = viewportHeight / (float)DrumKitLayout.DesignHeight;
@@ -87,7 +115,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     (int)(half * 2 * sx),
                     (int)(half * 2 * sy));
 
-                bool highlight = zone.Lane == selectedLane || zone.Lane == focusedLane || zone.Lane == hoveredLane;
+                bool highlight = highlights.IsHighlighted(zone.Lane);
 
                 var tex = ShapeTexture(zone.Shape);
                 if (tex?.Texture != null)

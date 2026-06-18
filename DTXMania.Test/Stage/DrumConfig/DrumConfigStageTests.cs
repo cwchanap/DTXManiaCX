@@ -718,6 +718,42 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
         }
 
+        [Fact]
+        public void ProcessPopupCapture_ReservedKeyBeforeValidKey_DropsValidKeySameFrame()
+        {
+            // Pins the stage-level one-binding-per-frame rule: ConsumePressedButtons is drained in
+            // enumeration order, and the first non-Ignored outcome (here a reserved key -> Rejected)
+            // breaks the loop. A valid key pressed in that same frame is therefore NOT captured. The
+            // popup-level Rejected path is covered in DrumCapturePopupTests; this pins the stage's
+            // foreach+break interaction that the popup test cannot reach.
+            var configManager = new ConfigManager();
+            using var input = new InputManagerCompat(configManager);
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), input);
+            var stage = new DrumConfigStage(game);
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+
+            var working = new KeyBindings();
+            var popup = new DrumCapturePopup(working, () => new Dictionary<Keys, InputCommandType>());
+            popup.Open(4); // Snare
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+
+            // Seed this frame's press buffer directly (skipping Update()/keyboard): reserved Enter
+            // first, then a valid unbound key Q. Order determines which is resolved.
+            var pressedField = typeof(ModularInputManager)
+                .GetField("_pressedThisFrame", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(pressedField);
+            var pressed = (List<DTXMania.Game.Lib.Input.ButtonState>)pressedField!.GetValue(input.ModularInputManager)!;
+            pressed.Add(new DTXMania.Game.Lib.Input.ButtonState("Key.Enter", true)); // required nav -> Rejected
+            pressed.Add(new DTXMania.Game.Lib.Input.ButtonState("Key.Q", true));     // valid unbound -> would Capture
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessPopupCapture");
+
+            // Enter was Rejected (non-Ignored) -> break before Q was tried, so Q is dropped this frame.
+            Assert.DoesNotContain("Key.Q", working.GetButtonsForLane(4));
+        }
+
         private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
         {
             private readonly GraphicsDevice _device;
