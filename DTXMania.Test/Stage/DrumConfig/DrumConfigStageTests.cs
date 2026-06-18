@@ -19,6 +19,7 @@ using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 namespace DTXMania.Test.Stage.DrumConfig
 {
     [Trait("Category", "Unit")]
+    [Collection("AppPaths")]
     public class DrumConfigStageTests
     {
         [Fact]
