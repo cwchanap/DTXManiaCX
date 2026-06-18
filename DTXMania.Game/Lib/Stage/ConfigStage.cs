@@ -539,6 +539,12 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     System.Diagnostics.Debug.WriteLine("Config: Back action with unsaved changes - discarding changes");
                 }
+                // Back = discard: clear the dirty flag so the next OnActivate takes the fresh
+                // path and reloads from committed config. Without this, the cached stage
+                // instance keeps the discarded working copy and OnActivate would skip
+                // LoadConfiguration() (the preservation branch is only meant for returning
+                // from DrumConfigStage, where pending edits must survive the round-trip).
+                DiscardPendingChanges();
                 System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
                 ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
                 return;
@@ -623,6 +629,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Back button clicked with unsaved changes - discarding changes");
             }
+            // Back = discard: see HandleInput for why the dirty flag must be cleared here too.
+            DiscardPendingChanges();
             System.Diagnostics.Debug.WriteLine("Back button clicked - returning to Title stage");
             ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
@@ -639,6 +647,19 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region Configuration Management
+
+        /// <summary>
+        /// Clears the dirty flag so the next <see cref="OnActivate"/> reloads the working
+        /// config from the committed state. Called on every Back path (keyboard Back command
+        /// and the Back button), which are explicit discard actions. The preservation branch
+        /// in <see cref="OnActivate"/> is intended only for the DrumConfigStage round-trip;
+        /// leaving it accidentally active after a discard caused the cached stage to surface
+        /// (and later save) edits the user had explicitly thrown away.
+        /// </summary>
+        private void DiscardPendingChanges()
+        {
+            _hasUnsavedChanges = false;
+        }
 
         /// <summary>
         /// Applies working configuration to disk first, then to live state on success.

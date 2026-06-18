@@ -274,6 +274,67 @@ namespace DTXMania.Test.Stage.DrumConfig
             }
         }
 
+        [Fact]
+        public void Save_WhenSaveConfigThrowsAfterEviction_RestoresWorkingSystemBindingsForRetry()
+        {
+            // Regression for the failure-after-eviction path: a non-required system key claimed by
+            // a drum lane is evicted from _workingSystemBindings at commit time. If the disk write
+            // then fails, the stage stays open for retry and the eviction must be rolled back,
+            // otherwise the user can never recover that system shortcut (undoing the drum binding
+            // wouldn't bring it back, since it has already been removed from the working copy).
+            var configManager = new ConfigManager();
+            using var input = new InputManagerCompat(configManager);
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), input);
+
+            var stage = new DrumConfigStage(game);
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+
+            // Pre-populate the committed config so we can verify the rollback restores it
+            // exactly (an empty default would mask a half-applied eviction on retry elsewhere).
+            configManager.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"] = "PageUp";
+
+            var working = input.ModularInputManager.KeyBindings.Clone();
+            working.BindButton("Key.PageUp", 7); // PageUp is a non-required system key
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
+
+            var sys = new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", sys);
+
+            // Point DTXMANIA_APPDATA_ROOT at a file (not a directory) so SaveConfig throws when
+            // it tries to write Config.ini underneath it.
+            var tempFile = Path.GetTempFileName();
+            var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempFile);
+            try
+            {
+                var exited = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "Save");
+
+                // Stage must stay open and surface the failure.
+                Assert.False(exited);
+                var saveError = ReflectionHelpers.GetPrivateField<string?>(stage, "_saveError");
+                Assert.False(string.IsNullOrEmpty(saveError));
+
+                // The eviction must be rolled back so a retry starts with PageUp still bound to
+                // the system shortcut. The user can then undo the drum binding to recover it.
+                Assert.True(sys.ContainsKey(Keys.PageUp));
+                Assert.Equal(InputCommandType.IncreaseScrollSpeed, sys[Keys.PageUp]);
+
+                // And the config manager's system bindings must also be rolled back to their
+                // pre-Save state (no half-applied eviction leaking into a later save elsewhere).
+                Assert.Equal("PageUp", configManager.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+                File.Delete(tempFile);
+            }
+        }
+
         // ---- OnUpdate / UpdateSelection / UpdatePopup routing (headless, via graphics stub) ----
 
         private static BaseGame CreateGameWithViewport(int width, int height)

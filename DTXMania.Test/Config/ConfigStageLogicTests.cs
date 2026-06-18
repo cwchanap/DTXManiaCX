@@ -708,6 +708,74 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void HandleInput_BackCommand_AfterDiscardingEdits_ClearsDirtyFlag()
+    {
+        // Regression: pressing Back to discard edits must clear _hasUnsavedChanges on the cached
+        // stage instance. Without this, the next OnActivate takes the preservation branch and
+        // surfaces the discarded working copy, which a later Save & Exit would silently commit.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+            // Escape is mapped to Back by default in InputManagerCompat; current=down, previous=up
+            // makes IsConfigNavigationCommandPressed report a fresh key press.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Escape), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void OnBackButtonClicked_AfterDiscardingEdits_ClearsDirtyFlag()
+    {
+        // The on-screen Back button must clear the dirty flag for the same reason as the Back
+        // keyboard command — both are explicit discard actions.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!.AutoPlay = true;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
+    public void OnActivate_AfterBackDiscard_ReloadsWorkingConfigFromCommitted()
+    {
+        // End-to-end regression for the cached-stage discard bug: edit -> Back -> re-activate
+        // must reload the working config from the committed state, not the discarded edit.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // User edits but discards via Back.
+            ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!.AutoPlay = true;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
+
+            // Re-activate (simulating the user re-opening Config from Title).
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            var working = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!;
+            Assert.False(working.AutoPlay); // discarded edit no longer present
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+        }
+    }
+
+    [Fact]
     public void OnDraw_WhenSpriteBatchMissing_ShouldReturnWithoutThrowing()
     {
         var (stage, _, inputManager) = CreateStage();
