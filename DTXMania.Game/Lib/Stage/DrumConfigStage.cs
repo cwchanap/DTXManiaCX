@@ -94,8 +94,7 @@ namespace DTXMania.Game.Lib.Stage
 
             _popup = new DrumCapturePopup(
                 _workingBindings,
-                () => _workingSystemBindings,
-                key => _workingSystemBindings.Remove(key));
+                () => _workingSystemBindings);
 
             _focusIndex = 0;
             _keyboardFocusActive = false;
@@ -353,6 +352,13 @@ namespace DTXMania.Game.Lib.Stage
 
             var config = _configManager.Config;
 
+            // Deferred eviction: drop non-required system keys now claimed by a drum lane. Done at
+            // commit (not at capture) so removing/clearing/resetting the binding before Save leaves
+            // the system binding intact — mirroring the legacy deferred-eviction behavior. Required
+            // keys can never reach a drum lane (rejected at capture), so any system key that IS
+            // bound to a drum lane here is, by construction, a safe-to-evict non-required key.
+            EvictSystemKeysClaimedByDrumLanes();
+
             // Snapshot the binding-related config so we can roll back if the disk write fails,
             // keeping live input state consistent with what is on disk (mirrors ConfigStage).
             var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
@@ -409,6 +415,25 @@ namespace DTXMania.Game.Lib.Stage
                 inputManager.RemoveKeyMapping(kvp.Key);
             foreach (var kvp in bindings)
                 inputManager.AddKeyMapping(kvp.Key, kvp.Value);
+        }
+
+        /// <summary>
+        /// Removes from <see cref="_workingSystemBindings"/> any keyboard key that is currently
+        /// bound to a drum lane in <see cref="_workingBindings"/>. Commit-time counterpart to the
+        /// popup's deferred eviction: the system mapping is mutated only when the binding is
+        /// actually about to be persisted, so an undone capture never loses a system shortcut.
+        /// </summary>
+        private void EvictSystemKeysClaimedByDrumLanes()
+        {
+            foreach (var kvp in _workingBindings.ButtonToLane)
+            {
+                if (!KeyBindings.IsKeyboardButtonId(kvp.Key))
+                    continue;
+
+                // "Key.PageUp" -> Keys.PageUp
+                if (Enum.TryParse(kvp.Key.Substring(4), out Keys sysKey))
+                    _workingSystemBindings.Remove(sysKey);
+            }
         }
 
         protected override void OnDeactivate()
