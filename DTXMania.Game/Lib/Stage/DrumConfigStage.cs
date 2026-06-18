@@ -357,6 +357,12 @@ namespace DTXMania.Game.Lib.Stage
             // the system binding intact — mirroring the legacy deferred-eviction behavior. Required
             // keys can never reach a drum lane (rejected at capture), so any system key that IS
             // bound to a drum lane here is, by construction, a safe-to-evict non-required key.
+            //
+            // Snapshot the pre-eviction working copy first: if the disk write below fails, the
+            // stage stays open for retry and we must restore the evicted system keys, otherwise
+            // the user could only recover them by re-binding each shortcut manually (undoing the
+            // drum binding would no longer bring the system shortcut back).
+            var prevWorkingSystemBindings = new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
             EvictSystemKeysClaimedByDrumLanes();
 
             // Snapshot the binding-related config so we can roll back if the disk write fails,
@@ -385,6 +391,12 @@ namespace DTXMania.Game.Lib.Stage
                 foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
                 config.SystemKeyBindings.Clear();
                 foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+
+                // Undo the eviction in the working copy so a retry starts from the pre-failure
+                // system mapping. Clear+re-add preserves the dictionary identity relied on by
+                // external observers (and existing tests) that hold a reference to it.
+                _workingSystemBindings.Clear();
+                foreach (var kvp in prevWorkingSystemBindings) _workingSystemBindings[kvp.Key] = kvp.Value;
 
                 // Stay on stage: preserve the working copy and surface the error so the user
                 // knows the changes were not persisted and can retry (Back saves again).
