@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -22,6 +24,12 @@ namespace DTXMania.Game.Lib.Stage
     {
         private IConfigManager _configManager = null!;
         private InputManagerCompat? _input;
+
+        // NullLogger until OnActivate swaps in the game's factory. Lets reflection-based tests
+        // (which skip OnActivate and leave _game.LoggerFactory null) exercise Save()'s catch path
+        // without NullReferenceException, while real runtime gets structured logging that survives
+        // Release builds — unlike System.Diagnostics.Debug, whose calls are [Conditional("DEBUG")].
+        private ILogger<DrumConfigStage> _logger = NullLogger<DrumConfigStage>.Instance;
 
         private KeyBindings _workingBindings = new();
         private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
@@ -64,6 +72,8 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
+            _logger = _game.LoggerFactory?.CreateLogger<DrumConfigStage>() ?? _logger;
+
             var graphicsDevice = _game.GraphicsDevice;
             _spriteBatch = new SpriteBatch(graphicsDevice);
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
@@ -72,17 +82,19 @@ namespace DTXMania.Game.Lib.Stage
             _font = _resourceManager.LoadFont("NotoSerifJP", 14);
             _renderer = new DrumKitRenderer(graphicsDevice, _resourceManager);
 
-            // Reuse the startup stage's bright artwork as this stage's background.
+            // Optional skin art: each is a best-effort load (a missing/invalid asset falls back to
+            // a plain background). Logged at Debug — missing optional art is an expected fallback,
+            // not a warning — but no longer fully silent so a broken skin leaves a diagnostic trail.
             try { _background = _resourceManager.LoadTexture(TexturePath.StartupBackground); }
-            catch { _background = null; }
+            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional background texture unavailable"); _background = null; }
 
             // Bare drum-kit hardware drawn behind the pieces so the stage reads as a whole kit.
             try { _skeleton = _resourceManager.LoadTexture(TexturePath.DrumKitSkeleton); }
-            catch { _skeleton = null; }
+            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional kit-skeleton texture unavailable"); _skeleton = null; }
 
             // Decorative bass drum (the clickable target for lane 6 is the bass pedal in front of it).
             try { _bassDrum = _resourceManager.LoadTexture(TexturePath.DrumPadKick); }
-            catch { _bassDrum = null; }
+            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional bass-drum texture unavailable"); _bassDrum = null; }
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
@@ -141,6 +153,7 @@ namespace DTXMania.Game.Lib.Stage
                     if (chip.Remove.Contains(mouse.X, mouse.Y))
                     {
                         _popup.RemoveBinding(chip.ButtonId);
+                        _saveError = null; // working copy changed: a prior save error no longer describes it
                         return;
                     }
                 }
@@ -153,6 +166,7 @@ namespace DTXMania.Game.Lib.Stage
                 if (_popup.GetClearRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
                 {
                     _popup.ClearLane();
+                    _saveError = null; // working copy changed
                     return;
                 }
             }
@@ -164,12 +178,31 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            if (_input != null)
+            ProcessPopupCapture();
+        }
+
+        /// <summary>
+        /// Resolves at most one pressed button per frame against the open popup: the first non-Ignored
+        /// outcome (Captured or Rejected) ends processing for the frame, so a valid key pressed in the
+        /// same frame as a reserved key is dropped if the reserved key is enumerated first. Extracted
+        /// from <see cref="UpdatePopup"/> because it is GraphicsDevice-free, making the one-binding-per-
+        /// press semantics unit-testable headlessly. Clears <see cref="_saveError"/> on a real capture.
+        /// </summary>
+        private void ProcessPopupCapture()
+        {
+            if (_input == null)
+                return;
+
+            foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
             {
-                foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
+                var outcome = _popup!.TryCapture(button);
+                if (outcome != DrumCaptureOutcome.Ignored)
                 {
-                    if (_popup.TryCapture(button) != DrumCaptureOutcome.Ignored)
-                        break; // one binding per press
+                    // Captured mutated the working copy (stale any prior save error); Rejected
+                    // (a reserved key) did not. Either way, one binding resolution per press.
+                    if (outcome == DrumCaptureOutcome.Captured)
+                        _saveError = null;
+                    break;
                 }
             }
         }
@@ -216,6 +249,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _focusIndex = DrumKitLayout.ResetActionIndex;
                 _workingBindings.LoadDefaultBindings();
+                _saveError = null; // working copy reset: a prior save error no longer applies
                 return;
             }
 
@@ -242,16 +276,26 @@ namespace DTXMania.Game.Lib.Stage
         private void ActivateFocusedElement()
         {
             if (DrumKitLayout.IsResetAction(_focusIndex))
+            {
                 _workingBindings.LoadDefaultBindings();
+                _saveError = null; // working copy reset
+            }
             else
                 OpenPopup(_focusIndex);
         }
 
-        // "Reset to defaults" button (viewport space), top-right of the screen.
-        // viewportHeight is unused (button is top-anchored); kept for call-symmetry with the
-        // other (viewportWidth, viewportHeight) rect getters.
+        // "Reset to defaults" button (viewport space), top-right of the screen. Named rather than
+        // magic numbers so the geometry is discoverable; matches the popup's centralized-constant
+        // pattern. viewportHeight is unused (button is top-anchored); kept for call-symmetry with
+        // the other (viewportWidth, viewportHeight) rect getters.
+        private const int ResetButtonWidth = 190;
+        private const int ResetButtonHeight = 30;
+        private const int ResetButtonRightInset = 210; // right viewport edge -> button's left edge
+        private const int ResetButtonTopInset = 12;
+
         private static Rectangle GetResetButtonRect(int viewportWidth, int viewportHeight) =>
-            new Rectangle(viewportWidth - 210, 12, 190, 30);
+            new Rectangle(viewportWidth - ResetButtonRightInset, ResetButtonTopInset,
+                          ResetButtonWidth, ResetButtonHeight);
 
         protected override void OnDraw(double deltaTime)
         {
@@ -294,8 +338,16 @@ namespace DTXMania.Game.Lib.Stage
             // a zone lit even when the user is only using the mouse.
             int focusedLaneForRender =
                 (_keyboardFocusActive && !DrumKitLayout.IsResetAction(_focusIndex)) ? _focusIndex : -1;
-            _renderer.Draw(_spriteBatch, _font, _whitePixel, _workingBindings,
-                vp.Width, vp.Height, _selectedLane, focusedLaneForRender, _hoveredLane);
+            // Named initializer (not positional args) so the three highlight lanes can't be swapped
+            // silently at the call site — the transposition hazard LaneHighlights exists to remove.
+            var highlights = new LaneHighlights
+            {
+                SelectedLane = _selectedLane,
+                FocusedLane = focusedLaneForRender,
+                HoveredLane = _hoveredLane
+            };
+            _renderer.Draw(_spriteBatch, _workingBindings,
+                vp.Width, vp.Height, in highlights);
 
             var resetRect = GetResetButtonRect(vp.Width, vp.Height);
             if (_whitePixel != null)
@@ -366,11 +418,10 @@ namespace DTXMania.Game.Lib.Stage
             EvictSystemKeysClaimedByDrumLanes();
 
             // Snapshot the binding-related config so we can roll back if the disk write fails,
-            // keeping live input state consistent with what is on disk (mirrors ConfigStage).
-            var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
-            var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
-            var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
-            var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
+            // keeping live input state consistent with what is on disk (mirrors ConfigStage). The
+            // four collections are centralized in BindingState so a future binding field is a
+            // single-point edit here, not a hand-maintained clear/refill.
+            var bindingSnapshot = config.SnapshotBindingState();
 
             concrete.SaveKeyBindings(_workingBindings);
             concrete.SaveSystemKeyBindings(_workingSystemBindings);
@@ -381,16 +432,11 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"DrumConfigStage: save failed: {ex.Message}");
+                // Log the full exception (not just .Message) so Release builds — where
+                // Debug.WriteLine is compiled out — still leave a diagnostic trail.
+                _logger.LogError(ex, "DrumConfigStage: failed to persist config");
 
-                config.KeyBindings.Clear();
-                foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
-                config.UnboundDrumLanes.Clear();
-                foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
-                config.UnboundDrumButtons.Clear();
-                foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
-                config.SystemKeyBindings.Clear();
-                foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+                config.RestoreBindingState(bindingSnapshot);
 
                 // Undo the eviction in the working copy so a retry starts from the pre-failure
                 // system mapping. Clear+re-add preserves the dictionary identity relied on by
@@ -404,9 +450,23 @@ namespace DTXMania.Game.Lib.Stage
                 return false;
             }
 
-            // Disk write succeeded: apply to live input state, clear any prior error, and exit.
-            _input.ModularInputManager.ReloadKeyBindings();
-            ApplySystemBindings(_input, _workingSystemBindings);
+            // Disk write succeeded: apply to live input state. The disk is now the source of truth;
+            // a throw here (e.g. ApplySystemBindings's remove-all-then-add-all mid-loop) would leave
+            // the live input inconsistent with disk. Catch, log, and surface it so the user knows the
+            // save persisted but the current session needs a retry/restart — rather than silently
+            // exiting with partially-applied input. Re-pressing Back re-saves (idempotent) and retries.
+            try
+            {
+                _input.ModularInputManager.ReloadKeyBindings();
+                ApplySystemBindings(_input, _workingSystemBindings);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DrumConfigStage: config saved to disk but live-input apply failed");
+                _saveError = $"Saved, but could not apply to this session: {ex.Message}. Press Back to retry.";
+                return false;
+            }
+
             _saveError = null;
             ChangeStage(StageType.Config, new InstantTransition());
             return true;

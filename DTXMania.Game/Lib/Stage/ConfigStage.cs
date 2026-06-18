@@ -15,6 +15,8 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 
 namespace DTXMania.Game.Lib.Stage
@@ -32,6 +34,16 @@ namespace DTXMania.Game.Lib.Stage
         private ConfigData _workingConfig;
         private KeyBindings _workingDrumBindings = new();
         private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
+
+        // NullLogger until OnActivate swaps in the game's factory; keeps reflection-based tests
+        // (which skip OnActivate) safe when they exercise ApplyConfiguration()'s catch path.
+        private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
+
+        // Set when a Save & Exit disk write fails; drawn in red so the user knows changes were not
+        // persisted and can retry. Mirrors DrumConfigStage._saveError. Without this, a failed save
+        // left the user on the stage with no on-screen signal, and a subsequent Back silently
+        // discarded the unsaved edits. Cleared on the next successful save.
+        private string? _saveError;
         /// <summary>
         /// Snapshot of system bindings taken at stage activation; used for ConfigStage's own
         /// navigation so that editing/wiping bindings in the system panel cannot lock out
@@ -88,6 +100,9 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
+            _logger = _game.LoggerFactory?.CreateLogger<ConfigStage>() ?? _logger;
+            _saveError = null; // fresh entry: no outstanding save error
+
             System.Diagnostics.Debug.WriteLine("Activating Config Stage");
 
             InitializeGraphics();
@@ -141,6 +156,7 @@ namespace DTXMania.Game.Lib.Stage
             DrawConfigItems();
             DrawButtons();
             DrawImportStatus();
+            DrawSaveError();
             DrawInstructions();
 
             // Draw active panel as overlay within the same sprite batch
@@ -678,10 +694,9 @@ namespace DTXMania.Game.Lib.Stage
             bool prevAutoPlay = config.AutoPlay;
             int prevScrollSpeed = config.ScrollSpeed;
             int prevAudioLatencyOffsetMs = config.AudioLatencyOffsetMs;
-            var prevKeyBindings = new Dictionary<string, int>(config.KeyBindings);
-            var prevUnboundLanes = new HashSet<int>(config.UnboundDrumLanes);
-            var prevUnboundButtons = new HashSet<string>(config.UnboundDrumButtons);
-            var prevSystemBindings = new Dictionary<string, string>(config.SystemKeyBindings);
+            // Binding collections are snapshotted/restored as a unit via BindingState (shared with
+            // DrumConfigStage); the scalar fields above are local to this stage and restored by hand.
+            var bindingSnapshot = config.SnapshotBindingState();
 
             // Stage 1: prepare in-memory config data from working copies
             config.ScreenWidth = _workingConfig.ScreenWidth;
@@ -707,7 +722,14 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to save configuration: {ex.Message}");
+                // Log the full exception (not just .Message) so Release builds — where
+                // Debug.WriteLine is compiled out — still leave a diagnostic trail.
+                _logger.LogError(ex, "ConfigStage: failed to save configuration");
+
+                // Surface the failure on-screen so the user knows changes were not persisted and
+                // can retry (mirrors DrumConfigStage). Without this the failure was invisible and a
+                // subsequent Back silently discarded the edits.
+                _saveError = $"Failed to save configuration: {ex.Message}";
 
                 config.ScreenWidth = prevWidth;
                 config.ScreenHeight = prevHeight;
@@ -717,26 +739,34 @@ namespace DTXMania.Game.Lib.Stage
                 config.AutoPlay = prevAutoPlay;
                 config.ScrollSpeed = prevScrollSpeed;
                 config.AudioLatencyOffsetMs = prevAudioLatencyOffsetMs;
-                config.KeyBindings.Clear();
-                foreach (var kvp in prevKeyBindings) config.KeyBindings[kvp.Key] = kvp.Value;
-                config.UnboundDrumLanes.Clear();
-                foreach (var lane in prevUnboundLanes) config.UnboundDrumLanes.Add(lane);
-                config.UnboundDrumButtons.Clear();
-                foreach (var buttonId in prevUnboundButtons) config.UnboundDrumButtons.Add(buttonId);
-                config.SystemKeyBindings.Clear();
-                foreach (var kvp in prevSystemBindings) config.SystemKeyBindings[kvp.Key] = kvp.Value;
+                config.RestoreBindingState(bindingSnapshot);
 
                 return false;
             }
 
-            // Stage 3: disk write succeeded — now apply to live input state
+            // Stage 3: disk write succeeded — now apply to live input state. The disk is the source
+            // of truth; a throw here (e.g. ApplySystemBindings's remove-all-then-add-all mid-loop)
+            // would leave the live input inconsistent with disk. Catch, log, and surface it so the
+            // user knows the save persisted but the current session needs a retry/restart — rather
+            // than silently completing with partially-applied input. Re-pressing Save & Exit re-writes
+            // (idempotent) and retries the apply. Mirrors DrumConfigStage.Save().
             if (_game.InputManager != null)
             {
-                _game.InputManager.ModularInputManager.ReloadKeyBindings();
-                ApplySystemBindings(_game.InputManager, _workingSystemBindings);
+                try
+                {
+                    _game.InputManager.ModularInputManager.ReloadKeyBindings();
+                    ApplySystemBindings(_game.InputManager, _workingSystemBindings);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "ConfigStage: configuration saved to disk but live-input apply failed");
+                    _saveError = $"Saved, but could not apply to this session: {ex.Message}. Press Save & Exit to retry.";
+                    return false;
+                }
             }
 
             _hasUnsavedChanges = false;
+            _saveError = null; // persisted successfully: clear any prior failure banner
             return true;
         }
 
@@ -872,6 +902,18 @@ namespace DTXMania.Game.Lib.Stage
             int x = MenuX;
             int y = MenuY + (_configItems.Count * MenuItemHeight) + 60;
             _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), new Color(18, 64, 132));
+        }
+
+        // Surfaces a save failure so the user knows changes were not persisted and can retry.
+        // Color matches DrumConfigStage's banner (and the popup's conflict-notice) for consistency.
+        private void DrawSaveError()
+        {
+            if (string.IsNullOrEmpty(_saveError) || _font == null)
+                return;
+
+            var viewport = GetViewport();
+            _font.DrawString(_spriteBatch, _saveError,
+                new Vector2(MenuX, viewport.Height - 60), new Color(220, 70, 70));
         }
 
         private void DrawInstructions()

@@ -11,10 +11,10 @@ namespace DTXMania.Test.Stage.DrumConfig
     [Trait("Category", "Unit")]
     public class DrumKitRendererTests
     {
-        // The drum pieces are black line-art with transparent interiors. The renderer fills a
-        // light "body" behind each pad so the black detail reads on the black stage, and lights
-        // that body yellow when the pad is selected/focused/hovered. BodyColorFor is the pure
-        // color-selection helper behind that behaviour; the rest of the renderer is graphics.
+        // The renderer fits each piece (a photorealistic 3D render, or a fallback filled disc when
+        // the skin lacks the art) into its zone and draws a yellow glow behind a piece that is
+        // selected/focused/hovered. BodyColorFor is the pure color-selection helper behind the
+        // fallback-disc tint; the rest of the renderer is graphics.
         private static Color BodyColorFor(bool highlighted)
         {
             var method = typeof(DrumKitRenderer).GetMethod("BodyColorFor",
@@ -188,6 +188,40 @@ namespace DTXMania.Test.Stage.DrumConfig
             resources.Setup(r => r.LoadTexture(TexturePath.DrumPadCymbal)).Returns(texture);
 
             Assert.Same(texture, TryLoad(resources.Object, TexturePath.DrumPadCymbal));
+        }
+
+        // ---- LaneHighlights (the bundled highlight-lane draw parameter) ----
+
+        [Fact]
+        public void LaneHighlights_Default_HighlightsNothing()
+        {
+            var highlights = new LaneHighlights();
+
+            // All three default to -1 (none), so no real lane (0..9) is highlighted.
+            for (int lane = 0; lane < 10; lane++)
+                Assert.False(highlights.IsHighlighted(lane));
+        }
+
+        [Fact]
+        public void LaneHighlights_EachNamedProperty_DrivesHighlight()
+        {
+            // Named init properties — the point of the struct is that each lane is set by name,
+            // not by position, so they cannot be transposed at the call site.
+            Assert.True(new LaneHighlights { SelectedLane = 4 }.IsHighlighted(4));
+            Assert.True(new LaneHighlights { FocusedLane = 7 }.IsHighlighted(7));
+            Assert.True(new LaneHighlights { HoveredLane = 0 }.IsHighlighted(0));
+        }
+
+        [Fact]
+        public void LaneHighlights_MultipleSet_AllHighlight()
+        {
+            var highlights = new LaneHighlights { SelectedLane = 2, FocusedLane = 5, HoveredLane = 8 };
+
+            Assert.True(highlights.IsHighlighted(2));
+            Assert.True(highlights.IsHighlighted(5));
+            Assert.True(highlights.IsHighlighted(8));
+            // A lane matching none of the three is not highlighted.
+            Assert.False(highlights.IsHighlighted(1));
         }
     }
 }

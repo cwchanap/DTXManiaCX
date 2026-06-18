@@ -50,9 +50,10 @@ namespace DTXMania.Game.Lib.Resources
         public const string ResultBackgroundRankE = "Graphics/8_background rankE.png";
 
         /// <summary>
-        /// Drum-mapping (DrumConfig) stage piece art: black line-art on a transparent
-        /// background, one per <c>DrumZoneShape</c>. The renderer draws a light body behind
-        /// the transparent interior so the black detail reads on the dark stage.
+        /// Drum-mapping (DrumConfig) stage piece art: photorealistic 3D render of each piece on a
+        /// transparent background, one per <see cref="DrumZoneShape"/>. The renderer fits each piece
+        /// undistorted into a square box and draws a yellow glow behind the focused/selected/hovered
+        /// piece; if the skin lacks the art, the zone falls back to a plain filled disc.
         /// </summary>
         public const string DrumPadCymbal = "Graphics/drumkit_cymbal.png";
         public const string DrumPadDrum = "Graphics/drumkit_drum.png";

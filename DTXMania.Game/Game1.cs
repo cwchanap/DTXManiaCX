@@ -58,7 +58,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     IGraphicsManager? IGameContext.GraphicsManager => _graphicsManager;
     public IResourceManager ResourceManager { get; protected set; } = null!;
 
-    
+    /// <summary>Logger factory shared with subsystems (graphics, API, ...). Exposed so stages can
+    /// create typed loggers that survive Release builds, unlike <c>System.Diagnostics.Debug</c>,
+    /// whose calls are compiled out via <c>[Conditional("DEBUG")]</c>.</summary>
+    public ILoggerFactory LoggerFactory => _loggerFactory;
+
+
     // Global stage transition debouncing
     private double _totalGameTime = 0.0;
     private double _lastStageTransitionTime = 0.0;
@@ -120,7 +125,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
-        _loggerFactory = LoggerFactory.Create(builder =>
+        // Fully qualified: this class also exposes a LoggerFactory instance property (for stages),
+        // so the unqualified name would otherwise bind to that property instead of the static factory.
+        _loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         {
             builder.AddConsole();
         });

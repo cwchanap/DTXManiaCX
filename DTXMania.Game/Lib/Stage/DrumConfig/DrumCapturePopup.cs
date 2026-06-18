@@ -248,7 +248,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             font.DrawString(spriteBatch, $"Configure: {KeyBindings.GetLaneName(Lane)}",
                 new Vector2(x, y), Color.White);
 
-            // Draw binding chips (labels and ✕ markers). ASCII 'x' stands in for ✕ at this font size.
+            // Draw binding chips (labels and ✕ markers). ASCII 'X' stands in for ✕ at this font size.
             int promptY;
             if (chips.Count == 0)
             {
