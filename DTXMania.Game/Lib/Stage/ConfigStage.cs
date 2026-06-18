@@ -91,8 +91,23 @@ namespace DTXMania.Game.Lib.Stage
             System.Diagnostics.Debug.WriteLine("Activating Config Stage");
 
             InitializeGraphics();
-            LoadConfiguration();
-            LoadWorkingInputBindings();
+
+            // Opening Drum Key Mapping transitions away to DrumConfigStage and back. Config values
+            // (Auto Play, Scroll Speed, ...) live only in this working copy until Save &amp; Exit
+            // commits them, so on return we must NOT clobber pending edits. The input bindings,
+            // however, always reload: DrumConfigStage commits drum/system bindings independently on
+            // its Back = Save exit, so the working binding copies must pick those up or a later
+            // Save here would overwrite DrumConfig's changes.
+            if (_hasUnsavedChanges)
+            {
+                LoadWorkingInputBindings();
+            }
+            else
+            {
+                LoadConfiguration();
+                LoadWorkingInputBindings();
+            }
+
             SetupConfigItems();
             InitializePanels();
 

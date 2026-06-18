@@ -18,8 +18,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
     /// <summary>
     /// Modal capture for a single drum lane: listens for the next input from any device and
     /// appends it to the lane's bindings. Keyboard keys are checked against system bindings —
-    /// required navigation keys are rejected; non-required system keys are auto-evicted
-    /// (mirrors the legacy panel's deferred-eviction behavior). Pure state/geometry; <see cref="Draw"/> is the only
+    /// required navigation keys are rejected; non-required system keys are claimed by the lane.
+    /// Eviction of a claimed non-required key from the system mapping is deferred to commit time
+    /// (the stage's Save), and applied only for keys still bound to a drum lane, so undoing the
+    /// binding before Save restores the system key. Pure state/geometry; <see cref="Draw"/> is the only
     /// graphics method and is exercised only by the stage.
     /// </summary>
     public class DrumCapturePopup
@@ -28,7 +30,6 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         private readonly KeyBindings _workingBindings;
         private readonly Func<IReadOnlyDictionary<Keys, InputCommandType>> _systemMappingProvider;
-        private readonly Action<Keys> _evictSystemBinding;
         private double _conflictTimer;
 
         public DrumCaptureState State { get; private set; } = DrumCaptureState.Closed;
@@ -38,12 +39,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         public DrumCapturePopup(
             KeyBindings workingBindings,
-            Func<IReadOnlyDictionary<Keys, InputCommandType>> systemMappingProvider,
-            Action<Keys> evictSystemBinding)
+            Func<IReadOnlyDictionary<Keys, InputCommandType>> systemMappingProvider)
         {
             _workingBindings = workingBindings ?? throw new ArgumentNullException(nameof(workingBindings));
             _systemMappingProvider = systemMappingProvider ?? throw new ArgumentNullException(nameof(systemMappingProvider));
-            _evictSystemBinding = evictSystemBinding ?? throw new ArgumentNullException(nameof(evictSystemBinding));
         }
 
         public void Open(int lane)
@@ -93,9 +92,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     return DrumCaptureOutcome.Rejected;
                 }
 
-                // Non-required system key (e.g. IncreaseScrollSpeed): evict so the lane can claim it.
-                if (system.ContainsKey(key))
-                    _evictSystemBinding(key);
+                // Non-required system keys (e.g. IncreaseScrollSpeed) are NOT evicted here. The
+                // stage evicts them at commit (Save) and only for keys still bound to a drum lane,
+                // so removing/clearing/resetting the binding before Save restores the system key.
             }
 
             _workingBindings.BindButton(button.Id, Lane);

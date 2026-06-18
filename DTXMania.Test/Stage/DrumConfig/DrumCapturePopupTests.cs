@@ -23,33 +23,24 @@ namespace DTXMania.Test.Stage.DrumConfig
             [Keys.Enter] = InputCommandType.Activate,           // required
             [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed, // non-required
         };
-        private readonly List<Keys> _evicted = new();
 
         private DrumCapturePopup NewPopup() =>
-            new(_bindings, () => _system, key => _evicted.Add(key));
+            new(_bindings, () => _system);
 
         [Fact]
         public void Constructor_WithNullBindings_ShouldThrowArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
-                new DrumCapturePopup(null!, () => _system, key => _evicted.Add(key)));
+            Assert.Throws<ArgumentNullException>(() =>
+                new DrumCapturePopup(null!, () => _system));
         }
 
         [Fact]
         public void Constructor_WithNullSystemMappingProvider_ShouldThrowArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
-                new DrumCapturePopup(_bindings, null!, key => _evicted.Add(key)));
-        }
-
-        [Fact]
-        public void Constructor_WithNullEvictSystemBinding_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => 
-                new DrumCapturePopup(_bindings, () => _system, null!));
+            Assert.Throws<ArgumentNullException>(() =>
+                new DrumCapturePopup(_bindings, null!));
         }
 
         [Fact]
@@ -89,16 +80,19 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void TryCapture_NonRequiredSystemKey_EvictsAndBinds()
+        public void TryCapture_NonRequiredSystemKey_BindsWithoutEvicting()
         {
+            // Eviction of a claimed non-required system key is deferred to the stage's commit, so
+            // capturing one must NOT mutate the system mapping (that would lose the shortcut if the
+            // binding is later removed/cleared/reset before Save). The popup only claims the lane.
             var popup = NewPopup();
             popup.Open(7);
 
             var outcome = popup.TryCapture(new ButtonState("Key.PageUp", true));
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.Contains(Keys.PageUp, _evicted);
             Assert.Contains("Key.PageUp", _bindings.GetButtonsForLane(7));
+            Assert.True(_system.ContainsKey(Keys.PageUp)); // system mapping untouched at capture
         }
 
         [Fact]
@@ -111,7 +105,6 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
             Assert.Contains("MIDI.36", _bindings.GetButtonsForLane(6));
-            Assert.Empty(_evicted);
         }
 
         [Fact]

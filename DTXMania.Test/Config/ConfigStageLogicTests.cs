@@ -627,6 +627,87 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void OnActivate_WithPendingConfigEdits_PreservesWorkingConfigAcrossRoundTrip()
+    {
+        // Opening Drum Key Mapping transitions away to DrumConfigStage and back. Pending config
+        // values (Auto Play, Scroll Speed) must survive that round-trip — they are not committed
+        // until Save & Exit, and DrumConfigStage does not touch them.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            // First activation: working config loaded from committed state.
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+            var working = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!;
+            Assert.False(working.AutoPlay);
+
+            // User edits config values but does not save.
+            working.AutoPlay = true;
+            working.ScrollSpeed = 200;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+            Assert.False(configManager.Config.AutoPlay); // committed state untouched
+
+            // Re-activate (returning from Drum Key Mapping): pending edits must survive.
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            var preserved = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!;
+            Assert.True(preserved.AutoPlay);
+            Assert.Equal(200, preserved.ScrollSpeed);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            Assert.False(configManager.Config.AutoPlay); // still not committed
+        }
+    }
+
+    [Fact]
+    public void OnActivate_OnReturnFromSubStage_ReloadsInputBindings()
+    {
+        // While pending config values are preserved across the DrumConfig round-trip, the input
+        // bindings must reload so DrumConfigStage's committed binding changes are reflected (a
+        // later Save here must not clobber them with a stale working copy).
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // Simulate DrumConfigStage committing a new drum binding to live input.
+            inputManager.ModularInputManager.KeyBindings.BindButton("Key.Z", 4);
+
+            // Re-activate with a pending config edit so the config value is preserved...
+            var working = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!;
+            working.AutoPlay = true;
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // ...while the drum bindings are reloaded to reflect the commit.
+            var drum = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings")!;
+            Assert.Equal(4, drum.GetLane("Key.Z"));
+        }
+    }
+
+    [Fact]
+    public void OnActivate_WithoutPendingEdits_ReloadsWorkingConfigFromCommitted()
+    {
+        // No pending edits -> re-activation reloads config values from committed state (the fresh
+        // path). Guards against the preservation branch accidentally swallowing external changes.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // Externally committed change (e.g. another stage saved config).
+            configManager.Config.AutoPlay = true;
+
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            var working = ReflectionHelpers.GetPrivateField<ConfigData>(stage, "_workingConfig")!;
+            Assert.True(working.AutoPlay); // reflects committed change
+        }
+    }
+
+    [Fact]
     public void OnDraw_WhenSpriteBatchMissing_ShouldReturnWithoutThrowing()
     {
         var (stage, _, inputManager) = CreateStage();
