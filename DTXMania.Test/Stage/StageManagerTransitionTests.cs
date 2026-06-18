@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
 
@@ -221,6 +223,26 @@ namespace DTXMania.Test.Stage
             var stages = ReflectionHelpers.GetPrivateField<Dictionary<StageType, IStage>>(_stageManager, "_stages");
             Assert.NotNull(stages);
             stages![stage.Type] = stage;
+        }
+
+        [Fact]
+        public void GetOrCreateStage_DrumConfig_LazilyCreatesAndCachesDrumConfigStage()
+        {
+            // DrumConfigStage's constructor needs a ConfigManager on the game; GetOrCreateStage
+            // only constructs (it does not Activate), so this exercises the switch arm without a
+            // GraphicsDevice and without triggering stage activation.
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new ConfigManager());
+            var manager = new StageManager(game);
+
+            var stage = (IStage)ReflectionHelpers.InvokePrivateMethod(manager, "GetOrCreateStage", StageType.DrumConfig)!;
+
+            Assert.IsType<DrumConfigStage>(stage);
+            Assert.Same(manager, stage.StageManager);
+
+            // The created stage is cached: a second lookup returns the same instance.
+            var stage2 = (IStage)ReflectionHelpers.InvokePrivateMethod(manager, "GetOrCreateStage", StageType.DrumConfig)!;
+            Assert.Same(stage, stage2);
         }
 
         private void SetCurrentStage(TestStage stage)

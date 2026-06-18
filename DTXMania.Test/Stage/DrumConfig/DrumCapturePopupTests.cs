@@ -4,6 +4,7 @@ using System.Linq;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.DrumConfig;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -425,6 +426,102 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.NotEmpty(chips2);
             Assert.Equal(2, chips1.Count); // Default + Q
             Assert.Equal(2, chips2.Count);
+        }
+
+        // ---- Draw ----
+        // Draw is exercised with a non-null SpriteBatch reference but whitePixel=null, so the
+        // spriteBatch is never called (all drawing is guarded behind `if (whitePixel != null)`).
+        // The font calls go to a mock that ignores the spriteBatch argument. This covers the
+        // panel/chip/prompt text layout without needing a working GraphicsDevice.
+
+        private static SpriteBatch CreateFakeSpriteBatch()
+        {
+            // Never constructed; only used as a non-null reference (no methods are called on it).
+            var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+            GC.SuppressFinalize(spriteBatch);
+            return spriteBatch;
+        }
+
+        private static IFont CreateMockFont()
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+            return font.Object;
+        }
+
+        [Fact]
+        public void Draw_WhenClosed_ReturnsImmediately()
+        {
+            var popup = NewPopup(); // not opened
+
+            var ex = Record.Exception(() =>
+                popup.Draw(CreateFakeSpriteBatch(), CreateMockFont(), null, 1280, 720));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void Draw_WhenOpenWithBindings_RendersChipLabelsClearAndDone()
+        {
+            var popup = NewPopup();
+            popup.Open(4); // default "Key.S" -> one chip
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            // Lane header, chip label + ✕ marker, prompt, Clear, and Done are all drawn.
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), It.Is<string>(s => s.Contains("Configure")), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "S", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), It.Is<string>(s => s.Contains("Listening")), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "Clear", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "Done", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+        }
+
+        [Fact]
+        public void Draw_WhenOpenWithNoBindings_ShowsEmptyPlaceholder()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.ClearLane(); // no bindings -> "(no bindings)" branch
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "(no bindings)", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Once);
+        }
+
+        [Fact]
+        public void Draw_WhenOpenInConflictState_RendersConflictPromptInRed()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+            popup.TryCapture(new ButtonState("Key.Enter", true)); // -> ShowingConflict
+
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+            Color? drawnColor = null;
+            font.Setup(f => f.DrawString(It.IsAny<SpriteBatch>(), It.Is<string>(s => s.Contains("reserved")), It.IsAny<Vector2>(), It.IsAny<Color>()))
+                .Callback<SpriteBatch, string, Vector2, Color>((_, _, _, c) => drawnColor = c);
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            Assert.NotNull(drawnColor);
+            Assert.Equal(Color.Red, drawnColor);
+        }
+
+        [Fact]
+        public void Draw_WhenFontNull_ReturnsBeforeAnyTextLayout()
+        {
+            var popup = NewPopup();
+            popup.Open(4);
+
+            // whitePixel null + font null: computes chips then returns at the font-null guard.
+            var ex = Record.Exception(() =>
+                popup.Draw(CreateFakeSpriteBatch(), null, null, 1280, 720));
+
+            Assert.Null(ex);
         }
     }
 }

@@ -543,6 +543,25 @@ namespace DTXMania.Test.Input
             Assert.True(_inputManager.LastUpdateTimeMs < 10.0); // Should still be reasonably fast
         }
 
+        [Fact]
+        public void OnInputRouterButtonPressed_RecordsButtonForConsumePressedButtons()
+        {
+            // The router raises OnButtonPressed synchronously during Update for each press; the
+            // manager's handler records it so ConsumePressedButtons can drain it once per frame.
+            var button = new DTXMania.Game.Lib.Input.ButtonState("Key.Z", true, 0.8f);
+
+            var method = typeof(ModularInputManager).GetMethod("OnInputRouterButtonPressed",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+            method!.Invoke(_inputManager, new object[] { _inputManager, button });
+
+            var pressed = _inputManager.ConsumePressedButtons();
+            Assert.Contains(pressed, b => b.Id == "Key.Z");
+
+            // A second drain in the same frame returns empty (the buffer was consumed).
+            Assert.Empty(_inputManager.ConsumePressedButtons());
+        }
+
         public void Dispose()
         {
             _inputManager?.Dispose();
