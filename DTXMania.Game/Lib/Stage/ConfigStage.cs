@@ -109,13 +109,19 @@ namespace DTXMania.Game.Lib.Stage
 
             // Opening Drum Key Mapping transitions away to DrumConfigStage and back. Config values
             // (Auto Play, Scroll Speed, ...) live only in this working copy until Save &amp; Exit
-            // commits them, so on return we must NOT clobber pending edits. The input bindings,
-            // however, always reload: DrumConfigStage commits drum/system bindings independently on
-            // its Back = Save exit, so the working binding copies must pick those up or a later
-            // Save here would overwrite DrumConfig's changes.
+            // commits them, so on return we must NOT clobber pending edits.
+            //
+            // Drum bindings always reload: DrumConfigStage commits drum bindings independently on
+            // its Back = Save exit, so the working drum copy must pick those up or a later Save here
+            // would overwrite DrumConfig's changes. Pending SYSTEM-key edits, however, must NOT be
+            // reloaded: the System Key Mapping panel writes only to _workingSystemBindings (the live
+            // InputManager is untouched until Save &amp; Exit here), so reloading from live would
+            // discard those edits and a later Save would persist the old mapping. Reload only the
+            // drum bindings; eviction keeps DrumConfig's conflict resolution intact (see
+            // ReloadWorkingDrumBindings).
             if (_hasUnsavedChanges)
             {
-                LoadWorkingInputBindings();
+                ReloadWorkingDrumBindings();
             }
             else
             {
@@ -308,6 +314,38 @@ namespace DTXMania.Game.Lib.Stage
             _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
             _workingSystemBindings = new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
             _navigationBindings = new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
+        }
+
+        /// <summary>
+        /// Reloads only <see cref="_workingDrumBindings"/> from the live InputManager, leaving
+        /// pending system-key edits in <see cref="_workingSystemBindings"/> (and the navigation
+        /// snapshot) intact. Used when returning from DrumConfigStage: that stage commits drum
+        /// bindings on its Back = Save exit (which must be picked up here), but ConfigStage's own
+        /// System Key Mapping panel writes only to the working copy and must survive the round-trip.
+        /// </summary>
+        /// <remarks>
+        /// Also evicts from <see cref="_workingSystemBindings"/> any keyboard key now claimed by a
+        /// drum lane in the reloaded drum bindings. DrumConfigStage performs the same eviction at its
+        /// commit (see <c>DrumConfigStage.EvictSystemKeysClaimedByDrumLanes</c>); replaying it here
+        /// ensures that conflict resolution is respected rather than being silently reverted when
+        /// ConfigStage later saves its still-pending system mapping. Mirrors that method's logic.
+        /// </remarks>
+        private void ReloadWorkingDrumBindings()
+        {
+            var inputManagerCompat = _game.InputManager
+                ?? throw new InvalidOperationException("InputManager not available");
+
+            _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
+
+            foreach (var kvp in _workingDrumBindings.ButtonToLane)
+            {
+                if (!KeyBindings.IsKeyboardButtonId(kvp.Key))
+                    continue;
+
+                // "Key.PageUp" -> Keys.PageUp
+                if (Enum.TryParse(kvp.Key.Substring(4), out Keys sysKey))
+                    _workingSystemBindings.Remove(sysKey);
+            }
         }
 
         private void SetupConfigItems()

@@ -661,9 +661,9 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnActivate_OnReturnFromSubStage_ReloadsInputBindings()
     {
-        // While pending config values are preserved across the DrumConfig round-trip, the input
-        // bindings must reload so DrumConfigStage's committed binding changes are reflected (a
-        // later Save here must not clobber them with a stale working copy).
+        // While pending config values are preserved across the DrumConfig round-trip, the drum
+        // bindings must reload so DrumConfigStage's committed drum-binding changes are reflected
+        // (a later Save here must not clobber them with a stale working copy).
         var configManager = new ConfigManager();
         var (stage, inputManager) = CreateLifecycleStage(configManager);
         using (inputManager)
@@ -682,6 +682,88 @@ public class ConfigStageLogicTests
             // ...while the drum bindings are reloaded to reflect the commit.
             var drum = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings")!;
             Assert.Equal(4, drum.GetLane("Key.Z"));
+        }
+    }
+
+    [Fact]
+    public void OnActivate_OnReturnFromSubStage_PreservesPendingSystemBindingEdits()
+    {
+        // Regression: the System Key Mapping panel writes only to _workingSystemBindings (the live
+        // InputManager is untouched until Save & Exit). Returning from Drum Key Mapping must NOT
+        // reload _workingSystemBindings from live, or those pending edits are discarded and a later
+        // Save & Exit persists the old mapping. Only the drum bindings reload.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // Simulate the user saving a new system mapping in the System Key Mapping panel. The
+            // panel's Saved handler replaces _workingSystemBindings with its snapshot and marks the
+            // stage dirty; the live InputManager is NOT touched (commit happens on Save & Exit).
+            var pending = new Dictionary<Keys, InputCommandType>(
+                ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(stage, "_workingSystemBindings")!)
+            {
+                [Keys.F5] = InputCommandType.MoveUp
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", pending);
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            // Sanity: the live mapping does not know about the pending edit (mirrors the bug scenario).
+            Assert.False(inputManager.GetKeyMappingSnapshot().ContainsKey(Keys.F5));
+
+            // Re-activate (returning from Drum Key Mapping) with no live system-binding change.
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // The pending system-key edit must survive the round-trip.
+            var system = ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(stage, "_workingSystemBindings")!;
+            Assert.True(system.ContainsKey(Keys.F5));
+            Assert.Equal(InputCommandType.MoveUp, system[Keys.F5]);
+            // Still not committed to live.
+            Assert.False(inputManager.GetKeyMappingSnapshot().ContainsKey(Keys.F5));
+        }
+    }
+
+    [Fact]
+    public void OnActivate_OnReturnFromSubStage_EvictsSystemKeyClaimedByDrumLane()
+    {
+        // If DrumConfigStage reassigned a drum key that collides with a pending system-key edit,
+        // DrumConfigStage evicts that system key at its commit. Returning here must honor that
+        // eviction (replay it against _workingSystemBindings) so ConfigStage's still-pending edit
+        // does not silently resurrect the conflict on a later Save & Exit. Mirrors
+        // DrumConfigStage.EvictSystemKeysClaimedByDrumLanes.
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // Pending system mapping for Key.Z (not a default drum lane), plus an unrelated
+            // Key.F5 mapping that must survive the round-trip (no drum conflict).
+            var pending = new Dictionary<Keys, InputCommandType>(
+                ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(stage, "_workingSystemBindings")!)
+            {
+                [Keys.Z] = InputCommandType.Activate,
+                [Keys.F5] = InputCommandType.MoveUp
+            };
+            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", pending);
+            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
+
+            // Simulate DrumConfigStage committing Key.Z to a drum lane in live input.
+            inputManager.ModularInputManager.KeyBindings.BindButton("Key.Z", 4);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            // Drum binding reloaded to reflect DrumConfig's commit...
+            var drum = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingDrumBindings")!;
+            Assert.Equal(4, drum.GetLane("Key.Z"));
+            var system = ReflectionHelpers.GetPrivateField<Dictionary<Keys, InputCommandType>>(stage, "_workingSystemBindings")!;
+            // ...the colliding system key evicted from the pending system mapping...
+            Assert.False(system.ContainsKey(Keys.Z));
+            // ...while the non-conflicting pending edit is preserved (this is what breaks under the
+            // old full-reload path, which discarded every pending system edit).
+            Assert.True(system.ContainsKey(Keys.F5));
+            Assert.Equal(InputCommandType.MoveUp, system[Keys.F5]);
         }
     }
 
