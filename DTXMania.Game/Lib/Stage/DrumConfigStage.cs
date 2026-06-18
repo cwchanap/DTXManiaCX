@@ -40,6 +40,10 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Color DarkText = new(26, 30, 46);
 
         private int _focusIndex;
+        // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
+        // again as soon as they move the mouse. Without this the default focus (lane 0) would
+        // light up permanently on stage entry even though no one is using the keyboard.
+        private bool _keyboardFocusActive;
         private int _hoveredLane = -1;
         private int _selectedLane = -1;
         private bool _skipCaptureThisFrame;
@@ -94,6 +98,7 @@ namespace DTXMania.Game.Lib.Stage
                 key => _workingSystemBindings.Remove(key));
 
             _focusIndex = 0;
+            _keyboardFocusActive = false;
             _selectedLane = -1;
             _hoveredLane = -1;
             _skipCaptureThisFrame = false;
@@ -177,6 +182,11 @@ namespace DTXMania.Game.Lib.Stage
             float designY = mouse.Y * DrumKitLayout.DesignHeight / (float)vp.Height;
             _hoveredLane = DrumKitLayout.HitTest(designX, designY);
 
+            // Moving the mouse is a clear signal the user is pointing, not keyboard-navigating, so
+            // hide the keyboard focus highlight and let hover drive the highlight instead.
+            if (mouse.X != _previousMouse.X || mouse.Y != _previousMouse.Y)
+                _keyboardFocusActive = false;
+
             // Keyboard focus navigation: arrows or Tab cycle through the zones and the Reset
             // action (design: "arrows/Tab focus + Enter" over zones + Reset). Tab is read via
             // IsKeyPressed so MCP/E2E-injected keys register (raw Keyboard.GetState would not).
@@ -188,7 +198,10 @@ namespace DTXMania.Game.Lib.Stage
                 focusDelta = -1;
 
             if (focusDelta != 0)
+            {
                 _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, focusDelta);
+                _keyboardFocusActive = true; // user is now navigating by keyboard: show the focus ring
+            }
 
             // Back exits the stage (Back = Save: commit the working copy).
             if (_input?.IsBackActionTriggered() == true)
@@ -277,8 +290,11 @@ namespace DTXMania.Game.Lib.Stage
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), DarkText);
 
-            // Reset focus is not a lane, so pass -1 to avoid highlighting a zone in that case.
-            int focusedLaneForRender = DrumKitLayout.IsResetAction(_focusIndex) ? -1 : _focusIndex;
+            // Only surface the keyboard focus highlight while keyboard navigation is active, and
+            // never for the Reset action (it is not a lane). Otherwise the default focus would keep
+            // a zone lit even when the user is only using the mouse.
+            int focusedLaneForRender =
+                (_keyboardFocusActive && !DrumKitLayout.IsResetAction(_focusIndex)) ? _focusIndex : -1;
             _renderer.Draw(_spriteBatch, _font, _whitePixel, _workingBindings,
                 vp.Width, vp.Height, _selectedLane, focusedLaneForRender, _hoveredLane);
 
@@ -287,7 +303,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Focus ring first (yellow, inflated) so the fill sits inside it, mirroring the
                 // zone focus highlight and giving keyboard users a visible "Reset is focused" cue.
-                if (DrumKitLayout.IsResetAction(_focusIndex))
+                if (_keyboardFocusActive && DrumKitLayout.IsResetAction(_focusIndex))
                 {
                     var ring = resetRect;
                     ring.Inflate(4, 4);
