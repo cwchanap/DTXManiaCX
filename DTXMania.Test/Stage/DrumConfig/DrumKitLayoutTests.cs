@@ -78,5 +78,32 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.False(DrumKitLayout.IsResetAction(0));
             Assert.False(DrumKitLayout.IsResetAction(DrumKitLayout.ZoneCount - 1));
         }
+
+        [Fact]
+        public void Zone_AllPropertiesAreReadableForEveryZone()
+        {
+            // Reads every struct property (Lane/Name/Shape/Center/Radius/FlipHorizontal) so the
+            // auto-property accessors stay covered, including the rarely-read FlipHorizontal.
+            foreach (var zone in DrumKitLayout.Zones)
+            {
+                Assert.InRange(zone.Lane, 0, DrumKitLayout.ZoneCount - 1);
+                Assert.Equal(KeyBindings.GetLaneName(zone.Lane), zone.Name);
+                Assert.True(zone.RadiusX > 0 && zone.RadiusY > 0);
+                _ = zone.Shape;
+                _ = zone.CenterX;
+                _ = zone.CenterY;
+                _ = zone.FlipHorizontal;
+            }
+        }
+
+        [Fact]
+        public void Zone_LeftPedalIsFlippedAndRightPedalIsNot()
+        {
+            // The left pedal (lane 3) mirrors the right so its beater faces the other way.
+            var leftPedal = DrumKitLayout.Zones.Single(z => z.Lane == 3);
+            var rightPedal = DrumKitLayout.Zones.Single(z => z.Lane == 6);
+            Assert.True(leftPedal.FlipHorizontal);
+            Assert.False(rightPedal.FlipHorizontal);
+        }
     }
 }
