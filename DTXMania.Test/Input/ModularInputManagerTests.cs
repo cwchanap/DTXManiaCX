@@ -478,6 +478,7 @@ namespace DTXMania.Test.Input
     /// <summary>
     /// Integration tests for the complete input system
     /// </summary>
+    [Trait("Category", "Integration")]
     public class InputSystemIntegrationTests : IDisposable
     {
         private readonly ConfigManager _configManager;
