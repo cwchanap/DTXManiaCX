@@ -233,7 +233,7 @@ namespace DTXMania.Test.Stage
             // GraphicsDevice and without triggering stage activation.
             var game = ReflectionHelpers.CreateGame();
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new ConfigManager());
-            var manager = new StageManager(game);
+            using var manager = new StageManager(game);
 
             var stage = (IStage)ReflectionHelpers.InvokePrivateMethod(manager, "GetOrCreateStage", StageType.DrumConfig)!;
 
