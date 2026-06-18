@@ -9,6 +9,15 @@ namespace DTXMania.Test.Stage.DrumConfig
     public class DrumKitLayoutTests
     {
         [Fact]
+        public void ZoneCount_ShouldEqualNumberOfZonesAndKeepFocusCountsInSync()
+        {
+            // The focus math derives from the zone list, so these must never drift out of sync.
+            Assert.Equal(DrumKitLayout.Zones.Count, DrumKitLayout.ZoneCount);
+            Assert.Equal(DrumKitLayout.ZoneCount, DrumKitLayout.ResetActionIndex);
+            Assert.Equal(DrumKitLayout.ZoneCount + 1, DrumKitLayout.FocusableCount);
+        }
+
+        [Fact]
         public void Zones_CoverAllTenLanesExactlyOnce()
         {
             var lanes = DrumKitLayout.Zones.Select(z => z.Lane).OrderBy(l => l).ToArray();

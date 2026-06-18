@@ -90,14 +90,15 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         // that is unit-testable and Mac-safe. Kept here, as pure data/math, so the stage wires
         // input to focus without owning the geometry or order.
 
-        /// <summary>Number of drum zones (lanes 0-9). Mirrors <see cref="Zones"/>'s count.</summary>
-        public const int ZoneCount = 10;
+        /// <summary>Number of drum zones. Derived from <see cref="Zones"/> so the focus math can
+        /// never desync from the actual zone list if a zone is added or removed.</summary>
+        public static int ZoneCount => Zones.Count;
 
         /// <summary>Focus index of the Reset-to-defaults action (immediately after the last zone).</summary>
-        public const int ResetActionIndex = ZoneCount;
+        public static int ResetActionIndex => ZoneCount;
 
         /// <summary>Total keyboard-focusable elements: the zones plus the Reset action.</summary>
-        public const int FocusableCount = ZoneCount + 1;
+        public static int FocusableCount => ZoneCount + 1;
 
         /// <summary>True when <paramref name="focusIndex"/> points at the Reset-to-defaults action.</summary>
         public static bool IsResetAction(int focusIndex) => focusIndex == ResetActionIndex;

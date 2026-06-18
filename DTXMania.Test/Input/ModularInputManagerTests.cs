@@ -11,6 +11,7 @@ namespace DTXMania.Test.Input
     /// Unit tests for the ModularInputManager
     /// Tests keyboard input, key bindings, and runtime reconfiguration
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ModularInputManagerTests : IDisposable
     {
         private readonly ConfigManager _configManager;
