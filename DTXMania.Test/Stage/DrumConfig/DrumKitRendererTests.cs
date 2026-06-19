@@ -105,6 +105,64 @@ namespace DTXMania.Test.Stage.DrumConfig
             }
         }
 
+        // ---- LabelRectFor (binding-label pill geometry; pure static) ----
+        // Pins the at-a-glance binding label placement: the pill sits just below the piece,
+        // centered on it, flips above when it would clip the viewport bottom, and never produces
+        // non-positive dimensions. GraphicsDevice-free, so it is unit-testable headlessly.
+
+        private static Rectangle LabelRectFor(Rectangle anchor, Vector2 textSize, int viewportHeight)
+        {
+            var method = typeof(DrumKitRenderer).GetMethod("LabelRectFor",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return (Rectangle)method!.Invoke(null, new object[] { anchor, textSize, viewportHeight })!;
+        }
+
+        [Fact]
+        public void LabelRectFor_SitsBelowAnchorAndIsHorizontallyCentered()
+        {
+            var anchor = new Rectangle(100, 100, 60, 60); // a typical snare/tom box
+            var size = new Vector2(20, 14);               // e.g. the text "S"
+
+            var rect = LabelRectFor(anchor, size, viewportHeight: 720);
+
+            // Pill sits just below the piece (anchor.Bottom + gap) and is centered on its column.
+            Assert.Equal(anchor.Bottom + 6, rect.Top);
+            Assert.Equal(anchor.Center.X - (rect.Width / 2), rect.X);
+            // Sized to the text plus symmetric padding.
+            Assert.Equal(20 + 12, rect.Width);
+            Assert.Equal(14 + 6, rect.Height);
+        }
+
+        [Fact]
+        public void LabelRectFor_WhenBelowAnchorClips_FlipsAboveThePiece()
+        {
+            // Bass/hi-hat pedals sit near the bottom edge; a below-the-piece pill would run off
+            // screen, so it must flip above the piece instead.
+            var anchor = new Rectangle(700, 690, 60, 20); // bottom edge piece
+            var size = new Vector2(30, 14);
+
+            var rect = LabelRectFor(anchor, size, viewportHeight: 720);
+
+            // Bottom of the pill must remain within the viewport, and it now sits above the piece.
+            Assert.True(rect.Bottom <= 720);
+            Assert.Equal(anchor.Top - rect.Height - 6, rect.Top);
+        }
+
+        [Fact]
+        public void LabelRectFor_NeverProducesNonPositiveDimensions()
+        {
+            var anchor = new Rectangle(0, 0, 10, 10);
+
+            // Even degenerate (zero/negative) measured sizes must yield a non-empty pill.
+            foreach (var size in new[] { Vector2.Zero, new Vector2(-5, -5), new Vector2(8, 0) })
+            {
+                var rect = LabelRectFor(anchor, size, viewportHeight: 720);
+                Assert.True(rect.Width >= 1);
+                Assert.True(rect.Height >= 1);
+            }
+        }
+
         // ---- ShapeTexture (instance switch) ----
 
         private static DrumKitRenderer NewRendererWithShapes(

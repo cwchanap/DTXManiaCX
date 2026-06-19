@@ -718,6 +718,58 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(InputCommandType.Activate, snapshot[Keys.Space]);
         }
 
+        // ---- ResolvePopupSystemMapping (pending-aware conflict source) ----
+        // Pins the Comment-1 fix: the capture popup must reject against ConfigStage's PENDING
+        // system edits when present (so a key just assigned to a required command — e.g. MoveUp on
+        // Z — is rejected even though the live mapping still has the old key), and otherwise fall
+        // back to the live snapshot. GraphicsDevice-free, so this is unit-testable headlessly.
+
+        private static IReadOnlyDictionary<Keys, InputCommandType> ResolvePopupSystemMapping(
+            Dictionary<Keys, InputCommandType>? pending,
+            Dictionary<Keys, InputCommandType> live)
+        {
+            var method = typeof(DrumConfigStage).GetMethod("ResolvePopupSystemMapping",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return (IReadOnlyDictionary<Keys, InputCommandType>)method!.Invoke(null,
+                new object?[] { pending, live })!;
+        }
+
+        [Fact]
+        public void ResolvePopupSystemMapping_WithPending_ReturnsPendingOverLive()
+        {
+            // Live still maps MoveUp to Up; the user (pending) just moved it to Z. The popup must
+            // consult the pending map so Z is seen as a required key and rejected at capture.
+            var pending = new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp };
+            var live = new Dictionary<Keys, InputCommandType> { [Keys.Up] = InputCommandType.MoveUp };
+
+            var resolved = ResolvePopupSystemMapping(pending, live);
+
+            Assert.Same(pending, resolved);
+            Assert.True(resolved.ContainsKey(Keys.Z));
+            Assert.False(resolved.ContainsKey(Keys.Up));
+        }
+
+        [Fact]
+        public void ResolvePopupSystemMapping_WithoutPending_FallsBackToLive()
+        {
+            // No pending edits (e.g. DrumConfig entered directly, or Config has nothing unsaved):
+            // the popup rejects against the live mapping, preserving the pre-fix behaviour.
+            var live = new Dictionary<Keys, InputCommandType> { [Keys.Up] = InputCommandType.MoveUp };
+
+            var resolved = ResolvePopupSystemMapping(pending: null, live);
+
+            Assert.Same(live, resolved);
+        }
+
+        [Fact]
+        public void PendingSystemBindingsKey_IsStableIdentifier()
+        {
+            // ConfigStage references this constant to populate the shared-data payload; renaming it
+            // silently would break the cross-stage contract. Pin the value.
+            Assert.Equal("PendingSystemBindings", DrumConfigStage.PendingSystemBindingsKey);
+        }
+
         [Fact]
         public void ProcessPopupCapture_ReservedKeyBeforeValidKey_DropsValidKeySameFrame()
         {

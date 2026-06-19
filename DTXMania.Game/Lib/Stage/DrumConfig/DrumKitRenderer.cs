@@ -98,8 +98,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _ => null
         };
 
-        public void Draw(SpriteBatch spriteBatch, KeyBindings bindings, int viewportWidth,
-                         int viewportHeight, in LaneHighlights highlights)
+        public void Draw(SpriteBatch spriteBatch, KeyBindings bindings, IFont? font,
+                         Texture2D? whitePixel, int viewportWidth, int viewportHeight,
+                         in LaneHighlights highlights)
         {
             float sx = viewportWidth / (float)DrumKitLayout.DesignWidth;
             float sy = viewportHeight / (float)DrumKitLayout.DesignHeight;
@@ -139,7 +140,61 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     // Skin lacks the art: plain disc in the body colour.
                     spriteBatch.Draw(_circle, box, BodyColorFor(highlight));
                 }
+
+                // At-a-glance binding label for this zone (e.g. "S", "Space", "MIDI 36", or
+                // "Unbound"), drawn from the working KeyBindings the stage passes each frame. This
+                // is the parameter the renderer previously received but never read; users can now
+                // see every mapping without opening each popup. Skipped when the font/pixel are
+                // unavailable; a translucent dark pill keeps the text legible over any artwork.
+                DrawZoneLabel(spriteBatch, font, whitePixel, bindings, box, viewportHeight, zone.Lane);
             }
+        }
+
+        // Backdrop colour for a binding label: translucent black so white text reads over art.
+        private static readonly Color LabelBackdrop = new(0, 0, 0, 165);
+        private const int LabelPadX = 6;
+        private const int LabelPadY = 3;
+        private const int LabelGap = 6; // px between the piece's box and the label pill
+
+        /// <summary>
+        /// Draws one zone's binding description as a centered label just below its piece (flipped
+        /// above when it would clip the bottom of the viewport). Graphics-only; exercised via the
+        /// stage's <see cref="Draw"/>. The pure geometry lives in <see cref="LabelRectFor"/> so it
+        /// is unit-testable without a GraphicsDevice.
+        /// </summary>
+        private static void DrawZoneLabel(SpriteBatch spriteBatch, IFont? font, Texture2D? whitePixel,
+            KeyBindings? bindings, Rectangle anchor, int viewportHeight, int lane)
+        {
+            if (font == null || whitePixel == null || bindings == null)
+                return;
+
+            var text = bindings.GetLaneDescription(lane);
+            var size = font.MeasureString(text);
+            if (size.X <= 0 || size.Y <= 0)
+                return;
+
+            var rect = LabelRectFor(anchor, size, viewportHeight);
+            spriteBatch.Draw(whitePixel, rect, LabelBackdrop);
+            var pos = new Vector2(rect.Center.X - (size.X / 2f), rect.Center.Y - (size.Y / 2f));
+            font.DrawString(spriteBatch, text, pos, Color.White);
+        }
+
+        /// <summary>
+        /// Viewport-space rectangle of the translucent label pill for a zone, given the piece's
+        /// draw box and the measured text size. Sits just below the piece; flips above it when the
+        /// pill would run past the bottom of the viewport (the bass/hi-hat pedals are near the
+        /// bottom edge). Pure so the placement is unit-testable without a GraphicsDevice.
+        /// </summary>
+        private static Rectangle LabelRectFor(Rectangle anchor, Vector2 textSize, int viewportHeight)
+        {
+            int w = Math.Max(1, (int)textSize.X + (LabelPadX * 2));
+            int h = Math.Max(1, (int)textSize.Y + (LabelPadY * 2));
+            int x = anchor.Center.X - (w / 2);
+            int y = anchor.Bottom + LabelGap;
+            if (y + h > viewportHeight)        // would clip below the viewport: flip above the piece
+                y = anchor.Top - h - LabelGap;
+            if (y < 0) y = 0;
+            return new Rectangle(x, y, w, h);
         }
 
         /// <summary>Largest rectangle of the source's aspect ratio that fits inside <paramref name="bounds"/>, centered.</summary>

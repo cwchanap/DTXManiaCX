@@ -65,6 +65,13 @@ namespace DTXMania.Game.Lib.Stage
 
         public override StageType Type => StageType.DrumConfig;
 
+        /// <summary>
+        /// Shared-data key under which ConfigStage hands its pending system-key edits to this stage
+        /// (see <see cref="OnActivate"/>). Public so ConfigStage can reference it without a magic
+        /// string; the value is a snapshot of ConfigStage's <c>_workingSystemBindings</c>.
+        /// </summary>
+        public const string PendingSystemBindingsKey = "PendingSystemBindings";
+
         public DrumConfigStage(BaseGame game) : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
@@ -106,7 +113,20 @@ namespace DTXMania.Game.Lib.Stage
 
             _popup = new DrumCapturePopup(
                 _workingBindings,
-                () => _workingSystemBindings);
+                // ConfigStage may hand us its pending system-key edits (a snapshot of its own
+                // _workingSystemBindings) via shared data. The capture popup must reject a key the
+                // user just assigned to a REQUIRED command there — e.g. moving MoveUp to Z — even
+                // though the live mapping still has the OLD required key. Without this, Z would be
+                // allowed into a drum lane, and on return ConfigStage.ReloadWorkingDrumBindings
+                // would evict Z from the pending system map, silently dropping the system edit on
+                // the later Config save.
+                //
+                // We still commit/evict against the LIVE snapshot (_workingSystemBindings above),
+                // so DrumConfig's disk writes — and therefore ConfigStage's Save/Discard semantics
+                // — are unchanged; the pending map is consulted only for required-key rejection.
+                () => ResolvePopupSystemMapping(
+                    GetSharedData<Dictionary<Keys, InputCommandType>>(PendingSystemBindingsKey),
+                    _workingSystemBindings));
 
             _focusIndex = 0;
             _keyboardFocusActive = false;
@@ -347,6 +367,7 @@ namespace DTXMania.Game.Lib.Stage
                 HoveredLane = _hoveredLane
             };
             _renderer.Draw(_spriteBatch, _workingBindings,
+                _font, _whitePixel,
                 vp.Width, vp.Height, in highlights);
 
             var resetRect = GetResetButtonRect(vp.Width, vp.Height);
@@ -488,6 +509,19 @@ namespace DTXMania.Game.Lib.Stage
             foreach (var kvp in bindings)
                 inputManager.AddKeyMapping(kvp.Key, kvp.Value);
         }
+
+        /// <summary>
+        /// Chooses which system mapping the capture popup consults for required-key rejection.
+        /// Prefers ConfigStage's pending edits (passed via shared data) so a key the user just
+        /// assigned to a required command is rejected even though the live mapping still holds the
+        /// old key; falls back to the live snapshot when there are no pending edits (e.g. DrumConfig
+        /// entered directly, or ConfigStage has no unsaved system changes). Pure so the selection is
+        /// unit-testable headlessly.
+        /// </summary>
+        private static IReadOnlyDictionary<Keys, InputCommandType> ResolvePopupSystemMapping(
+            IReadOnlyDictionary<Keys, InputCommandType>? pending,
+            IReadOnlyDictionary<Keys, InputCommandType> live)
+            => pending ?? live;
 
         /// <summary>
         /// Removes from <see cref="_workingSystemBindings"/> any keyboard key that is currently

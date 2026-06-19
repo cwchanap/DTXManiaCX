@@ -456,7 +456,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Drum and system key mapping navigation items
             _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
-                () => ChangeStage(StageType.DrumConfig, new InstantTransition())));
+                () => NavigateToDrumConfig()));
             _configItems.Add(new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel)));
 
@@ -491,6 +491,23 @@ namespace DTXMania.Game.Lib.Stage
             if (panel == null) return;
             _activePanel = panel;
             _activePanel.Activate();
+        }
+
+        /// <summary>
+        /// Hands the pending system-key edits to DrumConfigStage so its capture popup can reject a
+        /// key the user just assigned to a required command (see DrumConfigStage.OnActivate). A
+        /// snapshot is taken so later edits here cannot mutate the map DrumConfigStage rejects
+        /// against mid-session. Drum bindings are intentionally NOT passed: this stage never edits
+        /// them, so DrumConfigStage cloning the live drum mapping is always correct.
+        /// </summary>
+        private void NavigateToDrumConfig()
+        {
+            var shared = new Dictionary<string, object>
+            {
+                [DrumConfigStage.PendingSystemBindingsKey] =
+                    new Dictionary<Keys, InputCommandType>(_workingSystemBindings)
+            };
+            ChangeStage(StageType.DrumConfig, new InstantTransition(), shared);
         }
 
         private void OnPanelSaved(object? sender, EventArgs e)
