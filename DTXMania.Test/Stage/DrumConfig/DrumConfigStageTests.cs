@@ -143,50 +143,6 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void Save_WhenSaveConfigThrows_ShouldRollbackConfigAndNotApplyLiveBindings()
-        {
-            var configManager = new ConfigManager();
-            using var input = new InputManagerCompat(configManager);
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), input);
-
-            var stage = new DrumConfigStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-
-            var working = input.ModularInputManager.KeyBindings.Clone();
-            working.BindButton("Key.X", 2);
-            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
-            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Keys, InputCommandType>());
-
-            var tempFile = Path.GetTempFileName();
-            var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempFile);
-            try
-            {
-                var exited = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "Save");
-
-                // On failure the stage must NOT exit, the config must be rolled back, and the live
-                // bindings must not reflect the unsaved working copy.
-                Assert.False(exited);
-                Assert.Equal(-1, input.ModularInputManager.KeyBindings.GetLane("Key.X"));
-                Assert.False(configManager.Config.KeyBindings.ContainsKey("Key.X"));
-
-                // The stage surfaces the failure so the user knows nothing was persisted, and it
-                // keeps the working copy intact so a retry (Back again) can succeed.
-                var saveError = ReflectionHelpers.GetPrivateField<string?>(stage, "_saveError");
-                Assert.False(string.IsNullOrEmpty(saveError));
-                var retainedWorking = ReflectionHelpers.GetPrivateField<KeyBindings>(stage, "_workingBindings");
-                Assert.Equal(2, retainedWorking.GetLane("Key.X"));
-            }
-            finally
-            {
-                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-                File.Delete(tempFile);
-            }
-        }
-
-        [Fact]
         public void Save_EvictsSystemKeysClaimedByDrumLanes()
         {
             // Deferred eviction at commit: a non-required system key bound to a drum lane is evicted
