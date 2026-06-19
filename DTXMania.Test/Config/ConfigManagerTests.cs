@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Xna.Framework.Input;
 using System.Text;
 
 namespace DTXMania.Test.Config;
@@ -715,4 +716,50 @@ Key.Bad=abc
     [Fact]
     public void SetKeyBindings_NoEvent_WhenNoSubscriber_DoesNotThrow() =>
         Assert.Null(Record.Exception(() => new ConfigManager().SetKeyBindings(new KeyBindings())));
+
+    [Fact]
+    public void SetSystemKeyBindings_MutatesConfig_MarksDirty_FiresEvent()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
+        try
+        {
+            // Arrange — LoadConfig captures _loadedConfigPath so MarkDirty() stages a real
+            // deferred write (and seeds a default config file at that path).
+            var cm = new ConfigManager();
+            cm.LoadConfig(AppPaths.GetConfigFilePath());
+
+            var raised = false;
+            cm.SystemKeyBindingsChanged += (_, _) => raised = true;
+
+            // Act
+            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp });
+
+            // Assert — in-memory mutation + event
+            Assert.Contains("SystemKey.MoveUp", cm.Config.SystemKeyBindings.Keys);
+            Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+            Assert.True(raised);
+
+            // Persist-on-edit: MarkDirty() must have staged a deferred write against the
+            // loaded path, so FlushPendingSave lands the binding on disk. SaveConfig writes
+            // SystemKey.<Command>=<keys>; the default config has no SystemKey.MoveUp=Z, so
+            // this only passes when the full SetSystemKeyBindings -> MarkDirty ->
+            // FlushPendingSave chain ran end-to-end.
+            cm.FlushPendingSave();
+            Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
+            Assert.Contains("SystemKey.MoveUp=Z", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SetSystemKeyBindings_NoEvent_WhenNoSubscriber_DoesNotThrow() =>
+        Assert.Null(Record.Exception(() => new ConfigManager().SetSystemKeyBindings(
+            new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp })));
 }

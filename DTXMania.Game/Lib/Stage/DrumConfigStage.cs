@@ -444,8 +444,8 @@ namespace DTXMania.Game.Lib.Stage
             // single-point edit here, not a hand-maintained clear/refill.
             var bindingSnapshot = config.SnapshotBindingState();
 
-            concrete.SaveKeyBindings(_workingBindings);
-            concrete.SaveSystemKeyBindings(_workingSystemBindings);
+            concrete.SetKeyBindings(_workingBindings);
+            concrete.SetSystemKeyBindings(_workingSystemBindings);
 
             try
             {

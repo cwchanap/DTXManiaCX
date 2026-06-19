@@ -254,10 +254,10 @@ namespace DTXMania.Game.Lib.Config
         public void SaveSystemKeyBindings(InputManager inputManager)
         {
             var snapshot = inputManager.GetKeyMappingSnapshot();
-            SaveSystemKeyBindings(snapshot);
+            ApplySystemKeyBindings(snapshot);
         }
 
-        public void SaveSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
+        private void ApplySystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
         {
             var existingBindings = new Dictionary<string, string>(Config.SystemKeyBindings);
             Config.SystemKeyBindings.Clear();
@@ -485,6 +485,8 @@ namespace DTXMania.Game.Lib.Config
 
         public event EventHandler<EventArgs>? KeyBindingsChanged;
 
+        public event EventHandler<EventArgs>? SystemKeyBindingsChanged;
+
         public void SetScrollSpeed(string configFilePath, int percent)
         {
             var snapped = ScrollSpeedRange.SnapAndClamp(percent);
@@ -518,6 +520,22 @@ namespace DTXMania.Game.Lib.Config
             SaveKeyBindings(keyBindings);
             MarkDirty();
             KeyBindingsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Writes <paramref name="workingBindings"/> into <see cref="Config"/>, marks the
+        /// edit dirty for a deferred save, and raises
+        /// <see cref="SystemKeyBindingsChanged"/>.
+        /// </summary>
+        /// <remarks>
+        /// Requires a prior <see cref="LoadConfig"/> call for the edit to be persisted;
+        /// calling before LoadConfig mutates in-memory Config only.
+        /// </remarks>
+        public void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
+        {
+            ApplySystemKeyBindings(workingBindings);
+            MarkDirty();
+            SystemKeyBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         /// <inheritdoc/>

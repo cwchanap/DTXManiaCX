@@ -765,8 +765,8 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_configManager is ConfigManager concreteConfig)
             {
-                concreteConfig.SaveKeyBindings(_workingDrumBindings);
-                concreteConfig.SaveSystemKeyBindings(_workingSystemBindings);
+                concreteConfig.SetKeyBindings(_workingDrumBindings);
+                concreteConfig.SetSystemKeyBindings(_workingSystemBindings);
             }
 
             // Stage 2: write to disk — roll back in-memory changes on failure
