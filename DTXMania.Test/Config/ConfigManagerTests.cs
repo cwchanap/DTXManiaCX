@@ -900,4 +900,81 @@ Key.Bad=abc
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    /// <summary>
+    /// Pins FlushPendingSave's retry-on-failure contract: when a flush fails (exception
+    /// caught internally), _pendingSavePath is KEPT so the next flush retries the same
+    /// path. The scalar setters (e.g. SetNoFail) mark dirty without taking a path, so
+    /// _pendingSavePath flows from _loadedConfigPath. This test drives that chain through
+    /// LoadConfig -> SetNoFail, then toggles the filesystem so the first flush fails and
+    /// the second succeeds against the SAME path.
+    ///
+    /// Mechanism: GetConfigFilePath() resolves to "&lt;root&gt;/Config.ini", so
+    /// EnsureConfigDirectory calls Directory.CreateDirectory("&lt;root&gt;"). Deleting the
+    /// &lt;root&gt; directory and replacing it with a FILE at the same name makes that
+    /// CreateDirectory throw IOException (a file already exists with that name). Removing
+    /// the file makes the retry succeed. _pendingSavePath never changes.
+    /// </summary>
+    [Fact]
+    public void FlushPendingSave_RetriesAfterFailure_WhenFilesystemBecomesWritable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtxmania-flush-retry-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+
+        // The pending path is captured once; the filesystem at <root> is what changes.
+        var configFilePath = AppPaths.GetConfigFilePath();
+
+        try
+        {
+            var cm = new ConfigManager();
+            cm.LoadConfig(configFilePath);
+
+            // Sanity: LoadConfig wrote the default config and remembers the path.
+            Assert.True(File.Exists(configFilePath));
+            Assert.Contains("NoFail=False", File.ReadAllText(configFilePath));
+
+            // Scalar setter marks dirty via _loadedConfigPath -> _pendingSavePath.
+            cm.SetNoFail(true);
+            Assert.True(cm.Config.NoFail);
+
+            // Break the filesystem at <root>: replace the directory with a regular file
+            // so Directory.CreateDirectory("<root>") throws on the next SaveConfig.
+            Directory.Delete(root, recursive: true);
+            File.WriteAllText(root, "blocker");
+
+            // First flush: SaveConfig -> EnsureConfigDirectory throws, exception is
+            // caught internally, _pendingSavePath is retained. Must NOT throw.
+            cm.FlushPendingSave();
+
+            // In-memory value survives the failed flush.
+            Assert.True(cm.Config.NoFail);
+
+            // The edit must NOT have landed yet — proves the flush genuinely failed.
+            Assert.False(File.Exists(configFilePath));
+
+            // Fix the filesystem at <root>: remove the blocking file so the retry can
+            // recreate the directory and write the file at the SAME path.
+            File.Delete(root);
+            Directory.CreateDirectory(root);
+
+            // Second flush: retries the retained _pendingSavePath and succeeds.
+            cm.FlushPendingSave();
+
+            // The edit now persists on retry.
+            Assert.True(File.Exists(configFilePath));
+            Assert.Contains("NoFail=True", File.ReadAllText(configFilePath));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
+            // <root> may be a file or a directory depending on where the test landed;
+            // clean up both possibilities.
+            if (File.Exists(root))
+                File.Delete(root);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }
