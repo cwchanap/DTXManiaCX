@@ -762,4 +762,142 @@ Key.Bad=abc
     public void SetSystemKeyBindings_NoEvent_WhenNoSubscriber_DoesNotThrow() =>
         Assert.Null(Record.Exception(() => new ConfigManager().SetSystemKeyBindings(
             new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp })));
+
+    // --- Scalar setters (Task 1.4): dirty+flush, NO events ---
+
+    [Fact]
+    public void SetAutoPlay_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetAutoPlay(true);
+        Assert.True(cm.Config.AutoPlay);
+    }
+
+    [Fact]
+    public void SetNoFail_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetNoFail(true);
+        Assert.True(cm.Config.NoFail);
+    }
+
+    [Fact]
+    public void SetAudioLatency_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetAudioLatency(350);
+        Assert.Equal(350, cm.Config.AudioLatencyOffsetMs);
+    }
+
+    [Fact]
+    public void SetAudioLatency_Negative_ClampsToZero()
+    {
+        var cm = new ConfigManager();
+        cm.SetAudioLatency(-50);
+        Assert.Equal(0, cm.Config.AudioLatencyOffsetMs);
+    }
+
+    [Fact]
+    public void SetResolution_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetResolution(1920, 1080);
+        Assert.Equal(1920, cm.Config.ScreenWidth);
+        Assert.Equal(1080, cm.Config.ScreenHeight);
+    }
+
+    [Fact]
+    public void SetFullscreen_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetFullscreen(true);
+        Assert.True(cm.Config.FullScreen);
+    }
+
+    [Fact]
+    public void SetVSync_Mutates_AndMarksDirty()
+    {
+        var cm = new ConfigManager();
+        cm.SetVSync(false);
+        Assert.False(cm.Config.VSyncWait);
+    }
+
+    [Fact]
+    public void ScalarSetters_DoNotFireEvents()
+    {
+        var cm = new ConfigManager();
+        var fired = false;
+        cm.ScrollSpeedChanged += (_, _) => fired = true;
+        cm.KeyBindingsChanged += (_, _) => fired = true;
+        cm.SystemKeyBindingsChanged += (_, _) => fired = true;
+
+        // Sanity: prove the wiring can detect a real fire. Without this, a globally
+        // broken event bus would let the scalar assertions below pass vacuously.
+        cm.SetKeyBindings(new KeyBindings());
+        Assert.True(fired, "sanity: a firing setter must trip the flag");
+        fired = false;
+
+        // Now assert scalar setters do NOT fire.
+        cm.SetAutoPlay(true);
+        cm.SetNoFail(true);
+        cm.SetAudioLatency(100);
+        cm.SetResolution(1920, 1080);
+        cm.SetFullscreen(true);
+        cm.SetVSync(true);
+
+        Assert.False(fired);
+    }
+
+    /// <summary>
+    /// Each scalar setter must independently mark dirty so a subsequent
+    /// FlushPendingSave lands its edit on disk. Because FlushPendingSave clears
+    /// the pending path, the test interleaves setter -> flush -> assert per
+    /// setter: dropping MarkDirty from any one setter leaves the file holding
+    /// the previous (default) value and fails that assertion.
+    /// </summary>
+    [Fact]
+    public void FlushPendingSave_AfterScalarEdits_WritesFile()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
+        try
+        {
+            var cm = new ConfigManager();
+            cm.LoadConfig(AppPaths.GetConfigFilePath());
+
+            cm.SetNoFail(true);
+            cm.FlushPendingSave();
+            Assert.Contains("NoFail=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+
+            cm.SetAutoPlay(true);
+            cm.FlushPendingSave();
+            Assert.Contains("AutoPlay=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+
+            cm.SetAudioLatency(350);
+            cm.FlushPendingSave();
+            Assert.Contains("AudioLatencyOffsetMs=350", File.ReadAllText(AppPaths.GetConfigFilePath()));
+
+            cm.SetResolution(1920, 1080);
+            cm.FlushPendingSave();
+            var contents = File.ReadAllText(AppPaths.GetConfigFilePath());
+            Assert.Contains("ScreenWidth=1920", contents);
+            Assert.Contains("ScreenHeight=1080", contents);
+
+            cm.SetFullscreen(true);
+            cm.FlushPendingSave();
+            Assert.Contains("FullScreen=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+
+            // VSyncWait defaults to True, so flip to False to prove the edit landed.
+            cm.SetVSync(false);
+            cm.FlushPendingSave();
+            Assert.Contains("VSyncWait=False", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

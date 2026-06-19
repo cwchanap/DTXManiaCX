@@ -538,6 +538,24 @@ namespace DTXMania.Game.Lib.Config
             SystemKeyBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
+        public void SetAutoPlay(bool value) { Config.AutoPlay = value; MarkDirty(); }
+
+        /// <summary>Sets NoFail and marks a deferred save pending. No event raised.</summary>
+        public void SetNoFail(bool value) { Config.NoFail = value; MarkDirty(); }
+
+        /// <summary>Sets audio latency (<see cref="ConfigData.AudioLatencyOffsetMs"/>, in ms, clamped to &gt;= 0) and marks a deferred save pending. No event raised.</summary>
+        public void SetAudioLatency(int value) { Config.AudioLatencyOffsetMs = Math.Max(0, value); MarkDirty(); }
+
+        /// <summary>Sets resolution (width x height) and marks a deferred save pending. No event raised.</summary>
+        public void SetResolution(int width, int height) { Config.ScreenWidth = width; Config.ScreenHeight = height; MarkDirty(); }
+
+        /// <summary>Sets fullscreen (<see cref="ConfigData.FullScreen"/>) and marks a deferred save pending. No event raised.</summary>
+        public void SetFullscreen(bool value) { Config.FullScreen = value; MarkDirty(); }
+
+        /// <summary>Sets VSync (<see cref="ConfigData.VSyncWait"/>) and marks a deferred save pending. No event raised.</summary>
+        public void SetVSync(bool value) { Config.VSyncWait = value; MarkDirty(); }
+
         /// <inheritdoc/>
         public void FlushPendingSave()
         {
