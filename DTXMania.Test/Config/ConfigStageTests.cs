@@ -203,12 +203,12 @@ public class ConfigStageTests
     [Fact]
     public void ConfigStage_RemappedWorkingBack_ShouldShowUpdatedCancelLabelInSystemPanel()
     {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
+        var configManager = new ConfigManager();
+        using var inputManager = new InputManagerCompat(configManager);
+        var stage = CreateConfigStage(inputManager, configManager);
 
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "InitializePanels");
-        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
+        // Remap Back to Q in the runtime system map (= Config truth, mirrored via Phase 2 events).
+        configManager.SetSystemKeyBindings(new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
         {
             [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
             [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
@@ -217,6 +217,8 @@ public class ConfigStageTests
             [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
             [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
         });
+
+        InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
         Assert.NotNull(panel);
@@ -237,10 +239,10 @@ public class ConfigStageTests
     [Fact]
     public void ConfigStage_SystemPanel_ShouldNavigateAndSaveFromInjectedCommandsWithoutKeyboardStateChange()
     {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
+        var configManager = new ConfigManager();
+        using var inputManager = new InputManagerCompat(configManager);
+        var stage = CreateConfigStage(inputManager, configManager);
 
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
         InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
@@ -267,12 +269,12 @@ public class ConfigStageTests
     [Fact]
     public void ConfigStage_SystemPanel_RemappedWorkingBack_ShouldIgnoreInjectedOldBackKeyFromLiveMapping()
     {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var stage = CreateConfigStage(inputManager);
+        var configManager = new ConfigManager();
+        using var inputManager = new InputManagerCompat(configManager);
+        var stage = CreateConfigStage(inputManager, configManager);
 
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "InitializePanels");
-        SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
+        // Remap Back to Q in the runtime system map; Escape is no longer a navigation key.
+        configManager.SetSystemKeyBindings(new Dictionary<Microsoft.Xna.Framework.Input.Keys, InputCommandType>
         {
             [Microsoft.Xna.Framework.Input.Keys.W] = InputCommandType.MoveUp,
             [Microsoft.Xna.Framework.Input.Keys.S] = InputCommandType.MoveDown,
@@ -281,6 +283,8 @@ public class ConfigStageTests
             [Microsoft.Xna.Framework.Input.Keys.F] = InputCommandType.Activate,
             [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
         });
+
+        InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
         Assert.NotNull(panel);
@@ -299,13 +303,15 @@ public class ConfigStageTests
         Assert.True(panel.IsActive);
     }
 
-    private static ConfigStage CreateConfigStage(InputManagerCompat inputManager)
+    private static ConfigStage CreateConfigStage(InputManagerCompat inputManager, ConfigManager configManager)
     {
 #pragma warning disable SYSLIB0050
         var game = (BaseGame)FormatterServices.GetUninitializedObject(typeof(BaseGame));
 #pragma warning restore SYSLIB0050
 
-        SetBackingField(game, "<ConfigManager>k__BackingField", new ConfigManager());
+        // Wire the SAME ConfigManager that owns the inputManager onto the game, so the runtime
+        // map (which the providers read) and the stage's _configManager are in sync.
+        SetBackingField(game, "<ConfigManager>k__BackingField", configManager);
         SetBackingField(game, "<InputManager>k__BackingField", inputManager);
 
         return new ConfigStage(game);

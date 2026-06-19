@@ -15,15 +15,18 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using DTXMania.Game.Lib.Utilities;
 
 
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
-    /// Configuration stage with basic settings management
-    /// Follows DTXMania patterns for config item handling
+    /// Configuration stage with basic settings management.
+    /// Reads <see cref="IConfigManager.Config"/> as the single source of truth; every edit
+    /// applies immediately through the typed setters (which live-apply to the runtime via the
+    /// Phase 2 events and mark a deferred save dirty). Back/Exit flushes the pending save and
+    /// leaves — there is no working copy, no discard/rollback. Follows DTXMania patterns for
+    /// config item handling.
     /// </summary>
     public class ConfigStage : BaseStage
     {
@@ -31,26 +34,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private IConfigManager _configManager;
         private List<IConfigItem> _configItems;
-        private ConfigData _workingConfig;
-        private KeyBindings _workingDrumBindings = new();
-        private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
-
-        // NullLogger until OnActivate swaps in the game's factory; keeps reflection-based tests
-        // (which skip OnActivate) safe when they exercise ApplyConfiguration()'s catch path.
-        private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
-
-        // Set when a Save & Exit disk write fails; drawn in red so the user knows changes were not
-        // persisted and can retry. Mirrors DrumConfigStage._saveError. Without this, a failed save
-        // left the user on the stage with no on-screen signal, and a subsequent Back silently
-        // discarded the unsaved edits. Cleared on the next successful save.
-        private string? _saveError;
-        /// <summary>
-        /// Snapshot of system bindings taken at stage activation; used for ConfigStage's own
-        /// navigation so that editing/wiping bindings in the system panel cannot lock out
-        /// the Save &amp; Back controls before the edit is committed.
-        /// </summary>
-        private Dictionary<Keys, InputCommandType> _navigationBindings = new();
-        private bool _hasUnsavedChanges;
         private int _selectedIndex = 0;
 
         // Input handling
@@ -100,35 +83,12 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            _logger = _game.LoggerFactory?.CreateLogger<ConfigStage>() ?? _logger;
-            _saveError = null; // fresh entry: no outstanding save error
-
             System.Diagnostics.Debug.WriteLine("Activating Config Stage");
 
             InitializeGraphics();
 
-            // Opening Drum Key Mapping transitions away to DrumConfigStage and back. Config values
-            // (Auto Play, Scroll Speed, ...) live only in this working copy until Save &amp; Exit
-            // commits them, so on return we must NOT clobber pending edits.
-            //
-            // Drum bindings always reload: DrumConfigStage commits drum bindings independently on
-            // its Back = Save exit, so the working drum copy must pick those up or a later Save here
-            // would overwrite DrumConfig's changes. Pending SYSTEM-key edits, however, must NOT be
-            // reloaded: the System Key Mapping panel writes only to _workingSystemBindings (the live
-            // InputManager is untouched until Save &amp; Exit here), so reloading from live would
-            // discard those edits and a later Save would persist the old mapping. Reload only the
-            // drum bindings; eviction keeps DrumConfig's conflict resolution intact (see
-            // ReloadWorkingDrumBindings).
-            if (_hasUnsavedChanges)
-            {
-                ReloadWorkingDrumBindings();
-            }
-            else
-            {
-                LoadConfiguration();
-                LoadWorkingInputBindings();
-            }
-
+            // Config is the single source of truth; reads pull directly from ConfigManager.Config
+            // and the runtime (which mirrors Config). There is no working copy to (re)load.
             SetupConfigItems();
             InitializePanels();
 
@@ -162,7 +122,6 @@ namespace DTXMania.Game.Lib.Stage
             DrawConfigItems();
             DrawButtons();
             DrawImportStatus();
-            DrawSaveError();
             DrawInstructions();
 
             // Draw active panel as overlay within the same sprite batch
@@ -179,8 +138,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
 
-            if (_hasUnsavedChanges)
-                System.Diagnostics.Debug.WriteLine("Warning: Unsaved configuration changes will be lost");
+            // Persist-on-edit safety net: flush any pending deferred save when leaving the stage.
+            // Back/Exit already flushes; this covers other deactivation paths so an edited Config
+            // is never left dirty in memory only.
+            FlushPendingSaveSafely();
 
             // Cancel any in-flight NX score import so it doesn't continue on a deactivated stage.
             _importCts?.Cancel();
@@ -276,78 +237,6 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-
-        private void LoadConfiguration()
-        {
-            // Create a working copy of the configuration
-            var originalConfig = _configManager.Config;
-            _workingConfig = new ConfigData
-            {
-                ScreenWidth = originalConfig.ScreenWidth,
-                ScreenHeight = originalConfig.ScreenHeight,
-                FullScreen = originalConfig.FullScreen,
-                VSyncWait = originalConfig.VSyncWait,
-                DTXManiaVersion = originalConfig.DTXManiaVersion,
-                SkinPath = originalConfig.SkinPath,
-                DTXPath = originalConfig.DTXPath,
-                UseBoxDefSkin = originalConfig.UseBoxDefSkin,
-                SystemSkinRoot = originalConfig.SystemSkinRoot,
-                LastUsedSkin = originalConfig.LastUsedSkin,
-                MasterVolume = originalConfig.MasterVolume,
-                BGMVolume = originalConfig.BGMVolume,
-                SEVolume = originalConfig.SEVolume,
-                BufferSizeMs = originalConfig.BufferSizeMs,
-                ScrollSpeed = originalConfig.ScrollSpeed,
-                AutoPlay = originalConfig.AutoPlay,
-                NoFail = originalConfig.NoFail,
-                AudioLatencyOffsetMs = originalConfig.AudioLatencyOffsetMs
-            };
-
-            _hasUnsavedChanges = false;
-        }
-
-        private void LoadWorkingInputBindings()
-        {
-            var inputManagerCompat = _game.InputManager
-                ?? throw new InvalidOperationException("InputManager not available");
-
-            _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
-            _workingSystemBindings = new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
-            _navigationBindings = new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
-        }
-
-        /// <summary>
-        /// Reloads only <see cref="_workingDrumBindings"/> from the live InputManager, leaving
-        /// pending system-key edits in <see cref="_workingSystemBindings"/> (and the navigation
-        /// snapshot) intact. Used when returning from DrumConfigStage: that stage commits drum
-        /// bindings on its Back = Save exit (which must be picked up here), but ConfigStage's own
-        /// System Key Mapping panel writes only to the working copy and must survive the round-trip.
-        /// </summary>
-        /// <remarks>
-        /// Also evicts from <see cref="_workingSystemBindings"/> any keyboard key now claimed by a
-        /// drum lane in the reloaded drum bindings. DrumConfigStage performs the same eviction at its
-        /// commit (see <c>DrumConfigStage.EvictSystemKeysClaimedByDrumLanes</c>); replaying it here
-        /// ensures that conflict resolution is respected rather than being silently reverted when
-        /// ConfigStage later saves its still-pending system mapping. Mirrors that method's logic.
-        /// </remarks>
-        private void ReloadWorkingDrumBindings()
-        {
-            var inputManagerCompat = _game.InputManager
-                ?? throw new InvalidOperationException("InputManager not available");
-
-            _workingDrumBindings = inputManagerCompat.ModularInputManager.KeyBindings.Clone();
-
-            foreach (var kvp in _workingDrumBindings.ButtonToLane)
-            {
-                if (!KeyBindings.IsKeyboardButtonId(kvp.Key))
-                    continue;
-
-                // "Key.PageUp" -> Keys.PageUp
-                if (Enum.TryParse(kvp.Key.Substring(4), out Keys sysKey))
-                    _workingSystemBindings.Remove(sysKey);
-            }
-        }
-
         private void SetupConfigItems()
         {
             _configItems = new List<IConfigItem>();
@@ -355,16 +244,14 @@ namespace DTXMania.Game.Lib.Stage
             // Screen Resolution dropdown
             var resolutionItem = new DropdownConfigItem(
                 "Screen Resolution",
-                () => $"{_workingConfig.ScreenWidth}x{_workingConfig.ScreenHeight}",
+                () => $"{_configManager.Config.ScreenWidth}x{_configManager.Config.ScreenHeight}",
                 new[] { "1280x720", "1920x1080", "2560x1440", "3840x2160" },
                 value =>
                 {
                     var parts = value.Split('x');
                     if (parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height))
                     {
-                        _workingConfig.ScreenWidth = width;
-                        _workingConfig.ScreenHeight = height;
-                        _hasUnsavedChanges = true;
+                        _configManager.SetResolution(width, height);
                         System.Diagnostics.Debug.WriteLine($"Resolution changed to {width}x{height}");
                     }
                 }
@@ -373,11 +260,10 @@ namespace DTXMania.Game.Lib.Stage
             // Fullscreen checkbox
             var fullscreenItem = new ToggleConfigItem(
                 "Fullscreen",
-                () => _workingConfig.FullScreen,
+                () => _configManager.Config.FullScreen,
                 value =>
                 {
-                    _workingConfig.FullScreen = value;
-                    _hasUnsavedChanges = true;
+                    _configManager.SetFullscreen(value);
                     System.Diagnostics.Debug.WriteLine($"Fullscreen changed to {value}");
                 }
             );
@@ -385,43 +271,42 @@ namespace DTXMania.Game.Lib.Stage
             // VSync toggle
             var vsyncItem = new ToggleConfigItem(
                 "VSync Wait",
-                () => _workingConfig.VSyncWait,
+                () => _configManager.Config.VSyncWait,
                 value =>
                 {
-                    _workingConfig.VSyncWait = value;
-                    _hasUnsavedChanges = true;
+                    _configManager.SetVSync(value);
                     System.Diagnostics.Debug.WriteLine($"VSync changed to {value}");
                 });
 
             // NoFail toggle
             var noFailItem = new ToggleConfigItem(
                 "No Fail",
-                () => _workingConfig.NoFail,
+                () => _configManager.Config.NoFail,
                 value =>
                 {
-                    _workingConfig.NoFail = value;
-                    _hasUnsavedChanges = true;
+                    _configManager.SetNoFail(value);
                     System.Diagnostics.Debug.WriteLine($"NoFail changed to {value}");
                 });
 
             // AutoPlay toggle
             var autoPlayItem = new ToggleConfigItem(
                 "Auto Play",
-                () => _workingConfig.AutoPlay,
+                () => _configManager.Config.AutoPlay,
                 value =>
                 {
-                    _workingConfig.AutoPlay = value;
-                    _hasUnsavedChanges = true;
+                    _configManager.SetAutoPlay(value);
                     System.Diagnostics.Debug.WriteLine($"AutoPlay changed to {value}");
                 });
 
             var scrollSpeedItem = new IntegerConfigItem(
                 "Scroll Speed",
-                () => _workingConfig.ScrollSpeed,
+                () => _configManager.Config.ScrollSpeed,
                 value =>
                 {
-                    _workingConfig.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(value);
-                    _hasUnsavedChanges = true;
+                    // SetScrollSpeed snaps+clamps internally and raises ScrollSpeedChanged (which
+                    // the runtime mirrors), so the live-apply that ConfigStage previously bypassed
+                    // now happens here.
+                    _configManager.SetScrollSpeed(AppPaths.GetConfigFilePath(), value);
                 },
                 minValue: ScrollSpeedRange.Min,
                 maxValue: ScrollSpeedRange.Max,
@@ -430,11 +315,10 @@ namespace DTXMania.Game.Lib.Stage
 
             var audioLatencyItem = new IntegerConfigItem(
                 "Audio Latency Offset",
-                () => _workingConfig.AudioLatencyOffsetMs,
+                () => _configManager.Config.AudioLatencyOffsetMs,
                 value =>
                 {
-                    _workingConfig.AudioLatencyOffsetMs = value;
-                    _hasUnsavedChanges = true;
+                    _configManager.SetAudioLatency(value);
                 },
                 minValue: 0,
                 maxValue: 500,
@@ -443,7 +327,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var dtxFolderItem = new ReadOnlyConfigItem(
                 "DTX Folder",
-                () => _workingConfig.DTXPath);
+                () => _configManager.Config.DTXPath);
 
             _configItems.Add(resolutionItem);
             _configItems.Add(fullscreenItem);
@@ -470,17 +354,19 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializePanels()
         {
-            var concreteConfig = _configManager as ConfigManager
-                ?? throw new InvalidOperationException("ConfigManager must be ConfigManager instance");
             var inputManagerCompat = _game.InputManager
                 ?? throw new InvalidOperationException("InputManager not available");
 
             _systemPanel = new SystemKeyAssignPanel(inputManagerCompat);
+            // Providers read the RUNTIME, which always mirrors Config via the Phase 2 events
+            // (ConfigManager.KeyBindingsChanged/SystemKeyBindingsChanged -> InputManagerCompat
+            // reloads). Config is truth, so there is no working copy to read.
             _systemPanel._workingMappingProvider =
-                () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
+                () => new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
             _systemPanel._liveDrumBindingsProvider =
-                () => new Dictionary<string, int>(_workingDrumBindings.ButtonToLane);
-            _systemPanel._navigationMappingProvider = () => new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
+                () => new Dictionary<string, int>(inputManagerCompat.ModularInputManager.KeyBindings.ButtonToLane);
+            _systemPanel._navigationMappingProvider =
+                () => new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
             _systemPanel._commandPressedProvider = IsPanelCommandPressed;
             _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
@@ -505,12 +391,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnPanelSaved(object? sender, EventArgs e)
         {
+            // Persist-on-edit: the panel's working snapshot is written to Config immediately via the
+            // typed setter, which live-applies to the runtime (SystemKeyBindingsChanged) and marks a
+            // deferred save dirty. Flushed on stage exit.
             if (sender == _systemPanel)
             {
-                _workingSystemBindings = new Dictionary<Keys, InputCommandType>(_systemPanel.GetWorkingMappingSnapshot());
+                _configManager.SetSystemKeyBindings(_systemPanel.GetWorkingMappingSnapshot());
             }
-
-            _hasUnsavedChanges = true;
         }
 
         private void OnPanelClosed(object? sender, EventArgs e)
@@ -599,17 +486,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (IsConfigNavigationCommandPressed(InputCommandType.Back))
             {
-                if (_hasUnsavedChanges)
-                {
-                    System.Diagnostics.Debug.WriteLine("Config: Back action with unsaved changes - discarding changes");
-                }
-                // Back = discard: clear the dirty flag so the next OnActivate takes the fresh
-                // path and reloads from committed config. Without this, the cached stage
-                // instance keeps the discarded working copy and OnActivate would skip
-                // LoadConfiguration() (the preservation branch is only meant for returning
-                // from DrumConfigStage, where pending edits must survive the round-trip).
-                DiscardPendingChanges();
+                // Back = exit: edits are already live+dirty, so flush the pending save and leave.
                 System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
+                FlushPendingSaveSafely();
                 ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
                 return;
             }
@@ -653,9 +532,9 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         OnBackButtonClicked(null, EventArgs.Empty);
                     }
-                    else if (buttonIndex == 1) // Save button
+                    else if (buttonIndex == 1) // Exit button
                     {
-                        OnSaveButtonClicked(null, EventArgs.Empty);
+                        OnExitButtonClicked(null, EventArgs.Empty);
                     }
                 }
             }
@@ -664,11 +543,12 @@ namespace DTXMania.Game.Lib.Stage
         private bool IsConfigNavigationCommandPressed(InputCommandType command)
         {
             if (_game.InputManager?.IsCommandPressed(command) == true)
-            {
                 return true;
-            }
 
-            return _navigationBindings.Any(kvp =>
+            // Read the runtime system map (= Config truth; the runtime mirrors Config via the
+            // Phase 2 events). There is no separate navigation snapshot.
+            var systemMap = _game.InputManager?.GetKeyMappingSnapshot();
+            return systemMap != null && systemMap.Any(kvp =>
                 kvp.Value == command &&
                 _currentKeyboardState.IsKeyDown(kvp.Key) &&
                 !_previousKeyboardState.IsKeyDown(kvp.Key));
@@ -676,11 +556,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool IsPanelCommandPressed(InputCommandType command)
         {
-            return _workingSystemBindings.Any(kvp =>
+            var systemMap = _game.InputManager?.GetKeyMappingSnapshot();
+            return systemMap != null && systemMap.Any(kvp =>
                 kvp.Value == command &&
                 ((_game.InputManager?.IsKeyPressed((int)kvp.Key) == true)
-                    || (_currentKeyboardState.IsKeyDown(kvp.Key) &&
-                        !_previousKeyboardState.IsKeyDown(kvp.Key))));
+                 || (_currentKeyboardState.IsKeyDown(kvp.Key) && !_previousKeyboardState.IsKeyDown(kvp.Key))));
         }
 
         #endregion
@@ -689,133 +569,38 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnBackButtonClicked(object sender, EventArgs e)
         {
-            if (_hasUnsavedChanges)
-            {
-                System.Diagnostics.Debug.WriteLine("Back button clicked with unsaved changes - discarding changes");
-            }
-            // Back = discard: see HandleInput for why the dirty flag must be cleared here too.
-            DiscardPendingChanges();
+            // Back = exit: flush the pending save and return to Title.
             System.Diagnostics.Debug.WriteLine("Back button clicked - returning to Title stage");
+            FlushPendingSaveSafely();
             ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
 
-        private void OnSaveButtonClicked(object sender, EventArgs e)
+        private void OnExitButtonClicked(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("Save button clicked - applying configuration");
-            if (ApplyConfiguration())
-                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
-            else
-                System.Diagnostics.Debug.WriteLine("Save failed - staying on Config stage");
-        }
-
-        #endregion
-
-        #region Configuration Management
-
-        /// <summary>
-        /// Clears the dirty flag so the next <see cref="OnActivate"/> reloads the working
-        /// config from the committed state. Called on every Back path (keyboard Back command
-        /// and the Back button), which are explicit discard actions. The preservation branch
-        /// in <see cref="OnActivate"/> is intended only for the DrumConfigStage round-trip;
-        /// leaving it accidentally active after a discard caused the cached stage to surface
-        /// (and later save) edits the user had explicitly thrown away.
-        /// </summary>
-        private void DiscardPendingChanges()
-        {
-            _hasUnsavedChanges = false;
+            // Edits are already live+dirty; Exit just flushes to disk and leaves.
+            System.Diagnostics.Debug.WriteLine("Exit button clicked - returning to Title stage");
+            FlushPendingSaveSafely();
+            ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
 
         /// <summary>
-        /// Applies working configuration to disk first, then to live state on success.
-        /// Returns true if the disk write succeeded.
+        /// Flushes the pending deferred save, swallowing disk failures so a save error can never
+        /// trap the user on the config screen. Under persist-on-edit (Decision A), a flush failure
+        /// is logged and the dirty flag is retained for retry on the next flush; the stage always
+        /// proceeds to leave. <see cref="ConfigManager.FlushPendingSave"/> already swallows
+        /// internally, but this guards against a custom <see cref="IConfigManager"/> whose
+        /// FlushPendingSave propagates.
         /// </summary>
-        private bool ApplyConfiguration()
+        private void FlushPendingSaveSafely()
         {
-            var config = _configManager.Config;
-
-            // Snapshot current config so we can roll back if the disk write fails.
-            int prevWidth = config.ScreenWidth;
-            int prevHeight = config.ScreenHeight;
-            bool prevFullScreen = config.FullScreen;
-            bool prevVSync = config.VSyncWait;
-            bool prevNoFail = config.NoFail;
-            bool prevAutoPlay = config.AutoPlay;
-            int prevScrollSpeed = config.ScrollSpeed;
-            int prevAudioLatencyOffsetMs = config.AudioLatencyOffsetMs;
-            // Binding collections are snapshotted/restored as a unit via BindingState (shared with
-            // DrumConfigStage); the scalar fields above are local to this stage and restored by hand.
-            var bindingSnapshot = config.SnapshotBindingState();
-
-            // Stage 1: prepare in-memory config data from working copies
-            config.ScreenWidth = _workingConfig.ScreenWidth;
-            config.ScreenHeight = _workingConfig.ScreenHeight;
-            config.FullScreen = _workingConfig.FullScreen;
-            config.VSyncWait = _workingConfig.VSyncWait;
-            config.NoFail = _workingConfig.NoFail;
-            config.AutoPlay = _workingConfig.AutoPlay;
-            config.ScrollSpeed = _workingConfig.ScrollSpeed;
-            config.AudioLatencyOffsetMs = _workingConfig.AudioLatencyOffsetMs;
-
-            if (_configManager is ConfigManager concreteConfig)
-            {
-                concreteConfig.SetKeyBindings(_workingDrumBindings);
-                concreteConfig.SetSystemKeyBindings(_workingSystemBindings);
-            }
-
-            // Stage 2: write to disk — roll back in-memory changes on failure
             try
             {
-                _configManager.SaveConfig(DTXMania.Game.Lib.Utilities.AppPaths.GetConfigFilePath());
-                System.Diagnostics.Debug.WriteLine("Configuration saved successfully");
+                _configManager.FlushPendingSave();
             }
             catch (Exception ex)
             {
-                // Log the full exception (not just .Message) so Release builds — where
-                // Debug.WriteLine is compiled out — still leave a diagnostic trail.
-                _logger.LogError(ex, "ConfigStage: failed to save configuration");
-
-                // Surface the failure on-screen so the user knows changes were not persisted and
-                // can retry (mirrors DrumConfigStage). Without this the failure was invisible and a
-                // subsequent Back silently discarded the edits.
-                _saveError = $"Failed to save configuration: {ex.Message}";
-
-                config.ScreenWidth = prevWidth;
-                config.ScreenHeight = prevHeight;
-                config.FullScreen = prevFullScreen;
-                config.VSyncWait = prevVSync;
-                config.NoFail = prevNoFail;
-                config.AutoPlay = prevAutoPlay;
-                config.ScrollSpeed = prevScrollSpeed;
-                config.AudioLatencyOffsetMs = prevAudioLatencyOffsetMs;
-                config.RestoreBindingState(bindingSnapshot);
-
-                return false;
+                System.Diagnostics.Debug.WriteLine($"ConfigStage: failed to flush pending save: {ex}");
             }
-
-            // Stage 3: disk write succeeded — now apply to live input state. The disk is the source
-            // of truth; a throw here (e.g. ApplySystemBindings's remove-all-then-add-all mid-loop)
-            // would leave the live input inconsistent with disk. Catch, log, and surface it so the
-            // user knows the save persisted but the current session needs a retry/restart — rather
-            // than silently completing with partially-applied input. Re-pressing Save & Exit re-writes
-            // (idempotent) and retries the apply. Mirrors DrumConfigStage.Save().
-            if (_game.InputManager != null)
-            {
-                try
-                {
-                    _game.InputManager.ModularInputManager.ReloadKeyBindings();
-                    ApplySystemBindings(_game.InputManager, _workingSystemBindings);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "ConfigStage: configuration saved to disk but live-input apply failed");
-                    _saveError = $"Saved, but could not apply to this session: {ex.Message}. Press Save & Exit to retry.";
-                    return false;
-                }
-            }
-
-            _hasUnsavedChanges = false;
-            _saveError = null; // persisted successfully: clear any prior failure banner
-            return true;
         }
 
         #endregion
@@ -921,24 +706,24 @@ namespace DTXMania.Game.Lib.Stage
                 DrawTextRect(x, y + 5, 32, 16, color);
             }
 
-            // Save button
+            // Exit button
             x += 150;
-            bool saveSelected = (_selectedIndex == _configItems.Count + 1);
-            if (saveSelected)
+            bool exitSelected = (_selectedIndex == _configItems.Count + 1);
+            if (exitSelected)
             {
                 DrawTextRect(x - 5, y - 2, 120, 30, new Color(64, 96, 64, 150));
             }
 
             if (_font != null)
             {
-                var textColor = saveSelected ? Color.Yellow : DarkText;
-                var font = saveSelected ? _boldFont : _font;
-                font.DrawString(_spriteBatch, "SAVE & EXIT", new Vector2(x, y + 5), textColor);
+                var textColor = exitSelected ? Color.Yellow : DarkText;
+                var font = exitSelected ? _boldFont : _font;
+                font.DrawString(_spriteBatch, "EXIT", new Vector2(x, y + 5), textColor);
             }
             else
             {
-                var color = saveSelected ? Color.Yellow : Color.Green;
-                DrawTextRect(x, y + 5, 88, 16, color);
+                var color = exitSelected ? Color.Yellow : Color.Green;
+                DrawTextRect(x, y + 5, 32, 16, color);
             }
         }
 
@@ -950,18 +735,6 @@ namespace DTXMania.Game.Lib.Stage
             int x = MenuX;
             int y = MenuY + (_configItems.Count * MenuItemHeight) + 60;
             _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), new Color(18, 64, 132));
-        }
-
-        // Surfaces a save failure so the user knows changes were not persisted and can retry.
-        // Color matches DrumConfigStage's banner (and the popup's conflict-notice) for consistency.
-        private void DrawSaveError()
-        {
-            if (string.IsNullOrEmpty(_saveError) || _font == null)
-                return;
-
-            var viewport = GetViewport();
-            _font.DrawString(_spriteBatch, _saveError,
-                new Vector2(MenuX, viewport.Height - 60), new Color(220, 70, 70));
         }
 
         private void DrawInstructions()
@@ -1014,17 +787,6 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual Viewport GetViewport()
         {
             return _game.GraphicsDevice.Viewport;
-        }
-
-        private static void ApplySystemBindings(InputManager inputManager, IReadOnlyDictionary<Keys, InputCommandType> bindings)
-        {
-            // Take snapshot once, not once per enum value
-            var snapshot = inputManager.GetKeyMappingSnapshot();
-            foreach (var kvp in snapshot)
-                inputManager.RemoveKeyMapping(kvp.Key);
-
-            foreach (var kvp in bindings)
-                inputManager.AddKeyMapping(kvp.Key, kvp.Value);
         }
 
         #endregion
