@@ -46,6 +46,11 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         private string? _pendingSavePath;
 
+        /// <summary>
+        /// Path captured in <see cref="LoadConfig"/> so setters can mark dirty without a path arg.
+        /// </summary>
+        private string? _loadedConfigPath;
+
         public ConfigManager(ILogger<ConfigManager>? logger = null)
         {
             _logger = logger ?? NullLogger<ConfigManager>.Instance;
@@ -54,6 +59,7 @@ namespace DTXMania.Game.Lib.Config
 
         public void LoadConfig(string filePath)
         {
+            _loadedConfigPath = filePath;
             EnsureConfigDirectory(filePath);
             if (!File.Exists(filePath))
             {
@@ -487,7 +493,7 @@ namespace DTXMania.Game.Lib.Config
             Config.ScrollSpeed = snapped;
 
             // Defer disk write — mark dirty and flush later via FlushPendingSave.
-            _pendingSavePath = configFilePath;
+            MarkDirty(configFilePath);
 
             ScrollSpeedChanged?.Invoke(this, new ScrollSpeedChangedEventArgs(old, snapped));
         }
@@ -513,6 +519,15 @@ namespace DTXMania.Game.Lib.Config
             {
                 _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date. Will retry on next flush.", path);
             }
+        }
+
+        /// <summary>
+        /// Marks a deferred save as pending. A no-op if <paramref name="path"/> is null
+        /// and no config path is known yet (i.e., before any <see cref="LoadConfig"/> call).
+        /// </summary>
+        private void MarkDirty(string? path = null)
+        {
+            _pendingSavePath = path ?? _loadedConfigPath ?? _pendingSavePath;
         }
 
         /// <summary>
