@@ -836,6 +836,10 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public event EventHandler<ScrollSpeedChangedEventArgs>? ScrollSpeedChanged;
 
+            public event EventHandler<EventArgs>? KeyBindingsChanged;
+
+            public event EventHandler<EventArgs>? SystemKeyBindingsChanged;
+
             public void LoadConfig(string filePath) { }
 
             public void SaveConfig(string filePath) { }
@@ -845,6 +849,22 @@ namespace DTXMania.Test.Stage.DrumConfig
             public void SetScrollSpeed(string configFilePath, int percent) { }
 
             public void AdjustScrollSpeed(string configFilePath, int stepDelta) { }
+
+            public void SetKeyBindings(KeyBindings keyBindings) { }
+
+            public void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings) { }
+
+            public void SetAutoPlay(bool value) { }
+
+            public void SetNoFail(bool value) { }
+
+            public void SetAudioLatency(int value) { }
+
+            public void SetResolution(int width, int height) { }
+
+            public void SetFullscreen(bool value) { }
+
+            public void SetVSync(bool value) { }
 
             public void FlushPendingSave() { }
         }
