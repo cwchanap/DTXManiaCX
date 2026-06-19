@@ -494,20 +494,13 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Hands the pending system-key edits to DrumConfigStage so its capture popup can reject a
-        /// key the user just assigned to a required command (see DrumConfigStage.OnActivate). A
-        /// snapshot is taken so later edits here cannot mutate the map DrumConfigStage rejects
-        /// against mid-session. Drum bindings are intentionally NOT passed: this stage never edits
-        /// them, so DrumConfigStage cloning the live drum mapping is always correct.
+        /// Navigates to DrumConfigStage. DrumConfigStage reads ConfigManager as its single source of
+        /// truth (the runtime mirrors Config via the Phase 2 events), so there is no pending handoff
+        /// to forward.
         /// </summary>
         private void NavigateToDrumConfig()
         {
-            var shared = new Dictionary<string, object>
-            {
-                [DrumConfigStage.PendingSystemBindingsKey] =
-                    new Dictionary<Keys, InputCommandType>(_workingSystemBindings)
-            };
-            ChangeStage(StageType.DrumConfig, new InstantTransition(), shared);
+            ChangeStage(StageType.DrumConfig, new InstantTransition());
         }
 
         private void OnPanelSaved(object? sender, EventArgs e)

@@ -81,50 +81,6 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void TryCapture_PendingRequiredKey_IsRejectedAgainstPendingMap()
-        {
-            // Comment-1 scenario: ConfigStage's pending system edits reassigned a required command
-            // (MoveUp) to a new key (Z). The live mapping still has the OLD key (Up), so unless the
-            // popup consults the PENDING map, Z would slip into a drum lane and the pending system
-            // edit would later be silently evicted/dropped. DrumConfigStage wires the popup's
-            // provider to the pending map; this pins the rejection behaviour that fix relies on.
-            var pending = new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Z] = InputCommandType.MoveUp // required command, pending
-            };
-            var popup = new DrumCapturePopup(() => _drum, () => pending);
-            popup.Open(4);
-
-            var outcome = popup.TryCapture(new ButtonState("Key.Z", true));
-
-            Assert.Equal(DrumCaptureOutcome.Rejected, outcome);
-            Assert.Equal(DrumCaptureState.ShowingConflict, popup.State);
-            Assert.False(_drum.ContainsKey("Key.Z")); // intent-only: provider dict untouched
-            // Pending map is read-only to the popup (eviction is deferred to the stage's commit on
-            // the live snapshot); the required key must survive untouched.
-            Assert.Equal(InputCommandType.MoveUp, pending[Keys.Z]);
-        }
-
-        [Fact]
-        public void TryCapture_PendingFreedKey_IsAllowedWhenNotInPendingMap()
-        {
-            // The flip side of Comment 1: the user (pending) MOVED MoveUp off Up onto Z, so Up is
-            // freed in their intent. Consulting the pending map (not live) means Up is no longer a
-            // required key and CAN be bound to a drum lane — matching the user's mental model.
-            var pending = new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Z] = InputCommandType.MoveUp // Up is no longer in the pending map
-            };
-            var popup = new DrumCapturePopup(() => _drum, () => pending);
-            popup.Open(4);
-
-            var outcome = popup.TryCapture(new ButtonState("Key.Up", true));
-
-            Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.False(_drum.ContainsKey("Key.Up")); // intent-only: provider dict untouched
-        }
-
-        [Fact]
         public void TryCapture_NonRequiredSystemKey_ReturnsCapturedWithoutEvicting()
         {
             // Eviction of a claimed non-required system key is deferred to the stage's commit, so

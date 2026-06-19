@@ -21,10 +21,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
     /// owns NO <see cref="KeyBindings"/> and mutates NOTHING. Display data (the buttons currently
     /// bound to the lane) is read on demand from the drum-bindings provider, and required-system-key
     /// conflicts are checked against the system-mapping provider. <see cref="TryCapture"/> only
-    /// decides an outcome (Captured / Rejected / Ignored); the STAGE applies the actual binding,
-    /// removes chips, and clears lanes against its own working copy. Eviction of a claimed
-    /// non-required system key remains deferred to commit time (the stage's Save). Pure
-    /// state/geometry; <see cref="Draw"/> is the only graphics method and is exercised only by the stage.
+    /// decides an outcome (Captured / Rejected / Ignored); the STAGE applies the binding through
+    /// ConfigManager.SetKeyBindings and evicts the conflicting system key immediately at capture
+    /// time (the eviction is permanent — Decision 3). Pure state/geometry; <see cref="Draw"/> is
+    /// the only graphics method and is exercised only by the stage.
     /// </summary>
     public class DrumCapturePopup
     {
@@ -79,9 +79,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         /// <summary>
         /// Decides whether a captured button CAN be bound to the current lane. Intent-only: this
         /// method mutates NOTHING. Required system keys are rejected (and surface a conflict
-        /// notice); everything else is reported as Captured and the STAGE applies the actual
-        /// binding against its working copy. Eviction of a claimed non-required system key stays
-        /// deferred to the stage's commit (Save).
+        /// notice); everything else is reported as Captured and the STAGE applies the binding
+        /// through ConfigManager.SetKeyBindings, then evicts the conflicting system key immediately
+        /// via SetSystemKeyBindings (permanent — Decision 3).
         /// </summary>
         public DrumCaptureOutcome TryCapture(DTXMania.Game.Lib.Input.ButtonState button)
         {
@@ -100,9 +100,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     return DrumCaptureOutcome.Rejected;
                 }
 
-                // Non-required system keys (e.g. IncreaseScrollSpeed) are NOT evicted here. The
-                // stage evicts them at commit (Save) and only for keys still bound to a drum lane,
-                // so removing/clearing/resetting the binding before Save restores the system key.
+                // Non-required system keys (e.g. IncreaseScrollSpeed) are NOT evicted here — the
+                // popup is intent-only. The STAGE evicts the captured key immediately at capture
+                // via SetSystemKeyBindings, and the eviction is permanent: removing the drum
+                // binding does NOT restore the system key (Decision 3).
             }
 
             // Captured is an intent signal only — the caller (the stage) applies the binding. The
@@ -179,8 +180,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         /// Layout (viewport space) of one chip per current binding: a large box with a small ✕
         /// remove hit-area in its top-right corner. Chips flow left-to-right and wrap within the
         /// panel. Deterministic and unit-tested; the stage hit-tests <see cref="DrumBindingChip.Remove"/>
-        /// against the mouse and unbinds the chip's button on its own working copy (the popup is
-        /// intent-only and exposes no remove method).
+        /// against the mouse and unbinds the chip's button via ConfigManager.SetKeyBindings (the
+        /// popup is intent-only and exposes no remove method).
         /// </summary>
         public IReadOnlyList<DrumBindingChip> GetBindingChips(int viewportWidth, int viewportHeight)
         {

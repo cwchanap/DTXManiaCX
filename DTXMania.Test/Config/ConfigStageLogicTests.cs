@@ -219,57 +219,34 @@ public class ConfigStageLogicTests
         }
     }
 
-    [Fact]
-    public void ActivatePressedOnDrumKeyMapping_ShouldChangeToDrumConfigStage()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
+        [Fact]
+        public void ActivatePressedOnDrumKeyMapping_ShouldChangeToDrumConfigStage()
         {
-            InitializeStageMenu(stage, includePanels: true);
-            var stageManager = new Moq.Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
+            var (stage, _, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                InitializeStageMenu(stage, includePanels: true);
+                var stageManager = new Moq.Mock<IStageManager>();
+                stage.StageManager = stageManager.Object;
 
-            // Simulate a pending system-key edit (the user reassigned MoveUp to Z in the System
-            // Key Mapping panel but has not yet saved). DrumConfigStage's capture popup needs this
-            // map so it can reject Z; ConfigStage must hand it over via shared data (Comment-1 fix).
-            var pending = new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp };
-            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", pending);
+                ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
+                SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
-            Dictionary<string, object>? capturedShared = null;
-            stageManager.Setup(m => m.ChangeStage(
-                    StageType.DrumConfig,
-                    Moq.It.IsAny<IStageTransition>(),
-                    Moq.It.IsAny<Dictionary<string, object>>()))
-                .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, data) => capturedShared = data);
+                ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+                // Drum Key Mapping navigates to DrumConfigStage. Config is the single source of truth
+                // now, so the navigation carries no pending system-key handoff (the stopgap is gone).
+                stageManager.Verify(
+                    manager => manager.ChangeStage(
+                        StageType.DrumConfig,
+                        Moq.It.Is<IStageTransition>(transition => transition is InstantTransition)),
+                    Moq.Times.Once);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            // Drum Key Mapping now navigates with the 3-arg ChangeStage so the pending system
-            // bindings can be forwarded to DrumConfigStage through shared data.
-            stageManager.Verify(
-                manager => manager.ChangeStage(
-                    StageType.DrumConfig,
-                    Moq.It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    Moq.It.IsAny<Dictionary<string, object>>()),
-                Moq.Times.Once);
-
-            // The pending system map must be forwarded under the agreed shared-data key, as a
-            // SNAPSHOT (distinct instance) so later edits here cannot mutate what DrumConfigStage
-            // rejects against mid-session.
-            Assert.NotNull(capturedShared);
-            Assert.True(capturedShared!.ContainsKey(DrumConfigStage.PendingSystemBindingsKey));
-            var handed = (Dictionary<Keys, InputCommandType>)capturedShared[DrumConfigStage.PendingSystemBindingsKey];
-            Assert.NotSame(pending, handed);
-            Assert.Single(handed);
-            Assert.Equal(InputCommandType.MoveUp, handed[Keys.Z]);
-
-            var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
-            Assert.Null(activePanel);
+                var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
+                Assert.Null(activePanel);
+            }
         }
-    }
+
 
 
     [Fact]
