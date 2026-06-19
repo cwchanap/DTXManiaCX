@@ -119,20 +119,19 @@ namespace DTXMania.Test.Input
         public void ReloadKeyBindings_AfterModification_RestoresFromConfig()
         {
             // Arrange
-            // First, make a binding change (auto-save will persist it)
+            // Runtime mutations no longer auto-save back to Config (unidirectional
+            // Config -> runtime flow). Persist explicitly via the sole writer, then
+            // verify ReloadKeyBindings restores from Config.
             _inputManager.KeyBindings.BindButton("Key.Q", 5);
-            
-            // Verify the binding was auto-saved to config
+            _inputManager.KeyBindings.BindButton("Key.W", 3);
+            _inputManager.SaveKeyBindings();
+
+            // Verify both bindings are persisted to Config
             Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.Q"));
             Assert.Equal(5, _configManager.Config.KeyBindings["Key.Q"]);
-            
-            // Then make another change (also auto-saved due to auto-save behavior)
-            _inputManager.KeyBindings.BindButton("Key.W", 3);
-            
-            // Verify both bindings are now in config due to auto-save
             Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.W"));
             Assert.Equal(3, _configManager.Config.KeyBindings["Key.W"]);
-            
+
             // Verify the pre-conditions
             Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should be bound locally
             Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q")); // Should be bound locally
@@ -140,9 +139,9 @@ namespace DTXMania.Test.Input
             // Act
             _inputManager.ReloadKeyBindings(); // Should restore from config
 
-            // Assert - Both bindings should be restored since auto-save persisted them
+            // Assert - Both bindings should be restored since they were persisted
             Assert.Equal(5, _inputManager.KeyBindings.GetLane("Key.Q")); // Should be restored from config
-            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should also be restored (auto-saved)
+            Assert.Equal(3, _inputManager.KeyBindings.GetLane("Key.W")); // Should also be restored (persisted)
         }
 
         [Fact]
