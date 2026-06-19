@@ -18,7 +18,10 @@ namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
     /// Visual drum-mapping stage. Shows a drawn kit; the user selects a piece (mouse or keyboard)
-    /// and hits any input device to bind it to that lane. Edits a working copy; commits on Save.
+    /// and hits any input device to bind it to that lane. Reads ConfigManager as the single source
+    /// of truth; edits apply immediately through SetKeyBindings/SetSystemKeyBindings, which
+    /// live-apply to the runtime via the Phase 2 events and mark a deferred save dirty. Back exits
+    /// and flushes the pending save. There is no working copy.
     /// </summary>
     public class DrumConfigStage : BaseStage
     {
@@ -26,13 +29,10 @@ namespace DTXMania.Game.Lib.Stage
         private InputManagerCompat? _input;
 
         // NullLogger until OnActivate swaps in the game's factory. Lets reflection-based tests
-        // (which skip OnActivate and leave _game.LoggerFactory null) exercise Save()'s catch path
+        // (which skip OnActivate and leave _game.LoggerFactory null) exercise the edit helpers
         // without NullReferenceException, while real runtime gets structured logging that survives
-        // Release builds — unlike System.Diagnostics.Debug, whose calls are [Conditional("DEBUG")].
+        // Release builds.
         private ILogger<DrumConfigStage> _logger = NullLogger<DrumConfigStage>.Instance;
-
-        private KeyBindings _workingBindings = new();
-        private Dictionary<Keys, InputCommandType> _workingSystemBindings = new();
 
         private SpriteBatch _spriteBatch = null!;
         private Texture2D _whitePixel = null!;
@@ -56,21 +56,9 @@ namespace DTXMania.Game.Lib.Stage
         private int _selectedLane = -1;
         private bool _skipCaptureThisFrame;
 
-        // Set when a Save() disk write fails; rendered in red so the user knows their
-        // changes were not persisted and they can retry (Back saves again). Cleared on
-        // the next successful save. Null when there is no outstanding error.
-        private string? _saveError;
-
         private MouseState _previousMouse;
 
         public override StageType Type => StageType.DrumConfig;
-
-        /// <summary>
-        /// Shared-data key under which ConfigStage hands its pending system-key edits to this stage
-        /// (see <see cref="OnActivate"/>). Public so ConfigStage can reference it without a magic
-        /// string; the value is a snapshot of ConfigStage's <c>_workingSystemBindings</c>.
-        /// </summary>
-        public const string PendingSystemBindingsKey = "PendingSystemBindings";
 
         public DrumConfigStage(BaseGame game) : base(game)
         {
@@ -105,38 +93,18 @@ namespace DTXMania.Game.Lib.Stage
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
-            // Working copies (committed on Save), mirroring ConfigStage.
-            _workingBindings = _input?.ModularInputManager.KeyBindings.Clone() ?? new KeyBindings();
-            _workingSystemBindings = _input != null
-                ? new Dictionary<Keys, InputCommandType>(_input.GetKeyMappingSnapshot())
-                : new Dictionary<Keys, InputCommandType>();
-
+            // The popup providers read the RUNTIME, which always mirrors Config via the Phase 2
+            // events (ConfigManager.KeyBindingsChanged/SystemKeyBindingsChanged -> InputManagerCompat
+            // reloads). Config is truth, so there is no working copy to clone or hand off.
             _popup = new DrumCapturePopup(
-                // Drum-bindings provider (buttonId -> lane) for DISPLAY. Transitional: reads the
-                // working copy directly. Phase 4 replaces this with a provider that reads Config,
-                // which is always current, removing the need for the stopgap pending-map wiring.
-                () => _workingBindings.ButtonToLane,
-                // ConfigStage may hand us its pending system-key edits (a snapshot of its own
-                // _workingSystemBindings) via shared data. The capture popup must reject a key the
-                // user just assigned to a REQUIRED command there — e.g. moving MoveUp to Z — even
-                // though the live mapping still has the OLD required key. Without this, Z would be
-                // allowed into a drum lane, and on return ConfigStage.ReloadWorkingDrumBindings
-                // would evict Z from the pending system map, silently dropping the system edit on
-                // the later Config save.
-                //
-                // We still commit/evict against the LIVE snapshot (_workingSystemBindings above),
-                // so DrumConfig's disk writes — and therefore ConfigStage's Save/Discard semantics
-                // — are unchanged; the pending map is consulted only for required-key rejection.
-                () => ResolvePopupSystemMapping(
-                    GetSharedData<Dictionary<Keys, InputCommandType>>(PendingSystemBindingsKey),
-                    _workingSystemBindings));
+                () => _input!.ModularInputManager.KeyBindings.ButtonToLane,  // drum map (= Config)
+                () => _input!.GetKeyMappingSnapshot());                       // system map (= Config)
 
             _focusIndex = 0;
             _keyboardFocusActive = false;
             _selectedLane = -1;
             _hoveredLane = -1;
             _skipCaptureThisFrame = false;
-            _saveError = null;
             _previousMouse = Mouse.GetState();
         }
 
@@ -175,10 +143,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     if (chip.Remove.Contains(mouse.X, mouse.Y))
                     {
-                        // Popup is intent-only (no RemoveBinding): the stage unbinds on its own
-                        // working copy directly.
-                        _workingBindings.UnbindButton(chip.ButtonId);
-                        _saveError = null; // working copy changed: a prior save error no longer describes it
+                        // Popup is intent-only (no RemoveBinding): the stage unbinds via Config.
+                        RemoveBindingFromConfig(chip.ButtonId);
                         return;
                     }
                 }
@@ -190,10 +156,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 if (_popup.GetClearRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
                 {
-                    // Popup is intent-only (no ClearLane): the stage unbinds the lane on its own
-                    // working copy directly.
-                    _workingBindings.UnbindLane(_popup.Lane);
-                    _saveError = null; // working copy changed
+                    // Popup is intent-only (no ClearLane): the stage clears the lane via Config.
+                    ClearLaneInConfig(_popup.Lane);
                     return;
                 }
             }
@@ -213,7 +177,7 @@ namespace DTXMania.Game.Lib.Stage
         /// outcome (Captured or Rejected) ends processing for the frame, so a valid key pressed in the
         /// same frame as a reserved key is dropped if the reserved key is enumerated first. Extracted
         /// from <see cref="UpdatePopup"/> because it is GraphicsDevice-free, making the one-binding-per-
-        /// press semantics unit-testable headlessly. Clears <see cref="_saveError"/> on a real capture.
+        /// press semantics unit-testable headlessly.
         /// </summary>
         private void ProcessPopupCapture()
         {
@@ -225,14 +189,11 @@ namespace DTXMania.Game.Lib.Stage
                 var outcome = _popup!.TryCapture(button);
                 if (outcome != DrumCaptureOutcome.Ignored)
                 {
-                    // Captured is an intent signal (the popup mutates nothing): the STAGE applies
-                    // the binding to its working copy, staling any prior save error. Rejected (a
-                    // reserved key) did not mutate. Either way, one binding resolution per press.
+                    // Captured is an intent signal (the popup mutates nothing): the STAGE applies the
+                    // binding to Config via SetKeyBindings (live-apply + dirty). Rejected (a reserved
+                    // key) did not mutate. Either way, one binding resolution per press.
                     if (outcome == DrumCaptureOutcome.Captured)
-                    {
-                        _workingBindings.BindButton(button.Id, _popup.Lane);
-                        _saveError = null;
-                    }
+                        ApplyCapture(button.Id, _popup.Lane);
                     break;
                 }
             }
@@ -266,10 +227,10 @@ namespace DTXMania.Game.Lib.Stage
                 _keyboardFocusActive = true; // user is now navigating by keyboard: show the focus ring
             }
 
-            // Back exits the stage (Back = Save: commit the working copy).
+            // Back exits the stage (persist-on-edit: flush any pending deferred save on the way out).
             if (_input?.IsBackActionTriggered() == true)
             {
-                CommitAndExit();
+                ExitStage();
                 return;
             }
 
@@ -279,8 +240,7 @@ namespace DTXMania.Game.Lib.Stage
             if (leftClick && GetResetButtonRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
             {
                 _focusIndex = DrumKitLayout.ResetActionIndex;
-                _workingBindings.LoadDefaultBindings();
-                _saveError = null; // working copy reset: a prior save error no longer applies
+                ResetDrumBindingsToDefault();
                 return;
             }
 
@@ -301,16 +261,13 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Dispatches Activate (Enter) on the focused element: the Reset action restores default
-        /// bindings on the working copy; a zone opens its capture popup. GraphicsDevice-free so
-        /// the dispatch is unit-testable headlessly — <see cref="UpdateSelection"/> calls only this.
+        /// bindings in Config; a zone opens its capture popup. GraphicsDevice-free so the dispatch
+        /// is unit-testable headlessly — <see cref="UpdateSelection"/> calls only this.
         /// </summary>
         private void ActivateFocusedElement()
         {
             if (DrumKitLayout.IsResetAction(_focusIndex))
-            {
-                _workingBindings.LoadDefaultBindings();
-                _saveError = null; // working copy reset
-            }
+                ResetDrumBindingsToDefault();
             else
                 OpenPopup(_focusIndex);
         }
@@ -377,7 +334,8 @@ namespace DTXMania.Game.Lib.Stage
                 FocusedLane = focusedLaneForRender,
                 HoveredLane = _hoveredLane
             };
-            _renderer.Draw(_spriteBatch, _workingBindings,
+            // Display reads the runtime, which always mirrors Config (persist-on-edit truth).
+            _renderer.Draw(_spriteBatch, _input?.ModularInputManager.KeyBindings ?? new KeyBindings(),
                 _font, _whitePixel,
                 vp.Width, vp.Height, in highlights);
 
@@ -398,163 +356,90 @@ namespace DTXMania.Game.Lib.Stage
                 _font.DrawString(_spriteBatch, "Reset to defaults",
                     new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
 
-            // Surface a save failure so the user knows changes were not persisted and can retry.
-            // Matches the popup's conflict-notice color so error states read consistently.
-            if (_font != null && !string.IsNullOrEmpty(_saveError))
-                _font.DrawString(_spriteBatch, _saveError,
-                    new Vector2(20, vp.Height - 34), new Color(220, 70, 70));
-
             _popup?.Draw(_spriteBatch, _font, _whitePixel, vp.Width, vp.Height);
 
             _spriteBatch.End();
         }
 
-        /// <summary>
-        /// Persists the working bindings and returns to ConfigStage. Back = Save: pressing Back
-        /// commits changes, like other config screens. Returns true if the stage exited (success
-        /// or nothing-to-do); returns false if the disk write failed — in that case the stage
-        /// stays open, the working copy is preserved, and <see cref="_saveError"/> is set so the
-        /// user can retry by pressing Back again.
-        /// </summary>
-        private bool Save()
+        // ---- Edit helpers (persist-on-edit: Config is truth, edits apply immediately via setters) ----
+
+        /// <summary>Back = exit. Flushes any pending deferred save, then returns to ConfigStage.</summary>
+        private void ExitStage()
         {
-            // Without a live input manager the working copy is just defaults, not the
-            // user's bindings — committing it would clobber the real config. Skip the save.
-            if (_input == null)
-            {
-                ChangeStage(StageType.Config, new InstantTransition());
-                return true;
-            }
-
-            // Non-concrete ConfigManager (e.g. a test stub): nothing to persist and nothing to
-            // apply to live input. Exit without touching disk or live bindings.
-            if (_configManager is not ConfigManager concrete)
-            {
-                ChangeStage(StageType.Config, new InstantTransition());
-                return true;
-            }
-
-            var config = _configManager.Config;
-
-            // Deferred eviction: drop non-required system keys now claimed by a drum lane. Done at
-            // commit (not at capture) so removing/clearing/resetting the binding before Save leaves
-            // the system binding intact — mirroring the legacy deferred-eviction behavior. Required
-            // keys can never reach a drum lane (rejected at capture), so any system key that IS
-            // bound to a drum lane here is, by construction, a safe-to-evict non-required key.
-            //
-            // Snapshot the pre-eviction working copy first: if the disk write below fails, the
-            // stage stays open for retry and we must restore the evicted system keys, otherwise
-            // the user could only recover them by re-binding each shortcut manually (undoing the
-            // drum binding would no longer bring the system shortcut back).
-            var prevWorkingSystemBindings = new Dictionary<Keys, InputCommandType>(_workingSystemBindings);
-            EvictSystemKeysClaimedByDrumLanes();
-
-            // Snapshot the binding-related config so we can roll back if the disk write fails,
-            // keeping live input state consistent with what is on disk (mirrors ConfigStage). The
-            // four collections are centralized in BindingState so a future binding field is a
-            // single-point edit here, not a hand-maintained clear/refill.
-            var bindingSnapshot = config.SnapshotBindingState();
-
-            concrete.SetKeyBindings(_workingBindings);
-            concrete.SetSystemKeyBindings(_workingSystemBindings);
-
-            try
-            {
-                _configManager.SaveConfig(AppPaths.GetConfigFilePath());
-            }
-            catch (Exception ex)
-            {
-                // Log the full exception (not just .Message) so Release builds — where
-                // Debug.WriteLine is compiled out — still leave a diagnostic trail.
-                _logger.LogError(ex, "DrumConfigStage: failed to persist config");
-
-                config.RestoreBindingState(bindingSnapshot);
-
-                // Undo the eviction in the working copy so a retry starts from the pre-failure
-                // system mapping. Clear+re-add preserves the dictionary identity relied on by
-                // external observers (and existing tests) that hold a reference to it.
-                _workingSystemBindings.Clear();
-                foreach (var kvp in prevWorkingSystemBindings) _workingSystemBindings[kvp.Key] = kvp.Value;
-
-                // Stay on stage: preserve the working copy and surface the error so the user
-                // knows the changes were not persisted and can retry (Back saves again).
-                _saveError = $"Failed to save config: {ex.Message}";
-                return false;
-            }
-
-            // Disk write succeeded: apply to live input state. The disk is now the source of truth;
-            // a throw here (e.g. ApplySystemBindings's remove-all-then-add-all mid-loop) would leave
-            // the live input inconsistent with disk. Catch, log, and surface it so the user knows the
-            // save persisted but the current session needs a retry/restart — rather than silently
-            // exiting with partially-applied input. Re-pressing Back re-saves (idempotent) and retries.
-            try
-            {
-                _input.ModularInputManager.ReloadKeyBindings();
-                ApplySystemBindings(_input, _workingSystemBindings);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "DrumConfigStage: config saved to disk but live-input apply failed");
-                _saveError = $"Saved, but could not apply to this session: {ex.Message}. Press Back to retry.";
-                return false;
-            }
-
-            _saveError = null;
+            if (_configManager is ConfigManager cm)
+                cm.FlushPendingSave();
             ChangeStage(StageType.Config, new InstantTransition());
-            return true;
         }
 
-        /// <summary>Back = Save &amp; exit. Save() transitions only on success; on failure it
-        /// stays on the stage and surfaces an error so the user can retry.</summary>
-        private void CommitAndExit()
+        /// <summary>Binds <paramref name="buttonId"/> to <paramref name="lane"/> in Config, then
+        /// immediately evicts that key from the system map if it is a keyboard key (Decision 3:
+        /// capture-time eviction is permanent — no restore on undo).</summary>
+        private void ApplyCapture(string buttonId, int lane)
         {
-            Save();
+            if (_configManager is not ConfigManager cm || _input == null) return;
+            var kb = _input.ModularInputManager.KeyBindings.Clone();
+            kb.BindButton(buttonId, lane);
+            cm.SetKeyBindings(kb);
+            // Immediate eviction (Decision 3): a keyboard key claimed by a drum lane leaves the
+            // system map now.
+            EvictSystemKey(buttonId, cm);
         }
 
-        private static void ApplySystemBindings(InputManager inputManager,
-            IReadOnlyDictionary<Keys, InputCommandType> bindings)
+        private void RemoveBindingFromConfig(string buttonId)
         {
-            var snapshot = inputManager.GetKeyMappingSnapshot();
-            foreach (var kvp in snapshot)
-                inputManager.RemoveKeyMapping(kvp.Key);
-            foreach (var kvp in bindings)
-                inputManager.AddKeyMapping(kvp.Key, kvp.Value);
+            if (_configManager is not ConfigManager cm || _input == null) return;
+            var kb = _input.ModularInputManager.KeyBindings.Clone();
+            kb.UnbindButton(buttonId);
+            cm.SetKeyBindings(kb);
+            // No system-key restore (Decision 3): eviction was permanent.
         }
 
-        /// <summary>
-        /// Chooses which system mapping the capture popup consults for required-key rejection.
-        /// Prefers ConfigStage's pending edits (passed via shared data) so a key the user just
-        /// assigned to a required command is rejected even though the live mapping still holds the
-        /// old key; falls back to the live snapshot when there are no pending edits (e.g. DrumConfig
-        /// entered directly, or ConfigStage has no unsaved system changes). Pure so the selection is
-        /// unit-testable headlessly.
-        /// </summary>
-        private static IReadOnlyDictionary<Keys, InputCommandType> ResolvePopupSystemMapping(
-            IReadOnlyDictionary<Keys, InputCommandType>? pending,
-            IReadOnlyDictionary<Keys, InputCommandType> live)
-            => pending ?? live;
-
-        /// <summary>
-        /// Removes from <see cref="_workingSystemBindings"/> any keyboard key that is currently
-        /// bound to a drum lane in <see cref="_workingBindings"/>. Commit-time counterpart to the
-        /// popup's deferred eviction: the system mapping is mutated only when the binding is
-        /// actually about to be persisted, so an undone capture never loses a system shortcut.
-        /// </summary>
-        private void EvictSystemKeysClaimedByDrumLanes()
+        private void ClearLaneInConfig(int lane)
         {
-            foreach (var kvp in _workingBindings.ButtonToLane)
+            if (_configManager is not ConfigManager cm || _input == null) return;
+            var kb = _input.ModularInputManager.KeyBindings.Clone();
+            kb.UnbindLane(lane);
+            cm.SetKeyBindings(kb);
+        }
+
+        private void ResetDrumBindingsToDefault()
+        {
+            if (_configManager is not ConfigManager cm || _input == null) return;
+            var kb = new KeyBindings();
+            kb.LoadDefaultBindings();
+            cm.SetKeyBindings(kb);
+            EvictSystemKeysForDrumBindings(kb, cm);
+        }
+
+        /// <summary>Evicts a single keyboard key from the system map if it was just claimed by a drum lane.</summary>
+        private void EvictSystemKey(string buttonId, ConfigManager cm)
+        {
+            if (!KeyBindings.IsKeyboardButtonId(buttonId)) return;
+            if (!Enum.TryParse(buttonId.Substring(4), out Keys k)) return;
+            var snap = new Dictionary<Keys, InputCommandType>(_input!.GetKeyMappingSnapshot());
+            if (snap.Remove(k)) cm.SetSystemKeyBindings(snap);
+        }
+
+        /// <summary>Evicts any system keys claimed by the given drum bindings (used after reset-to-defaults).</summary>
+        private void EvictSystemKeysForDrumBindings(KeyBindings kb, ConfigManager cm)
+        {
+            var snap = new Dictionary<Keys, InputCommandType>(_input!.GetKeyMappingSnapshot());
+            bool changed = false;
+            foreach (var id in kb.ButtonToLane.Keys)
             {
-                if (!KeyBindings.IsKeyboardButtonId(kvp.Key))
-                    continue;
-
-                // "Key.PageUp" -> Keys.PageUp
-                if (Enum.TryParse(kvp.Key.Substring(4), out Keys sysKey))
-                    _workingSystemBindings.Remove(sysKey);
+                if (KeyBindings.IsKeyboardButtonId(id) && Enum.TryParse(id.Substring(4), out Keys k))
+                    changed |= snap.Remove(k);
             }
+            if (changed) cm.SetSystemKeyBindings(snap);
         }
 
         protected override void OnDeactivate()
         {
+            // Persist-on-edit safety net: flush any pending deferred save when leaving the stage.
+            // Back already flushes via ExitStage; this covers other deactivation paths so an edited
+            // Config is never left dirty in memory only.
+            _configManager.FlushPendingSave();
+
             _renderer?.Dispose();
             _renderer = null;
             _popup = null;
