@@ -112,7 +112,10 @@ namespace DTXMania.Game.Lib.Stage
                 : new Dictionary<Keys, InputCommandType>();
 
             _popup = new DrumCapturePopup(
-                _workingBindings,
+                // Drum-bindings provider (buttonId -> lane) for DISPLAY. Transitional: reads the
+                // working copy directly. Phase 4 replaces this with a provider that reads Config,
+                // which is always current, removing the need for the stopgap pending-map wiring.
+                () => _workingBindings.ButtonToLane,
                 // ConfigStage may hand us its pending system-key edits (a snapshot of its own
                 // _workingSystemBindings) via shared data. The capture popup must reject a key the
                 // user just assigned to a REQUIRED command there — e.g. moving MoveUp to Z — even
@@ -172,7 +175,9 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     if (chip.Remove.Contains(mouse.X, mouse.Y))
                     {
-                        _popup.RemoveBinding(chip.ButtonId);
+                        // Popup is intent-only (no RemoveBinding): the stage unbinds on its own
+                        // working copy directly.
+                        _workingBindings.UnbindButton(chip.ButtonId);
                         _saveError = null; // working copy changed: a prior save error no longer describes it
                         return;
                     }
@@ -185,7 +190,9 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 if (_popup.GetClearRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
                 {
-                    _popup.ClearLane();
+                    // Popup is intent-only (no ClearLane): the stage unbinds the lane on its own
+                    // working copy directly.
+                    _workingBindings.UnbindLane(_popup.Lane);
                     _saveError = null; // working copy changed
                     return;
                 }
@@ -218,10 +225,14 @@ namespace DTXMania.Game.Lib.Stage
                 var outcome = _popup!.TryCapture(button);
                 if (outcome != DrumCaptureOutcome.Ignored)
                 {
-                    // Captured mutated the working copy (stale any prior save error); Rejected
-                    // (a reserved key) did not. Either way, one binding resolution per press.
+                    // Captured is an intent signal (the popup mutates nothing): the STAGE applies
+                    // the binding to its working copy, staling any prior save error. Rejected (a
+                    // reserved key) did not mutate. Either way, one binding resolution per press.
                     if (outcome == DrumCaptureOutcome.Captured)
+                    {
+                        _workingBindings.BindButton(button.Id, _popup.Lane);
                         _saveError = null;
+                    }
                     break;
                 }
             }
