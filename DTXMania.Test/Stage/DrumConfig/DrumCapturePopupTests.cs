@@ -17,20 +17,21 @@ namespace DTXMania.Test.Stage.DrumConfig
     [Trait("Category", "Unit")]
     public class DrumCapturePopupTests
     {
-        private readonly KeyBindings _bindings = new();
+        // Provider-driven popup: a mutable dict behind the drum-bindings provider stands in for the
+        // stage's working copy. The popup is intent-only — TryCapture never touches this dict; the
+        // stage would. Tests that need pre-existing lane bindings populate _drum directly.
+        private readonly Dictionary<string, int> _drum = new();
         private readonly Dictionary<Keys, InputCommandType> _system = new()
         {
             [Keys.Enter] = InputCommandType.Activate,           // required
             [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed, // non-required
         };
 
-        private DrumCapturePopup NewPopup() =>
-            new(_bindings, () => _system);
+        private DrumCapturePopup NewPopup() => new(() => _drum, () => _system);
 
         [Fact]
-        public void Constructor_WithNullBindings_ShouldThrowArgumentNullException()
+        public void Constructor_WithNullDrumBindingsProvider_ShouldThrowArgumentNullException()
         {
-            // Act & Assert
             Assert.Throws<ArgumentNullException>(() =>
                 new DrumCapturePopup(null!, () => _system));
         }
@@ -38,9 +39,8 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Constructor_WithNullSystemMappingProvider_ShouldThrowArgumentNullException()
         {
-            // Act & Assert
             Assert.Throws<ArgumentNullException>(() =>
-                new DrumCapturePopup(_bindings, null!));
+                new DrumCapturePopup(() => _drum, null!));
         }
 
         [Fact]
@@ -54,16 +54,17 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void TryCapture_UnboundKey_AppendsBindingToLane()
+        public void TryCapture_UnboundKey_ReturnsCapturedWithoutMutating()
         {
+            // Intent-only: a capturable key returns Captured, but the popup does NOT touch the
+            // provider's underlying state — the stage applies the binding.
             var popup = NewPopup();
             popup.Open(4);
 
             var outcome = popup.TryCapture(new ButtonState("Key.Q", true));
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.Contains("Key.Q", _bindings.GetButtonsForLane(4));
-            Assert.Contains("Key.S", _bindings.GetButtonsForLane(4)); // default still present (append)
+            Assert.False(_drum.ContainsKey("Key.Q")); // provider dict unchanged — popup is intent-only
         }
 
         [Fact]
@@ -76,7 +77,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.Equal(DrumCaptureOutcome.Rejected, outcome);
             Assert.Equal(DrumCaptureState.ShowingConflict, popup.State);
-            Assert.DoesNotContain("Key.Enter", _bindings.GetButtonsForLane(4));
+            Assert.False(_drum.ContainsKey("Key.Enter")); // no binding applied (intent-only)
         }
 
         [Fact]
@@ -91,14 +92,14 @@ namespace DTXMania.Test.Stage.DrumConfig
             {
                 [Keys.Z] = InputCommandType.MoveUp // required command, pending
             };
-            var popup = new DrumCapturePopup(_bindings, () => pending);
+            var popup = new DrumCapturePopup(() => _drum, () => pending);
             popup.Open(4);
 
             var outcome = popup.TryCapture(new ButtonState("Key.Z", true));
 
             Assert.Equal(DrumCaptureOutcome.Rejected, outcome);
             Assert.Equal(DrumCaptureState.ShowingConflict, popup.State);
-            Assert.DoesNotContain("Key.Z", _bindings.GetButtonsForLane(4));
+            Assert.False(_drum.ContainsKey("Key.Z")); // intent-only: provider dict untouched
             // Pending map is read-only to the popup (eviction is deferred to the stage's commit on
             // the live snapshot); the required key must survive untouched.
             Assert.Equal(InputCommandType.MoveUp, pending[Keys.Z]);
@@ -114,33 +115,32 @@ namespace DTXMania.Test.Stage.DrumConfig
             {
                 [Keys.Z] = InputCommandType.MoveUp // Up is no longer in the pending map
             };
-            var popup = new DrumCapturePopup(_bindings, () => pending);
+            var popup = new DrumCapturePopup(() => _drum, () => pending);
             popup.Open(4);
 
             var outcome = popup.TryCapture(new ButtonState("Key.Up", true));
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.Contains("Key.Up", _bindings.GetButtonsForLane(4));
+            Assert.False(_drum.ContainsKey("Key.Up")); // intent-only: provider dict untouched
         }
 
         [Fact]
-        public void TryCapture_NonRequiredSystemKey_BindsWithoutEvicting()
+        public void TryCapture_NonRequiredSystemKey_ReturnsCapturedWithoutEvicting()
         {
             // Eviction of a claimed non-required system key is deferred to the stage's commit, so
             // capturing one must NOT mutate the system mapping (that would lose the shortcut if the
-            // binding is later removed/cleared/reset before Save). The popup only claims the lane.
+            // binding is later removed/cleared/reset before Save). The popup only reports Captured.
             var popup = NewPopup();
             popup.Open(7);
 
             var outcome = popup.TryCapture(new ButtonState("Key.PageUp", true));
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.Contains("Key.PageUp", _bindings.GetButtonsForLane(7));
             Assert.True(_system.ContainsKey(Keys.PageUp)); // system mapping untouched at capture
         }
 
         [Fact]
-        public void TryCapture_NonKeyboardButton_BindsWithoutSystemCheck()
+        public void TryCapture_NonKeyboardButton_ReturnsCapturedWithoutSystemCheck()
         {
             var popup = NewPopup();
             popup.Open(6);
@@ -148,21 +148,6 @@ namespace DTXMania.Test.Stage.DrumConfig
             var outcome = popup.TryCapture(new ButtonState("MIDI.36", true));
 
             Assert.Equal(DrumCaptureOutcome.Captured, outcome);
-            Assert.Contains("MIDI.36", _bindings.GetButtonsForLane(6));
-        }
-
-        [Fact]
-        public void RemoveBinding_And_ClearLane_MutateWorkingBindings()
-        {
-            var popup = NewPopup();
-            popup.Open(4);
-
-            popup.RemoveBinding("Key.S");
-            Assert.DoesNotContain("Key.S", _bindings.GetButtonsForLane(4));
-
-            popup.TryCapture(new ButtonState("Key.Q", true));
-            popup.ClearLane();
-            Assert.Empty(_bindings.GetButtonsForLane(4));
         }
 
         [Fact]
@@ -201,7 +186,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             var outcome = popup.TryCapture(new ButtonState("Key.Q", true));
 
             Assert.Equal(DrumCaptureOutcome.Ignored, outcome);
-            Assert.DoesNotContain("Key.Q", _bindings.GetButtonsForLane(4));
+            Assert.False(_drum.ContainsKey("Key.Q")); // intent-only: nothing applied
         }
 
         [Fact]
@@ -219,24 +204,24 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void CurrentBindings_ReflectsWorkingBindingsForLane()
+        public void CurrentBindings_ReflectsProviderForLane()
         {
+            // Pre-populate the provider dict (the stage's working copy) instead of capturing through
+            // the popup, which is now intent-only.
+            _drum["Key.S"] = 4;
             var popup = NewPopup();
             popup.Open(4);
 
-            Assert.Contains("Key.S", popup.CurrentBindings); // default snare binding
-
-            popup.TryCapture(new ButtonState("Key.Q", true));
-
-            Assert.Contains("Key.Q", popup.CurrentBindings);
+            Assert.Contains("Key.S", popup.CurrentBindings);
         }
 
         [Fact]
         public void GetBindingChips_ReturnsOneChipPerCurrentBinding()
         {
+            _drum["Key.S"] = 4;
+            _drum["Key.Q"] = 4; // two bindings for lane 4
             var popup = NewPopup();
-            popup.Open(4);                                  // default lane 4 contains "Key.S"
-            popup.TryCapture(new ButtonState("Key.Q", true)); // now "Key.S" + "Key.Q"
+            popup.Open(4);
 
             var chips = popup.GetBindingChips(1280, 720);
 
@@ -251,9 +236,10 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             // Chips must show human-readable labels (FormatButtonId), matching the per-zone
             // labels in DrumKitRenderer — not raw ids like "Key.OemSemicolon".
+            _drum["Key.S"] = 4;
+            _drum["Key.Space"] = 4;
             var popup = NewPopup();
-            popup.Open(4); // default lane 4 binding is "Key.S"
-            popup.TryCapture(new ButtonState("Key.Space", true));
+            popup.Open(4);
 
             var chips = popup.GetBindingChips(1280, 720);
             var byId = chips.ToDictionary(c => c.ButtonId, c => c.Label);
@@ -265,9 +251,10 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void GetBindingChips_RemoveRects_AreNonEmptyAndDoNotOverlap()
         {
+            _drum["Key.S"] = 4;
+            _drum["Key.Q"] = 4;
             var popup = NewPopup();
             popup.Open(4);
-            popup.TryCapture(new ButtonState("Key.Q", true));
 
             var chips = popup.GetBindingChips(1280, 720);
 
@@ -280,26 +267,11 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void RemovingChipById_RemovesOnlyThatBinding()
-        {
-            var popup = NewPopup();
-            popup.Open(4);
-            popup.TryCapture(new ButtonState("Key.Q", true));
-
-            var chips = popup.GetBindingChips(1280, 720);
-            var sChip = chips.Single(c => c.ButtonId == "Key.S");
-            popup.RemoveBinding(sChip.ButtonId);
-
-            Assert.DoesNotContain("Key.S", popup.CurrentBindings);
-            Assert.Contains("Key.Q", popup.CurrentBindings);
-        }
-
-        [Fact]
         public void GetBindingChips_WhenLaneEmpty_ReturnsNoChips()
         {
+            // Open the popup on a lane with no drum entries (no ClearLane — it's gone).
             var popup = NewPopup();
             popup.Open(4);
-            popup.ClearLane();
 
             Assert.Empty(popup.GetBindingChips(1280, 720));
         }
@@ -307,10 +279,10 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void GetBindingChips_ManyBindings_WrapsToSecondRow()
         {
+            foreach (var id in new[] { "MIDI.1", "MIDI.2", "MIDI.3", "MIDI.4", "MIDI.5", "MIDI.6", "MIDI.7", "MIDI.8" })
+                _drum[id] = 4;
             var popup = NewPopup();
             popup.Open(4);
-            foreach (var id in new[] { "MIDI.1", "MIDI.2", "MIDI.3", "MIDI.4", "MIDI.5", "MIDI.6", "MIDI.7", "MIDI.8" })
-                popup.TryCapture(new ButtonState(id, true));
 
             var chips = popup.GetBindingChips(400, 300); // many bindings overflow one row
             var rows = chips.Select(c => c.Bounds.Y).Distinct().Count();
@@ -322,8 +294,9 @@ namespace DTXMania.Test.Stage.DrumConfig
         public void GetBindingChips_AreLargeBoxes()
         {
             // Bindings render as large boxes (not thin inline pills), so the corner ✕ reads naturally.
+            _drum["Key.S"] = 4;
             var popup = NewPopup();
-            popup.Open(4); // default "Key.S"
+            popup.Open(4);
 
             var chip = popup.GetBindingChips(1280, 720).Single();
 
@@ -334,9 +307,10 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void GetBindingChips_RemoveBox_SitsInTopRightCorner()
         {
+            _drum["Key.S"] = 4;
+            _drum["Key.Q"] = 4;
             var popup = NewPopup();
             popup.Open(4);
-            popup.TryCapture(new ButtonState("Key.Q", true));
 
             foreach (var c in popup.GetBindingChips(1280, 720))
             {
@@ -451,9 +425,10 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void GetBindingChips_WithDifferentViewportSizes_ShouldReturnValidChips()
         {
+            _drum["Key.S"] = 4;
+            _drum["Key.Q"] = 4;
             var popup = NewPopup();
             popup.Open(4);
-            popup.TryCapture(new ButtonState("Key.Q", true));
 
             var chips1 = popup.GetBindingChips(1280, 720);
             var chips2 = popup.GetBindingChips(800, 600);
@@ -461,7 +436,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             // Should return chips for both viewport sizes
             Assert.NotEmpty(chips1);
             Assert.NotEmpty(chips2);
-            Assert.Equal(2, chips1.Count); // Default + Q
+            Assert.Equal(2, chips1.Count);
             Assert.Equal(2, chips2.Count);
         }
 
@@ -500,8 +475,9 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Draw_WhenOpenWithBindings_RendersChipLabelsClearAndDone()
         {
+            _drum["Key.S"] = 4; // one chip for lane 4
             var popup = NewPopup();
-            popup.Open(4); // default "Key.S" -> one chip
+            popup.Open(4);
             var font = new Mock<IFont>();
             font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
 
@@ -518,9 +494,9 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Draw_WhenOpenWithNoBindings_ShowsEmptyPlaceholder()
         {
+            // Open on a lane with no drum entries (no ClearLane — it's gone) -> "(no bindings)".
             var popup = NewPopup();
             popup.Open(4);
-            popup.ClearLane(); // no bindings -> "(no bindings)" branch
             var font = new Mock<IFont>();
             font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
 
@@ -551,6 +527,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Draw_WhenFontNull_ReturnsBeforeAnyTextLayout()
         {
+            _drum["Key.S"] = 4;
             var popup = NewPopup();
             popup.Open(4);
 

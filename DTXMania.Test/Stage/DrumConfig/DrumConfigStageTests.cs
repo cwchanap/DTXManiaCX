@@ -68,7 +68,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             var working = new KeyBindings();
             var popup = new DrumCapturePopup(
-                working,
+                () => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
@@ -318,7 +318,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
-            var popup = new DrumCapturePopup(new KeyBindings(),
+            var popup = new DrumCapturePopup(() => new KeyBindings().ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup); // closed
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", default(MouseState));
@@ -335,7 +335,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
-            var popup = new DrumCapturePopup(new KeyBindings(),
+            var popup = new DrumCapturePopup(() => new KeyBindings().ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
@@ -354,7 +354,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
             ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
@@ -375,7 +375,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
             working.BindButton("Key.Z", 3); // non-default binding Reset must clear
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
             ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
@@ -443,7 +443,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.Activate };
-            var popup = new DrumCapturePopup(new KeyBindings(),
+            var popup = new DrumCapturePopup(() => new KeyBindings().ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
@@ -475,10 +475,11 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup", 0.0, MouseAt(10, 10, false, rightDown: true), false, true);
@@ -492,7 +493,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
-            var popup = new DrumCapturePopup(new KeyBindings(),
+            var popup = new DrumCapturePopup(() => new KeyBindings().ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
@@ -512,10 +513,11 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4); // lane 4 has the default "Key.S" binding
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
 
             var clearCenter = popup.GetClearRect(1280, 720).Center;
@@ -531,11 +533,14 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            // Lane 4 defaults to "Key.S"; add "Key.Q" directly (the popup is intent-only, so the
+            // setup can't go through TryCapture anymore).
+            working.BindButton("Key.Q", 4);
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4);
-            popup.TryCapture(new DTXMania.Game.Lib.Input.ButtonState("Key.Q", true)); // "Key.S" + "Key.Q"
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
 
             var removeRect = popup.GetBindingChips(1280, 720)
@@ -553,10 +558,11 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
             ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", true);
 
@@ -575,10 +581,11 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working,
+            var popup = new DrumCapturePopup(() => working.ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             popup.Open(7);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
             ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 7);
             // A live input manager whose pressed-button feed yields one captured button this frame.
             using var input = new InputManagerCompat(new ConfigManager());
@@ -610,7 +617,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             var game = ReflectionHelpers.CreateGame();
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
             var stage = new DrumConfigStage(game);
-            var popup = new DrumCapturePopup(new KeyBindings(),
+            var popup = new DrumCapturePopup(() => new KeyBindings().ButtonToLane,
                 () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
 
@@ -743,9 +750,10 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
 
             var working = new KeyBindings();
-            var popup = new DrumCapturePopup(working, () => new Dictionary<Keys, InputCommandType>());
+            var popup = new DrumCapturePopup(() => working.ButtonToLane, () => new Dictionary<Keys, InputCommandType>());
             popup.Open(4); // Snare
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_workingBindings", working);
 
             // Seed this frame's press buffer directly (skipping Update()/keyboard): reserved Enter
             // first, then a valid unbound key Q. Order determines which is resolved.
