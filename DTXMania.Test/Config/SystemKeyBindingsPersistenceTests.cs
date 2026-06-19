@@ -131,7 +131,7 @@ public class SystemKeyBindingsPersistenceTests
     {
         var manager = new ConfigManager();
 
-        manager.SaveSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+        manager.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
         {
             [Keys.Enter] = InputCommandType.Activate,
             [Keys.Space] = InputCommandType.Activate,
@@ -305,7 +305,7 @@ public class SystemKeyBindingsPersistenceTests
         var manager = new ConfigManager();
         manager.Config.SystemKeyBindings["SystemKey.Back"] = "Tab";
 
-        manager.SaveSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+        manager.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
         {
             [Keys.Space] = InputCommandType.Activate,
         });
