@@ -15,6 +15,7 @@ namespace DTXMania.Game.Lib.Input
     public class InputManagerCompat : InputManager, IInputManagerCompat
     {
         private readonly ModularInputManager _modularInputManager;
+        private readonly ConfigManager _configManager;
         private readonly HashSet<InputCommandType> _injectedCommandsThisFrame = new();
         private bool _disposed = false;
 
@@ -22,10 +23,17 @@ namespace DTXMania.Game.Lib.Input
         {
             if (configManager is ConfigManager cm)
             {
+                _configManager = cm;
                 _modularInputManager = new ModularInputManager(cm);
                 
                 // Wire up debugging for lane hits
                 _modularInputManager.OnLaneHit += OnModularLaneHit;
+
+                // Live-apply: Config → runtime (unidirectional). When Config edits fire these
+                // events, rebuild the runtime binding maps from Config. ReloadKeyBindings()
+                // suppresses its internal BindingsChanged during reload, so no feedback loop.
+                _configManager.KeyBindingsChanged += OnConfigKeyBindingsChanged;
+                _configManager.SystemKeyBindingsChanged += OnConfigSystemKeyBindingsChanged;
             }
             else
             {
@@ -37,6 +45,10 @@ namespace DTXMania.Game.Lib.Input
         {
             System.Diagnostics.Debug.WriteLine($"[InputManagerCompat] Lane {e.Lane} hit by {e.Button.Id} (velocity: {e.Button.Velocity:F2})");
         }
+
+        private void OnConfigKeyBindingsChanged(object? sender, EventArgs e) => _modularInputManager.ReloadKeyBindings();
+
+        private void OnConfigSystemKeyBindingsChanged(object? sender, EventArgs e) => _configManager.LoadSystemKeyBindings(this);
 
         /// <summary>
         /// Gets the underlying ModularInputManager for advanced features
@@ -142,6 +154,8 @@ namespace DTXMania.Game.Lib.Input
                     _modularInputManager.OnLaneHit -= OnModularLaneHit;
                     _modularInputManager.Dispose();
                 }
+                _configManager.KeyBindingsChanged -= OnConfigKeyBindingsChanged;
+                _configManager.SystemKeyBindingsChanged -= OnConfigSystemKeyBindingsChanged;
                 _disposed = true;
             }
             base.Dispose(disposing);
