@@ -670,4 +670,49 @@ Key.Bad=abc
             File.Delete(tempFile);
         }
     }
+
+    [Fact]
+    public void SetKeyBindings_MutatesConfig_MarksDirty_FiresEvent()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
+        try
+        {
+            // Arrange — LoadConfig captures _loadedConfigPath so MarkDirty() stages a real
+            // deferred write (and seeds a default config file at that path).
+            var cm = new ConfigManager();
+            cm.LoadConfig(AppPaths.GetConfigFilePath());
+
+            var raised = false;
+            cm.KeyBindingsChanged += (_, _) => raised = true;
+
+            // Act
+            var kb = new KeyBindings();
+            kb.BindButton("Key.X", 2);
+            cm.SetKeyBindings(kb);
+
+            // Assert — in-memory mutation + event
+            Assert.Equal(2, cm.Config.KeyBindings["Key.X"]);
+            Assert.True(raised);
+
+            // Persist-on-edit: MarkDirty() must have staged a deferred write against the
+            // loaded path, so FlushPendingSave lands the binding on disk. The default config
+            // written by LoadConfig has no Key.X, so this only passes when the full
+            // SetKeyBindings -> MarkDirty -> FlushPendingSave chain ran end-to-end.
+            cm.FlushPendingSave();
+            Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
+            Assert.Contains("Key.X=2", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SetKeyBindings_NoEvent_WhenNoSubscriber_DoesNotThrow() =>
+        Assert.Null(Record.Exception(() => new ConfigManager().SetKeyBindings(new KeyBindings())));
 }

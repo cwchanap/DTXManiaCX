@@ -483,6 +483,8 @@ namespace DTXMania.Game.Lib.Config
 
         public event EventHandler<ScrollSpeedChangedEventArgs>? ScrollSpeedChanged;
 
+        public event EventHandler<EventArgs>? KeyBindingsChanged;
+
         public void SetScrollSpeed(string configFilePath, int percent)
         {
             var snapped = ScrollSpeedRange.SnapAndClamp(percent);
@@ -501,6 +503,21 @@ namespace DTXMania.Game.Lib.Config
         public void AdjustScrollSpeed(string configFilePath, int stepDelta)
         {
             SetScrollSpeed(configFilePath, Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
+        }
+
+        /// <summary>
+        /// Writes <paramref name="keyBindings"/> into <see cref="Config"/>, marks the edit
+        /// dirty for a deferred save, and raises <see cref="KeyBindingsChanged"/>.
+        /// </summary>
+        /// <remarks>
+        /// Requires a prior <see cref="LoadConfig"/> call for the edit to be persisted;
+        /// calling before LoadConfig mutates in-memory Config only.
+        /// </remarks>
+        public void SetKeyBindings(KeyBindings keyBindings)
+        {
+            SaveKeyBindings(keyBindings);
+            MarkDirty();
+            KeyBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         /// <inheritdoc/>
