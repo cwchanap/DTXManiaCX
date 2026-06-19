@@ -251,8 +251,9 @@ namespace DTXMania.Game.Lib.Input
         #region Key Bindings Management
 
         /// <summary>
-        /// Saves current key bindings to configuration
-        /// Auto-saves when bindings change
+        /// Saves current key bindings to configuration.
+        /// Called explicitly by reset operations; runtime binding mutations no longer
+        /// auto-save (Config is the single source of truth; edits flow Config -> runtime).
         /// </summary>
         public void SaveKeyBindings()
         {
@@ -426,8 +427,9 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void OnKeyBindingsChanged(object sender, EventArgs e)
         {
-            // Auto-save bindings when they change
-            SaveKeyBindings();
+            // Config is the single source of truth. Runtime binding mutations no longer
+            // write back to Config; edits flow Config -> runtime via the event subscription
+            // in InputManagerCompat. This handler only forwards the notification.
             OnBindingsChanged?.Invoke(this, EventArgs.Empty);
         }
 
