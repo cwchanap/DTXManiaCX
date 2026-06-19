@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
-using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -29,8 +28,7 @@ public class ConfigStageInputCoverageTests
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels)
     {
-        InvokePrivateMethod(stage, "LoadConfiguration");
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        // Config is truth; only the item list (and optionally the system panel) need setup.
         InvokePrivateMethod(stage, "SetupConfigItems");
         if (includePanels)
         {
@@ -44,25 +42,27 @@ public class ConfigStageInputCoverageTests
         SetPrivateField(stage, "_previousKeyboardState", previous);
     }
 
-    private static string CreateConfigSavePath()
+    /// <summary>
+    /// Writes the navigation bindings into Config via SetSystemKeyBindings, which live-applies
+    /// them to the runtime InputManagerCompat map that the command readers query.
+    /// </summary>
+    private static void SetupRuntimeSystemBindings(InputManagerCompat inputManager, Dictionary<Keys, InputCommandType> bindings)
     {
-        var directory = Path.Combine(
-            AppContext.BaseDirectory,
-            "TestResults",
-            "config-stage-input-coverage",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        return Path.Combine(directory, "Config.ini");
+        var cmField = typeof(InputManagerCompat).GetField("_configManager",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var cm = (ConfigManager)cmField!.GetValue(inputManager)!;
+        cm.SetSystemKeyBindings(bindings);
     }
 
-    private static void DeleteConfigSavePath(string path)
+    private static Dictionary<Keys, InputCommandType> DefaultNavBindings() => new()
     {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
+        [Keys.Down] = InputCommandType.MoveDown,
+        [Keys.Up] = InputCommandType.MoveUp,
+        [Keys.Escape] = InputCommandType.Back,
+        [Keys.Enter] = InputCommandType.Activate,
+        [Keys.Left] = InputCommandType.MoveLeft,
+        [Keys.Right] = InputCommandType.MoveRight,
+    };
 
     [Fact]
     public void HandleInput_WhenMoveDownPressed_ShouldIncrementSelectedIndex()
@@ -71,16 +71,8 @@ public class ConfigStageInputCoverageTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
             SetPrivateField(stage, "_selectedIndex", 0);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
             SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
 
             InvokePrivateMethod(stage, "HandleInput");
@@ -96,16 +88,8 @@ public class ConfigStageInputCoverageTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
             SetPrivateField(stage, "_selectedIndex", 2);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
             SetKeyboardStates(stage, new KeyboardState(Keys.Up), new KeyboardState());
 
             InvokePrivateMethod(stage, "HandleInput");
@@ -121,29 +105,19 @@ public class ConfigStageInputCoverageTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            SetPrivateField(stage, "_selectedIndex", 1);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
+            SetPrivateField(stage, "_selectedIndex", 1); // Fullscreen toggle
 
             var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
             Assert.True(configItems!.Count > 1);
 
-            var fullscreenBefore = GetPrivateField<ConfigData>(stage, "_workingConfig").FullScreen;
+            var fullscreenBefore = configManager.Config.FullScreen;
 
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
             InvokePrivateMethod(stage, "HandleInput");
 
-            var fullscreenAfter = GetPrivateField<ConfigData>(stage, "_workingConfig").FullScreen;
-            Assert.NotEqual(fullscreenBefore, fullscreenAfter);
-            Assert.True(GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            Assert.NotEqual(fullscreenBefore, configManager.Config.FullScreen);
         }
     }
 
@@ -156,16 +130,7 @@ public class ConfigStageInputCoverageTests
             InitializeStageMenu(stage, includePanels: false);
             var stageManager = new Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_hasUnsavedChanges", false);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
 
             var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
@@ -184,47 +149,29 @@ public class ConfigStageInputCoverageTests
     }
 
     [Fact]
-    public void HandleInput_WhenActivatePressedOnSaveButton_ShouldCallOnSaveButtonClicked()
+    public void HandleInput_WhenActivatePressedOnExitButton_ShouldCallOnExitButtonClicked()
     {
-        var redirectedSavePath = CreateConfigSavePath();
-        var configManager = new ConfigManager();
-        try
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
         {
-            var (stage, _, inputManager) = CreateStage(configManager);
-            using (inputManager)
-            {
-                InitializeStageMenu(stage, includePanels: false);
-                var stageManager = new Mock<IStageManager>();
-                stage.StageManager = stageManager.Object;
-                SetPrivateField(stage, "_hasUnsavedChanges", false);
-                SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-                {
-                    [Keys.Down] = InputCommandType.MoveDown,
-                    [Keys.Up] = InputCommandType.MoveUp,
-                    [Keys.Escape] = InputCommandType.Back,
-                    [Keys.Enter] = InputCommandType.Activate,
-                    [Keys.Left] = InputCommandType.MoveLeft,
-                    [Keys.Right] = InputCommandType.MoveRight,
-                });
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
 
-                var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-                Assert.NotNull(configItems);
-                var saveButtonIndex = configItems!.Count + 1;
-                SetPrivateField(stage, "_selectedIndex", saveButtonIndex);
+            var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            Assert.NotNull(configItems);
+            var exitButtonIndex = configItems!.Count + 1;
+            SetPrivateField(stage, "_selectedIndex", exitButtonIndex);
 
-                SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-                InvokePrivateMethod(stage, "HandleInput");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+            InvokePrivateMethod(stage, "HandleInput");
 
-                stageManager.Verify(
-                    m => m.ChangeStage(
-                        StageType.Title,
-                        It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                    Times.Once);
-            }
-        }
-        finally
-        {
-            DeleteConfigSavePath(redirectedSavePath);
+            stageManager.Verify(
+                m => m.ChangeStage(
+                    StageType.Title,
+                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
+                Times.Once);
         }
     }
 
@@ -235,24 +182,16 @@ public class ConfigStageInputCoverageTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            SetPrivateField(stage, "_selectedIndex", 5);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
+            SetPrivateField(stage, "_selectedIndex", 5); // Scroll Speed
 
-            var scrollSpeedBefore = GetPrivateField<ConfigData>(stage, "_workingConfig").ScrollSpeed;
+            var scrollSpeedBefore = configManager.Config.ScrollSpeed;
 
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
             InvokePrivateMethod(stage, "HandleInput");
 
-            var scrollSpeedAfter = GetPrivateField<ConfigData>(stage, "_workingConfig").ScrollSpeed;
-            Assert.True(GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            // Scroll speed should have changed via SetScrollSpeed.
+            Assert.NotEqual(scrollSpeedBefore, configManager.Config.ScrollSpeed);
         }
     }
 
@@ -263,21 +202,15 @@ public class ConfigStageInputCoverageTests
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            SetPrivateField(stage, "_selectedIndex", 5);
-            SetPrivateField(stage, "_navigationBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Down] = InputCommandType.MoveDown,
-                [Keys.Up] = InputCommandType.MoveUp,
-                [Keys.Escape] = InputCommandType.Back,
-                [Keys.Enter] = InputCommandType.Activate,
-                [Keys.Left] = InputCommandType.MoveLeft,
-                [Keys.Right] = InputCommandType.MoveRight,
-            });
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
+            SetPrivateField(stage, "_selectedIndex", 5); // Scroll Speed
+
+            var scrollSpeedBefore = configManager.Config.ScrollSpeed;
 
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
             InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.True(GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            Assert.NotEqual(scrollSpeedBefore, configManager.Config.ScrollSpeed);
         }
     }
 
@@ -297,7 +230,7 @@ public class ConfigStageInputCoverageTests
     }
 
     [Fact]
-    public void OnPanelSaved_WhenSystemPanel_ShouldUpdateWorkingSystemBindings()
+    public void OnPanelSaved_WhenSystemPanel_ShouldPersistSystemBindingsToConfig()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -306,10 +239,13 @@ public class ConfigStageInputCoverageTests
 
             var systemPanel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
             Assert.NotNull(systemPanel);
+            systemPanel!.Activate(); // populate _workingMapping from the runtime snapshot
+            var before = inputManager.GetKeyMappingSnapshot().Count;
 
             InvokePrivateMethod(stage, "OnPanelSaved", systemPanel, EventArgs.Empty);
 
-            Assert.True(GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
+            // OnPanelSaved persisted the panel's snapshot via SetSystemKeyBindings (identity re-apply).
+            Assert.Equal(before, inputManager.GetKeyMappingSnapshot().Count);
         }
     }
 
@@ -329,25 +265,5 @@ public class ConfigStageInputCoverageTests
 
             Assert.Null(GetPrivateField<IKeyAssignPanel?>(stage, "_activePanel"));
         }
-    }
-
-    [Fact]
-    public void InitializePanels_WithNonConfigManager_ShouldThrow()
-    {
-        var configManager = new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
-        var game = CreateGame();
-        var mockConfigManager = new Mock<IConfigManager>();
-        mockConfigManager.Setup(c => c.Config).Returns(new ConfigData());
-        SetProperty(game, nameof(BaseGame.ConfigManager), mockConfigManager.Object);
-        SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-
-        var stage = new ConfigStage(game);
-
-        InvokePrivateMethod(stage, "LoadConfiguration");
-        InvokePrivateMethod(stage, "LoadWorkingInputBindings");
-        InvokePrivateMethod(stage, "SetupConfigItems");
-
-        Assert.ThrowsAny<Exception>(() => InvokePrivateMethod(stage, "InitializePanels"));
     }
 }

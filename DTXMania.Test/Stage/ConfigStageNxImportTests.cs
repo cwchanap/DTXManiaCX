@@ -48,8 +48,7 @@ public class ConfigStageNxImportTests : IDisposable
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels = false)
     {
-        ReflectionHelpers.InvokePrivateMethod(stage, "LoadConfiguration");
-        ReflectionHelpers.InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        // Config is truth; only the item list (and optionally the system panel) need setup.
         ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
         if (includePanels)
         {

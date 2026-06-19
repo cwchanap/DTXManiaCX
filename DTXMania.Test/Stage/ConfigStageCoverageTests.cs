@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -10,7 +9,6 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
-using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -44,8 +42,7 @@ public class ConfigStageCoverageTests
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels)
     {
-        ReflectionHelpers.InvokePrivateMethod(stage, "LoadConfiguration");
-        ReflectionHelpers.InvokePrivateMethod(stage, "LoadWorkingInputBindings");
+        // Config is truth; only the item list (and optionally the system panel) need setup.
         ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
         if (includePanels)
         {
@@ -59,235 +56,31 @@ public class ConfigStageCoverageTests
         ReflectionHelpers.SetPrivateField(stage, "_previousKeyboardState", previous);
     }
 
-    private static string CreateConfigSavePath()
+    private static void SetupRuntimeSystemBindings(InputManagerCompat inputManager, Dictionary<Keys, InputCommandType> bindings)
     {
-        var directory = Path.Combine(
-            AppContext.BaseDirectory,
-            "TestResults",
-            "config-stage-coverage",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        return Path.Combine(directory, "Config.ini");
-    }
-
-    private static void DeleteConfigSavePath(string path)
-    {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    private static KeyBindings CreateWorkingDrumBindings()
-    {
-        var bindings = new KeyBindings();
-        bindings.UnbindLane(0);
-        bindings.UnbindLane(4);
-        bindings.BindButton("Key.Z", 4);
-        return bindings;
-    }
-
-    private sealed class RecordingConfigManager : ConfigManager, IConfigManager
-    {
-        private readonly Exception? _saveException;
-        private readonly string? _redirectedSavePath;
-
-        public RecordingConfigManager(ConfigData originalConfig, Exception? saveException = null, string? redirectedSavePath = null)
-        {
-            _saveException = saveException;
-            _redirectedSavePath = redirectedSavePath;
-            CopyConfigData(Config, originalConfig);
-        }
-
-        public string? LastSavePath { get; private set; }
-
-        public new void SaveConfig(string filePath)
-            => ((IConfigManager)this).SaveConfig(filePath);
-
-        void IConfigManager.SaveConfig(string filePath)
-        {
-            LastSavePath = filePath;
-            if (_saveException != null)
-                throw _saveException;
-            base.SaveConfig(_redirectedSavePath ?? filePath);
-        }
-
-        private static void CopyConfigData(ConfigData target, ConfigData source)
-        {
-            target.ScreenWidth = source.ScreenWidth;
-            target.ScreenHeight = source.ScreenHeight;
-            target.FullScreen = source.FullScreen;
-            target.VSyncWait = source.VSyncWait;
-            target.NoFail = source.NoFail;
-            target.AutoPlay = source.AutoPlay;
-            target.ScrollSpeed = source.ScrollSpeed;
-            target.DTXManiaVersion = source.DTXManiaVersion;
-            target.SkinPath = source.SkinPath;
-            target.DTXPath = source.DTXPath;
-            target.UseBoxDefSkin = source.UseBoxDefSkin;
-            target.SystemSkinRoot = source.SystemSkinRoot;
-            target.LastUsedSkin = source.LastUsedSkin;
-            target.MasterVolume = source.MasterVolume;
-            target.BGMVolume = source.BGMVolume;
-            target.SEVolume = source.SEVolume;
-            target.BufferSizeMs = source.BufferSizeMs;
-            target.KeyBindings = new Dictionary<string, int>(source.KeyBindings);
-            target.UnboundDrumLanes = new HashSet<int>(source.UnboundDrumLanes);
-            target.UnboundDrumButtons = new HashSet<string>(source.UnboundDrumButtons);
-            target.SystemKeyBindings = new Dictionary<string, string>(source.SystemKeyBindings);
-        }
+        var cmField = typeof(InputManagerCompat).GetField("_configManager",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var cm = (ConfigManager)cmField!.GetValue(inputManager)!;
+        cm.SetSystemKeyBindings(bindings);
     }
 
     [Fact]
-    public void ApplyConfiguration_WhenSaveSucceedsAndInputManagerAvailable_ShouldReloadBindingsAndApplySystemBindings()
+    public void OnExitButtonClicked_ShouldChangeStage()
     {
-        var redirectedSavePath = CreateConfigSavePath();
-        var configManager = new RecordingConfigManager(new ConfigData(), redirectedSavePath: redirectedSavePath);
-        try
-        {
-            var (stage, _, inputManager) = CreateStage(configManager);
-            using (inputManager)
-            {
-                InitializeStageMenu(stage, includePanels: false);
-                var workingSystemBindings = new Dictionary<Keys, InputCommandType>
-                {
-                    [Keys.W] = InputCommandType.MoveUp,
-                    [Keys.S] = InputCommandType.MoveDown,
-                    [Keys.A] = InputCommandType.MoveLeft,
-                    [Keys.D] = InputCommandType.MoveRight,
-                    [Keys.Enter] = InputCommandType.Activate,
-                    [Keys.Escape] = InputCommandType.Back
-                };
-                ReflectionHelpers.SetPrivateField(stage, "_workingConfig", new ConfigData
-                {
-                    ScreenWidth = 1920,
-                    ScreenHeight = 1080,
-                    FullScreen = true,
-                    VSyncWait = false
-                });
-                ReflectionHelpers.SetPrivateField(stage, "_workingDrumBindings", CreateWorkingDrumBindings());
-                ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", workingSystemBindings);
-                ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
-
-                var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
-
-                Assert.True(result);
-                Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-                Assert.Equal(4, inputManager.ModularInputManager.KeyBindings.GetLane("Key.Z"));
-                var snapshot = inputManager.GetKeyMappingSnapshot();
-                Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
-                Assert.Equal(InputCommandType.Back, snapshot[Keys.Escape]);
-            }
-        }
-        finally
-        {
-            DeleteConfigSavePath(redirectedSavePath);
-        }
-    }
-
-    [Fact]
-    public void ApplyConfiguration_WhenSaveThrows_ShouldRollbackAndReturnFalse()
-    {
-        var configManager = new RecordingConfigManager(new ConfigData
-        {
-            ScreenWidth = 1280,
-            ScreenHeight = 720,
-            FullScreen = false,
-            VSyncWait = true,
-            NoFail = false,
-            AutoPlay = false,
-            KeyBindings = new Dictionary<string, int> { ["Key.A"] = 0 },
-            UnboundDrumLanes = new HashSet<int> { 3 },
-            UnboundDrumButtons = new HashSet<string> { "Key.B" },
-            SystemKeyBindings = new Dictionary<string, string> { ["SystemKey.MoveUp"] = "Up" }
-        }, saveException: new IOException("disk full"));
-        var (stage, _, inputManager) = CreateStage(configManager);
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_workingConfig", new ConfigData
-            {
-                ScreenWidth = 2560,
-                ScreenHeight = 1440,
-                FullScreen = true,
-                VSyncWait = false,
-                NoFail = true,
-                AutoPlay = true
-            });
-            ReflectionHelpers.SetPrivateField(stage, "_workingDrumBindings", CreateWorkingDrumBindings());
-            ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.W] = InputCommandType.MoveUp
-            });
-            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
-
-            var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
-
-            Assert.False(result);
-            Assert.Equal(1280, configManager.Config.ScreenWidth);
-            Assert.Equal(720, configManager.Config.ScreenHeight);
-            Assert.False(configManager.Config.FullScreen);
-            Assert.True(configManager.Config.VSyncWait);
-            Assert.False(configManager.Config.NoFail);
-            Assert.False(configManager.Config.AutoPlay);
-            Assert.Equal(0, configManager.Config.KeyBindings["Key.A"]);
-            Assert.Contains(3, configManager.Config.UnboundDrumLanes);
-            Assert.Contains("Key.B", configManager.Config.UnboundDrumButtons);
-            Assert.Equal("Up", configManager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_hasUnsavedChanges"));
-        }
-    }
-
-    [Fact]
-    public void OnSaveButtonClicked_WhenApplySucceeds_ShouldChangeStage()
-    {
-        var redirectedSavePath = CreateConfigSavePath();
-        var configManager = new RecordingConfigManager(new ConfigData(), redirectedSavePath: redirectedSavePath);
-        try
-        {
-            var (stage, _, inputManager) = CreateStage(configManager);
-            using (inputManager)
-            {
-                InitializeStageMenu(stage, includePanels: false);
-                var stageManager = new Mock<IStageManager>();
-                stage.StageManager = stageManager.Object;
-                ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
-
-                ReflectionHelpers.InvokePrivateMethod(stage, "OnSaveButtonClicked", null, EventArgs.Empty);
-
-                stageManager.Verify(
-                    m => m.ChangeStage(
-                        StageType.Title,
-                        It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                    Times.Once);
-            }
-        }
-        finally
-        {
-            DeleteConfigSavePath(redirectedSavePath);
-        }
-    }
-
-    [Fact]
-    public void OnSaveButtonClicked_WhenApplyFails_ShouldStayOnConfigStage()
-    {
-        var configManager = new RecordingConfigManager(
-            new ConfigData(),
-            saveException: new IOException("disk full"));
-        var (stage, _, inputManager) = CreateStage(configManager);
+        var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
             var stageManager = new Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnSaveButtonClicked", null, EventArgs.Empty);
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnExitButtonClicked", null, EventArgs.Empty);
 
             stageManager.Verify(
-                m => m.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
-                Times.Never);
+                m => m.ChangeStage(
+                    StageType.Title,
+                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
+                Times.Once);
         }
     }
 
@@ -312,47 +105,6 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void ApplyConfiguration_WithConcreteConfigManager_ShouldSaveKeyBindings()
-    {
-        var redirectedSavePath = CreateConfigSavePath();
-        var configManager = new RecordingConfigManager(new ConfigData(), redirectedSavePath: redirectedSavePath);
-        try
-        {
-            var (stage, _, inputManager) = CreateStage(configManager);
-            using (inputManager)
-            {
-                InitializeStageMenu(stage, includePanels: false);
-                var workingDrumBindings = CreateWorkingDrumBindings();
-                var workingSystemBindings = new Dictionary<Keys, InputCommandType>
-                {
-                    [Keys.W] = InputCommandType.MoveUp,
-                    [Keys.Escape] = InputCommandType.Back
-                };
-                ReflectionHelpers.SetPrivateField(stage, "_workingConfig", new ConfigData
-                {
-                    ScreenWidth = 1920,
-                    ScreenHeight = 1080
-                });
-                ReflectionHelpers.SetPrivateField(stage, "_workingDrumBindings", workingDrumBindings);
-                ReflectionHelpers.SetPrivateField(stage, "_workingSystemBindings", workingSystemBindings);
-                ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", true);
-
-                var result = (bool)ReflectionHelpers.InvokePrivateMethod(stage, "ApplyConfiguration")!;
-
-                Assert.True(result);
-                Assert.Equal(4, configManager.Config.KeyBindings["Key.Z"]);
-                Assert.Contains(0, configManager.Config.UnboundDrumLanes);
-                Assert.Equal("W", configManager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-                Assert.Equal("Escape", configManager.Config.SystemKeyBindings["SystemKey.Back"]);
-            }
-        }
-        finally
-        {
-            DeleteConfigSavePath(redirectedSavePath);
-        }
-    }
-
-    [Fact]
     public void HandleInput_WhenBackCommandPressed_ShouldChangeStage()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -361,7 +113,6 @@ public class ConfigStageCoverageTests
             InitializeStageMenu(stage, includePanels: false);
             var stageManager = new Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_hasUnsavedChanges", false);
             SetKeyboardStates(stage, new KeyboardState(Keys.Escape), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -523,7 +274,7 @@ public class ConfigStageCoverageTests
             var expectedButtonRects = new[]
             {
                 (Width: "BACK".Length * 8, Color: new Color(26, 30, 46)),
-                (Width: "SAVE & EXIT".Length * 8, Color: Color.Green)
+                (Width: "EXIT".Length * 8, Color: Color.Green)
             }
             .OrderBy(call => call.Width)
             .ToArray();
@@ -571,7 +322,7 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void DrawButtons_WhenSaveSelectedAndFontPresent_ShouldUseBoldFont()
+    public void DrawButtons_WhenExitSelectedAndFontPresent_ShouldUseBoldFont()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -588,7 +339,7 @@ public class ConfigStageCoverageTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
 
-            boldFont.Verify(f => f.DrawString(spriteBatch, "SAVE & EXIT", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
+            boldFont.Verify(f => f.DrawString(spriteBatch, "EXIT", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
         }
     }
 
@@ -606,6 +357,31 @@ public class ConfigStageCoverageTests
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions");
 
             font.Verify(f => f.DrawString(spriteBatch, It.Is<string>(s => s.Contains("UP/DOWN")), It.IsAny<Vector2>(), new Color(26, 30, 46)), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void HandleInput_WhenMoveDownPressed_ShouldIncrementSelectedIndex()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.Down] = InputCommandType.MoveDown,
+                [Keys.Up] = InputCommandType.MoveUp,
+                [Keys.Escape] = InputCommandType.Back,
+                [Keys.Enter] = InputCommandType.Activate,
+                [Keys.Left] = InputCommandType.MoveLeft,
+                [Keys.Right] = InputCommandType.MoveRight,
+            });
+            SetPrivateField(stage, "_selectedIndex", 0);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(1, GetPrivateField<int>(stage, "_selectedIndex"));
         }
     }
 
@@ -634,6 +410,12 @@ public class ConfigStageCoverageTests
         GC.SuppressFinalize(texture);
         return texture;
     }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+        => ReflectionHelpers.SetPrivateField(target, fieldName, value);
+
+    private static T? GetPrivateField<T>(object target, string fieldName)
+        => ReflectionHelpers.GetPrivateField<T>(target, fieldName);
 
     private sealed class RenderSpyConfigStage : ConfigStage
     {
