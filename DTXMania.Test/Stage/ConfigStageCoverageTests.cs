@@ -85,26 +85,6 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void OnBackButtonClicked_ShouldChangeStageToTitle()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
-
-            stageManager.Verify(
-                m => m.ChangeStage(
-                    StageType.Title,
-                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                Times.Once);
-        }
-    }
-
-    [Fact]
     public void HandleInput_WhenBackCommandPressed_ShouldChangeStage()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -273,7 +253,6 @@ public class ConfigStageCoverageTests
                 .ToArray();
             var expectedButtonRects = new[]
             {
-                (Width: "BACK".Length * 8, Color: new Color(26, 30, 46)),
                 (Width: "EXIT".Length * 8, Color: Color.Green)
             }
             .OrderBy(call => call.Width)
@@ -300,28 +279,6 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void DrawButtons_WhenBackSelectedAndFontPresent_ShouldUseBoldFont()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            var boldFont = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
-            ReflectionHelpers.SetPrivateField(stage, "_font", new Mock<IFont>().Object);
-            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
-
-            boldFont.Verify(f => f.DrawString(spriteBatch, "BACK", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
-        }
-    }
-
-    [Fact]
     public void DrawButtons_WhenExitSelectedAndFontPresent_ShouldUseBoldFont()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -335,7 +292,7 @@ public class ConfigStageCoverageTests
             ReflectionHelpers.SetPrivateField(stage, "_font", new Mock<IFont>().Object);
             ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
 

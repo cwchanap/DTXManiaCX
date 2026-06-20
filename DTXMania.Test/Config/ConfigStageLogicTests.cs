@@ -92,7 +92,7 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void MoveUpPressedAtFirstItem_ShouldWrapToBackButton()
+    public void MoveUpPressedAtFirstItem_ShouldWrapToExitButton()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -104,7 +104,7 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.Equal(configItems!.Count + 1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(configItems!.Count, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
         }
     }
 
@@ -116,7 +116,7 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
             SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -269,7 +269,7 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void ActivatePressedOnBackButton_ShouldReturnToTitleStage()
+    public void ActivatePressedOnExitButton_ShouldReturnToTitleStage()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -302,7 +302,7 @@ public class ConfigStageLogicTests
         var stageManager = new Moq.Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1); // Exit button
+        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count); // Exit button
         SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -328,7 +328,7 @@ public class ConfigStageLogicTests
         var stageManager = new Moq.Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
         var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1); // Exit button
+        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count); // Exit button
         SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput"));
@@ -550,27 +550,6 @@ public class ConfigStageLogicTests
 
     [Fact]
     public void HandleInput_ActivateOnExitButton_ShouldInvokeExitButtonClicked()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            var stageManager = new Moq.Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count + 1);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            stageManager.Verify(
-                manager => manager.ChangeStage(StageType.Title, Moq.It.IsAny<IStageTransition>()),
-                Moq.Times.Once);
-        }
-    }
-
-    [Fact]
-    public void HandleInput_ActivateOnBackButton_ShouldInvokeBackButtonClicked()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -836,27 +815,6 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", (IKeyAssignPanel?)null);
 
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-        }
-    }
-
-    [Fact]
-    public void OnBackButtonClicked_ShouldTransitionToTitle()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Moq.Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnBackButtonClicked", null, EventArgs.Empty);
-
-            stageManager.Verify(
-                manager => manager.ChangeStage(
-                    StageType.Title,
-                    Moq.It.Is<IStageTransition>(transition =>
-                        transition is CrossfadeTransition && Math.Abs(transition.Duration - 0.3) < 1e-6)),
-                Moq.Times.Once);
         }
     }
 

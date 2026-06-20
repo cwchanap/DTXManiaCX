@@ -492,7 +492,7 @@ namespace DTXMania.Game.Lib.Config
             // Defer disk write — mark dirty and flush later via FlushPendingSave.
             MarkDirty(configFilePath);
 
-            ScrollSpeedChanged?.Invoke(this, new ScrollSpeedChangedEventArgs(old, snapped));
+            RaiseEvent(ScrollSpeedChanged, new ScrollSpeedChangedEventArgs(old, snapped));
         }
 
         public void AdjustScrollSpeed(string configFilePath, int stepDelta)
@@ -512,7 +512,7 @@ namespace DTXMania.Game.Lib.Config
         {
             SaveKeyBindings(keyBindings);
             MarkDirty();
-            KeyBindingsChanged?.Invoke(this, EventArgs.Empty);
+            RaiseEvent(KeyBindingsChanged, EventArgs.Empty);
         }
 
         /// <summary>
@@ -528,7 +528,7 @@ namespace DTXMania.Game.Lib.Config
         {
             ApplySystemKeyBindings(workingBindings);
             MarkDirty();
-            SystemKeyBindingsChanged?.Invoke(this, EventArgs.Empty);
+            RaiseEvent(SystemKeyBindingsChanged, EventArgs.Empty);
         }
 
         /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
@@ -574,6 +574,30 @@ namespace DTXMania.Game.Lib.Config
         private void MarkDirty(string? path = null)
         {
             _pendingSavePath = path ?? _loadedConfigPath ?? _pendingSavePath;
+        }
+
+        /// <summary>
+        /// Raises <paramref name="handler"/> with per-subscriber try/catch so one bad
+        /// listener cannot break the edit or roll back <see cref="Config"/>. <see cref="Config"/>
+        /// stays the truth; a failing subscriber is logged and the remaining subscribers
+        /// still receive the event. Matches the persist-on-edit design's error-handling contract.
+        /// </summary>
+        private void RaiseEvent<TArgs>(EventHandler<TArgs>? handler, TArgs args) where TArgs : EventArgs
+        {
+            if (handler == null)
+                return;
+
+            foreach (var subscriber in handler.GetInvocationList())
+            {
+                try
+                {
+                    ((EventHandler<TArgs>)subscriber)(this, args);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "ConfigManager event subscriber {Subscriber} threw; Config remains the truth and other subscribers still fire.", subscriber.Target?.GetType().FullName ?? subscriber.Method.DeclaringType?.FullName);
+                }
+            }
         }
 
         /// <summary>

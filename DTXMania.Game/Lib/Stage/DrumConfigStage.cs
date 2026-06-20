@@ -42,7 +42,8 @@ namespace DTXMania.Game.Lib.Stage
         private DrumCapturePopup? _popup;
         private ITexture? _background;
         private ITexture? _skeleton;
-        private ITexture? _bassDrum;   // decorative only; the bass pedal (lane 6) is the click target
+        // The decorative bass-drum body reuses the renderer's KickTexture (same asset as the
+        // Kick zone) instead of a second ref-counted load of TexturePath.DrumPadKick.
 
         // Dark UI text, for legibility on the bright background image.
         private static readonly Color DarkText = new(26, 30, 46);
@@ -87,9 +88,8 @@ namespace DTXMania.Game.Lib.Stage
             try { _skeleton = _resourceManager.LoadTexture(TexturePath.DrumKitSkeleton); }
             catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional kit-skeleton texture unavailable"); _skeleton = null; }
 
-            // Decorative bass drum (the clickable target for lane 6 is the bass pedal in front of it).
-            try { _bassDrum = _resourceManager.LoadTexture(TexturePath.DrumPadKick); }
-            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional bass-drum texture unavailable"); _bassDrum = null; }
+            // The decorative bass-drum body is drawn from _renderer.KickTexture (loaded once by
+            // DrumKitRenderer above), so no separate TexturePath.DrumPadKick load is needed here.
 
             _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
 
@@ -309,11 +309,13 @@ namespace DTXMania.Game.Lib.Stage
                 _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vp.Width, vp.Height), Color.White * 0.9f);
 
             // Decorative bass drum at the kit's center, behind the (clickable) bass pedals.
-            if (_bassDrum?.Texture != null)
+            // Reuses the renderer's KickTexture (same asset as the Kick zone) — one load, one owner.
+            var bassDrum = _renderer?.KickTexture;
+            if (bassDrum?.Texture != null)
             {
                 float dsx = vp.Width / 1280f, dsy = vp.Height / 720f;
                 int bw = (int)(240 * dsx), bh = (int)(220 * dsy);
-                _spriteBatch.Draw(_bassDrum.Texture,
+                _spriteBatch.Draw(bassDrum.Texture,
                     new Rectangle((int)(640 * dsx) - (bw / 2), (int)(486 * dsy) - (bh / 2), bw, bh), Color.White);
             }
 
@@ -446,8 +448,6 @@ namespace DTXMania.Game.Lib.Stage
             _background = null;
             _skeleton?.RemoveReference();
             _skeleton = null;
-            _bassDrum?.RemoveReference();
-            _bassDrum = null;
             _font?.RemoveReference();
             _font = null;
             _spriteBatch?.Dispose();
@@ -468,8 +468,6 @@ namespace DTXMania.Game.Lib.Stage
                 _background = null;
                 _skeleton?.RemoveReference();
                 _skeleton = null;
-                _bassDrum?.RemoveReference();
-                _bassDrum = null;
                 _renderer = null;
                 _whitePixel = null!;
                 _spriteBatch = null!;

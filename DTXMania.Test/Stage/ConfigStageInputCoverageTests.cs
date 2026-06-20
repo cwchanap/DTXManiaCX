@@ -122,33 +122,6 @@ public class ConfigStageInputCoverageTests
     }
 
     [Fact]
-    public void HandleInput_WhenActivatePressedOnBackButton_ShouldCallOnBackButtonClicked()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-
-            var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            var backButtonIndex = configItems!.Count;
-            SetPrivateField(stage, "_selectedIndex", backButtonIndex);
-
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-            InvokePrivateMethod(stage, "HandleInput");
-
-            stageManager.Verify(
-                m => m.ChangeStage(
-                    StageType.Title,
-                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                Times.Once);
-        }
-    }
-
-    [Fact]
     public void HandleInput_WhenActivatePressedOnExitButton_ShouldCallOnExitButtonClicked()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -161,7 +134,8 @@ public class ConfigStageInputCoverageTests
 
             var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
             Assert.NotNull(configItems);
-            var exitButtonIndex = configItems!.Count + 1;
+            // Exit is the sole action button, at index == configItems.Count.
+            var exitButtonIndex = configItems!.Count;
             SetPrivateField(stage, "_selectedIndex", exitButtonIndex);
 
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());

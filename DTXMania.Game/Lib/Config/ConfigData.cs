@@ -78,7 +78,5 @@ namespace DTXMania.Game.Lib.Config
         /// Leave empty to allow unauthenticated access (not recommended for production).
         /// </summary>
         public string GameApiKey { get; set; } = string.Empty;
-
-
     }
 }
