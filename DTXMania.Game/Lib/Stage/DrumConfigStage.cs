@@ -82,15 +82,18 @@ namespace DTXMania.Game.Lib.Stage
             _font = _resourceManager.LoadFont("NotoSerifJP", 14);
             _renderer = new DrumKitRenderer(graphicsDevice, _resourceManager);
 
-            // Optional skin art: each is a best-effort load (a missing/invalid asset falls back to
-            // a plain background). Logged at Debug — missing optional art is an expected fallback,
+            // Optional skin art: ResourceManager.LoadTexture never throws on a missing asset —
+            // it returns a 1x1 white fallback texture (see ResourceManager.CreateFallbackTexture).
+            // Stretching that 1x1 texel over the viewport would wash the stage white, so an
+            // optional load is only "present" when the returned texture is a real asset (both
+            // dimensions > 1). Logged at Debug — missing optional art is an expected fallback,
             // not a warning — but no longer fully silent so a broken skin leaves a diagnostic trail.
-            try { _background = _resourceManager.LoadTexture(TexturePath.StartupBackground); }
-            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional background texture unavailable"); _background = null; }
+            _background = LoadOptionalTexture(TexturePath.StartupBackground,
+                "DrumConfigStage: optional background texture unavailable");
 
             // Bare drum-kit hardware drawn behind the pieces so the stage reads as a whole kit.
-            try { _skeleton = _resourceManager.LoadTexture(TexturePath.DrumKitSkeleton); }
-            catch (Exception ex) { _logger.LogDebug(ex, "DrumConfigStage: optional kit-skeleton texture unavailable"); _skeleton = null; }
+            _skeleton = LoadOptionalTexture(TexturePath.DrumKitSkeleton,
+                "DrumConfigStage: optional kit-skeleton texture unavailable");
 
             // The decorative bass-drum body is drawn from _renderer.KickTexture (loaded once by
             // DrumKitRenderer above), so no separate TexturePath.DrumPadKick load is needed here.
@@ -463,6 +466,29 @@ namespace DTXMania.Game.Lib.Stage
                     changed |= snap.Remove(k);
             }
             if (changed) _configManager.SetSystemKeyBindings(snap);
+        }
+
+        /// <summary>
+        /// Load an optional skin texture, returning null when the asset is absent. ResourceManager
+        /// never throws for a missing/invalid texture — it returns a 1x1 white fallback (see
+        /// <see cref="ResourceManager.CreateFallbackTexture"/>), which would stretch a single texel
+        /// over the viewport and wash the stage. A real asset is always larger than 1x1, so a
+        /// 1x1 result is treated as "not present" and released immediately.
+        /// </summary>
+        private ITexture? LoadOptionalTexture(string path, string unavailableMessage)
+        {
+            ITexture? texture = null;
+            try { texture = _resourceManager.LoadTexture(path); }
+            catch (Exception ex) { _logger.LogDebug(ex, "{Message}", unavailableMessage); return null; }
+
+            if (texture == null || texture.Width <= 1 || texture.Height <= 1)
+            {
+                _logger.LogDebug("{Message} (asset missing or 1x1 fallback)", unavailableMessage);
+                texture?.RemoveReference();
+                return null;
+            }
+
+            return texture;
         }
 
         protected override void OnDeactivate()

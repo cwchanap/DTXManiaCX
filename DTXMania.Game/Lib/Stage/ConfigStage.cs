@@ -712,7 +712,10 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawInstructions()
         {
-            const string instructions = "Use UP/DOWN to navigate, LEFT/RIGHT to change values, ENTER to select, ESC to cancel";
+            // Persist-on-edit: changes are applied live and saved automatically, so ESC exits
+            // (flushing any pending save) rather than discarding edits. Saying "cancel" here would
+            // mislead users into expecting their changes to be reverted on exit.
+            const string instructions = "Use UP/DOWN to navigate, LEFT/RIGHT to change values, ENTER to select, ESC to exit (changes save automatically)";
             int x = 10;
             int y = 720 - 30; // Bottom of screen
 

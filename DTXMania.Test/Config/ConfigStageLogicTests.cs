@@ -472,7 +472,9 @@ public class ConfigStageLogicTests
 
             var drawCall = Assert.Single(stage.RectangleDrawCalls);
             Assert.Equal(new Rectangle(0, 0, viewport.Width, viewport.Height), drawCall.Rectangle);
-            Assert.Equal(new Color(16, 16, 32), drawCall.Color);
+            // Must match ConfigStage.FallbackBackgroundColor: a light fill keeps DarkText legible
+            // when the background texture is unavailable (dark-on-dark was the old failure mode).
+            Assert.Equal(new Color(220, 222, 230), drawCall.Color);
         }
     }
 

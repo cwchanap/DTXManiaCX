@@ -6,6 +6,11 @@ using System.Text;
 
 namespace DTXMania.Test.Config;
 
+// Several tests below mutate the process-wide DTXMANIA_APPDATA_ROOT env var and read/write
+// AppPaths.GetConfigFilePath(). The "AppPaths" collection disables parallelization so no other
+// test class touches AppPaths while these overrides are active (prevents flaky cross-class
+// config writes under xUnit class parallelization).
+[Collection("AppPaths")]
 public class ConfigManagerTests
 {
     [Fact]
