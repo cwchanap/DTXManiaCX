@@ -8,7 +8,7 @@ namespace DTXMania.Test.Input;
 public sealed class InputManagerCompatLiveApplyTests
 {
     [Fact]
-    public void KeyBindingsChanged_ReloadsRuntimeDrumBindingsFromConfig()
+    public void KeyBindingsChanged_ShouldReloadRuntimeDrumBindingsFromConfig()
     {
         var cm = new ConfigManager();
         var input = new InputManagerCompat(cm);
@@ -42,7 +42,7 @@ public sealed class InputManagerCompatLiveApplyTests
     }
 
     [Fact]
-    public void SystemKeyBindingsChanged_RebuildsSystemMapFromConfig()
+    public void SystemKeyBindingsChanged_ShouldRebuildSystemMapFromConfig()
     {
         var cm = new ConfigManager();
         var input = new InputManagerCompat(cm);
@@ -61,7 +61,7 @@ public sealed class InputManagerCompatLiveApplyTests
     }
 
     [Fact]
-    public void RuntimeBindingMutation_DoesNotWriteBackToConfig()
+    public void RuntimeBindingMutation_ShouldNotWriteBackToConfig()
     {
         // Unidirectional invariant: Config is the single source of truth. Mutating the
         // RUNTIME KeyBindings directly must NOT persist back into Config (the old reverse
