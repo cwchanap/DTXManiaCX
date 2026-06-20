@@ -251,16 +251,6 @@ namespace DTXMania.Game.Lib.Input
         #region Key Bindings Management
 
         /// <summary>
-        /// Saves current key bindings to configuration.
-        /// Called explicitly by reset operations; runtime binding mutations no longer
-        /// auto-save (Config is the single source of truth; edits flow Config -> runtime).
-        /// </summary>
-        public void SaveKeyBindings()
-        {
-            _configManager.SaveKeyBindings(_keyBindings);
-        }
-
-        /// <summary>
         /// Reloads key bindings from configuration
         /// </summary>
         public void ReloadKeyBindings()
@@ -275,34 +265,6 @@ namespace DTXMania.Game.Lib.Input
             {
                 _keyBindings.BindingsChanged += OnKeyBindingsChanged;
             }
-        }
-
-        /// <summary>
-        /// Resets key bindings to defaults
-        /// </summary>
-        public void ResetKeyBindingsToDefaults()
-        {
-            _keyBindings.LoadDefaultBindings();
-            SaveKeyBindings();
-        }
-        
-        /// <summary>
-        /// Forces a complete reset of key bindings, clearing any saved overrides
-        /// </summary>
-        public void ForceResetKeyBindings()
-        {
-            // Clear the config completely
-            _configManager.Config.KeyBindings.Clear();
-            _configManager.Config.UnboundDrumLanes.Clear();
-            _configManager.Config.UnboundDrumButtons.Clear();
-            
-            // Reload defaults
-            _keyBindings.LoadDefaultBindings();
-            
-            // Save the new defaults
-            SaveKeyBindings();
-
-            _configManager.NormalizeSystemKeyBindings();
         }
 
         #endregion

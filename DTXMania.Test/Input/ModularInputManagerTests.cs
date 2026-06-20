@@ -102,29 +102,15 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
-        public void SaveKeyBindings_AfterModification_SavesToConfig()
-        {
-            // Arrange
-            _inputManager.KeyBindings.BindButton("Key.Q", 0);
-
-            // Act
-            _inputManager.SaveKeyBindings();
-
-            // Assert
-            Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.Q"));
-            Assert.Equal(0, _configManager.Config.KeyBindings["Key.Q"]);
-        }
-
-        [Fact]
         public void ReloadKeyBindings_AfterModification_RestoresFromConfig()
         {
             // Arrange
             // Runtime mutations no longer auto-save back to Config (unidirectional
-            // Config -> runtime flow). Persist explicitly via the sole writer, then
+            // Config -> runtime flow). Persist explicitly via ConfigManager, then
             // verify ReloadKeyBindings restores from Config.
             _inputManager.KeyBindings.BindButton("Key.Q", 5);
             _inputManager.KeyBindings.BindButton("Key.W", 3);
-            _inputManager.SaveKeyBindings();
+            _configManager.SaveKeyBindings(_inputManager.KeyBindings);
 
             // Verify both bindings are persisted to Config
             Assert.True(_configManager.Config.KeyBindings.ContainsKey("Key.Q"));
@@ -159,72 +145,6 @@ namespace DTXMania.Test.Input
 
             Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
             Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.B"));
-        }
-
-        [Fact]
-        public void ResetKeyBindingsToDefaults_AfterModification_RestoresDefaults()
-        {
-            // Arrange
-            _inputManager.KeyBindings.ClearAllBindings();
-            _inputManager.KeyBindings.BindButton("Key.Q", 0);
-
-            // Act
-            _inputManager.ResetKeyBindingsToDefaults();
-
-            // Assert
-            Assert.Equal(10, _inputManager.KeyBindings.ButtonToLane.Count); // 10-lane layout
-            Assert.Equal(0, _inputManager.KeyBindings.GetLane("Key.A")); // Default binding restored
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Q")); // Custom binding removed
-        }
-
-        [Fact]
-        public void ForceResetKeyBindings_WithPersistedUnboundLane_RestoresDefaultLaneBinding()
-        {
-            _inputManager.KeyBindings.UnbindLane(6);
-            _inputManager.SaveKeyBindings();
-
-            Assert.Contains(6, _configManager.Config.UnboundDrumLanes);
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
-
-            _inputManager.ForceResetKeyBindings();
-
-            Assert.DoesNotContain(6, _configManager.Config.UnboundDrumLanes);
-            Assert.DoesNotContain("Key.Space", _configManager.Config.UnboundDrumButtons);
-            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space"));
-        }
-
-        [Fact]
-        public void ForceResetKeyBindings_WithPersistedUnboundDefaultButton_RestoresDefaultButton()
-        {
-            _inputManager.KeyBindings.UnbindButton("Key.Space");
-            _inputManager.KeyBindings.BindButton("Key.B", 6);
-            _inputManager.SaveKeyBindings();
-
-            Assert.Contains("Key.Space", _configManager.Config.UnboundDrumButtons);
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.Space"));
-
-            _inputManager.ForceResetKeyBindings();
-
-            Assert.DoesNotContain("Key.Space", _configManager.Config.UnboundDrumButtons);
-            Assert.Equal(6, _inputManager.KeyBindings.GetLane("Key.Space"));
-            Assert.Equal(-1, _inputManager.KeyBindings.GetLane("Key.B"));
-        }
-
-        [Fact]
-        public void ForceResetKeyBindings_WithPersistedSystemBindingOnDefaultDrumKey_ClearsSystemBindingOverride()
-        {
-            _configManager.Config.UnboundDrumLanes.Add(6);
-            _configManager.Config.SystemKeyBindings["SystemKey.Back"] = "Space";
-
-            _inputManager.ForceResetKeyBindings();
-
-            var configuredInputManager = _configManager.CreateConfiguredInputManager();
-            var snapshot = configuredInputManager.GetKeyMappingSnapshot();
-
-            Assert.DoesNotContain(6, _configManager.Config.UnboundDrumLanes);
-            Assert.Equal("Escape", _configManager.Config.SystemKeyBindings["SystemKey.Back"]);
-            Assert.Equal(InputCommandType.Back, snapshot[Keys.Escape]);
-            Assert.False(snapshot.TryGetValue(Keys.Space, out var command) && command == InputCommandType.Back);
         }
 
         [Fact]
@@ -498,7 +418,7 @@ namespace DTXMania.Test.Input
 
             // Act - Modify bindings
             _inputManager.KeyBindings.BindButton(customButtonId, targetLane);
-            _inputManager.SaveKeyBindings();
+            _configManager.SaveKeyBindings(_inputManager.KeyBindings);
 
             // Create new manager to test persistence
             using var newManager = new ModularInputManager(_configManager);
