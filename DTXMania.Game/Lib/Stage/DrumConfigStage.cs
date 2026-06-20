@@ -218,9 +218,9 @@ namespace DTXMania.Game.Lib.Stage
             if (mouse.X != _previousMouse.X || mouse.Y != _previousMouse.Y)
                 _keyboardFocusActive = false;
 
-            // Keyboard focus navigation: arrows or Tab cycle through the zones and the Reset
-            // action (design: "arrows/Tab focus + Enter" over zones + Reset). Tab is read from
-            // the per-frame pressed-button feed (ConsumePressedButtons) rather than IsKeyPressed
+            // Keyboard focus navigation: all four arrows (Right/Down advance, Left/Up go back) or
+            // Tab cycle through the zones and the Reset action (design: "arrows/Tab focus + Enter"
+            // over zones + Reset). Tab is read from the per-frame pressed-button feed (ConsumePressedButtons) rather than IsKeyPressed
             // so MCP/E2E-injected keys register reliably: when an injected Tab press AND release
             // drain inside one ProcessInjectedInputs call (a slow E2E/CI frame whose update
             // exceeds the injected hold duration), the release clears the injected key-state
@@ -244,9 +244,16 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             int focusDelta = 0;
-            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true || tabPressed)
+            // The focus sequence is a single linear order (zones 0..9 then Reset, see
+            // DrumKitLayout.AdvanceFocus), so all four arrows map onto it: Right/Down advance and
+            // Left/Up go back. This matches the "arrows or Tab cycle through the zones" design and
+            // the conventional list-navigation direction (Down = next, Up = previous).
+            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true
+                || _input?.IsCommandPressed(InputCommandType.MoveDown) == true
+                || tabPressed)
                 focusDelta = 1;
-            else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true)
+            else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true
+                || _input?.IsCommandPressed(InputCommandType.MoveUp) == true)
                 focusDelta = -1;
 
             if (focusDelta != 0)
