@@ -230,16 +230,19 @@ namespace DTXMania.Game.Lib.Stage
             // draining the feed here cannot steal presses from the capture path. Tab is kept out
             // of the InputCommandType system on purpose (see SongSelectionStage), matching the
             // established pattern for non-command navigation keys.
-            bool tabPressed = false;
+            //
+            // Every Tab press is counted and applied as one focus advance, not coalesced to a
+            // single flag: a slow CI frame can drain several injected Tab press/release pairs in
+            // one Update (the E2E reset sequence sends ten Tabs to walk lane 0 -> Reset), and
+            // collapsing them to one step leaves focus short of the Reset action, so the next
+            // Enter activates a lane instead of resetting bindings.
+            int tabPressCount = 0;
             if (_input != null)
             {
                 foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
                 {
                     if (button.Id == "Key.Tab")
-                    {
-                        tabPressed = true;
-                        break;
-                    }
+                        tabPressCount++;
                 }
             }
 
@@ -249,8 +252,7 @@ namespace DTXMania.Game.Lib.Stage
             // Left/Up go back. This matches the "arrows or Tab cycle through the zones" design and
             // the conventional list-navigation direction (Down = next, Up = previous).
             if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true
-                || _input?.IsCommandPressed(InputCommandType.MoveDown) == true
-                || tabPressed)
+                || _input?.IsCommandPressed(InputCommandType.MoveDown) == true)
                 focusDelta = 1;
             else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true
                 || _input?.IsCommandPressed(InputCommandType.MoveUp) == true)
@@ -260,6 +262,16 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, focusDelta);
                 _keyboardFocusActive = true; // user is now navigating by keyboard: show the focus ring
+            }
+
+            // Apply one forward advance per Tab event (see comment above for the multi-press
+            // slow-frame rationale). Independent of the arrow path so an arrow + Tab combo still
+            // advances per event.
+            if (tabPressCount > 0)
+            {
+                for (int i = 0; i < tabPressCount; i++)
+                    _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, 1);
+                _keyboardFocusActive = true;
             }
 
             // Back exits the stage (persist-on-edit: flush any pending deferred save on the way out).

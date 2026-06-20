@@ -172,8 +172,9 @@ public sealed class DrumMappingStageSmokeTests
             await Task.Delay(700, cancellation.Token);
 
             // Advance focus from lane 0 through every zone onto the Reset action (index 10):
-            // lane 0 -> 1 -> ... -> 9 -> Reset. Tab is read via IsKeyPressed, which surfaces
-            // API-injected keys, and parses server-side via Enum.TryParse<Keys> ("Tab").
+            // lane 0 -> 1 -> ... -> 9 -> Reset. Tab is read via ConsumePressedButtons, which
+            // records every injected press event regardless of a same-frame release, and parses
+            // server-side via Enum.TryParse<Keys> ("Tab").
             for (int i = 0; i < 10; i++)
             {
                 await client.SendKeyAsync("Tab", TimeSpan.FromMilliseconds(40), cancellation.Token);

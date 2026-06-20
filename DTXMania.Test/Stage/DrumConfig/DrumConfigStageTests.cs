@@ -444,6 +444,35 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void UpdateSelection_MultipleInjectedTabsSameFrame_AdvancesFocusPerTab()
+        {
+            // The slow-CI-frame regression: when several injected Tab press/release pairs drain
+            // inside one ProcessInjectedInputs (a frame whose update exceeds the inter-press
+            // spacing of the E2E reset loop), ConsumePressedButtons returns every Tab press but
+            // the navigation loop must advance focus once per Tab, not collapse them to a single
+            // step. Otherwise focus stalls short of the Reset action and the next Enter activates
+            // a lane instead of resetting bindings.
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            using var input = new FakeInput(new ConfigManager());
+            // Ten Tab press/release pairs all drain inside one Update(), matching the E2E reset
+            // sequence (lane 0 -> 1 -> ... -> 9 -> Reset, index 10).
+            for (int i = 0; i < 10; i++)
+            {
+                input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
+                input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
+            }
+            input.ModularInputManager.Update();
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
+
+            Assert.Equal(10, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+        }
+
+        [Fact]
         public void UpdateSelection_BackAction_ExitsStage()
         {
             var game = CreateGameWithViewport(1280, 720);
