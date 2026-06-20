@@ -260,6 +260,11 @@ namespace DTXMania.Game.Lib.Config
         private void ApplySystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings)
         {
             var existingBindings = new Dictionary<string, string>(Config.SystemKeyBindings);
+            // Drum keys claim their physical key for gameplay; a system binding that points at a
+            // drum key is stale (the runtime would filter it out on load anyway). Filtering here
+            // prevents persisting such entries, which could otherwise be resurrected later when
+            // the drum key is unbound. Mirrors the drum-key filtering in LoadSystemKeyBindings.
+            var drumKeys = GetConfiguredDrumKeyboardKeys();
             Config.SystemKeyBindings.Clear();
             foreach (var command in Enum.GetValues<InputCommandType>())
             {
@@ -277,10 +282,17 @@ namespace DTXMania.Game.Lib.Config
 
                 if (IsRequiredSystemCommand(command))
                 {
-                    if (existingBindings.TryGetValue(configKey, out var existingValue) &&
-                        !string.IsNullOrWhiteSpace(existingValue))
+                    // Preserve the user's prior binding for this required command, but drop any
+                    // keys that are now drum keys. If nothing survives, fall back to the default
+                    // so a required command is never left pointing at a drum key.
+                    var preserved = existingBindings.TryGetValue(configKey, out var existingValue) &&
+                        !string.IsNullOrWhiteSpace(existingValue)
+                        ? ParseSystemBindingKeys(existingValue).Where(k => !drumKeys.Contains(k)).ToList()
+                        : new List<Keys>();
+
+                    if (preserved.Count > 0)
                     {
-                        Config.SystemKeyBindings[configKey] = existingValue;
+                        Config.SystemKeyBindings[configKey] = string.Join(",", preserved.Select(key => key.ToString()));
                     }
                     else
                     {
