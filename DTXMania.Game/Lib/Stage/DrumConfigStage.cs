@@ -212,11 +212,32 @@ namespace DTXMania.Game.Lib.Stage
                 _keyboardFocusActive = false;
 
             // Keyboard focus navigation: arrows or Tab cycle through the zones and the Reset
-            // action (design: "arrows/Tab focus + Enter" over zones + Reset). Tab is read via
-            // IsKeyPressed so MCP/E2E-injected keys register (raw Keyboard.GetState would not).
+            // action (design: "arrows/Tab focus + Enter" over zones + Reset). Tab is read from
+            // the per-frame pressed-button feed (ConsumePressedButtons) rather than IsKeyPressed
+            // so MCP/E2E-injected keys register reliably: when an injected Tab press AND release
+            // drain inside one ProcessInjectedInputs call (a slow E2E/CI frame whose update
+            // exceeds the injected hold duration), the release clears the injected key-state
+            // overlay before IsKeyPressed queries it, so the edge is lost. ConsumePressedButtons
+            // is populated for every press event regardless of a later release this frame. This
+            // branch and ProcessPopupCapture are mutually exclusive (popup open vs closed), so
+            // draining the feed here cannot steal presses from the capture path. Tab is kept out
+            // of the InputCommandType system on purpose (see SongSelectionStage), matching the
+            // established pattern for non-command navigation keys.
+            bool tabPressed = false;
+            if (_input != null)
+            {
+                foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
+                {
+                    if (button.Id == "Key.Tab")
+                    {
+                        tabPressed = true;
+                        break;
+                    }
+                }
+            }
+
             int focusDelta = 0;
-            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true
-                || _input?.IsKeyPressed((int)Keys.Tab) == true)
+            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true || tabPressed)
                 focusDelta = 1;
             else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true)
                 focusDelta = -1;
