@@ -79,16 +79,17 @@ public sealed class DrumMappingStageSmokeTests
 
             // First Back closes the popup (acts as "Done")...
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            // Let the popup Close() propagate before the second Back triggers save-and-exit.
+            // Let the popup Close() propagate before the second Back triggers flush-and-exit.
             await Task.Delay(700, cancellation.Token);
 
-            // ...second Back exits the stage; Back = Save, so the working copy is committed.
+            // ...second Back exits the stage; the capture was already live-applied to Config,
+            // and Back flushes the deferred save on the way out.
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
 
-            // Returning to Config proves the save-and-exit path ran.
+            // Returning to Config proves the flush-on-exit path ran.
             await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
 
-            // Save() writes Config.ini synchronously before changing stage, so by the time we are
+            // ExitStage flushes the pending save before changing stage, so by the time we are
             // back in Config the file already contains the new binding.
             var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
             await E2EArtifactWriter.WriteTextAsync(fixture, "drum-config.ini", configText);
@@ -114,9 +115,10 @@ public sealed class DrumMappingStageSmokeTests
     /// <summary>
     /// Black-box smoke for the keyboard-reachable Reset-to-defaults flow on the drum-mapping
     /// stage: bind a non-default key to lane 0, advance keyboard focus onto the Reset action,
-    /// Activate to reset the working copy, then Back (= save &amp; exit) and assert the custom
-    /// binding was NOT persisted (i.e. Reset wiped it before the save). Exercises the live
-    /// focus + Activate-dispatch + reset + save round-trip the headless unit suite cannot reach.
+    /// Activate to reset Config back to defaults (live-applied), then Back (= flush &amp; exit)
+    /// and assert the custom binding was NOT persisted (i.e. Reset overwrote it before the
+    /// flush). Exercises the live focus + Activate-dispatch + reset + flush round-trip the
+    /// headless unit suite cannot reach.
     /// </summary>
     [Fact(Timeout = 180_000)]
     public async Task DrumMapping_ResetViaKeyboard_WipesCustomBindingOnSave()
@@ -178,15 +180,15 @@ public sealed class DrumMappingStageSmokeTests
                 await Task.Delay(60, cancellation.Token);
             }
 
-            // Activate on the focused Reset action restores defaults on the working copy.
+            // Activate on the focused Reset action live-applies the default bindings to Config.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(500, cancellation.Token);
 
-            // Back = Save & exit: persists the (now reset) working copy.
+            // Back = flush & exit: persists the (now reset) Config to disk.
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
 
-            // Reset wiped the custom binding before the save, so it must not be on disk.
+            // Reset overwrote the custom binding in Config before the flush, so it must not be on disk.
             var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
             await E2EArtifactWriter.WriteTextAsync(fixture, "drum-reset-config.ini", configText);
             Assert.DoesNotContain($"{ExpectedBindingId}=0", configText);

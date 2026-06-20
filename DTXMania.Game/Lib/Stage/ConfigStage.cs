@@ -24,9 +24,9 @@ namespace DTXMania.Game.Lib.Stage
     /// Configuration stage with basic settings management.
     /// Reads <see cref="IConfigManager.Config"/> as the single source of truth; every edit
     /// applies immediately through the typed setters (which live-apply to the runtime via the
-    /// Phase 2 events and mark a deferred save dirty). Back/Exit flushes the pending save and
-    /// leaves — there is no working copy, no discard/rollback. Follows DTXMania patterns for
-    /// config item handling.
+    /// Phase 2 events and mark a deferred save dirty). The Back command (Esc) or the Exit
+    /// button flushes the pending save and leaves — there is no working copy, no
+    /// discard/rollback. Follows DTXMania patterns for config item handling.
     /// </summary>
     public class ConfigStage : BaseStage
     {
@@ -496,11 +496,11 @@ namespace DTXMania.Game.Lib.Stage
             // Handle navigation
             if (IsConfigNavigationCommandPressed(InputCommandType.MoveUp))
             {
-                _selectedIndex = (_selectedIndex - 1 + _configItems.Count + 2) % (_configItems.Count + 2); // +2 for buttons
+                _selectedIndex = (_selectedIndex - 1 + _configItems.Count + 1) % (_configItems.Count + 1); // +1 for Exit button
             }
             else if (IsConfigNavigationCommandPressed(InputCommandType.MoveDown))
             {
-                _selectedIndex = (_selectedIndex + 1) % (_configItems.Count + 2); // +2 for buttons
+                _selectedIndex = (_selectedIndex + 1) % (_configItems.Count + 1); // +1 for Exit button
             }
 
             // Handle config item value editing (only for config items, not buttons)
@@ -524,15 +524,11 @@ namespace DTXMania.Game.Lib.Stage
             }
             else
             {
-                // Handle button selection
+                // Handle button selection (the only button is Exit at buttonIndex 0)
                 if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
                 {
                     int buttonIndex = _selectedIndex - _configItems.Count;
-                    if (buttonIndex == 0) // Back button
-                    {
-                        OnBackButtonClicked(null, EventArgs.Empty);
-                    }
-                    else if (buttonIndex == 1) // Exit button
+                    if (buttonIndex == 0) // Exit button
                     {
                         OnExitButtonClicked(null, EventArgs.Empty);
                     }
@@ -566,14 +562,6 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         #region Event Handlers
-
-        private void OnBackButtonClicked(object sender, EventArgs e)
-        {
-            // Back = exit: flush the pending save and return to Title.
-            System.Diagnostics.Debug.WriteLine("Back button clicked - returning to Title stage");
-            FlushPendingSaveSafely();
-            ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
-        }
 
         private void OnExitButtonClicked(object sender, EventArgs e)
         {
@@ -687,28 +675,8 @@ namespace DTXMania.Game.Lib.Stage
             int x = MenuX;
             int y = MenuY + (_configItems.Count * MenuItemHeight) + 20;
 
-            // Back button
-            bool backSelected = (_selectedIndex == _configItems.Count);
-            if (backSelected)
-            {
-                DrawTextRect(x - 5, y - 2, 100, 30, new Color(64, 64, 64, 150));
-            }
-
-            if (_font != null)
-            {
-                var textColor = backSelected ? Color.Yellow : DarkText;
-                var font = backSelected ? _boldFont : _font;
-                font.DrawString(_spriteBatch, "BACK", new Vector2(x, y + 5), textColor);
-            }
-            else
-            {
-                var color = backSelected ? Color.Yellow : DarkText;
-                DrawTextRect(x, y + 5, 32, 16, color);
-            }
-
-            // Exit button
-            x += 150;
-            bool exitSelected = (_selectedIndex == _configItems.Count + 1);
+            // Exit button (the sole action button; persist-on-edit removed the save/discard split)
+            bool exitSelected = (_selectedIndex == _configItems.Count);
             if (exitSelected)
             {
                 DrawTextRect(x - 5, y - 2, 120, 30, new Color(64, 96, 64, 150));

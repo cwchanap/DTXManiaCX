@@ -70,6 +70,13 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _hihat = TryLoad(resourceManager, TexturePath.DrumPadHiHat);
         }
 
+        /// <summary>
+        /// The kick-drum texture (the same asset the Kick zone draws), exposed so the stage can
+        /// draw its decorative bass-drum body without a second ref-counted load of the same path.
+        /// Owned by this renderer; released on <see cref="Dispose"/>.
+        /// </summary>
+        public ITexture? KickTexture => _kick;
+
         private static ITexture? TryLoad(IResourceManager? resourceManager, string path)
         {
             if (resourceManager == null)
