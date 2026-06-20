@@ -370,7 +370,35 @@ namespace DTXMania.Test.Stage.DrumConfig
         {
             var game = CreateGameWithViewport(1280, 720);
             var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager()) { PressedKey = (int)Keys.Tab };
+            using var input = new FakeInput(new ConfigManager());
+            // Seed the per-frame pressed-button feed with a Tab press — the path the stage now
+            // reads (ConsumePressedButtons), which is robust to MCP/E2E injection timing.
+            input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
+            input.ModularInputManager.Update();
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
+
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+        }
+
+        [Fact]
+        public void UpdateSelection_InjectedTabPressAndReleaseSameFrame_AdvancesFocus()
+        {
+            // The E2E/slow-frame flake: an injected Tab press AND release both queue before a
+            // single Update() runs (a CI frame whose update exceeds the 40ms injected hold).
+            // ProcessInjectedInputs drains both in one pass: the release clears the injected
+            // key-state overlay before IsKeyPressed could see it, so the old IsKeyPressed path
+            // missed the edge entirely and focus stalled. ConsumePressedButtons records the
+            // press event regardless of a subsequent release this frame, so focus still advances.
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            using var input = new FakeInput(new ConfigManager());
+            input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
+            input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
+            input.ModularInputManager.Update(); // both drain inside one ProcessInjectedInputs
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
             ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
