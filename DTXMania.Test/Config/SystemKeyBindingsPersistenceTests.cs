@@ -300,6 +300,36 @@ public class SystemKeyBindingsPersistenceTests
     }
 
     [Fact]
+    public void ConfigManager_SetSystemKeyBindings_RequiredCommandEvictedOntoDrumKey_ShouldNotPreserveStaleDrumKey()
+    {
+        // Reviewer scenario: clear snare (freeing S), bind S to MoveUp via the system panel,
+        // then Reset drums in DrumConfigStage. Reset re-adds S as the default snare key and
+        // evicts S from the system snapshot. ApplySystemKeyBindings must NOT preserve the
+        // stale "S" entry for the required MoveUp command (S is now a drum key); it must fall
+        // back to the default Up so Config.ini never holds a system binding that collides
+        // with a drum key.
+        var manager = new ConfigManager();
+
+        // Pre-condition: S is the system key for MoveUp; snare lane has no drum key bound.
+        manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "S";
+        manager.Config.KeyBindings.Remove("Key.S");
+
+        // Reset drums: re-load default bindings (S -> snare, lane 4) into Config.
+        var defaultKb = new KeyBindings(); // LoadDefaultBindings() called in ctor
+        manager.SetKeyBindings(defaultKb);
+        Assert.Equal(4, manager.Config.KeyBindings["Key.S"]);
+
+        // Eviction: the stage removes S from the system snapshot and persists the rest.
+        // Here the snapshot has no key for MoveUp (S was the only one and it was evicted).
+        manager.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>());
+
+        // The stale drum key S must NOT survive as a system binding for the required command.
+        Assert.NotEqual("S", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+        // The required command falls back to its default key (Up) instead.
+        Assert.Equal("Up", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+    }
+
+    [Fact]
     public void ConfigManager_SaveSystemKeyBindings_SparseBindings_ShouldPreserveExistingRequiredBinding()
     {
         var manager = new ConfigManager();
