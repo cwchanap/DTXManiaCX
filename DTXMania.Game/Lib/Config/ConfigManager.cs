@@ -294,13 +294,6 @@ namespace DTXMania.Game.Lib.Config
             }
         }
 
-        public void NormalizeSystemKeyBindings()
-        {
-            var inputManager = new InputManager();
-            LoadSystemKeyBindings(inputManager);
-            SaveSystemKeyBindings(inputManager);
-        }
-
         private void ParseConfigLine(string key, string value)
         {
             switch (key)
