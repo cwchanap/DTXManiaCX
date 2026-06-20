@@ -39,6 +39,19 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void LoggerFactory_Getter_ReturnsTheBackingField()
+        {
+            // Exposed so stages can create typed loggers that survive Release builds. The getter
+            // is a thin pass-through to the private _loggerFactory field set in the constructor
+            // (which can't run headlessly — it boots MonoGame/SDL — so the field is injected here).
+            var game = ReflectionHelpers.CreateGame();
+            var factory = new Mock<ILoggerFactory>().Object;
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", factory);
+
+            Assert.Same(factory, game.LoggerFactory);
+        }
+
+        [Fact]
         public void MarkStageTransition_ShouldCaptureCurrentGameTime()
         {
             var game = ReflectionHelpers.CreateGame(totalGameTime: 3.25, lastStageTransitionTime: 0.0);

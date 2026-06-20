@@ -240,4 +240,139 @@ public class ConfigStageInputCoverageTests
             Assert.Null(GetPrivateField<IKeyAssignPanel?>(stage, "_activePanel"));
         }
     }
+
+    // ---- NavigateToDrumConfig ----
+
+    [Fact]
+    public void NavigateToDrumConfig_ShouldChangeStageToDrumConfigWithInstantTransition()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "NavigateToDrumConfig");
+
+            stageManager.Verify(
+                m => m.ChangeStage(
+                    StageType.DrumConfig,
+                    It.Is<IStageTransition>(t => t is InstantTransition)),
+                Times.Once);
+        }
+    }
+
+    // ---- OnPanelSaved non-system-panel branch (sender != _systemPanel -> no-op) ----
+
+    [Fact]
+    public void OnPanelSaved_WhenSenderIsNotSystemPanel_DoesNotMutateSystemBindings()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var systemBefore = configManager.Config.SystemKeyBindings.Count;
+
+            // Sender is some other object (e.g. a hypothetical drum panel), not _systemPanel.
+            InvokePrivateMethod(stage, "OnPanelSaved", new object(), EventArgs.Empty);
+
+            Assert.Equal(systemBefore, configManager.Config.SystemKeyBindings.Count);
+        }
+    }
+
+    // ---- FlushPendingSaveSafely catch branch (a throwing IConfigManager must not trap the user) ----
+
+    [Fact]
+    public void FlushPendingSaveSafely_WhenConfigManagerThrows_SwallowsAndDoesNotPropagate()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            // Swap in an IConfigManager whose FlushPendingSave propagates; the safety wrapper
+            // must swallow so a save error can never trap the user on the config screen.
+            var throwing = new Mock<IConfigManager>();
+            throwing.Setup(c => c.FlushPendingSave()).Throws(new IOException("disk full"));
+            SetPrivateField(stage, "_configManager", throwing.Object);
+
+            var ex = Record.Exception(() => InvokePrivateMethod(stage, "FlushPendingSaveSafely"));
+
+            Assert.Null(ex);
+            throwing.Verify(c => c.FlushPendingSave(), Times.Once);
+        }
+    }
+
+    // ---- IsConfigNavigationCommandPressed: IsCommandPressed==true branch ----
+    // The existing HandleInput tests drive the keyboard-state fallback (Keyboard.GetState() is
+    // unpressed in the test runner). This test injects a command into the runtime's per-frame
+    // pressed set so the first branch (IsCommandPressed == true) is taken instead.
+
+    [Fact]
+    public void IsConfigNavigationCommandPressed_WhenCommandInjected_ReturnsTrueViaFirstBranch()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            // Inject MoveDown into the per-frame pressed-command set that IsCommandPressed reads.
+            var injected = typeof(InputManagerCompat)
+                .GetField("_injectedCommandsThisFrame", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(injected);
+            var set = (HashSet<InputCommandType>)injected!.GetValue(inputManager)!;
+            set.Add(InputCommandType.MoveDown);
+
+            var result = (bool)InvokePrivateMethod(stage, "IsConfigNavigationCommandPressed", InputCommandType.MoveDown)!;
+
+            Assert.True(result);
+        }
+    }
+
+    [Fact]
+    public void IsConfigNavigationCommandPressed_WhenNoMatch_ReturnsFalse()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            // No injected command and no keyboard edge for the command.
+            var result = (bool)InvokePrivateMethod(stage, "IsConfigNavigationCommandPressed", InputCommandType.MoveDown)!;
+
+            Assert.False(result);
+        }
+    }
+
+    // ---- IsPanelCommandPressed ----
+
+    [Fact]
+    public void IsPanelCommandPressed_WhenKeyEdgeMatchesSystemMap_ReturnsTrue()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
+            // Down -> MoveDown in the system map; current keyboard has Down held, previous doesn't.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+
+            var result = (bool)InvokePrivateMethod(stage, "IsPanelCommandPressed", InputCommandType.MoveDown)!;
+
+            Assert.True(result);
+        }
+    }
+
+    [Fact]
+    public void IsPanelCommandPressed_WhenNoMatch_ReturnsFalse()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
+            SetKeyboardStates(stage, new KeyboardState(), new KeyboardState());
+
+            var result = (bool)InvokePrivateMethod(stage, "IsPanelCommandPressed", InputCommandType.MoveDown)!;
+
+            Assert.False(result);
+        }
+    }
 }

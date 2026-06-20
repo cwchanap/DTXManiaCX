@@ -7,12 +7,14 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.DrumConfig;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
+using Moq;
 using ButtonState = DTXMania.Game.Lib.Input.ButtonState;
 using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
@@ -698,6 +700,217 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             // Enter was Rejected (non-Ignored) -> break before Q was tried, so Q is dropped this frame.
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
+        }
+
+        // ---- LoadOptionalTexture (1x1 fallback + exception path; headless via mock resources) ----
+
+        private static DrumConfigStage NewStageWithResources(out Mock<IResourceManager> resources)
+        {
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            resources = new Mock<IResourceManager>();
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resources.Object);
+            return stage;
+        }
+
+        [Fact]
+        public void LoadOptionalTexture_WhenResourceManagerReturnsNull_ReturnsNull()
+        {
+            var stage = NewStageWithResources(out var resources);
+            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns((ITexture?)null);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
+                TexturePath.StartupBackground, "unavailable");
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LoadOptionalTexture_WhenResourceManagerReturns1x1Fallback_ReturnsNullAndReleasesRef()
+        {
+            // ResourceManager.LoadTexture returns a 1x1 white fallback instead of throwing for a
+            // missing asset. LoadOptionalTexture must treat that as "not present" (a real asset is
+            // always larger than 1x1) and release the ref the load added before discarding it.
+            var stage = NewStageWithResources(out var resources);
+            var fallback = new Mock<ITexture>();
+            fallback.SetupGet(t => t.Width).Returns(1);
+            fallback.SetupGet(t => t.Height).Returns(1);
+            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(fallback.Object);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
+                TexturePath.StartupBackground, "unavailable");
+
+            Assert.Null(result);
+            fallback.Verify(t => t.RemoveReference(), Times.Once);
+        }
+
+        [Fact]
+        public void LoadOptionalTexture_WhenResourceManagerThrows_ReturnsNull()
+        {
+            // Missing/invalid art is non-fatal: the exception is logged and null returned so the
+            // stage falls back to the plain fill instead of crashing.
+            var stage = NewStageWithResources(out var resources);
+            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Throws(new IOException("missing"));
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
+                TexturePath.StartupBackground, "unavailable");
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void LoadOptionalTexture_WhenResourceManagerReturnsRealAsset_ReturnsIt()
+        {
+            var stage = NewStageWithResources(out var resources);
+            var texture = new Mock<ITexture>();
+            texture.SetupGet(t => t.Width).Returns(128);
+            texture.SetupGet(t => t.Height).Returns(720);
+            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
+                TexturePath.StartupBackground, "unavailable");
+
+            Assert.Same(texture.Object, result);
+            texture.Verify(t => t.RemoveReference(), Times.Never);
+        }
+
+        // ---- EvictSystemKey early-return paths (capture-time eviction) ----
+
+        [Fact]
+        public void ApplyCapture_NonKeyboardButton_BindsButDoesNotEvictSystemKey()
+        {
+            // EvictSystemKey short-circuits for non-keyboard buttons (MIDI/pad): no system key to
+            // evict. The drum binding still applies to Config.
+            var (stage, cm, _) = CreateWiredStage();
+            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+            });
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 7);
+
+            Assert.Equal(7, cm.Config.KeyBindings["MIDI.36"]);
+            // Unrelated system key untouched (non-keyboard capture never reaches eviction).
+            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
+        }
+
+        [Fact]
+        public void ApplyCapture_KeyboardButtonIdThatDoesNotParse_DoesNotEvictOrThrow()
+        {
+            // "Key." prefix passes IsKeyboardButtonId, but an unparseable key name must not evict
+            // anything and must not throw (Enum.TryParse fails -> early return).
+            var (stage, cm, _) = CreateWiredStage();
+            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+            });
+
+            var ex = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.NotARealKey", 7));
+
+            Assert.Null(ex);
+            // The drum binding for the unparseable id still applied via BindButton.
+            Assert.Equal(7, cm.Config.KeyBindings["Key.NotARealKey"]);
+            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
+        }
+
+        [Fact]
+        public void ResetDrumBindingsToDefault_WhenNoSystemKeysConflict_DoesNotRewriteSystemMap()
+        {
+            // EvictSystemKeysForDrumBindings only calls SetSystemKeyBindings when something was
+            // actually removed (changed == true). With no overlapping system keys, the system map
+            // is left untouched (the changed=false branch).
+            var (stage, cm, input) = CreateWiredStage();
+            // A system key on a non-drum key (PageUp) — default drum bindings are letters/space,
+            // so nothing overlaps and reset must not rewrite the system map.
+            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+            });
+            var systemBefore = input.GetKeyMappingSnapshot();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ResetDrumBindingsToDefault");
+
+            // Defaults restored; system map unchanged because no eviction occurred.
+            Assert.Equal(4, cm.Config.KeyBindings["Key.S"]);
+            Assert.Equal(systemBefore.Count, input.GetKeyMappingSnapshot().Count);
+            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
+        }
+
+        // ---- OnDeactivate / Dispose (resource release; graphics fields nulled to stay headless) ----
+
+        [Fact]
+        public void OnDeactivate_FlushesPendingSaveAndReleasesResourceReferences()
+        {
+            var (stage, cm, _) = CreateWiredStage();
+            // Mark a pending save so OnDeactivate's FlushPendingSave has something to flush.
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
+            try
+            {
+                cm.LoadConfig(AppPaths.GetConfigFilePath());
+                ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5); // marks dirty
+                Assert.NotNull(GetPendingSavePath(cm));
+
+                // Mocked managed resources + nulled graphics fields (SpriteBatch/Texture2D need a
+                // GraphicsDevice); the null-conditional release paths are still exercised.
+                var background = new Mock<ITexture>();
+                var skeleton = new Mock<ITexture>();
+                var font = new Mock<IFont>();
+                ReflectionHelpers.SetPrivateField(stage, "_background", background.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_skeleton", skeleton.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+                ReflectionHelpers.SetPrivateField(stage, "_renderer", null);
+                ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+                ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+                // Pending save flushed to disk.
+                Assert.Null(GetPendingSavePath(cm));
+                Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
+                // Managed resource references released.
+                background.Verify(t => t.RemoveReference(), Times.Once);
+                skeleton.Verify(t => t.RemoveReference(), Times.Once);
+                font.Verify(f => f.RemoveReference(), Times.Once);
+                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_background"));
+                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_skeleton"));
+                Assert.Null(ReflectionHelpers.GetPrivateField<IFont?>(stage, "_font"));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Dispose_DisposingTrue_ReleasesResourceReferences()
+        {
+            var (stage, _, _) = CreateWiredStage();
+            var background = new Mock<ITexture>();
+            var skeleton = new Mock<ITexture>();
+            var font = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_background", background.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_skeleton", skeleton.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            // Graphics fields nulled (need a GraphicsDevice to construct); their null-conditional
+            // dispose paths are exercised via the null check.
+            ReflectionHelpers.SetPrivateField(stage, "_renderer", null);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+
+            stage.Dispose();
+
+            background.Verify(t => t.RemoveReference(), Times.Once);
+            skeleton.Verify(t => t.RemoveReference(), Times.Once);
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_background"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_skeleton"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont?>(stage, "_font"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IResourceManager>(stage, "_resourceManager"));
         }
 
         private sealed class StubGraphicsDeviceService : IGraphicsDeviceService

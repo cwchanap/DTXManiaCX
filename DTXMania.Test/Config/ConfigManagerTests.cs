@@ -768,6 +768,42 @@ Key.Bad=abc
         Assert.Null(Record.Exception(() => new ConfigManager().SetSystemKeyBindings(
             new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp })));
 
+    [Fact]
+    public void SetKeyBindings_ThrowingSubscriber_DoesNotBreakOtherSubscribersOrRollback()
+    {
+        // RaiseEvent wraps each subscriber in try/catch so one bad listener cannot break the
+        // edit or roll back Config. Config stays the truth; the remaining subscribers still fire.
+        var cm = new ConfigManager();
+        var goodFired = false;
+        cm.KeyBindingsChanged += (_, _) => throw new InvalidOperationException("boom");
+        cm.KeyBindingsChanged += (_, _) => goodFired = true;
+
+        var kb = new KeyBindings();
+        kb.BindButton("Key.X", 3);
+
+        var ex = Record.Exception(() => cm.SetKeyBindings(kb));
+
+        Assert.Null(ex);                       // bad subscriber swallowed, not propagated
+        Assert.True(goodFired);                // second subscriber still received the event
+        Assert.Equal(3, cm.Config.KeyBindings["Key.X"]); // Config mutation survived
+    }
+
+    [Fact]
+    public void SetSystemKeyBindings_ThrowingSubscriber_DoesNotBreakOtherSubscribers()
+    {
+        var cm = new ConfigManager();
+        var goodFired = false;
+        cm.SystemKeyBindingsChanged += (_, _) => throw new InvalidOperationException("boom");
+        cm.SystemKeyBindingsChanged += (_, _) => goodFired = true;
+
+        var ex = Record.Exception(() => cm.SetSystemKeyBindings(
+            new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp }));
+
+        Assert.Null(ex);
+        Assert.True(goodFired);
+        Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+    }
+
     // --- Scalar setters (Task 1.4): dirty+flush, NO events ---
 
     [Fact]
