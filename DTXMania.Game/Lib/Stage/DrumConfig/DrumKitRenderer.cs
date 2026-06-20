@@ -83,7 +83,17 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 return null;
             try
             {
-                return resourceManager.LoadTexture(path);
+                var texture = resourceManager.LoadTexture(path);
+                // ResourceManager.LoadTexture returns a 1x1 white fallback texture instead of
+                // throwing when a skin lacks the art. Treat that as missing so Draw takes the
+                // documented plain-disc fallback path instead of stretching a white pixel into
+                // the pad/kick box. Release the ref the load added before discarding it.
+                if (texture != null && (texture.Width <= 1 || texture.Height <= 1))
+                {
+                    texture.RemoveReference();
+                    return null;
+                }
+                return texture;
             }
             catch
             {
