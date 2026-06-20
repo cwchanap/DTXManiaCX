@@ -55,6 +55,10 @@ namespace DTXMania.Game.Lib.Stage
         // Dark UI text, for legibility on the bright background image.
         private static readonly Color DarkText = new(26, 30, 46);
 
+        // Light fallback used when the startup background texture is missing/unavailable, so the
+        // dark UI text stays readable instead of going dark-on-dark.
+        private static readonly Color FallbackBackgroundColor = new(220, 222, 230);
+
         // NX score import status
         private volatile string _importStatus = "";
         private volatile bool _importRunning;
@@ -601,7 +605,8 @@ namespace DTXMania.Game.Lib.Stage
             var full = new Rectangle(0, 0, viewport.Width, viewport.Height);
 
             // Bright startup artwork, calmed by a translucent light scrim so the dark text reads;
-            // a dark fill covers the case where the texture could not be loaded.
+            // a light fill covers the case where the texture could not be loaded, keeping DarkText
+            // legible instead of going dark-on-dark.
             if (_backgroundTexture?.Texture != null)
             {
                 _spriteBatch.Draw(_backgroundTexture.Texture, full, Color.White);
@@ -611,7 +616,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             else
             {
-                DrawFilledRectangle(full, new Color(16, 16, 32));
+                DrawFilledRectangle(full, FallbackBackgroundColor);
             }
         }
 

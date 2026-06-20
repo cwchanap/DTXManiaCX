@@ -48,6 +48,10 @@ namespace DTXMania.Game.Lib.Stage
         // Dark UI text, for legibility on the bright background image.
         private static readonly Color DarkText = new(26, 30, 46);
 
+        // Light fallback used when the startup background texture is missing/unavailable, so the
+        // dark UI text stays readable instead of going dark-on-dark.
+        private static readonly Color FallbackBackgroundColor = new(220, 222, 230);
+
         private int _focusIndex;
         // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
         // again as soon as they move the mouse. Without this the default focus (lane 0) would
@@ -315,7 +319,8 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch.Begin();
 
             // Background: the bright startup artwork, calmed by a translucent light scrim so the
-            // dark UI text and the kit read clearly against it.
+            // dark UI text and the kit read clearly against it. A light fill covers the case where
+            // the texture or white pixel is unavailable, keeping DarkText legible.
             if (_background?.Texture != null && _whitePixel != null)
             {
                 var full = new Rectangle(0, 0, vp.Width, vp.Height);
@@ -323,6 +328,11 @@ namespace DTXMania.Game.Lib.Stage
                 // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
                 // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
                 _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
+            }
+            else if (_whitePixel != null)
+            {
+                _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, vp.Width, vp.Height),
+                    FallbackBackgroundColor);
             }
 
             // Drum-kit hardware skeleton behind the pieces, so the kit reads as one assembled set.
