@@ -366,8 +366,7 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>Back = exit. Flushes any pending deferred save, then returns to ConfigStage.</summary>
         private void ExitStage()
         {
-            if (_configManager is ConfigManager cm)
-                cm.FlushPendingSave();
+            _configManager.FlushPendingSave();
             ChangeStage(StageType.Config, new InstantTransition());
         }
 
@@ -376,52 +375,52 @@ namespace DTXMania.Game.Lib.Stage
         /// capture-time eviction is permanent — no restore on undo).</summary>
         private void ApplyCapture(string buttonId, int lane)
         {
-            if (_configManager is not ConfigManager cm || _input == null) return;
+            if (_input == null) return;
             var kb = _input.ModularInputManager.KeyBindings.Clone();
             kb.BindButton(buttonId, lane);
-            cm.SetKeyBindings(kb);
+            _configManager.SetKeyBindings(kb);
             // Immediate eviction (Decision 3): a keyboard key claimed by a drum lane leaves the
             // system map now.
-            EvictSystemKey(buttonId, cm);
+            EvictSystemKey(buttonId);
         }
 
         private void RemoveBindingFromConfig(string buttonId)
         {
-            if (_configManager is not ConfigManager cm || _input == null) return;
+            if (_input == null) return;
             var kb = _input.ModularInputManager.KeyBindings.Clone();
             kb.UnbindButton(buttonId);
-            cm.SetKeyBindings(kb);
+            _configManager.SetKeyBindings(kb);
             // No system-key restore (Decision 3): eviction was permanent.
         }
 
         private void ClearLaneInConfig(int lane)
         {
-            if (_configManager is not ConfigManager cm || _input == null) return;
+            if (_input == null) return;
             var kb = _input.ModularInputManager.KeyBindings.Clone();
             kb.UnbindLane(lane);
-            cm.SetKeyBindings(kb);
+            _configManager.SetKeyBindings(kb);
         }
 
         private void ResetDrumBindingsToDefault()
         {
-            if (_configManager is not ConfigManager cm || _input == null) return;
+            if (_input == null) return;
             var kb = new KeyBindings();
             kb.LoadDefaultBindings();
-            cm.SetKeyBindings(kb);
-            EvictSystemKeysForDrumBindings(kb, cm);
+            _configManager.SetKeyBindings(kb);
+            EvictSystemKeysForDrumBindings(kb);
         }
 
         /// <summary>Evicts a single keyboard key from the system map if it was just claimed by a drum lane.</summary>
-        private void EvictSystemKey(string buttonId, ConfigManager cm)
+        private void EvictSystemKey(string buttonId)
         {
             if (!KeyBindings.IsKeyboardButtonId(buttonId)) return;
             if (!Enum.TryParse(buttonId.Substring(4), out Keys k)) return;
             var snap = new Dictionary<Keys, InputCommandType>(_input!.GetKeyMappingSnapshot());
-            if (snap.Remove(k)) cm.SetSystemKeyBindings(snap);
+            if (snap.Remove(k)) _configManager.SetSystemKeyBindings(snap);
         }
 
         /// <summary>Evicts any system keys claimed by the given drum bindings (used after reset-to-defaults).</summary>
-        private void EvictSystemKeysForDrumBindings(KeyBindings kb, ConfigManager cm)
+        private void EvictSystemKeysForDrumBindings(KeyBindings kb)
         {
             var snap = new Dictionary<Keys, InputCommandType>(_input!.GetKeyMappingSnapshot());
             bool changed = false;
@@ -430,7 +429,7 @@ namespace DTXMania.Game.Lib.Stage
                 if (KeyBindings.IsKeyboardButtonId(id) && Enum.TryParse(id.Substring(4), out Keys k))
                     changed |= snap.Remove(k);
             }
-            if (changed) cm.SetSystemKeyBindings(snap);
+            if (changed) _configManager.SetSystemKeyBindings(snap);
         }
 
         protected override void OnDeactivate()

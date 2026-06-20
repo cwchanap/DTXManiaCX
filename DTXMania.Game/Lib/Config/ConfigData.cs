@@ -79,34 +79,6 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         public string GameApiKey { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Captures a point-in-time copy of the four binding-related collections so a failed save can
-        /// restore them. See <see cref="BindingState"/>; the snapshot is restored via
-        /// <see cref="RestoreBindingState"/>.
-        /// </summary>
-        public BindingState SnapshotBindingState()
-            => new BindingState(
-                new Dictionary<string, int>(KeyBindings),
-                new HashSet<int>(UnboundDrumLanes),
-                new HashSet<string>(UnboundDrumButtons),
-                new Dictionary<string, string>(SystemKeyBindings));
 
-        /// <summary>
-        /// Clears the four binding-related collections and refills them from <paramref name="state"/>.
-        /// Uses Clear+re-add (not reference replacement) to preserve the collection identities that
-        /// external observers and existing tests rely on. The counterpart of
-        /// <see cref="SnapshotBindingState"/>.
-        /// </summary>
-        public void RestoreBindingState(in BindingState state)
-        {
-            KeyBindings.Clear();
-            foreach (var kvp in state.KeyBindings) KeyBindings[kvp.Key] = kvp.Value;
-            UnboundDrumLanes.Clear();
-            foreach (var lane in state.UnboundDrumLanes) UnboundDrumLanes.Add(lane);
-            UnboundDrumButtons.Clear();
-            foreach (var buttonId in state.UnboundDrumButtons) UnboundDrumButtons.Add(buttonId);
-            SystemKeyBindings.Clear();
-            foreach (var kvp in state.SystemKeyBindings) SystemKeyBindings[kvp.Key] = kvp.Value;
-        }
     }
 }
