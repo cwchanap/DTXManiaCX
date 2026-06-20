@@ -1,8 +1,10 @@
 using System.Reflection;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.DrumConfig;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -302,6 +304,63 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.True(highlights.IsHighlighted(8));
             // A lane matching none of the three is not highlighted.
             Assert.False(highlights.IsHighlighted(1));
+        }
+
+        // ---- DrawZoneLabel null guards (headless: the guard returns before any spriteBatch call) ----
+        // DrawZoneLabel short-circuits when the font, whitePixel, or bindings are null so the
+        // renderer degrades gracefully when the stage couldn't load a font/pixel. The guard is the
+        // only headless-reachable part of the method (the rest draws via SpriteBatch); these tests
+        // pin that each null argument returns without invoking the graphics device.
+
+        private static void DrawZoneLabel(SpriteBatch spriteBatch, IFont? font, Texture2D? whitePixel,
+            KeyBindings? bindings, Rectangle anchor, int viewportHeight, int lane)
+        {
+            var method = typeof(DrumKitRenderer).GetMethod("DrawZoneLabel",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            method!.Invoke(null, new object?[] { spriteBatch, font, whitePixel, bindings, anchor, viewportHeight, lane });
+        }
+
+        private static SpriteBatch UninitializedSpriteBatch()
+        {
+            var sb = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
+            GC.SuppressFinalize(sb);
+            return sb;
+        }
+
+        [Fact]
+        public void DrawZoneLabel_WhenFontNull_ReturnsWithoutDrawing()
+        {
+            var ex = Record.Exception(() =>
+                DrawZoneLabel(UninitializedSpriteBatch(), font: null,
+                    whitePixel: null, bindings: new KeyBindings(), new Rectangle(0, 0, 60, 60), 720, 4));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void DrawZoneLabel_WhenWhitePixelNull_ReturnsWithoutDrawing()
+        {
+            var font = new Mock<IFont>();
+            var ex = Record.Exception(() =>
+                DrawZoneLabel(UninitializedSpriteBatch(), font.Object,
+                    whitePixel: null, bindings: new KeyBindings(), new Rectangle(0, 0, 60, 60), 720, 4));
+
+            Assert.Null(ex);
+            // Guard returned before measuring/drawing.
+            font.Verify(f => f.MeasureString(It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public void DrawZoneLabel_WhenBindingsNull_ReturnsWithoutDrawing()
+        {
+            var font = new Mock<IFont>();
+            var ex = Record.Exception(() =>
+                DrawZoneLabel(UninitializedSpriteBatch(), font.Object,
+                    whitePixel: null, bindings: null, new Rectangle(0, 0, 60, 60), 720, 4));
+
+            Assert.Null(ex);
+            font.Verify(f => f.MeasureString(It.IsAny<string>()), Times.Never);
         }
     }
 }

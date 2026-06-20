@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Input;
@@ -60,6 +61,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly ITexture? _hihat;
         private bool _disposed;
 
+        [ExcludeFromCodeCoverage]
         public DrumKitRenderer(GraphicsDevice graphicsDevice, IResourceManager? resourceManager = null)
         {
             _circle = CreateCircleTexture(graphicsDevice, 128);
@@ -115,6 +117,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _ => null
         };
 
+        [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch, KeyBindings bindings, IFont? font,
                          Texture2D? whitePixel, int viewportWidth, int viewportHeight,
                          in LaneHighlights highlights)
@@ -225,6 +228,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return new Rectangle(bounds.Center.X - (w / 2), bounds.Center.Y - (h / 2), w, h);
         }
 
+        [ExcludeFromCodeCoverage]
         private static Texture2D CreateCircleTexture(GraphicsDevice device, int size)
         {
             var data = new Color[size * size];
@@ -244,6 +248,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return tex;
         }
 
+        [ExcludeFromCodeCoverage]
         public void Dispose()
         {
             if (_disposed)

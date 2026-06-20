@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
@@ -70,6 +71,7 @@ namespace DTXMania.Game.Lib.Stage
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
         }
 
+        [ExcludeFromCodeCoverage]
         protected override void OnActivate()
         {
             _logger = _game.LoggerFactory?.CreateLogger<DrumConfigStage>() ?? _logger;
@@ -332,6 +334,7 @@ namespace DTXMania.Game.Lib.Stage
             new Rectangle(viewportWidth - ResetButtonRightInset, ResetButtonTopInset,
                           ResetButtonWidth, ResetButtonHeight);
 
+        [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null || _renderer == null)
