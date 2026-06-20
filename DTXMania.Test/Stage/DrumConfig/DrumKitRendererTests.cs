@@ -242,10 +242,32 @@ namespace DTXMania.Test.Stage.DrumConfig
         public void TryLoad_WhenResourceManagerReturnsTexture_ReturnsIt()
         {
             var resources = new Mock<IResourceManager>();
-            var texture = new Mock<ITexture>().Object;
-            resources.Setup(r => r.LoadTexture(TexturePath.DrumPadCymbal)).Returns(texture);
+            // TryLoad treats any texture with a dimension <= 1 as the 1x1 fallback ResourceManager
+            // returns for a missing asset, so the mock must report real-asset dimensions or the
+            // load is (correctly) discarded and this assertion fails.
+            var texture = new Mock<ITexture>();
+            texture.SetupGet(t => t.Width).Returns(64);
+            texture.SetupGet(t => t.Height).Returns(64);
+            resources.Setup(r => r.LoadTexture(TexturePath.DrumPadCymbal)).Returns(texture.Object);
 
-            Assert.Same(texture, TryLoad(resources.Object, TexturePath.DrumPadCymbal));
+            Assert.Same(texture.Object, TryLoad(resources.Object, TexturePath.DrumPadCymbal));
+        }
+
+        [Fact]
+        public void TryLoad_WhenResourceManagerReturnsFallbackTexture_ReturnsNull()
+        {
+            // ResourceManager.LoadTexture returns a 1x1 white fallback instead of throwing when a
+            // skin lacks the art. TryLoad must treat that as "missing" so Draw takes the plain-disc
+            // fallback path instead of stretching a single texel over the pad/kick box.
+            var resources = new Mock<IResourceManager>();
+            var fallback = new Mock<ITexture>();
+            fallback.SetupGet(t => t.Width).Returns(1);
+            fallback.SetupGet(t => t.Height).Returns(1);
+            resources.Setup(r => r.LoadTexture(TexturePath.DrumPadDrum)).Returns(fallback.Object);
+
+            Assert.Null(TryLoad(resources.Object, TexturePath.DrumPadDrum));
+            // The discarded fallback must release the ref the load added.
+            fallback.Verify(t => t.RemoveReference(), Times.Once);
         }
 
         // ---- LaneHighlights (the bundled highlight-lane draw parameter) ----

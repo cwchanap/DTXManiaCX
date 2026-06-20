@@ -366,6 +366,41 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void UpdateSelection_MoveDownCommand_AdvancesFocusForward()
+        {
+            // Down maps to the same forward (+1) delta as Right/Tab: the focus sequence is a single
+            // linear order (zones 0..9 then Reset), so Down/Right both advance and Up/Left go back.
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveDown };
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 3);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
+
+            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
+        }
+
+        [Fact]
+        public void UpdateSelection_MoveUpCommand_AdvancesFocusBackward()
+        {
+            // Up maps to the same backward (-1) delta as Left.
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveUp };
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 3);
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
+
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
+        }
+
+        [Fact]
         public void UpdateSelection_TabKey_AdvancesFocus()
         {
             var game = CreateGameWithViewport(1280, 720);
