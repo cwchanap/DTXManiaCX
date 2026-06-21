@@ -124,7 +124,7 @@ namespace DTXMania.Game.Lib.Stage
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
         private Texture2D _fallbackWhiteTexture = null!;
-        private Action<Rectangle, Color, float>? _fallbackRectangleDrawer;
+        private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
         private bool _isPaused = false;
@@ -638,7 +638,7 @@ namespace DTXMania.Game.Lib.Stage
                 _isLoading = false;
                 _isReady = true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 _isLoading = false;
                 // Rethrowing the exception to make sure it's not silently ignored.
@@ -901,7 +901,7 @@ namespace DTXMania.Game.Lib.Stage
                 _skillPanelTexture = TryLoadTexture(TexturePath.SkillPanel);
                 
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

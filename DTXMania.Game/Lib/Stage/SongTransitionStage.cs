@@ -66,10 +66,10 @@ namespace DTXMania.Game.Lib.Stage
         
         // Timing
         private double _elapsedTime;
-        
+
         // Chart data
-        private ParsedChart _parsedChart;
-        
+        private ParsedChart _parsedChart = null!;
+
         // Note: Using global stage transition debouncing from BaseGame
 
         public override StageType Type => StageType.SongTransition;
@@ -884,7 +884,7 @@ namespace DTXMania.Game.Lib.Stage
                 sharedData["selectedSong"] = _selectedSong;
                 sharedData["selectedDifficulty"] = _selectedDifficulty;
                 sharedData["songId"] = _songId;
-                
+
                 // Pass parsed chart data if available
                 if (_parsedChart != null)
                 {
