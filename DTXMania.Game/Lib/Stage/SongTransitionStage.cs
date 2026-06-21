@@ -431,7 +431,7 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     try
                     {
-                        _previewTexture = _resourceManager.LoadTexture("Graphics/5_preimage default.png");
+                        _previewTexture = _resourceManager.LoadTexture(TexturePath.ResultDefaultPreview);
                     }
                     catch (Exception)
                     {

@@ -337,19 +337,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
         
         /// <summary>
-        /// Processes input for a specific lane (legacy overload)
-        /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
-        /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        private void ProcessLaneInput(int laneIndex, double currentSongTimeMs)
-        {
-            // Create a synthetic event for backwards compatibility
-            var syntheticButton = new DTXMania.Game.Lib.Input.ButtonState($"Lane{laneIndex}", true, 1.0f);
-            var syntheticEvent = new LaneHitEventArgs(laneIndex, syntheticButton);
-            ProcessLaneInput(syntheticEvent, currentSongTimeMs);
-        }
-
-        /// <summary>
         /// Finds the nearest unhit note in a specific lane within the hit detection window
         /// </summary>
         /// <param name="laneIndex">Lane index to search</param>
@@ -359,9 +346,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             NoteRuntimeData? nearestNote = null;
             double nearestDistance = double.MaxValue;
-            int candidatesFound = 0;
-            int notesInLane = 0;
-            int pendingNotesInLane = 0;
 
             // Use BinarySearch to find start index
             var searchTime = currentSongTimeMs - HitDetectionWindowMs;
@@ -381,7 +365,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (note.LaneIndex != laneIndex)
                     continue;
 
-                notesInLane++;
                 var noteData = _noteRuntimeData[note.Id];
 
                 if (noteData.Status != NoteStatus.Pending)
@@ -389,15 +372,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     continue;
                 }
 
-                pendingNotesInLane++;
                 var timeDifference = Math.Abs(currentSongTimeMs - note.TimeMs);
 
                 if (timeDifference > HitDetectionWindowMs)
                 {
                     continue;
                 }
-
-                candidatesFound++;
 
                 if (timeDifference < nearestDistance)
                 {

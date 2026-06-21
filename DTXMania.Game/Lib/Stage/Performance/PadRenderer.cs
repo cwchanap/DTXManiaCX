@@ -53,11 +53,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private const double PressDurationJudged = 90.0;
 
         /// <summary>
-        /// Press duration for key-down without judge (milliseconds)
-        /// </summary>
-        private const double PressDurationKeyDown = 60.0;
-
-        /// <summary>
         /// Expected sprite sheet rows (3 rows: cymbals, toms, pedals)
         /// </summary>
         private const int SpriteSheetRows = 3;
@@ -66,11 +61,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Expected sprite sheet columns (4 columns for 7_pads.png layout)
         /// </summary>
         private const int SpriteSheetColumns = 4;
-
-        /// <summary>
-        /// Drum lane order for mapping to sprite columns: LC, HH, SD, HT, LT, FT, RC, LP
-        /// </summary>
-        private static readonly int[] DrumLaneOrder = { 0, 1, 3, 4, 6, 7, 8, 2 }; // Maps lanes to sprite columns
 
         #endregion
 
@@ -215,7 +205,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 string[] padTexturePaths = 
                 {
                     TexturePath.PadCaps,                           // Primary: TexturePath constant
-                    "Graphics/7_pads.png",                          // Standard graphics path
                     "Graphics/ScreenPlayDrums/7_PadCaps.png",      // DTXManiaNX path
                     "Graphics/pads.png",
                     "Graphics/pad_caps.png"
@@ -314,9 +303,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 padWidth,
                 PadsHeight
             );
-            
-            // Add bounds checking for debugging
-            bool isOnScreen = PadsY >= -50 && PadsY <= 800 && laneLeftX >= -50 && laneLeftX <= 1400;
             
             // Try sprite sheet rendering first
             if (_padSpriteSheet != null && TryDrawSpriteSheetPad(spriteBatch, pad, laneIndex, destRect))

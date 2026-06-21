@@ -730,18 +730,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Legacy method - Gets the sprite width for a specific lane
-        /// Kept for compatibility
-        /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-9)</param>
-        /// <returns>Sprite width in pixels</returns>
-        private int GetSpriteWidthForLane(int laneIndex)
-        {
-            var columnIndex = GetSpriteColumnForLane(laneIndex);
-            return GetSpriteWidthForColumn(columnIndex);
-        }
-
-        /// <summary>
         /// Determines if a channel represents snare or tom drums that use overlay frames
         /// instead of base animation frames
         /// </summary>
@@ -805,18 +793,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 spriteWidth, 
                 DrumChipsSpriteHeight
             );
-        }
-
-        /// <summary>
-        /// Legacy method - Gets custom source rectangle for variable-width sprites by lane
-        /// Kept for compatibility
-        /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-9)</param>
-        /// <returns>Source rectangle for the sprite</returns>
-        private Rectangle GetCustomSpriteSourceRectangle(int laneIndex)
-        {
-            var columnIndex = GetSpriteColumnForLane(laneIndex);
-            return GetCustomSpriteSourceRectangleForColumn(columnIndex);
         }
 
         #endregion
