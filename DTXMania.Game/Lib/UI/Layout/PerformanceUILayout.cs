@@ -164,7 +164,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Get the center X position of a lane by index
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>X position of the lane center</returns>
         public static int GetLaneX(int laneIndex)
         {
@@ -178,7 +178,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Get the left edge X position of a lane by index
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>X position of the lane's left edge</returns>
         public static int GetLaneLeftX(int laneIndex)
         {
@@ -192,7 +192,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Get the width of a lane by index
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>Width of the lane in pixels</returns>
         public static int GetLaneWidth(int laneIndex)
         {
@@ -206,7 +206,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Calculate the right edge X position of a lane by index
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>X position of the lane's right edge</returns>
         public static int GetLaneRightX(int laneIndex)
         {
@@ -224,7 +224,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Get the rectangle bounds for a lane
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>Rectangle representing the lane bounds</returns>
         public static Rectangle GetLaneRectangle(int laneIndex)
         {
@@ -234,7 +234,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Get lane color for compatibility (using default drum colors)
         /// </summary>
-        /// <param name="laneIndex">Lane index (0-8)</param>
+        /// <param name="laneIndex">Lane index (0-9)</param>
         /// <returns>Color for the lane</returns>
         public static Color GetLaneColor(int laneIndex)
         {
