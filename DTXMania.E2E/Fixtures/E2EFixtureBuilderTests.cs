@@ -38,6 +38,15 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(File.Exists(fixture.ConfigPath));
             Assert.True(File.Exists(fixture.ChartPath));
 
+            // The Performance stage's EffectsManager requires a loadable hit-effect sprite sheet
+            // (throws in Debug builds otherwise), so the sandbox skin must ship a valid PNG.
+            var hitEffectPath = Path.Combine(fixture.SkinRoot, "Graphics", "hit_fx.png");
+            Assert.True(File.Exists(hitEffectPath));
+            var hitEffectBytes = File.ReadAllBytes(hitEffectPath);
+            Assert.Equal(
+                new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A },
+                hitEffectBytes.Take(8).ToArray());
+
             var config = File.ReadAllText(fixture.ConfigPath);
             Assert.Contains("EnableGameApi=True", config);
             Assert.Contains("GameApiKey=e2e-autoplay-smoke-key", config);
