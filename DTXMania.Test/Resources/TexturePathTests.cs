@@ -312,6 +312,7 @@ namespace DTXMania.Test.Resources
             Assert.Contains(TexturePath.JudgeStrings, paths);
             Assert.Contains(TexturePath.SkillPanel, paths);
             Assert.Contains(TexturePath.PadCaps, paths);
+            Assert.Contains(TexturePath.HitFx, paths);
         }
 
         [Fact]

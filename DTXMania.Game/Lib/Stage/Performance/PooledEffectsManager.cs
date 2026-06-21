@@ -40,6 +40,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _activeEffects = new List<PooledEffectInstance>();
             
             var texture = resourceManager.LoadTexture(TexturePath.HitFx);
+            if (texture == null)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to load required hit effect texture: {TexturePath.HitFx}");
+            }
             _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
             
             // Pre-populate the pool
