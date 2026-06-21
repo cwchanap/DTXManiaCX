@@ -179,7 +179,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Constructor_WhenLoadTextureReturnsNull_ShouldThrowNullReferenceException()
+        public void Constructor_WhenLoadTextureReturnsNull_ShouldThrowInvalidOperationException()
         {
             var graphicsDevice = CreateGraphicsDeviceStub();
             var resourceManager = new Mock<IResourceManager>();
@@ -187,8 +187,9 @@ namespace DTXMania.Test.Stage.Performance
                 .Setup(x => x.LoadTexture(It.IsAny<string>()))
                 .Returns((ManagedTexture?)null!);
 
-            Assert.Throws<NullReferenceException>(() =>
+            var ex = Assert.Throws<InvalidOperationException>(() =>
                 new PooledEffectsManager(graphicsDevice, resourceManager.Object));
+            Assert.Contains(TexturePath.HitFx, ex.Message);
         }
 
         [Fact]

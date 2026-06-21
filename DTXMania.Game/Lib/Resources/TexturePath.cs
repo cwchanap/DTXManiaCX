@@ -553,7 +553,8 @@ namespace DTXMania.Game.Lib.Resources
                 WailingFlush,
                 ChipWave,
                 Bonus,
-                Bonus100
+                Bonus100,
+                HitFx
             };
         }
 
