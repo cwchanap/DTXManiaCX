@@ -8,6 +8,13 @@ public static class E2EFixtureBuilder
     public const string SongTitle = "E2E AutoPlay Smoke";
     public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
+    // Minimal valid 8x32 white PNG = 1 sprite at the EffectsManager's 8x32 frame size.
+    // The Performance stage's EffectsManager requires a loadable hit-effect sprite sheet
+    // (TotalSprites > 0) and throws in Debug builds when it is missing, so the sandbox skin
+    // must ship one. Mirrors TexturePath.HitFx ("Graphics/hit_fx.png").
+    private const string HitEffectPngBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAgCAYAAAAv8DnQAAAAFklEQVR42mP4TwAwjCoYVTCqYKQqAAA/aPwuqUTQyAAAAABJRU5ErkJggg==";
+
     public static E2EFixture Build(string runRoot, string repoRoot, int apiPort)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
@@ -25,6 +32,9 @@ public static class E2EFixtureBuilder
 
         File.WriteAllText(paths.ConfigPath, BuildConfig(paths.DtxRoot, paths.SkinRoot, apiPort), Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
+        File.WriteAllBytes(
+            Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
+            Convert.FromBase64String(HitEffectPngBase64));
 
         return new E2EFixture(
             paths.RunRoot,
