@@ -47,13 +47,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[EffectsManager] Failed to load hit effect texture: {ex.Message}");
-                
+
+#if DEBUG
+                // Fail loudly in debug builds so missing/corrupt hit-effect assets
+                // surface during development instead of silently degrading. Release
+                // builds keep the graceful fallback below so end-user startup is not
+                // broken by an incomplete skin.
+                throw new InvalidOperationException(
+                    $"Failed to load required hit effect texture ({TexturePath.HitFx}). " +
+                    $"Run in Release to use the graceful fallback. Inner: {ex.Message}", ex);
+#else
                 try
                 {
                     // Create a fallback texture that matches the expected sprite dimensions
                     int textureWidth = FrameWidth;  // 8 pixels
                     int textureHeight = FrameHeight; // 32 pixels
-                    
+
                     var fallbackTexture = new Texture2D(graphicsDevice, textureWidth, textureHeight);
                     var colorData = new Color[textureWidth * textureHeight];
                     for (int i = 0; i < colorData.Length; i++)
@@ -61,10 +70,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         colorData[i] = Color.White;
                     }
                     fallbackTexture.SetData(colorData);
-                    
+
                     // Create sprite texture with exactly 1 sprite of the expected dimensions
                     _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, fallbackTexture, "fallback", FrameWidth, FrameHeight);
-                    
+
                     // Double-check the fallback worked
                     if (_hitEffectTexture.TotalSprites > 0)
                     {
@@ -82,6 +91,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     System.Diagnostics.Debug.WriteLine($"[EffectsManager] Fallback texture creation failed: {fallbackEx.Message}, disabling effects");
                     _hitEffectTexture = null;
                 }
+#endif
             }
             
             System.Diagnostics.Debug.WriteLine($"[EffectsManager] Initialized with effects enabled: {_effectsEnabled}");

@@ -46,7 +46,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     $"Failed to load required hit effect texture: {TexturePath.HitFx}");
             }
             _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
-            
+
+            // Validate the texture has valid sprites. The standard ResourceManager
+            // never returns null — on a missing/corrupt asset it returns a 1x1 fallback
+            // texture, which yields TotalSprites == 0 here. Fail loudly in that case so
+            // missing hit-effect assets surface during development instead of silently
+            // producing a 0-sprite pool.
+            if (_hitEffectTexture.TotalSprites <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Hit effect texture has invalid sprite count: {_hitEffectTexture.TotalSprites} ({TexturePath.HitFx})");
+            }
+
             // Pre-populate the pool
             InitializePool();
         }
