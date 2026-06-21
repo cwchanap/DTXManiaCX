@@ -205,6 +205,27 @@ namespace DTXMania.Test.Stage.Performance
                 new PooledEffectsManager(graphicsDevice, resourceManager.Object));
         }
 
+        [Fact]
+        public void Constructor_WhenHitEffectTextureHasZeroSprites_ShouldThrowInvalidOperationException()
+        {
+            // Mirrors the real failure path: the standard ResourceManager returns a 1x1
+            // fallback texture (never null) when hit_fx.png is missing/corrupt. With
+            // FrameWidth=8 / FrameHeight=32 that yields TotalSprites == 0. The manager
+            // must fail loudly instead of building a 0-sprite pool.
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var fallbackTexture = CreateTrackingTexture(width: 1, height: 1);
+            var loadedTexture = new ManagedTexture(graphicsDevice, fallbackTexture, TexturePath.HitFx);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(It.IsAny<string>()))
+                .Returns(loadedTexture);
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                new PooledEffectsManager(graphicsDevice, resourceManager.Object));
+            Assert.Contains(TexturePath.HitFx, ex.Message);
+            Assert.Contains("invalid sprite count", ex.Message);
+        }
+
         private static ManagerFixture CreateManager(int totalSprites)
         {
             return new ManagerFixture(totalSprites);
