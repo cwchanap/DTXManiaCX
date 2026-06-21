@@ -42,7 +42,6 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture _footerPanelTexture;        // Song management
         private List<SongListNode> _currentSongList;
         private SongListNode _selectedSong;
-        private int _selectedIndex = 0;
         private int _currentDifficulty = 0;
 
         // Instance-scoped search/filter/sort state.
@@ -2073,7 +2072,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _cursorMoveSound?.Play(SongSelectionUILayout.Audio.NavigationSoundVolume);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Cursor sound failed, continue
             }
@@ -2088,7 +2087,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _gameStartSound?.Play(SongSelectionUILayout.Audio.GameStartSoundVolume);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Game start sound failed, continue
             }

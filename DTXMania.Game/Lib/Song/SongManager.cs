@@ -198,11 +198,6 @@ namespace DTXMania.Game.Lib.Song
         public event EventHandler<SongDiscoveredEventArgs>? SongDiscovered;
 
         /// <summary>
-        /// Fired when enumeration progress changes
-        /// </summary>
-        public event EventHandler<EnumerationProgressEventArgs>? ProgressChanged;
-
-        /// <summary>
         /// Fired when enumeration completes
         /// </summary>
         public event EventHandler? EnumerationCompleted;

@@ -592,7 +592,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         baseTexture = null;
                             
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         // Clean up on error
                         if (baseTexture != null)
@@ -609,7 +609,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _drumChipsTexture = null;
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 _drumChipsTexture = null;
             }

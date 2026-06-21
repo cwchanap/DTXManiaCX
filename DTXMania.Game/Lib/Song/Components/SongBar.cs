@@ -24,12 +24,9 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _titleTexture;
         private ITexture _previewImageTexture;
         private ITexture _clearLampTexture;
-        private SpriteFont _font;
-        private Texture2D _whitePixel;
 
         // Visual state
         private Color _backgroundColor;
-        private Color _textColor;
         private DefaultGraphicsGenerator _graphicsGenerator;
 
         #endregion
@@ -132,16 +129,6 @@ namespace DTXMania.Game.Lib.Song.Components
             // Update colors using DTXManiaNX theme
             var baseColor = DTXManiaVisualTheme.SongSelection.SongBarBackground;
             _backgroundColor = DTXManiaVisualTheme.ApplySelectionHighlight(baseColor, _isSelected, _isCenter);
-
-            // Update text color based on selection and node type
-            if (_isSelected)
-            {
-                _textColor = DTXManiaVisualTheme.SongSelection.SongSelectedText;
-            }
-            else
-            {
-                _textColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
-            }
         }        /// <summary>
         /// Initialize graphics generator for fallback rendering
         /// </summary>
@@ -183,9 +170,6 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw song title
             DrawTitle(spriteBatch, bounds);
 
-            // Draw node type indicator
-            DrawNodeTypeIndicator(spriteBatch, bounds);
-
             base.OnDraw(spriteBatch, deltaTime);
         }
 
@@ -203,24 +187,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     backgroundTexture.Draw(spriteBatch, new Vector2(bounds.X, bounds.Y));
                     return;
-                }
-            }
-
-            // Fallback to simple rectangle rendering
-            if (_whitePixel != null)
-            {
-                spriteBatch.Draw(_whitePixel, bounds, _backgroundColor);
-
-                // Draw selection border with DTXManiaNX styling
-                if (_isSelected)
-                {
-                    var borderColor = _isCenter ? Color.Yellow : Color.White;
-                    var borderThickness = _isCenter ? SongSelectionUILayout.SongBars.SelectedBorderThickness : SongSelectionUILayout.SongBars.UnselectedBorderThickness;
-
-                    // Top border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-                    // Bottom border
-                    spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
                 }
             }
         }
@@ -273,34 +239,6 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 _titleTexture.Draw(spriteBatch, textPosition);
             }
-            else if (_font != null)
-            {
-                // Fallback to direct text rendering with DTXManiaNX-style shadow
-                var displayText = GetDisplayText();
-                var textX = bounds.X + DTXManiaVisualTheme.Layout.ClearLampWidth + (_previewImageTexture != null ? DTXManiaVisualTheme.Layout.PreviewImageSize + SongSelectionUILayout.SongBars.TextMarginWithImage : SongSelectionUILayout.SongBars.TextMarginNoImage);
-                var textY = bounds.Y + (bounds.Height - _font.LineSpacing) / 2;
-                var textPosition = new Vector2(textX, textY);
-
-                // Draw shadow first
-                var shadowPosition = textPosition + DTXManiaVisualTheme.FontEffects.SongTextShadowOffset;
-                spriteBatch.DrawString(_font, displayText, shadowPosition, DTXManiaVisualTheme.FontEffects.SongTextShadowColor);
-
-                // Draw main text
-                spriteBatch.DrawString(_font, displayText, textPosition, _textColor);
-            }
-        }
-
-        private void DrawNodeTypeIndicator(SpriteBatch spriteBatch, Rectangle bounds)
-        {
-            if (_whitePixel == null)
-                return;
-
-            // Draw a small indicator on the right side for node type using DTXManiaNX colors
-            var indicatorWidth = SongSelectionUILayout.SongBars.NodeTypeIndicatorWidth;
-            var indicatorBounds = new Rectangle(bounds.Right - indicatorWidth, bounds.Y, indicatorWidth, bounds.Height);
-            var indicatorColor = DTXManiaVisualTheme.GetNodeTypeColor(_songNode?.Type ?? NodeType.Score);
-
-            spriteBatch.Draw(_whitePixel, indicatorBounds, indicatorColor);
         }
 
         private string GetDisplayText()

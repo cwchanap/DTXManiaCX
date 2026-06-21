@@ -267,16 +267,6 @@ namespace DTXMania.Test.UI
             Assert.Null(GetField<object?>(_songBar, "_graphicsGenerator"));
         }
 
-        [Fact]
-        public void DrawNodeTypeIndicator_WhenWhitePixelIsMissing_ShouldReturnWithoutThrowing()
-        {
-            _songBar.SongNode = _testSongNode;
-
-            var ex = Record.Exception(() => InvokePrivate<object?>(_songBar, "DrawNodeTypeIndicator", null!, new Rectangle(0, 0, 100, 32)));
-
-            Assert.Null(ex);
-        }
-
         private static Mock<ITexture> CreateTextureMock()
         {
             var texture = new Mock<ITexture>();
