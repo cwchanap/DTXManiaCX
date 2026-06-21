@@ -40,6 +40,7 @@ namespace DTXMania.Game.Lib.Input
         // Legacy compatibility fields
         private readonly Dictionary<int, bool> _keyStates;
         private readonly Dictionary<int, bool> _previousKeyStates;
+        private readonly Keys[] _pressedKeysBuffer = new Keys[256]; // Reused each frame to avoid GetPressedKeys() allocation
 
         // ESC key debouncing state
         private bool _escapeLastState = false;
@@ -210,12 +211,13 @@ namespace DTXMania.Game.Lib.Input
             {
                 // Get currently pressed keys from MonoGame
                 var currentState = Keyboard.GetState();
-                var pressedKeys = currentState.GetPressedKeys();
-                
+                int pressedCount = currentState.GetPressedKeyCount();
+                currentState.GetPressedKeys(_pressedKeysBuffer);
+
                 // Update key states for all pressed keys
-                foreach (var key in pressedKeys)
+                for (int i = 0; i < pressedCount; i++)
                 {
-                    _keyStates[(int)key] = true;
+                    _keyStates[(int)_pressedKeysBuffer[i]] = true;
                 }
             }
         }

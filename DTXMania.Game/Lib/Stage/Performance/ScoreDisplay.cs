@@ -20,7 +20,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private int _currentScore = 0;
         private string _scoreText = "0000000";
         private Color _textColor = Color.White;
-        private Color _shadowColor = new Color(0, 0, 0, 128); // From PerformanceUILayout.Visual.StandardShadowColor
+        private Color _shadowColor = PerformanceUILayout.Visual.StandardShadowColor;
         private Vector2 _shadowOffset = new Vector2(2, 2); // From PerformanceUILayout.ScoreDisplay.ShadowOffset
         private bool _disposed = false;
 

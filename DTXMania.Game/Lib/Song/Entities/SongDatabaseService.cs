@@ -701,15 +701,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             await context.SaveChangesAsync();
         }
 
-        private async Task<int> GetNextDisplayOrderAsync(SongDbContext context, int? parentId)
-        {
-            var maxOrder = await context.SongHierarchy
-                .Where(h => h.ParentId == parentId)
-                .MaxAsync(h => (int?)h.DisplayOrder) ?? 0;
-
-            return maxOrder + 1;
-        }
-
         private string CalculateFileHash(string filePath)
         {
             if (!File.Exists(filePath)) return string.Empty;

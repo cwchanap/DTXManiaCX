@@ -32,7 +32,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private const int MaxPoolSize = 500;
         private const int FrameWidth = 8;
         private const int FrameHeight = 32;
-        private const double FrameDuration = 1.0 / 60.0; // 60 fps animation
 
         public PooledEffectsManager(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
         {

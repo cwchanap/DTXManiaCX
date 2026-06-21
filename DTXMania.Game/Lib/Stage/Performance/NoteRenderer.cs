@@ -22,7 +22,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Drum chips sprite sheet dimensions: 12 columns x 11 rows, 64px height per sprite
         /// </summary>
         private const int DrumChipsSpriteColumns = 12;
-        private const int DrumChipsSpriteRows = 11;
         private const int DrumChipsSpriteHeight = 64;
         
         /// <summary>
@@ -160,7 +159,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
 
             // Base look-ahead time: 1.5 seconds for faster scrolling
-            var baseLookAheadMs = 1500.0;
+            var baseLookAheadMs = PerformanceUILayout.NoteDefaultLookAheadMs;
 
             // User scroll speed multiplier (100 = normal, 200 = 2x faster, 50 = 0.5x slower)
             var scrollSpeedMultiplier = scrollSpeedSetting / 100.0;
@@ -402,7 +401,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         /// <param name="lookAheadMs">How far ahead to look for notes (default 1500ms)</param>
         /// <returns>Notes that should be rendered</returns>
-        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = 1500.0)
+        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = PerformanceUILayout.NoteDefaultLookAheadMs)
         {
             if (notes == null)
                 return Enumerable.Empty<Note>();

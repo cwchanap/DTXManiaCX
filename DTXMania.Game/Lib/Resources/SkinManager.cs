@@ -19,7 +19,6 @@ namespace DTXMania.Game.Lib.Resources
 
         private readonly IResourceManager _resourceManager;
         private readonly string _systemSkinRoot; private string[] _availableSystemSkins = new string[0];
-        private string[] _availableBoxDefSkins = new string[0];
         private bool _disposed = false;
 
         #endregion
@@ -42,11 +41,6 @@ namespace DTXMania.Game.Lib.Resources
         /// Available system skins (in System/ directory)
         /// </summary>
         public IReadOnlyList<string> AvailableSystemSkins => _availableSystemSkins;
-
-        /// <summary>
-        /// Available box.def skins (custom song skins)
-        /// </summary>
-        public IReadOnlyList<string> AvailableBoxDefSkins => _availableBoxDefSkins;
 
         /// <summary>
         /// Current effective skin path being used

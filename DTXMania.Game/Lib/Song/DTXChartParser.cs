@@ -1091,9 +1091,7 @@ namespace DTXMania.Game.Lib.Song
 
         private static bool IsDrumChannelForDuration(int channel)
         {
-            return channel == 0x11 || channel == 0x12 || channel == 0x13 || channel == 0x14 ||
-                   channel == 0x15 || channel == 0x16 || channel == 0x17 || channel == 0x18 ||
-                   channel == 0x19 || channel == 0x1A || channel == 0x1B || channel == 0x1C;
+            return ChannelToLaneMap.ContainsKey(channel);
         }
 
         private static bool IsGuitarChannelForDuration(int _) => false; // All charts are drum-only
