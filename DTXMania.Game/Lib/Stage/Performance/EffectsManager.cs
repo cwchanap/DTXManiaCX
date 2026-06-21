@@ -29,11 +29,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             
             try
             {
-                var texture = resourceManager.LoadTexture("Graphics/hit_fx.png");
-                
+                var texture = resourceManager.LoadTexture(TexturePath.HitFx);
+
                 if (texture?.Texture == null)
                     throw new ArgumentException("Failed to load hit effect texture - texture is null", nameof(resourceManager));
-                _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, "Graphics/hit_fx.png", FrameWidth, FrameHeight);
+                _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
                 
                 // Validate the texture has valid sprites
                 if (_hitEffectTexture.TotalSprites <= 0)

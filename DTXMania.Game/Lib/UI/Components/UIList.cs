@@ -59,7 +59,7 @@ namespace DTXMania.Game.Lib.UI.Components
             get => _selectedIndex;
             set
             {
-                var newIndex = Math.Max(-1, Math.Min(value, _items.Count - 1));
+                var newIndex = Math.Clamp(value, -1, _items.Count - 1);
                 if (_selectedIndex != newIndex)
                 {
                     var oldIndex = _selectedIndex;
@@ -185,7 +185,7 @@ namespace DTXMania.Game.Lib.UI.Components
         public int ScrollOffset
         {
             get => _scrollOffset;
-            set => _scrollOffset = Math.Max(0, Math.Min(value, Math.Max(0, _items.Count - _visibleItemCount)));
+            set => _scrollOffset = Math.Clamp(value, 0, Math.Max(0, _items.Count - _visibleItemCount));
         }
 
         #endregion

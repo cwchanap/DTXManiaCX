@@ -14,7 +14,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         #region Private Fields
 
-        private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private ManagedFont _scoreFont;
         private readonly Vector2 _position;
@@ -82,7 +81,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public ScoreDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice)
         {
-            _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
+            ArgumentNullException.ThrowIfNull(resourceManager);
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _position = PerformanceUILayout.ScorePosition;
 

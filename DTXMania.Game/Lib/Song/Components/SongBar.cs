@@ -62,7 +62,7 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 if (_currentDifficulty != value)
                 {
-                    _currentDifficulty = Math.Max(0, Math.Min(4, value));
+                    _currentDifficulty = Math.Clamp(value, 0, 4);
                     InvalidateClearLamp();
                 }
             }

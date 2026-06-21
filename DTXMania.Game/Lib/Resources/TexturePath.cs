@@ -450,9 +450,14 @@ namespace DTXMania.Game.Lib.Resources
         /// Standard path for pad caps texture - can be customized per skin
         /// </summary>
         public const string PadCaps = "Graphics/7_pads.png";
-        
+
+        /// <summary>
+        /// Hit effect sprite sheet shown when a note is judged
+        /// </summary>
+        public const string HitFx = "Graphics/hit_fx.png";
+
         #endregion
-        
+
         #region Helper Methods
         
         /// <summary>

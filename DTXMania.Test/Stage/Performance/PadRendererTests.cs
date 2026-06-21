@@ -186,7 +186,8 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(renderer, "_spriteColumns"));
             Assert.Equal(100, ReflectionHelpers.GetPrivateField<int>(renderer, "_cellWidth"));
             Assert.Equal(50, ReflectionHelpers.GetPrivateField<int>(renderer, "_cellHeight"));
-            resourceManager.Verify(x => x.LoadTexture("Graphics/7_pads.png"), Times.Exactly(2));
+            resourceManager.Verify(x => x.LoadTexture("Graphics/7_pads.png"), Times.Once);
+            resourceManager.Verify(x => x.LoadTexture("Graphics/ScreenPlayDrums/7_PadCaps.png"), Times.Once);
         }
 
         [Fact]

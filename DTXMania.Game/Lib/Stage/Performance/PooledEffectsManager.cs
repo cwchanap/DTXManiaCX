@@ -39,8 +39,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _effectPool = new ConcurrentQueue<PooledEffectInstance>();
             _activeEffects = new List<PooledEffectInstance>();
             
-            var texture = resourceManager.LoadTexture("Graphics/hit_fx.png");
-            _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, "Graphics/hit_fx.png", FrameWidth, FrameHeight);
+            var texture = resourceManager.LoadTexture(TexturePath.HitFx);
+            _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
             
             // Pre-populate the pool
             InitializePool();

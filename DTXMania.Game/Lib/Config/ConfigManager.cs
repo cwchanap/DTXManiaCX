@@ -32,11 +32,6 @@ namespace DTXMania.Game.Lib.Config
             return KeyConflictChecker.IsRequiredCommand(command);
         }
 
-        private static InputCommandType[] GetRequiredSystemCommands()
-        {
-            return RequiredSystemCommands;
-        }
-
         private readonly ILogger<ConfigManager> _logger;
         public ConfigData Config { get; private set; }
 
@@ -730,7 +725,7 @@ namespace DTXMania.Game.Lib.Config
         {
             for (var pass = 0; pass < RequiredSystemCommands.Length; pass++)
             {
-                var missingCommands = GetRequiredSystemCommands()
+                var missingCommands = RequiredSystemCommands
                     .Where(command => !HasSystemKeyBinding(inputManager, command))
                     .ToList();
                 if (missingCommands.Count == 0)

@@ -132,8 +132,9 @@ namespace DTXMania.Game.Lib.Utilities
                 {
                     value?.Dispose();
                 }
+                var count = _cache.Count;
                 _cache.Clear();
-                Debug.WriteLine($"CacheManager: Cleared {_cache.Count} items");
+                Debug.WriteLine($"CacheManager: Cleared {count} items");
             }
         }
 
