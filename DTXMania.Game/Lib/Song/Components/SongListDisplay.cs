@@ -151,7 +151,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public int CurrentDifficulty
         {
             get => _currentDifficulty;
-            set => _currentDifficulty = Math.Max(0, Math.Min(4, value));
+            set => _currentDifficulty = Math.Clamp(value, 0, 4);
         }        /// <summary>
                  /// Whether the list is currently scrolling
                  /// </summary>

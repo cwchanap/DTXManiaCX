@@ -27,7 +27,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private string _comboText = "0";
         private string _labelText = "COMBO";
         private Color _textColor = Color.White;
-        private Color _shadowColor = new Color(0, 0, 0, 128); // From PerformanceUILayout.ComboDisplay.ShadowColor
+        private Color _shadowColor = PerformanceUILayout.ComboDisplay.ShadowColor;
         private Vector2 _shadowOffset = new Vector2(2, 2); // From PerformanceUILayout.ComboDisplay.ShadowOffset
         private bool _disposed = false;
         private bool _visible = false;

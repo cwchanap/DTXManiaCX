@@ -297,14 +297,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (SongSkill > HighSkill)
                 HighSkill = SongSkill;
         }
-        
-        /// <summary>
-        /// Gets rank multiplier for skill calculation
-        /// </summary>
-        private double GetRankMultiplier()
-        {
-            return RankMultiplier(NormalizeStoredBestRank(BestRank));
-        }
 
         public static int NormalizeStoredBestRank(int rankValue)
         {

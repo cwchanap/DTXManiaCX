@@ -24,7 +24,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private float _currentValue = 0.5f; // 50% life as default
         private Color _frameColor = Color.White;
         private Color _fillColor = Color.Green;
-        private Color _backgroundColor = new Color(0, 0, 0, 128);
+        private Color _backgroundColor = PerformanceUILayout.GaugeDisplay.BackgroundColor;
         private bool _disposed = false;
 
         // Gauge properties

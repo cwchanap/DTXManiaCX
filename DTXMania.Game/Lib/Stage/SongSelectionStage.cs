@@ -56,6 +56,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Tab state. The stage instance is cached per game; reset to AllSongs on Activate.
         private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
+        private static readonly SongSelectionTab[] AllTabs = System.Enum.GetValues<SongSelectionTab>();
         // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
         // switching into the Recent tab. Null until first load. volatile: published from a
         // background load continuation and read on the update thread (release-acquire pair
@@ -158,7 +159,6 @@ namespace DTXMania.Game.Lib.Stage
         // Note: Using global stage transition debouncing from BaseGame
 
         // Constants for DTXMania-style display - using values from SongSelectionUILayout
-        private const int VISIBLE_SONGS = SongSelectionUILayout.SongBars.VisibleItems;
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
         private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
 
@@ -1613,7 +1613,7 @@ namespace DTXMania.Game.Lib.Stage
             float x = SongSelectionUILayout.Tabs.X;
             float y = SongSelectionUILayout.Tabs.Y;
 
-            foreach (SongSelectionTab tab in System.Enum.GetValues<SongSelectionTab>())
+            foreach (SongSelectionTab tab in AllTabs)
             {
                 string label = tab.DisplayLabel();
                 var color = tab == _activeTab
