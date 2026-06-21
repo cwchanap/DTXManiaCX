@@ -79,10 +79,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
+        /// <summary>
+        /// Constructs the score display.
+        /// </summary>
+        /// <param name="resourceManager">
+        /// Retained for constructor-signature consistency with the sibling performance
+        /// components (e.g. <see cref="ComboDisplay"/>, <see cref="GaugeDisplay"/>), which
+        /// all accept an <see cref="IResourceManager"/>. This component builds its font
+        /// through the <see cref="ManagedFont"/> factory directly, so the manager is only
+        /// used here for the null-argument guard. Do not remove without updating every
+        /// performance-component constructor call site.
+        /// </param>
+        /// <param name="graphicsDevice">Graphics device used for font rendering.</param>
         public ScoreDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice)
         {
             ArgumentNullException.ThrowIfNull(resourceManager);
-            _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+            ArgumentNullException.ThrowIfNull(graphicsDevice);
+            _graphicsDevice = graphicsDevice;
             _position = PerformanceUILayout.ScorePosition;
 
             // Initialize with default score

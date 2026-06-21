@@ -133,6 +133,23 @@ namespace DTXMania.Game.Lib.UI.Layout
             745, // Lane 8: RC - Ride Cymbal
             815  // Lane 9: RD - Ride (alternate position)
         };
+
+        /// <summary>
+        /// Default drum colors for visual feedback - all 10 lanes
+        /// </summary>
+        private static readonly Color[] LaneColors =
+        {
+            new Color(0xA0, 0x40, 0xFF), // Lane 0: LC - Purple
+            new Color(0xFF, 0xC8, 0x00), // Lane 1: HH - Yellow
+            new Color(0xFF, 0x60, 0xFF), // Lane 2: Missing lane - Magenta
+            new Color(0xFF, 0x40, 0x40), // Lane 3: SD - Red
+            new Color(0x00, 0xC8, 0xFF), // Lane 4: HT - Light Blue
+            new Color(0xFF, 0x80, 0x00), // Lane 5: LP (Bass) - Orange
+            new Color(0x00, 0x80, 0xFF), // Lane 6: LT - Blue
+            new Color(0x00, 0xFF, 0x80), // Lane 7: FT - Green
+            new Color(0xFF, 0x64, 0xC8), // Lane 8: RC - Pink
+            new Color(0xFF, 0x64, 0xC8)  // Lane 9: RD - Pink
+        };
         
         /// <summary>
         /// Lane height - stops before gauge area to prevent overlap
@@ -213,23 +230,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             return new Rectangle(GetLaneLeftX(laneIndex), 0, GetLaneWidth(laneIndex), LaneHeight);
         }
-        
-        /// <summary>
-        /// Default drum colors for visual feedback - all 10 lanes
-        /// </summary>
-        private static readonly Color[] LaneColors =
-        {
-            new Color(0xA0, 0x40, 0xFF), // Lane 0: LC - Purple
-            new Color(0xFF, 0xC8, 0x00), // Lane 1: HH - Yellow
-            new Color(0xFF, 0x60, 0xFF), // Lane 2: Missing lane - Magenta
-            new Color(0xFF, 0x40, 0x40), // Lane 3: SD - Red
-            new Color(0x00, 0xC8, 0xFF), // Lane 4: HT - Light Blue
-            new Color(0xFF, 0x80, 0x00), // Lane 5: LP (Bass) - Orange
-            new Color(0x00, 0x80, 0xFF), // Lane 6: LT - Blue
-            new Color(0x00, 0xFF, 0x80), // Lane 7: FT - Green
-            new Color(0xFF, 0x64, 0xC8), // Lane 8: RC - Pink
-            new Color(0xFF, 0x64, 0xC8)  // Lane 9: RD - Pink
-        };
 
         /// <summary>
         /// Get lane color for compatibility (using default drum colors)
