@@ -411,42 +411,14 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Empty(activeEffects!.Cast<object>());
         }
 
-#if DEBUG
-        [Fact]
-        public void EffectsManager_Constructor_WhenHitEffectTextureMissing_ShouldThrowInDebug()
-        {
-            // In debug builds a missing/corrupt hit-effect texture must fail loudly
-            // instead of silently degrading to a fallback. Release builds keep the
-            // graceful fallback (covered by the absence of a throw in release).
-            var graphicsDevice = CreateGraphicsDeviceStub();
-            var resourceManager = new Mock<IResourceManager>();
-            resourceManager
-                .Setup(m => m.LoadTexture(It.IsAny<string>()))
-                .Returns((ManagedTexture?)null!);
-
-            var ex = Assert.Throws<InvalidOperationException>(() =>
-                new EffectsManager(graphicsDevice, resourceManager.Object));
-            Assert.Contains(TexturePath.HitFx, ex.Message);
-        }
-
-        [Fact]
-        public void EffectsManager_Constructor_WhenHitEffectTextureHasZeroSprites_ShouldThrowInDebug()
-        {
-            // Mirrors the real failure path: ResourceManager returns a 1x1 fallback
-            // texture (never null) on a missing asset, yielding TotalSprites == 0.
-            var graphicsDevice = CreateGraphicsDeviceStub();
-            var fallbackTexture = CreateTrackingTexture(width: 1, height: 1);
-            var loadedTexture = new ManagedTexture(graphicsDevice, fallbackTexture, TexturePath.HitFx);
-            var resourceManager = new Mock<IResourceManager>();
-            resourceManager
-                .Setup(m => m.LoadTexture(It.IsAny<string>()))
-                .Returns(loadedTexture);
-
-            var ex = Assert.Throws<InvalidOperationException>(() =>
-                new EffectsManager(graphicsDevice, resourceManager.Object));
-            Assert.Contains(TexturePath.HitFx, ex.Message);
-        }
-#endif
+        // Note: we do not unit-test the constructor's graceful-degradation fallback path
+        // (missing/zero-sprite texture). That path synthesizes a real Texture2D against
+        // the GraphicsDevice, which requires a real GraphicsDevice — the stub used here
+        // (GetUninitialized<GraphicsDevice>) causes the synthesized Texture2D's finalizer
+        // to crash the test host. The disabled-effects *behavior* that the fallback
+        // produces is covered by the SpawnHitEffect_WhenEffectsAreDisabled_* and
+        // SpawnHitEffect_WhenTextureIsMissing_* tests below, which bypass the constructor
+        // via CreateUninitialized<EffectsManager>.
 
         [Fact]
         public void SpawnHitEffect_WhenEffectsAreEnabled_ShouldAddEffectAtLanePosition()

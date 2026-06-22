@@ -9,9 +9,11 @@ public static class E2EFixtureBuilder
     public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
     // Minimal valid 8x32 white PNG = 1 sprite at the EffectsManager's 8x32 frame size.
-    // The Performance stage's EffectsManager requires a loadable hit-effect sprite sheet
-    // (TotalSprites > 0) and throws in Debug builds when it is missing, so the sandbox skin
-    // must ship one. Mirrors TexturePath.HitFx ("Graphics/hit_fx.png").
+    // EffectsManager degrades gracefully when hit_fx.png is missing, but shipping a real
+    // asset here keeps the E2E smoke test on the real asset load path (and matches the
+    // bundled System skin, which ships this same file at System/Graphics/hit_fx.png and is
+    // kept in sync by DTXMania.Test/Resources/DefaultSkinAssetsTests). Mirrors
+    // TexturePath.HitFx ("Graphics/hit_fx.png").
     private const string HitEffectPngBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAgCAYAAAAv8DnQAAAAFklEQVR42mP4TwAwjCoYVTCqYKQqAAA/aPwuqUTQyAAAAABJRU5ErkJggg==";
 
