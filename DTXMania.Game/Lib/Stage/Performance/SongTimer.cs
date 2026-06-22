@@ -62,6 +62,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
+        /// Stereo pan of the audio (-1.0 = full left … +1.0 = full right)
+        /// </summary>
+        public float Pan
+        {
+            get => _soundInstance?.Pan ?? 0f;
+            set
+            {
+                if (_soundInstance != null)
+                {
+                    _soundInstance.Pan = MathHelper.Clamp(value, -1f, 1f);
+                }
+            }
+        }
+
+        /// <summary>
         /// Whether the audio is looped
         /// </summary>
         public bool IsLooped

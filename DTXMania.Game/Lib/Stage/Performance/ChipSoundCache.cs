@@ -87,18 +87,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Plays the sound for the given WAV id. Unknown ids are silent — not
-        /// exceptional, since charts often reference WAVs that aren't loaded.
+        /// Plays the sound for the given WAV id at full volume, centered.
+        /// </summary>
+        public void Play(string wavId) => Play(wavId, 1.0f, 0.0f);
+
+        /// <summary>
+        /// Plays the sound for the given WAV id with the supplied volume and pan,
+        /// honoring the chart's #VOLUME/#PAN definitions. Unknown ids are silent —
+        /// not exceptional, since charts often reference WAVs that aren't loaded.
         /// Tracks the returned SoundEffectInstance for lifecycle management.
         /// </summary>
-        public void Play(string wavId)
+        /// <param name="wavId">WAV id to play.</param>
+        /// <param name="volume">Normalized volume, 0.0–1.0.</param>
+        /// <param name="pan">Normalized stereo pan, -1.0 (left) to 1.0 (right).</param>
+        public void Play(string wavId, float volume, float pan)
         {
             if (_disposed || string.IsNullOrEmpty(wavId)) return;
             if (!_sounds.TryGetValue(wavId, out var sound)) return;
 
             try
             {
-                var instance = sound.Play();
+                // Keep the simple full-volume, centered path on Play() so the common
+                // case (charts with no #VOLUME/#PAN) behaves exactly as before.
+                SoundEffectInstance? instance =
+                    (volume >= 0.999f && Math.Abs(pan) < 0.001f)
+                        ? sound.Play()
+                        : sound.Play(volume, 0.0f, pan);
+
                 if (instance != null)
                 {
                     _activeInstances.Add(instance);

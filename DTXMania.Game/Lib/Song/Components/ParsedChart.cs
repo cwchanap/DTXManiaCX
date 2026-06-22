@@ -53,6 +53,66 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// WAV id → playback volume on the DTXMania 0–100 scale, from #VOLUMExx /
+        /// #WAVVOLxx definitions. WAV ids absent from this map play at full volume.
+        /// Use <see cref="GetVolume"/> to read a normalized 0.0–1.0 value.
+        /// </summary>
+        public IReadOnlyDictionary<string, int> WavVolumes => _wavVolumes;
+
+        private Dictionary<string, int> _wavVolumes = new Dictionary<string, int>();
+
+        /// <summary>
+        /// WAV id → stereo pan on the DTXMania -100 (full left) … +100 (full right)
+        /// scale, from #PANxx / #WAVPANxx definitions. WAV ids absent from this map
+        /// play centered. Use <see cref="GetPan"/> to read a normalized -1.0–1.0 value.
+        /// </summary>
+        public IReadOnlyDictionary<string, int> WavPans => _wavPans;
+
+        private Dictionary<string, int> _wavPans = new Dictionary<string, int>();
+
+        /// <summary>
+        /// Replaces the per-WAV volume table. Parser-internal use only.
+        /// </summary>
+        internal void SetWavVolumes(IDictionary<string, int> volumes)
+        {
+            _wavVolumes = volumes != null
+                ? new Dictionary<string, int>(volumes)
+                : new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Replaces the per-WAV pan table. Parser-internal use only.
+        /// </summary>
+        internal void SetWavPans(IDictionary<string, int> pans)
+        {
+            _wavPans = pans != null
+                ? new Dictionary<string, int>(pans)
+                : new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Gets the normalized playback volume (0.0–1.0) for a WAV id. Returns 1.0
+        /// (full volume) when the chart defines no #VOLUME/#WAVVOL for the id.
+        /// </summary>
+        public float GetVolume(string wavId)
+        {
+            if (!string.IsNullOrEmpty(wavId) && _wavVolumes.TryGetValue(wavId, out var volume))
+                return Math.Clamp(volume / 100f, 0f, 1f);
+            return 1.0f;
+        }
+
+        /// <summary>
+        /// Gets the normalized stereo pan (-1.0 = full left … +1.0 = full right) for a
+        /// WAV id. Returns 0.0 (centered) when the chart defines no #PAN/#WAVPAN for it.
+        /// </summary>
+        public float GetPan(string wavId)
+        {
+            if (!string.IsNullOrEmpty(wavId) && _wavPans.TryGetValue(wavId, out var pan))
+                return Math.Clamp(pan / 100f, -1f, 1f);
+            return 0.0f;
+        }
+
+        /// <summary>
         /// Base BPM of the song (from #BPM header)
         /// Default is 120 if not specified
         /// </summary>
@@ -63,6 +123,14 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Relative to the DTX file location
         /// </summary>
         public string BackgroundAudioPath { get; set; } = "";
+
+        /// <summary>
+        /// WAV id backing <see cref="BackgroundAudioPath"/>, when known. Lets the
+        /// master background track honor that WAV's #VOLUME/#PAN via
+        /// <see cref="GetVolume"/>/<see cref="GetPan"/>. Empty when no background
+        /// WAV was resolved.
+        /// </summary>
+        public string BackgroundWavId { get; set; } = "";
 
         /// <summary>
         /// Original DTX file path

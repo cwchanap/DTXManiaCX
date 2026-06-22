@@ -635,6 +635,15 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 _songTimer = songTimer;
 
+                // Honor the chart's per-WAV #VOLUME/#PAN for the master background track
+                // (no-op on the silent fallback timer, which has no sound instance).
+                var backgroundWavId = _parsedChart.BackgroundWavId;
+                if (!string.IsNullOrEmpty(backgroundWavId))
+                {
+                    _songTimer.Volume = _parsedChart.GetVolume(backgroundWavId);
+                    _songTimer.Pan = _parsedChart.GetPan(backgroundWavId);
+                }
+
                 _isLoading = false;
                 _isReady = true;
             }
@@ -1073,8 +1082,11 @@ namespace DTXMania.Game.Lib.Stage
             {
                 try
                 {
-                    var instance = sound.CreateInstance();
-                    instance?.Play();
+                    // Honor the chart's per-WAV #VOLUME/#PAN for backing-track audio;
+                    // defaults to full volume, centered when undefined.
+                    float volume = _parsedChart?.GetVolume(bgmEvent.WavId) ?? 1.0f;
+                    float pan = _parsedChart?.GetPan(bgmEvent.WavId) ?? 0.0f;
+                    sound.Play(volume, 0.0f, pan);
                 }
                 catch (Exception ex)
                 {
@@ -1363,7 +1375,11 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (note == null || string.IsNullOrEmpty(note.Value))
                 return;
-            _chipSoundCache?.Play(note.Value);
+
+            // Honor the chart's per-WAV #VOLUME/#PAN; defaults to full volume, centered.
+            float volume = _parsedChart?.GetVolume(note.Value) ?? 1.0f;
+            float pan = _parsedChart?.GetPan(note.Value) ?? 0.0f;
+            _chipSoundCache?.Play(note.Value, volume, pan);
         }
 
         /// <summary>
