@@ -229,6 +229,55 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public async Task InitializeGameplayAsync_WhenBodyThrows_ShouldResetLoadingAndRethrow()
+    {
+        // Exercises the catch-all in InitializeGameplayAsync: a zero-BPM chart makes
+        // NoteRenderer.SetBpm throw ArgumentException. The catch must reset _isLoading
+        // and rethrow so the stage is not left in a broken half-loaded state.
+        var stage = CreateStage();
+        var chart = new ParsedChart("bad-bpm.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+        // Force a zero BPM so SetBpm throws downstream.
+        chart.Bpm = 0.0;
+
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        // Null input manager makes InitializeGameplayManagers return early so we reach the
+        // SetBpm call without needing the full manager wiring.
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
+            ReflectionHelpers.CreateUninitialized<NoteRenderer>());
+
+        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await initializeTask);
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+    }
+
+    [Fact]
+    public void LoadPerformanceUIAssets_WhenResourceManagerReturnsNull_ShouldLeaveAllTexturesNull()
+    {
+        // Each per-asset load is best-effort via TryLoadTexture; a missing skin must not
+        // abort the whole load. This exercises every TryLoadTexture call site in the method.
+        var stage = CreateStage();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture?)null);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "LoadPerformanceUIAssets"));
+
+        Assert.Null(exception);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_backgroundTexture"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_shutterTexture"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_skillPanelTexture"));
+        // Every asset path should have been attempted exactly once.
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
     public void InitializeAutoPlay_WhenConfigEnablesAutoPlay_ShouldEnableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();

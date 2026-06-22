@@ -272,6 +272,28 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Contains("invalid sprite count", ex.Message);
         }
 
+        [Fact]
+        public void Constructor_WhenSpriteTextureConstructionThrows_ShouldReleaseCacheReferenceAndRethrow()
+        {
+            // ManagedSpriteTexture's base constructor throws ArgumentNullException when the
+            // underlying Texture2D is null. The inner catch must release the cache reference
+            // added by LoadTexture before rethrowing, so the cache entry does not leak a
+            // dangling reference count.
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var loadedTexture = new Mock<ITexture>();
+            loadedTexture.SetupGet(x => x.Texture).Returns((Microsoft.Xna.Framework.Graphics.Texture2D?)null);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(It.IsAny<string>()))
+                .Returns(loadedTexture.Object);
+
+            Assert.Throws<ArgumentNullException>(() =>
+                new PooledEffectsManager(graphicsDevice, resourceManager.Object));
+
+            // The inner catch must have released the reference that LoadTexture added.
+            loadedTexture.Verify(x => x.RemoveReference(), Times.Once);
+        }
+
         private static ManagerFixture CreateManager(int totalSprites)
         {
             return new ManagerFixture(totalSprites);

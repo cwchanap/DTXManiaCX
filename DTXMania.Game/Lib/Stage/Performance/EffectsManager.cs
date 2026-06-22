@@ -93,13 +93,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     int textureWidth = FrameWidth;  // 8 pixels
                     int textureHeight = FrameHeight; // 32 pixels
 
-                    var fallbackTexture = new Texture2D(graphicsDevice, textureWidth, textureHeight);
-                    var colorData = new Color[textureWidth * textureHeight];
-                    for (int i = 0; i < colorData.Length; i++)
-                    {
-                        colorData[i] = Color.White;
-                    }
-                    fallbackTexture.SetData(colorData);
+                    var fallbackTexture = CreateFallbackTexture(graphicsDevice, textureWidth, textureHeight);
 
                     // Create sprite texture with exactly 1 sprite of the expected dimensions
                     _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, fallbackTexture, "fallback", FrameWidth, FrameHeight);
@@ -122,8 +116,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _hitEffectTexture = null;
                 }
             }
-            
+
             System.Diagnostics.Debug.WriteLine($"[EffectsManager] Initialized with effects enabled: {_effectsEnabled}");
+        }
+
+        /// <summary>
+        /// Creates a solid-white fallback texture matching the hit-effect sprite dimensions.
+        /// Extracted as a seam so tests can substitute a tracking texture without a live
+        /// graphics device; the default implementation is the original behavior.
+        /// </summary>
+        protected virtual Texture2D CreateFallbackTexture(GraphicsDevice graphicsDevice, int width, int height)
+        {
+            var fallbackTexture = new Texture2D(graphicsDevice, width, height);
+            var colorData = new Color[width * height];
+            for (int i = 0; i < colorData.Length; i++)
+            {
+                colorData[i] = Color.White;
+            }
+            fallbackTexture.SetData(colorData);
+            return fallbackTexture;
         }
 
         public void SpawnHitEffect(int lane)
