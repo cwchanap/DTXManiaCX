@@ -1653,6 +1653,28 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void DrawTabBar_WhenFontAvailable_ShouldIterateAllTabsAndDrawEachLabel()
+        {
+            // Exercises the AllTabs cache + the tab-drawing loop. Uses a mock IFont so no
+            // real SpriteFont/SpriteBatch graphics device is required.
+            var stage = CreateStage();
+            var font = new Mock<IFont>();
+            font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns(new Vector2(40f, 16f));
+            SetPrivateField(stage, "_font", font.Object);
+            SetPrivateField(stage, "_spriteBatch",
+                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)));
+
+            var ex = Record.Exception(() => InvokePrivateMethod(stage, "DrawTabBar"));
+
+            Assert.Null(ex);
+            // Every tab label should have been measured and drawn exactly once.
+            font.Verify(x => x.MeasureString(It.IsAny<string>()), Times.AtLeastOnce);
+            font.Verify(
+                x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()),
+                Times.AtLeastOnce);
+        }
+
+        [Fact]
         public void PlayGameStartSound_WhenPlayThrows_ShouldSwallowException()
         {
             var stage = CreateStage();

@@ -851,59 +851,54 @@ namespace DTXMania.Game.Lib.Stage
         }
         
         /// <summary>
-        /// Loads all performance UI assets (7_* files)
+        /// Loads all performance UI assets (7_* files). Each load is best-effort:
+        /// TryLoadTexture swallows per-asset failures and returns null, so a missing
+        /// skin asset degrades gracefully without aborting the whole load.
         /// </summary>
         private void LoadPerformanceUIAssets()
         {
-            try
-            {
-                // Load background texture using TexturePath constant
-                _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
-                
-                // Load shutter texture using TexturePath constant
-                _shutterTexture = TryLoadTexture(TexturePath.Shutter);
-                
-                // Load lane strip textures (7_Paret.png) using TexturePath constant
-                _laneBgTexture = TryLoadTexture(TexturePath.LaneStrips);
-                
-                // Load lane covers (7_lanes_Cover_cls.png) using TexturePath constant
-                _laneDividerTexture = TryLoadTexture(TexturePath.LaneCovers);
-                
-                // Load lane flush texture (will be used for effects) using TexturePath constant
-                _laneFlashTexture = TryLoadTexture(TexturePath.LaneFlushPrefix + "default.png");
-                
-                // Load hit-bar (judgement line) using TexturePath constant
-                _judgementLineTexture = TryLoadTexture(TexturePath.HitBar);
-                
-                // Load gauge textures using TexturePath constants
-                _gaugeBaseTexture = TryLoadTexture(TexturePath.GaugeFrame);
-                _gaugeFillTexture = TryLoadTexture(TexturePath.GaugeFill);
-                
-                // Load progress bar textures using TexturePath constants
-                _progressBaseTexture = TryLoadTexture(TexturePath.ProgressFrame);
-                _progressFillTexture = TryLoadTexture(TexturePath.ProgressFill);
-                
-                // Load digit textures using TexturePath constants
-                _comboDigitsTexture = TryLoadTexture(TexturePath.ComboDisplay);
-                _scoreDigitsTexture = TryLoadTexture(TexturePath.ScoreNumbers);
-                
-                // Load judgement text sprite sheet using TexturePath constant
-                _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
-                
-                // Load timing indicator sprite sheet using TexturePath constant  
-                _lagNumbersTexture = TryLoadTexture(TexturePath.LagIndicator);
-                
-                // Load overlay textures using TexturePath constants
-                _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
-                _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
-                
-                // Load skill panel texture using TexturePath constant
-                _skillPanelTexture = TryLoadTexture(TexturePath.SkillPanel);
-                
-            }
-            catch (Exception)
-            {
-            }
+            // Load background texture using TexturePath constant
+            _backgroundTexture = TryLoadTexture(TexturePath.PerformanceBackgroundTexture);
+
+            // Load shutter texture using TexturePath constant
+            _shutterTexture = TryLoadTexture(TexturePath.Shutter);
+
+            // Load lane strip textures (7_Paret.png) using TexturePath constant
+            _laneBgTexture = TryLoadTexture(TexturePath.LaneStrips);
+
+            // Load lane covers (7_lanes_Cover_cls.png) using TexturePath constant
+            _laneDividerTexture = TryLoadTexture(TexturePath.LaneCovers);
+
+            // Load lane flush texture (will be used for effects) using TexturePath constant
+            _laneFlashTexture = TryLoadTexture(TexturePath.LaneFlushPrefix + "default.png");
+
+            // Load hit-bar (judgement line) using TexturePath constant
+            _judgementLineTexture = TryLoadTexture(TexturePath.HitBar);
+
+            // Load gauge textures using TexturePath constants
+            _gaugeBaseTexture = TryLoadTexture(TexturePath.GaugeFrame);
+            _gaugeFillTexture = TryLoadTexture(TexturePath.GaugeFill);
+
+            // Load progress bar textures using TexturePath constants
+            _progressBaseTexture = TryLoadTexture(TexturePath.ProgressFrame);
+            _progressFillTexture = TryLoadTexture(TexturePath.ProgressFill);
+
+            // Load digit textures using TexturePath constants
+            _comboDigitsTexture = TryLoadTexture(TexturePath.ComboDisplay);
+            _scoreDigitsTexture = TryLoadTexture(TexturePath.ScoreNumbers);
+
+            // Load judgement text sprite sheet using TexturePath constant
+            _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
+
+            // Load timing indicator sprite sheet using TexturePath constant
+            _lagNumbersTexture = TryLoadTexture(TexturePath.LagIndicator);
+
+            // Load overlay textures using TexturePath constants
+            _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
+            _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
+
+            // Load skill panel texture using TexturePath constant
+            _skillPanelTexture = TryLoadTexture(TexturePath.SkillPanel);
         }
         
         /// <summary>

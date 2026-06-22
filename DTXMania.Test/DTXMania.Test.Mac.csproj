@@ -30,7 +30,7 @@
 
   <!-- Include all source files except problematic graphics tests -->
   <ItemGroup>
-    <Compile Include="**/*.cs" Exclude="bin/**/*.cs;obj/**/*.cs;Graphics/RenderTargetManagerTests.cs;Graphics/GPURenderingSnapshotTests.cs;Performance/StressTestRunner.cs;QA/ComprehensiveQATestSuite.cs;StressTestConsole/**/*.cs;UI/SongBarRendererTests.cs;UI/SongBarRendererLogicTests.cs;UI/SongStatusPanelTests.cs;UI/SongStatusPanelLogicTests.cs;Stage/Performance/PerformanceStageCleanupVerificationTests.cs;Stage/Performance/PooledEffectsManagerTests.cs;Resources/ResourceManagerTests.cs;Helpers/MockPerformanceStage.cs;Helpers/TestGraphicsDeviceService.cs" />
+    <Compile Include="**/*.cs" Exclude="bin/**/*.cs;obj/**/*.cs;Graphics/RenderTargetManagerTests.cs;Graphics/GPURenderingSnapshotTests.cs;Performance/StressTestRunner.cs;QA/ComprehensiveQATestSuite.cs;StressTestConsole/**/*.cs;UI/SongBarRendererTests.cs;UI/SongBarRendererLogicTests.cs;UI/SongStatusPanelTests.cs;UI/SongStatusPanelLogicTests.cs;Stage/Performance/PerformanceStageCleanupVerificationTests.cs;Stage/Performance/PooledEffectsManagerTests.cs;Stage/Performance/EffectsManagerTests.cs;Resources/ResourceManagerTests.cs;Helpers/MockPerformanceStage.cs;Helpers/TestGraphicsDeviceService.cs" />
   </ItemGroup>
 
   <!-- Include xunit configuration if it exists -->

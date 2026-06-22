@@ -443,6 +443,74 @@ public class NoteRendererLogicTests
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(renderer, "_disposed"));
     }
 
+    [Fact]
+    public void LoadDrumChipsTexture_WhenSpriteConstructionThrows_ShouldReleaseReferenceAndLeaveTextureNull()
+    {
+        // A zero-width drum-chips texture yields spriteWidth == 0 (Width / 12 columns),
+        // so ManagedSpriteTexture divides by zero during construction. The inner catch must
+        // release the cache reference added by LoadTexture and rethrow; the outer catch then
+        // swallows the rethrow and leaves _drumChipsTexture null.
+        var renderer = CreateRenderer();
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var zeroWidthTexture = CreateTrackingTexture(width: 0, height: 64);
+        var baseTexture = new ManagedTexture(graphicsDevice, zeroWidthTexture, TexturePath.DrumChips);
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(baseTexture);
+        ReflectionHelpers.SetPrivateField(renderer, "_graphicsDevice", graphicsDevice);
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(renderer, "_drumChipsTexture", null);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(renderer, "LoadDrumChipsTexture"));
+
+        // Outer catch swallows the rethrown exception.
+        Assert.Null(exception);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(renderer, "_drumChipsTexture"));
+    }
+
+    [Fact]
+    public void LoadDrumChipsTexture_WhenLoadTextureThrows_ShouldLeaveTextureNull()
+    {
+        // If the resource manager itself throws, the outer catch must swallow it and leave
+        // _drumChipsTexture null rather than propagating.
+        var renderer = CreateRenderer();
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager
+            .Setup(x => x.LoadTexture(TexturePath.DrumChips))
+            .Throws(new InvalidOperationException("load failed"));
+        ReflectionHelpers.SetPrivateField(renderer, "_graphicsDevice", graphicsDevice);
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(renderer, "_drumChipsTexture", null);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(renderer, "LoadDrumChipsTexture"));
+
+        Assert.Null(exception);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(renderer, "_drumChipsTexture"));
+    }
+
+    private static TrackingTexture2D CreateTrackingTexture(int width, int height)
+    {
+        var texture = ReflectionHelpers.CreateUninitialized<TrackingTexture2D>();
+        ReflectionHelpers.SetPrivateField(texture, "width", width);
+        ReflectionHelpers.SetPrivateField(texture, "height", height);
+        ReflectionHelpers.SetPrivateField(texture, "<TexelWidth>k__BackingField", 1f / Math.Max(1, width));
+        ReflectionHelpers.SetPrivateField(texture, "<TexelHeight>k__BackingField", 1f / Math.Max(1, height));
+        return texture;
+    }
+
+    private sealed class TrackingTexture2D : Texture2D
+    {
+        public TrackingTexture2D() : base(null!, 1, 1)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+        }
+    }
+
     private static NoteRenderer CreateRenderer()
     {
         var renderer = ReflectionHelpers.CreateUninitialized<NoteRenderer>();
