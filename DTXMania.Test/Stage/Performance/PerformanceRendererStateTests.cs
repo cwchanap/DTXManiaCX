@@ -550,7 +550,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Dispose_ShouldDisposeHitTextureAndClearActiveEffects()
+        public void Dispose_ShouldReleaseCachedTextureReferenceAndClearActiveEffects()
         {
             using var fixture = new EffectsManagerFixture(totalSprites: 4);
             fixture.Manager.SpawnHitEffect(0);
@@ -560,8 +560,72 @@ namespace DTXMania.Test.Stage.Performance
             var activeEffects = ReflectionHelpers.GetPrivateField<System.Collections.IList>(fixture.Manager, "_activeEffects");
             Assert.False(ReflectionHelpers.GetPrivateField<bool>(fixture.Manager, "_effectsEnabled"));
             Assert.Null(ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(fixture.Manager, "_hitEffectTexture"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(fixture.Manager, "_cachedTextureSource"));
             Assert.Empty(activeEffects!.Cast<object>());
-            Assert.True(fixture.HitTexture.WasDisposed);
+            // The underlying Texture2D is owned by the ResourceManager cache and must
+            // NOT be disposed by EffectsManager — disposing it would poison the cache
+            // for the next PerformanceStage activation.
+            Assert.False(fixture.HitTexture.WasDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ShouldCallRemoveReferenceOnCachedTextureSource()
+        {
+            // Simulate the real ResourceManager which calls AddReference() inside
+            // LoadTexture. The fixture's LoadTexture mock already adds a reference;
+            // Dispose() must balance it with RemoveReference().
+            using var fixture = new EffectsManagerFixture(totalSprites: 4);
+            var cachedTexture = ReflectionHelpers.GetPrivateField<ITexture>(fixture.Manager, "_cachedTextureSource");
+            Assert.NotNull(cachedTexture);
+            // Fixture sets up one AddReference; Dispose must remove exactly one.
+            var initialRefCount = cachedTexture!.ReferenceCount;
+
+            fixture.Manager.Dispose();
+
+            var finalRefCount = cachedTexture.ReferenceCount;
+            Assert.Equal(initialRefCount - 1, finalRefCount);
+        }
+
+        [Fact]
+        public void Constructor_DisposingFirstInstance_ShouldNotPoisonCacheForSecondInstance()
+        {
+            // Regression test for the P1 "disposed cached texture" bug: two sequential
+            // PerformanceStage activations construct two EffectsManagers backed by the
+            // same cached ITexture. After the first is disposed, the second must still
+            // see a usable (non-disposed) texture.
+            var hitTexture = CreateTrackingTexture(width: 8 * 4, height: 32);
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var sharedCachedTexture = new ManagedTexture(graphicsDevice, hitTexture, "Graphics/hit_fx.png");
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(manager => manager.LoadTexture("Graphics/hit_fx.png"))
+                .Returns(() =>
+                {
+                    // Mirror real ResourceManager: bump refcount on each handout.
+                    sharedCachedTexture.AddReference();
+                    return sharedCachedTexture;
+                });
+
+            var first = new EffectsManager(graphicsDevice, resourceManager.Object);
+            first.Dispose();
+
+            // The shared Texture2D must still be alive for the second consumer.
+            Assert.False(hitTexture.WasDisposed,
+                "EffectsManager.Dispose() must not dispose the shared cached Texture2D");
+
+            // Second construction must succeed and observe a valid sprite sheet.
+            var second = new EffectsManager(graphicsDevice, resourceManager.Object);
+            try
+            {
+                Assert.True(ReflectionHelpers.GetPrivateField<bool>(second, "_effectsEnabled"));
+                var sprite = ReflectionHelpers.GetPrivateField<ManagedSpriteTexture>(second, "_hitEffectTexture");
+                Assert.NotNull(sprite);
+                Assert.True(sprite!.TotalSprites > 0);
+            }
+            finally
+            {
+                second.Dispose();
+            }
         }
 
         #endregion
@@ -641,11 +705,18 @@ namespace DTXMania.Test.Stage.Performance
             {
                 HitTexture = CreateTrackingTexture(width: 8 * totalSprites, height: 32);
                 var graphicsDevice = CreateGraphicsDeviceStub();
-                var loadedTexture = new ManagedTexture(graphicsDevice, HitTexture, "Graphics/hit_fx.png");
+                HitTextureSource = new ManagedTexture(graphicsDevice, HitTexture, "Graphics/hit_fx.png");
                 var resourceManager = new Mock<IResourceManager>();
                 resourceManager
                     .Setup(manager => manager.LoadTexture("Graphics/hit_fx.png"))
-                    .Returns(loadedTexture);
+                    .Returns(() =>
+                    {
+                        // Mirror the real ResourceManager, which calls AddReference()
+                        // before returning a cached texture. This lets refcount-based
+                        // assertions in Dispose tests observe a RemoveReference() call.
+                        HitTextureSource.AddReference();
+                        return HitTextureSource;
+                    });
 
                 Manager = new EffectsManager(graphicsDevice, resourceManager.Object);
             }
@@ -653,6 +724,8 @@ namespace DTXMania.Test.Stage.Performance
             public EffectsManager Manager { get; }
 
             public TrackingTexture2D HitTexture { get; }
+
+            public ManagedTexture HitTextureSource { get; }
 
             public void Dispose()
             {

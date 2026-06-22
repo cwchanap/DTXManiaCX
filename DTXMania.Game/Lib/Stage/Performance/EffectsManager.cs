@@ -12,6 +12,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private List<EffectInstance> _activeEffects;
         private ManagedSpriteTexture _hitEffectTexture;
+        private ITexture _cachedTextureSource;
         private bool _effectsEnabled = false;
         private const int FrameWidth = 8;
         private const int FrameHeight = 32;
@@ -32,8 +33,30 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var texture = resourceManager.LoadTexture(TexturePath.HitFx);
 
                 if (texture?.Texture == null)
+                {
+                    // Balance the AddReference() performed inside LoadTexture before
+                    // falling through to the fallback path, otherwise the cached
+                    // entry leaks a reference count.
+                    texture?.RemoveReference();
                     throw new ArgumentException("Failed to load hit effect texture - texture is null", nameof(resourceManager));
-                _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
+                }
+
+                try
+                {
+                    _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
+                    // Only retain the cache reference once the sprite view is constructed
+                    // successfully. The sprite view shares the underlying Texture2D with
+                    // the ResourceManager cache, so EffectsManager must NOT dispose it;
+                    // it only owns a reference that must be released on Dispose.
+                    _cachedTextureSource = texture;
+                }
+                catch
+                {
+                    // Sprite-sheet construction failed (e.g. invalid dimensions); release
+                    // the cached reference and let the fallback path run.
+                    texture.RemoveReference();
+                    throw;
+                }
                 
                 // Validate the texture has valid sprites
                 if (_hitEffectTexture.TotalSprites <= 0)
@@ -53,6 +76,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // texture, and if that also fails, just disable effects. Gameplay is
                 // unaffected either way; the failure is surfaced via Debug.WriteLine.
                 System.Diagnostics.Debug.WriteLine($"[EffectsManager] Failed to load hit effect texture: {ex.Message}");
+
+                // If we got far enough to retain a cache reference (LoadTexture
+                // succeeded but sprite construction/validation failed), release it
+                // before entering the fallback path. The fallback synthesizes its
+                // own Texture2D and must not carry a dangling cache reference —
+                // otherwise Dispose() would later call RemoveReference() on a
+                // source we no longer use.
+                _cachedTextureSource?.RemoveReference();
+                _cachedTextureSource = null;
+                _hitEffectTexture = null;
 
                 try
                 {
@@ -189,8 +222,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void Dispose()
         {
             _effectsEnabled = false;
-            _hitEffectTexture?.Dispose();
-            _hitEffectTexture = null;
+
+            if (_cachedTextureSource != null)
+            {
+                // Texture came from the ResourceManager cache. Release the reference
+                // that LoadTexture added, but do NOT dispose the underlying Texture2D —
+                // it is shared with the cache and will be reused on the next
+                // PerformanceStage activation. Disposing it here would cause the cached
+                // entry to point at a disposed Texture2D.
+                _cachedTextureSource.RemoveReference();
+                _cachedTextureSource = null;
+                _hitEffectTexture = null;
+            }
+            else
+            {
+                // Fallback path: EffectsManager synthesized its own Texture2D, so it
+                // owns the texture and is responsible for disposing it.
+                _hitEffectTexture?.Dispose();
+                _hitEffectTexture = null;
+            }
+
             _activeEffects?.Clear();
         }
     }
