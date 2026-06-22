@@ -711,6 +711,168 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region Per-WAV Volume / Pan Tests
+
+        [Fact]
+        public async Task ParseAsync_WithVolumeHeaders_PopulatesNormalizedVolumes()
+        {
+            var content =
+                "#WAV01: snare.wav\n" +
+                "#WAV02: kick.wav\n" +
+                "#VOLUME01: 50\n" +
+                "#WAVVOL02: 100\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(50, chart.WavVolumes["01"]);
+            Assert.Equal(100, chart.WavVolumes["02"]);
+            Assert.Equal(0.5f, chart.GetVolume("01"));
+            Assert.Equal(1.0f, chart.GetVolume("02"));
+        }
+
+        [Fact]
+        public async Task ParseAsync_WithPanHeaders_PopulatesNormalizedPans()
+        {
+            var content =
+                "#WAV01: left.wav\n" +
+                "#WAV02: right.wav\n" +
+                "#PAN01: -100\n" +
+                "#WAVPAN02: 100\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(-100, chart.WavPans["01"]);
+            Assert.Equal(100, chart.WavPans["02"]);
+            Assert.Equal(-1.0f, chart.GetPan("01"));
+            Assert.Equal(1.0f, chart.GetPan("02"));
+        }
+
+        [Fact]
+        public async Task ParseAsync_WavVolAndPan_AreNotMisparsedAsWavDefinitions()
+        {
+            // #WAVVOL and #WAVPAN both start with "#WAV"; ensure they are not
+            // stored as WAV file definitions with bogus ids ("VOL01" / "PAN01").
+            var content =
+                "#WAV01: snare.wav\n" +
+                "#WAVVOL01: 70\n" +
+                "#WAVPAN01: -40\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.True(chart.WavDefinitions.ContainsKey("01"));
+            Assert.False(chart.WavDefinitions.ContainsKey("VOL01"));
+            Assert.False(chart.WavDefinitions.ContainsKey("PAN01"));
+            Assert.Equal(70, chart.WavVolumes["01"]);
+            Assert.Equal(-40, chart.WavPans["01"]);
+        }
+
+        [Fact]
+        public async Task ParseAsync_OutOfRangeVolumeAndPan_AreClamped()
+        {
+            var content =
+                "#WAV01: a.wav\n" +
+                "#WAV02: b.wav\n" +
+                "#VOLUME01: 250\n" +   // clamps to 100
+                "#PAN01: -500\n" +     // clamps to -100
+                "#PAN02: 500\n";       // clamps to 100
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(100, chart.WavVolumes["01"]);
+            Assert.Equal(-100, chart.WavPans["01"]);
+            Assert.Equal(100, chart.WavPans["02"]);
+        }
+
+        [Fact]
+        public async Task ParseAsync_PanelHeader_IsNotTreatedAsPanDefinition()
+        {
+            // "#PANEL" starts with "#PAN" but its value is non-numeric, so it must
+            // not create a pan entry.
+            var content =
+                "#PANEL: GUITAR\n" +
+                "#WAV01: a.wav\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Empty(chart.WavPans);
+        }
+
+        [Fact]
+        public async Task ParseAsync_BackgroundWavId_TracksCommonBgmFilename()
+        {
+            var content =
+                "#WAV01: snare.wav\n" +
+                "#WAV02: bgm.ogg\n" +
+                "#00011: 0101\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal("02", chart.BackgroundWavId);
+        }
+
+        [Fact]
+        public async Task ParseAsync_BackgroundWavId_FallsBackToFirstWavWhenNoBgmEvents()
+        {
+            var content =
+                "#WAV05: only.ogg\n" +
+                "#00011: 0101\n"; // drum notes only, no BGM (channel 01) events
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal("05", chart.BackgroundWavId);
+        }
+
+        [Fact]
+        public async Task ParseAsync_BackgroundWavVolumeAndPan_AreResolvableViaWavId()
+        {
+            var content =
+                "#WAV01: bgm.ogg\n" +
+                "#VOLUME01: 60\n" +
+                "#PAN01: -50\n" +
+                "#00001: 01\n"; // BGM channel
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal("01", chart.BackgroundWavId);
+            Assert.Equal(0.6f, chart.GetVolume(chart.BackgroundWavId));
+            Assert.Equal(-0.5f, chart.GetPan(chart.BackgroundWavId));
+        }
+
+        [Fact]
+        public async Task ParseAsync_NoWavDefinitions_LeavesBackgroundWavIdEmpty()
+        {
+            var content = "#BPM: 120.0\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal("", chart.BackgroundWavId);
+        }
+
+        [Fact]
+        public async Task ParseAsync_NoVolumeOrPanHeaders_LeavesMapsEmpty()
+        {
+            var content =
+                "#WAV01: a.wav\n" +
+                "#00011: 0101\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Empty(chart.WavVolumes);
+            Assert.Empty(chart.WavPans);
+        }
+
+        #endregion
+
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
         {
             var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);

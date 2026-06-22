@@ -2404,18 +2404,37 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TriggerBGMEvent_WhenCreateInstanceReturnsNull_ShouldAttemptPlaybackWithoutThrowing()
+    public void TriggerBGMEvent_WhenPlayReturnsNull_ShouldAttemptPlaybackWithoutThrowing()
     {
         var stage = CreateStage();
         var sound = CreateSoundMock();
-        sound.Setup(x => x.CreateInstance()).Returns((Microsoft.Xna.Framework.Audio.SoundEffectInstance)null!);
+        sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Returns((Microsoft.Xna.Framework.Audio.SoundEffectInstance)null!);
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
 
         var exception = Record.Exception(() =>
             ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" }));
 
         Assert.Null(exception);
-        sound.Verify(x => x.CreateInstance(), Times.Once);
+        // No chart loaded → defaults to full volume, centered, no pitch shift.
+        sound.Verify(x => x.Play(1.0f, 0.0f, 0.0f), Times.Once);
+    }
+
+    [Fact]
+    public void TriggerBGMEvent_ShouldHonorChartVolumeAndPan()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart();
+        chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 50 });
+        chart.SetWavPans(new Dictionary<string, int> { ["01"] = -100 });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        var sound = CreateSoundMock();
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" });
+
+        sound.Verify(x => x.Play(0.5f, 0.0f, -1.0f), Times.Once);
     }
 
     [Fact]
@@ -2431,11 +2450,12 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void TriggerBGMEvent_WhenCreateInstanceThrows_ShouldSwallowPlaybackFailure()
+    public void TriggerBGMEvent_WhenPlayThrows_ShouldSwallowPlaybackFailure()
     {
         var stage = CreateStage();
         var sound = CreateSoundMock();
-        sound.Setup(x => x.CreateInstance()).Throws(new InvalidOperationException("boom"));
+        sound.Setup(x => x.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()))
+            .Throws(new InvalidOperationException("boom"));
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound> { ["01"] = sound.Object });
 
         var exception = Record.Exception(() =>
@@ -2792,6 +2812,35 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note));
 
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void PlayChipForNote_ShouldHonorChartVolumeAndPan()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart();
+        chart.SetWavVolumes(new Dictionary<string, int> { ["07"] = 50 });
+        chart.SetWavPans(new Dictionary<string, int> { ["07"] = 100 });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        var soundMock = new Mock<ISound>();
+        var stubWavPath = WriteTempStubWav();
+        try
+        {
+            var cache = new ChipSoundCache(_ => soundMock.Object);
+            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath }).GetAwaiter().GetResult();
+            ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
+
+            var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 100.0 };
+            ReflectionHelpers.InvokePrivateMethod(stage, "PlayChipForNote", note);
+
+            soundMock.Verify(s => s.Play(0.5f, 0.0f, 1.0f), Times.Once);
+            soundMock.Verify(s => s.Play(), Times.Never);
+        }
+        finally
+        {
+            File.Delete(stubWavPath);
+        }
     }
 
     [Fact]

@@ -148,6 +148,71 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public async Task Play_WithReducedVolumeOrPan_InvokesVolumePanOverload()
+        {
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                using var cache = new ChipSoundCache(_ => soundMock.Object);
+                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+
+                cache.Play("01", 0.5f, -0.3f);
+
+                soundMock.Verify(s => s.Play(0.5f, 0.0f, -0.3f), Times.Once);
+                soundMock.Verify(s => s.Play(), Times.Never);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task Play_WithFullVolumeAndCenterPan_InvokesParameterlessPlay()
+        {
+            // Full volume + centered should stay on the simple Play() path so the
+            // common (no #VOLUME/#PAN) case is unchanged.
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                using var cache = new ChipSoundCache(_ => soundMock.Object);
+                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+
+                cache.Play("01", 1.0f, 0.0f);
+
+                soundMock.Verify(s => s.Play(), Times.Once);
+                soundMock.Verify(s => s.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()), Times.Never);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task Play_WithVolumePan_AfterDispose_IsSilent()
+        {
+            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
+            try
+            {
+                var soundMock = new Mock<ISound>();
+                var cache = new ChipSoundCache(_ => soundMock.Object);
+                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+                cache.Dispose();
+
+                cache.Play("01", 0.5f, 0.5f);
+
+                soundMock.Verify(s => s.Play(It.IsAny<float>(), It.IsAny<float>(), It.IsAny<float>()), Times.Never);
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
         public async Task Dispose_ReleasesAllSounds()
         {
             var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");

@@ -18,6 +18,7 @@ namespace DTXMania.Test.Song
             var chart = new ParsedChart();
             Assert.Equal(120.0, chart.Bpm);
             Assert.Equal("", chart.BackgroundAudioPath);
+            Assert.Equal("", chart.BackgroundWavId);
             Assert.Equal("", chart.FilePath);
             Assert.Equal(0.0, chart.DurationMs);
             Assert.Empty(chart.Notes);
@@ -75,6 +76,83 @@ namespace DTXMania.Test.Song
             chart.SetWavDefinitions(new Dictionary<string, string> { ["01"] = "x" });
             chart.SetWavDefinitions(null);
             Assert.Empty(chart.WavDefinitions);
+        }
+
+        #endregion
+
+        #region WavVolumes / WavPans Tests
+
+        [Fact]
+        public void WavVolumesAndPans_DefaultToEmpty()
+        {
+            var chart = new ParsedChart();
+            Assert.NotNull(chart.WavVolumes);
+            Assert.Empty(chart.WavVolumes);
+            Assert.NotNull(chart.WavPans);
+            Assert.Empty(chart.WavPans);
+        }
+
+        [Fact]
+        public void GetVolume_UndefinedId_ReturnsFullVolume()
+        {
+            var chart = new ParsedChart();
+            Assert.Equal(1.0f, chart.GetVolume("01"));
+            Assert.Equal(1.0f, chart.GetVolume(null!));
+            Assert.Equal(1.0f, chart.GetVolume(""));
+        }
+
+        [Fact]
+        public void GetPan_UndefinedId_ReturnsCentered()
+        {
+            var chart = new ParsedChart();
+            Assert.Equal(0.0f, chart.GetPan("01"));
+            Assert.Equal(0.0f, chart.GetPan(null!));
+            Assert.Equal(0.0f, chart.GetPan(""));
+        }
+
+        [Fact]
+        public void GetVolume_NormalizesDtxScaleToZeroToOne()
+        {
+            var chart = new ParsedChart();
+            chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 50, ["02"] = 100, ["03"] = 0 });
+
+            Assert.Equal(0.5f, chart.GetVolume("01"));
+            Assert.Equal(1.0f, chart.GetVolume("02"));
+            Assert.Equal(0.0f, chart.GetVolume("03"));
+        }
+
+        [Fact]
+        public void GetPan_NormalizesDtxScaleToMinusOneToOne()
+        {
+            var chart = new ParsedChart();
+            chart.SetWavPans(new Dictionary<string, int> { ["01"] = -100, ["02"] = 0, ["03"] = 100, ["04"] = 50 });
+
+            Assert.Equal(-1.0f, chart.GetPan("01"));
+            Assert.Equal(0.0f, chart.GetPan("02"));
+            Assert.Equal(1.0f, chart.GetPan("03"));
+            Assert.Equal(0.5f, chart.GetPan("04"));
+        }
+
+        [Fact]
+        public void SetWavVolumes_StoresFrozenCopy()
+        {
+            var chart = new ParsedChart();
+            var input = new Dictionary<string, int> { ["01"] = 80 };
+
+            chart.SetWavVolumes(input);
+            input["02"] = 40; // Mutate after set — must not affect chart
+
+            Assert.Single(chart.WavVolumes);
+            Assert.Equal(80, chart.WavVolumes["01"]);
+        }
+
+        [Fact]
+        public void SetWavPans_NullInput_ClearsToEmpty()
+        {
+            var chart = new ParsedChart();
+            chart.SetWavPans(new Dictionary<string, int> { ["01"] = 50 });
+            chart.SetWavPans(null);
+            Assert.Empty(chart.WavPans);
         }
 
         #endregion

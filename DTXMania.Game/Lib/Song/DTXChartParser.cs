@@ -106,6 +106,8 @@ namespace DTXMania.Game.Lib.Song
 
             var chart = new ParsedChart(filePath);
             var wavDefinitions = new Dictionary<string, string>(); // WAV ID -> file path
+            var wavVolumes = new Dictionary<string, int>();        // WAV ID -> volume (0-100)
+            var wavPans = new Dictionary<string, int>();           // WAV ID -> pan (-100..100)
 
             // Try different encodings for Japanese text support
             var encodings = new List<Encoding>
@@ -133,8 +135,8 @@ namespace DTXMania.Game.Lib.Song
                     using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     using var reader = new StreamReader(stream, encoding);
 
-                    await ParseFileContentAsync(reader, chart, wavDefinitions);
-                    
+                    await ParseFileContentAsync(reader, chart, wavDefinitions, wavVolumes, wavPans);
+
                     // If we got here without exception, parsing succeeded
                     break;
                 }
@@ -154,6 +156,10 @@ namespace DTXMania.Game.Lib.Song
 
             // Find background audio file
             FindBackgroundAudio(chart, wavDefinitions, filePath);
+
+            // Attach per-WAV volume/pan so playback honors #VOLUME/#PAN definitions
+            chart.SetWavVolumes(wavVolumes);
+            chart.SetWavPans(wavPans);
 
             // Finalize the chart
             chart.FinalizeChart();
@@ -248,7 +254,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses the content of a DTX file
         /// </summary>
-        private static async Task ParseFileContentAsync(StreamReader reader, ParsedChart chart, Dictionary<string, string> wavDefinitions)
+        private static async Task ParseFileContentAsync(StreamReader reader, ParsedChart chart, Dictionary<string, string> wavDefinitions, Dictionary<string, int> wavVolumes, Dictionary<string, int> wavPans)
         {
             string line;
             bool inDataSection = false;
@@ -270,7 +276,7 @@ namespace DTXMania.Game.Lib.Song
                 if (!inDataSection)
                 {
                     // Parse header commands
-                    ParseHeaderCommand(line, chart, wavDefinitions);
+                    ParseHeaderCommand(line, chart, wavDefinitions, wavVolumes, wavPans);
                 }
                 else
                 {
@@ -283,7 +289,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses header commands like #BPM and #WAV definitions
         /// </summary>
-        private static void ParseHeaderCommand(string line, ParsedChart chart, Dictionary<string, string> wavDefinitions)
+        private static void ParseHeaderCommand(string line, ParsedChart chart, Dictionary<string, string> wavDefinitions, Dictionary<string, int> wavVolumes, Dictionary<string, int> wavPans)
         {
             if (!line.StartsWith('#'))
                 return;
@@ -309,15 +315,59 @@ namespace DTXMania.Game.Lib.Song
                     break;
 
                 default:
+                    // Per-WAV volume: #WAVVOL01 / #VOLUME01 (0-100, default 100).
+                    // Per-WAV pan: #WAVPAN01 / #PAN01 (-100 left .. +100 right, default 0).
+                    // Checked before the generic #WAV branch since #WAVVOL/#WAVPAN
+                    // also start with "#WAV".
+                    if (command.StartsWith("#WAVVOL") && command.Length > 7)
+                    {
+                        TryStoreVolume(command.Substring(7), value, wavVolumes);
+                    }
+                    else if (command.StartsWith("#WAVPAN") && command.Length > 7)
+                    {
+                        TryStorePan(command.Substring(7), value, wavPans);
+                    }
                     // Check for WAV definitions: #WAV01, #WAV02, etc.
-                    if (command.StartsWith("#WAV") && command.Length > 4)
+                    else if (command.StartsWith("#WAV") && command.Length > 4)
                     {
                         var wavId = command.Substring(4);
                         wavDefinitions[wavId] = value;
                         // Found WAV definition
                     }
+                    else if (command.StartsWith("#VOLUME") && command.Length > 7)
+                    {
+                        TryStoreVolume(command.Substring(7), value, wavVolumes);
+                    }
+                    else if (command.StartsWith("#PAN") && command.Length > 4)
+                    {
+                        TryStorePan(command.Substring(4), value, wavPans);
+                    }
                     break;
             }
+        }
+
+        /// <summary>
+        /// Stores a per-WAV volume (clamped to DTXMania's 0-100 range) keyed by WAV id.
+        /// Silently ignores non-numeric parameters (e.g. the #PANEL metadata header).
+        /// </summary>
+        private static void TryStoreVolume(string wavId, string value, Dictionary<string, int> wavVolumes)
+        {
+            if (string.IsNullOrEmpty(wavId))
+                return;
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var volume))
+                wavVolumes[wavId] = Math.Clamp(volume, 0, 100);
+        }
+
+        /// <summary>
+        /// Stores a per-WAV pan (clamped to DTXMania's -100..+100 range) keyed by WAV id.
+        /// Silently ignores non-numeric parameters (e.g. the #PANEL metadata header).
+        /// </summary>
+        private static void TryStorePan(string wavId, string value, Dictionary<string, int> wavPans)
+        {
+            if (string.IsNullOrEmpty(wavId))
+                return;
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pan))
+                wavPans[wavId] = Math.Clamp(pan, -100, 100);
         }
 
         /// <summary>
@@ -495,18 +545,21 @@ namespace DTXMania.Game.Lib.Song
             }
 
             // Find the background music WAV file for legacy compatibility
-            // Look for common background music filenames first
+            // Look for common background music filenames first. Track the WAV id too
+            // so the master background track can honor that WAV's #VOLUME/#PAN.
             string backgroundWav = null;
+            string backgroundWavId = null;
 
             // Strategy 1: Look for common background music filenames
             var commonBgmNames = new[] { "bgm.ogg", "bgm.wav", "bgm.mp3", "background.ogg", "background.wav", "background.mp3" };
             foreach (var bgmName in commonBgmNames)
             {
-                var matchingWav = wavDefinitions.Values.FirstOrDefault(wav =>
-                    string.Equals(Path.GetFileName(wav.Replace('\\', '/')), bgmName, StringComparison.OrdinalIgnoreCase));
-                if (!string.IsNullOrEmpty(matchingWav))
+                var matching = wavDefinitions.FirstOrDefault(kvp =>
+                    string.Equals(Path.GetFileName(kvp.Value.Replace('\\', '/')), bgmName, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(matching.Value))
                 {
-                    backgroundWav = matchingWav;
+                    backgroundWav = matching.Value;
+                    backgroundWavId = matching.Key;
                     // Found background music by filename
                     break;
                 }
@@ -515,13 +568,16 @@ namespace DTXMania.Game.Lib.Song
             // Strategy 2: If no common BGM name found and no BGM events, use the first WAV as fallback
             if (string.IsNullOrEmpty(backgroundWav) && chart.BGMEvents.Count == 0)
             {
-                backgroundWav = wavDefinitions.Values.FirstOrDefault();
+                var first = wavDefinitions.FirstOrDefault();
+                backgroundWav = first.Value;
+                backgroundWavId = first.Key;
                 // Using first WAV as background music fallback
             }
 
             if (!string.IsNullOrEmpty(backgroundWav))
             {
                 chart.BackgroundAudioPath = ResolveBGMPath(backgroundWav, dtxFilePath);
+                chart.BackgroundWavId = backgroundWavId ?? "";
                 // Background audio path resolved
             }
         }

@@ -127,6 +127,21 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Pan_Get_WhenSoundInstanceNull_ReturnsCentered()
+        {
+            var timer = CreateTimer();
+            Assert.Equal(0f, timer.Pan);
+        }
+
+        [Fact]
+        public void Pan_Set_WhenSoundInstanceNull_DoesNotThrow()
+        {
+            var timer = CreateTimer();
+            var ex = Record.Exception(() => timer.Pan = -0.5f);
+            Assert.Null(ex);
+        }
+
+        [Fact]
         public void IsLooped_Get_WhenSoundInstanceNull_ReturnsFalse()
         {
             var timer = CreateTimer();
