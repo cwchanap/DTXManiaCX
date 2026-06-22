@@ -154,7 +154,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Dispose_ShouldClearEffectsAndDisposeHitTexture()
+        public void Dispose_ShouldClearEffectsAndReleaseCachedTextureReference()
         {
             using var fixture = CreateManager(totalSprites: 3);
             var manager = fixture.Manager;
@@ -166,7 +166,53 @@ namespace DTXMania.Test.Stage.Performance
             var stats = manager.GetPoolingStats();
             Assert.Equal(0, stats.ActiveInstances);
             Assert.Equal(initialPoolSize, stats.PoolSize);
-            Assert.True(fixture.HitTexture.WasDisposed);
+            // The underlying Texture2D is owned by the ResourceManager cache and must
+            // NOT be disposed by PooledEffectsManager — disposing it would poison the
+            // cache for the next consumer that reloads HitFx.
+            Assert.False(fixture.HitTexture.WasDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ShouldCallRemoveReferenceOnCachedTextureSource()
+        {
+            using var fixture = CreateManager(totalSprites: 4);
+            var manager = fixture.Manager;
+            var cachedTexture = ReflectionHelpers.GetPrivateField<ITexture>(manager, "_cachedTextureSource");
+            Assert.NotNull(cachedTexture);
+            var initialRefCount = cachedTexture!.ReferenceCount;
+
+            manager.Dispose();
+
+            Assert.Equal(initialRefCount - 1, cachedTexture.ReferenceCount);
+        }
+
+        [Fact]
+        public void Constructor_DisposingFirstInstance_ShouldNotPoisonCacheForSecondInstance()
+        {
+            // Regression test for the P1 "disposed cached texture" bug: two sequential
+            // PooledEffectsManagers backed by the same cached ITexture. The second must
+            // still observe a usable (non-disposed) texture after the first is disposed.
+            var hitTexture = CreateTrackingTexture(width: 8 * 4, height: 32);
+            var graphicsDevice = CreateGraphicsDeviceStub();
+            var sharedCachedTexture = new ManagedTexture(graphicsDevice, hitTexture, TexturePath.HitFx);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(x => x.LoadTexture(It.IsAny<string>()))
+                .Returns(() =>
+                {
+                    sharedCachedTexture.AddReference();
+                    return sharedCachedTexture;
+                });
+
+            var first = new PooledEffectsManager(graphicsDevice, resourceManager.Object);
+            first.Dispose();
+
+            Assert.False(hitTexture.WasDisposed,
+                "PooledEffectsManager.Dispose() must not dispose the shared cached Texture2D");
+
+            using var second = new PooledEffectsManager(graphicsDevice, resourceManager.Object);
+            // Pool should be pre-populated, proving the texture was usable.
+            Assert.True(second.GetPoolingStats().PoolSize > 0);
         }
 
         [Fact]
@@ -260,11 +306,17 @@ namespace DTXMania.Test.Stage.Performance
             {
                 HitTexture = CreateTrackingTexture(width: 8 * totalSprites, height: 32);
                 var graphicsDevice = CreateGraphicsDeviceStub();
-                var loadedTexture = new ManagedTexture(graphicsDevice, HitTexture, "Graphics/hit_fx.png");
+                HitTextureSource = new ManagedTexture(graphicsDevice, HitTexture, "Graphics/hit_fx.png");
                 var resourceManager = new Mock<IResourceManager>();
                 resourceManager
                     .Setup(x => x.LoadTexture("Graphics/hit_fx.png"))
-                    .Returns(loadedTexture);
+                    .Returns(() =>
+                    {
+                        // Mirror the real ResourceManager, which calls AddReference()
+                        // before returning a cached texture.
+                        HitTextureSource.AddReference();
+                        return HitTextureSource;
+                    });
 
                 Manager = new PooledEffectsManager(graphicsDevice, resourceManager.Object);
             }
@@ -272,6 +324,8 @@ namespace DTXMania.Test.Stage.Performance
             public PooledEffectsManager Manager { get; }
 
             public TrackingTexture2D HitTexture { get; }
+
+            public ManagedTexture HitTextureSource { get; }
 
             public void Dispose()
             {

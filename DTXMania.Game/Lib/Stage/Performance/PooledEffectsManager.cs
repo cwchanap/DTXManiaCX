@@ -19,7 +19,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private readonly ConcurrentQueue<PooledEffectInstance> _effectPool;
         private readonly List<PooledEffectInstance> _activeEffects;
-        private readonly ManagedSpriteTexture _hitEffectTexture;
+        private ManagedSpriteTexture _hitEffectTexture;
+        private ITexture _cachedTextureSource;
         private readonly object _activeLock = new object();
         
         // Performance tracking
@@ -44,7 +45,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 throw new InvalidOperationException(
                     $"Failed to load required hit effect texture: {TexturePath.HitFx}");
             }
-            _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
+
+            try
+            {
+                _hitEffectTexture = new ManagedSpriteTexture(graphicsDevice, texture.Texture, TexturePath.HitFx, FrameWidth, FrameHeight);
+                // The sprite view shares the underlying Texture2D with the ResourceManager
+                // cache. Retain the cached reference so it can be released on Dispose; the
+                // sprite view itself must NOT be disposed (that would dispose the shared
+                // Texture2D and poison the cache for the next PerformanceStage activation).
+                _cachedTextureSource = texture;
+            }
+            catch
+            {
+                texture.RemoveReference();
+                throw;
+            }
 
             // Validate the texture has valid sprites. The standard ResourceManager
             // never returns null — on a missing/corrupt asset it returns a 1x1 fallback
@@ -53,8 +68,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // producing a 0-sprite pool.
             if (_hitEffectTexture.TotalSprites <= 0)
             {
+                int observedSpriteCount = _hitEffectTexture.TotalSprites;
+                _cachedTextureSource.RemoveReference();
+                _cachedTextureSource = null;
+                _hitEffectTexture = null;
                 throw new InvalidOperationException(
-                    $"Hit effect texture has invalid sprite count: {_hitEffectTexture.TotalSprites} ({TexturePath.HitFx})");
+                    $"Hit effect texture has invalid sprite count: {observedSpriteCount} ({TexturePath.HitFx})");
             }
 
             // Pre-populate the pool
@@ -202,7 +221,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void Dispose()
         {
             ClearAllEffects();
-            _hitEffectTexture?.Dispose();
+
+            // The hit-effect texture is shared with the ResourceManager cache. Release
+            // the cache reference added by LoadTexture, but do NOT dispose the sprite
+            // view — doing so would dispose the underlying Texture2D and poison the
+            // cache for the next PerformanceStage activation that reloads HitFx.
+            _cachedTextureSource?.RemoveReference();
+            _cachedTextureSource = null;
+            _hitEffectTexture = null;
         }
 
         /// <summary>
