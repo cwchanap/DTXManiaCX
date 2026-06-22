@@ -62,7 +62,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Stereo pan of the audio (-1.0 = full left … +1.0 = full right)
+        /// Stereo pan of the audio (-1.0 = full left … +1.0 = full right).
+        /// Note: SoundEffectInstance.Pan is well-defined for mono sources but limited/
+        /// undefined for stereo sources (e.g. the typical stereo bgm.ogg master track).
+        /// This faithfully honors the chart's #PAN, but a panned stereo background may not
+        /// produce the expected effect — a MonoGame/XNA platform limitation, not a code defect.
         /// </summary>
         public float Pan
         {

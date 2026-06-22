@@ -106,6 +106,10 @@ namespace DTXMania.Game.Lib.Song
 
             var chart = new ParsedChart(filePath);
             var wavDefinitions = new Dictionary<string, string>(); // WAV ID -> file path
+            // NOTE: These maps (like wavDefinitions/chart.Notes) are declared outside the
+            // encoding-retry loop below. If the first encoding throws mid-parse, the retry
+            // accumulates into the same dicts. This is harmless — dict keys overwrite — and
+            // matches the pre-existing pattern, but is a latent design smell.
             var wavVolumes = new Dictionary<string, int>();        // WAV ID -> volume (0-100)
             var wavPans = new Dictionary<string, int>();           // WAV ID -> pan (-100..100)
 
