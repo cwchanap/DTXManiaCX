@@ -19,6 +19,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 
@@ -2727,6 +2728,57 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void StartSong_WhenLegacyBgmAndBackgroundWavIdDefined_ShouldApplyPerWavVolumeAndPan()
+    {
+        // Legacy (no-BGM-events) path: when the chart resolves a BackgroundWavId,
+        // StartSong must honor that WAV's #VOLUME/#PAN on the master background
+        // track rather than defaulting to full volume.
+        var stage = CreateStage();
+        var chart = new ParsedChart("legacy-bgm.dtx");
+        chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 40 });
+        chart.SetWavPans(new Dictionary<string, int> { ["01"] = -80 });
+        chart.BackgroundWavId = "01";
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        // Real SoundEffectInstance so SongTimer.Volume/Pan setters are exercised.
+        var instance = CreateSoundEffectInstance();
+        var songTimer = new SongTimer(instance);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
+
+        // #VOLUME01=40 → 0.4f; #PAN01=-80 → -0.8f (clamped to [-1,1]).
+        Assert.Equal(0.4f, songTimer.Volume);
+        Assert.Equal(-0.8f, songTimer.Pan);
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+    }
+
+    [Fact]
+    public void StartSong_WhenLegacyBgmAndNoBackgroundWavId_ShouldDefaultToFullVolume()
+    {
+        // Legacy path with no resolved BackgroundWavId falls back to full volume.
+        var stage = CreateStage();
+        var chart = new ParsedChart("legacy-bgm-no-id.dtx");
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        var instance = CreateSoundEffectInstance();
+        var songTimer = new SongTimer(instance);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", new GameTime(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "StartSong");
+
+        Assert.Equal(1.0f, songTimer.Volume);
+    }
+
+    [Fact]
     public void InitializeReadyFont_WhenSpriteBatchIsMissing_ShouldLeaveFontNull()
     {
         var stage = CreateStage();
@@ -3196,6 +3248,21 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(timer, "_disposed", true);
         return timer;
+    }
+
+    /// <summary>
+    /// Creates a real SoundEffectInstance without invoking its constructor
+    /// (which requires a native audio device). Pan/Volume backing fields are
+    /// usable on the uninitialized instance, letting StartSong's per-WAV
+    /// volume/pan assignment be exercised without a graphics device.
+    /// Play() throws on this instance, but SongTimer.Play swallows that and
+    /// StartSong continues to the volume/pan assignment regardless.
+    /// </summary>
+    private static SoundEffectInstance CreateSoundEffectInstance()
+    {
+#pragma warning disable SYSLIB0050
+        return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
+#pragma warning restore SYSLIB0050
     }
 
     private static SongTimer CreatePlayingSongTimer()

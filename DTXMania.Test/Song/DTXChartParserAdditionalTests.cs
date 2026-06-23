@@ -1101,6 +1101,87 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region Encoding Retry / Failure Detection Tests
+
+        /// <summary>
+        /// When every encoding attempt fails with an IOException (here: the file is
+        /// held with an exclusive FileShare.None lock), ParseAsync must exhaust all
+        /// encodings, record each failure, and throw InvalidOperationException
+        /// wrapping the last exception. This exercises the narrowed catch filter
+        /// (IOException), the per-attempt Debug.WriteLine/continue, and the
+        /// `!parsed && lastException != null` failure throw — the defensive retry
+        /// path that is otherwise unreachable through well-formed input.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_WhenAllEncodingsFailWithIoException_ShouldThrowInvalidOperationException()
+        {
+            var content = "#BPM: 120.0\n#00011: 01000000\n";
+            var path = CreateTempDtx(content);
+
+            // Hold an exclusive lock for the duration of the parse so every
+            // FileStream open (one per encoding attempt) throws IOException.
+            await using var lockStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => DTXChartParser.ParseAsync(path));
+            Assert.IsType<IOException>(ex.InnerException);
+            Assert.Contains(path, ex.Message);
+        }
+
+        #endregion
+
+        #region TryStoreVolume / TryStorePan Guard Tests
+
+        [Fact]
+        public async Task ParseAsync_WithNonNumericVolumeAndPanValues_ShouldSilentlyIgnoreEntries()
+        {
+            // Non-numeric #VOLUME/#PAN values must not throw and must not create
+            // entries — int.TryParse returns false and the value is dropped.
+            var content =
+                "#WAV01: a.wav\n" +
+                "#VOLUME01: not-a-number\n" +
+                "#PAN01: also-text\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Empty(chart.WavVolumes);
+            Assert.Empty(chart.WavPans);
+        }
+
+        [Fact]
+        public void TryStoreVolume_WithEmptyWavId_ShouldReturnWithoutStoring()
+        {
+            var wavVolumes = new Dictionary<string, int>();
+            InvokePrivateStaticMethodVoid("TryStoreVolume", "", "50", wavVolumes);
+            Assert.Empty(wavVolumes);
+        }
+
+        [Fact]
+        public void TryStoreVolume_WithNullWavId_ShouldReturnWithoutStoring()
+        {
+            var wavVolumes = new Dictionary<string, int>();
+            InvokePrivateStaticMethodVoid("TryStoreVolume", null!, "50", wavVolumes);
+            Assert.Empty(wavVolumes);
+        }
+
+        [Fact]
+        public void TryStorePan_WithEmptyWavId_ShouldReturnWithoutStoring()
+        {
+            var wavPans = new Dictionary<string, int>();
+            InvokePrivateStaticMethodVoid("TryStorePan", "", "50", wavPans);
+            Assert.Empty(wavPans);
+        }
+
+        [Fact]
+        public void TryStorePan_WithNonNumericValue_ShouldReturnWithoutStoring()
+        {
+            var wavPans = new Dictionary<string, int>();
+            InvokePrivateStaticMethodVoid("TryStorePan", "01", "abc", wavPans);
+            Assert.Empty(wavPans);
+        }
+
+        #endregion
+
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
         {
             var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
@@ -1108,6 +1189,13 @@ namespace DTXMania.Test.Song
             var result = method!.Invoke(null, args);
             Assert.NotNull(result);
             return (T)result!;
+        }
+
+        private static void InvokePrivateStaticMethodVoid(string methodName, params object[] args)
+        {
+            var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            method!.Invoke(null, args);
         }
     }
 }

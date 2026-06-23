@@ -5,6 +5,7 @@ using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -139,6 +140,47 @@ namespace DTXMania.Test.Stage.Performance
             var timer = CreateTimer();
             var ex = Record.Exception(() => timer.Pan = -0.5f);
             Assert.Null(ex);
+        }
+
+        // ---------------------------------------------------------------
+        // Pan – non-null _soundInstance paths.
+        // SoundEffectInstance is created via GetUninitializedObject so its
+        // Pan/Volume backing fields are usable without a native audio device.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void Pan_Get_WhenSoundInstancePresent_ShouldReturnInstancePan()
+        {
+            var instance = CreateSoundEffectInstance();
+            instance.Pan = 0.25f;
+            var timer = new SongTimer(instance);
+
+            Assert.Equal(0.25f, timer.Pan);
+        }
+
+        [Fact]
+        public void Pan_Set_WhenSoundInstancePresent_ShouldClampAndAssignToInstance()
+        {
+            var instance = CreateSoundEffectInstance();
+            var timer = new SongTimer(instance);
+
+            timer.Pan = 0.75f;
+            Assert.Equal(0.75f, instance.Pan);
+            Assert.Equal(0.75f, timer.Pan);
+        }
+
+        [Theory]
+        [InlineData(2.0f, 1.0f)]
+        [InlineData(-2.0f, -1.0f)]
+        public void Pan_Set_WhenSoundInstancePresent_ShouldClampToValidRange(float input, float expected)
+        {
+            var instance = CreateSoundEffectInstance();
+            var timer = new SongTimer(instance);
+
+            timer.Pan = input;
+
+            Assert.Equal(expected, instance.Pan);
+            Assert.Equal(expected, timer.Pan);
         }
 
         [Fact]
@@ -360,6 +402,23 @@ namespace DTXMania.Test.Stage.Performance
             // _cachedElapsedMs should be exactly 250 (GameTime-based, no jitter)
             var cachedMs = ReflectionHelpers.GetPrivateField<double>(timer, "_cachedElapsedMs");
             Assert.Equal(250.0, cachedMs);
+        }
+
+        // ---------------------------------------------------------------
+        // Helpers
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Creates a real SoundEffectInstance without invoking its constructor
+        /// (which requires a native audio device). The Pan/Volume backing fields
+        /// are usable on the uninitialized instance, letting us exercise the
+        /// non-null _soundInstance paths in SongTimer without a graphics device.
+        /// </summary>
+        private static SoundEffectInstance CreateSoundEffectInstance()
+        {
+#pragma warning disable SYSLIB0050
+            return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
+#pragma warning restore SYSLIB0050
         }
     }
 }

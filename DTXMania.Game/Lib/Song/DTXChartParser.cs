@@ -609,7 +609,11 @@ namespace DTXMania.Game.Lib.Song
             if (!string.IsNullOrEmpty(backgroundWav))
             {
                 chart.BackgroundAudioPath = ResolveBGMPath(backgroundWav, dtxFilePath);
-                chart.BackgroundWavId = backgroundWavId ?? "";
+                // backgroundWavId is guaranteed non-null here: it is set from a
+                // Dictionary<string,string> key (which cannot be null) in the same
+                // branches that set backgroundWav to a non-empty value. The guard
+                // above ensures we only reach this assignment when that is the case.
+                chart.BackgroundWavId = backgroundWavId;
                 // Background audio path resolved
             }
         }
