@@ -544,7 +544,7 @@ namespace DTXMania.Test.Song
         #region WAV Id Case Normalization Tests
 
         [Fact]
-        public async Task ParseAsync_LowercaseNoteValue_NormalizedToUppercase()
+        public async Task ParseAsync_WithLowercaseNoteValue_ShouldNormalizeToUppercase()
         {
             // #WAV0A header is stored as uppercase; measure data uses lowercase "0a"
             var content =
@@ -562,7 +562,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_LowercaseBGMValue_NormalizedToUppercase()
+        public async Task ParseAsync_WithLowercaseBGMValue_ShouldNormalizeToUppercase()
         {
             var content =
                 "#BPM:120\n" +
@@ -578,7 +578,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_MixedCaseNoteValues_AllNormalizedToUppercase()
+        public async Task ParseAsync_WithMixedCaseNoteValues_ShouldAllNormalizeToUppercase()
         {
             var content =
                 "#BPM:120\n" +
@@ -619,7 +619,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void IsTextProperlyDecoded_WithValidText_ReturnsTrue()
+        public void IsTextProperlyDecoded_WithValidText_ShouldReturnTrue()
         {
             Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", ""));
             Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", (string)null!));
@@ -698,14 +698,14 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void IsTextProperlyDecoded_WithControlCharacter_ReturnsFalse()
+        public void IsTextProperlyDecoded_WithControlCharacter_ShouldReturnFalse()
         {
             var result = InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "test\x01value");
             Assert.False(result);
         }
 
         [Fact]
-        public void IsTextProperlyDecoded_WithTabAndNewline_ReturnsTrue()
+        public void IsTextProperlyDecoded_WithTabAndNewline_ShouldReturnTrue()
         {
             Assert.True(InvokePrivateStaticMethod<bool>("IsTextProperlyDecoded", "line1\tvalue\nline2"));
         }
@@ -715,7 +715,7 @@ namespace DTXMania.Test.Song
         #region Per-WAV Volume / Pan Tests
 
         [Fact]
-        public async Task ParseAsync_WithVolumeHeaders_PopulatesNormalizedVolumes()
+        public async Task ParseAsync_WithVolumeHeaders_ShouldPopulateNormalizedVolumes()
         {
             var content =
                 "#WAV01: snare.wav\n" +
@@ -733,7 +733,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_WithPanHeaders_PopulatesNormalizedPans()
+        public async Task ParseAsync_WithPanHeaders_ShouldPopulateNormalizedPans()
         {
             var content =
                 "#WAV01: left.wav\n" +
@@ -751,7 +751,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_WavVolAndPan_AreNotMisparsedAsWavDefinitions()
+        public async Task ParseAsync_WithWavVolAndPan_ShouldNotBeMisparsedAsWavDefinitions()
         {
             // #WAVVOL and #WAVPAN both start with "#WAV"; ensure they are not
             // stored as WAV file definitions with bogus ids ("VOL01" / "PAN01").
@@ -771,7 +771,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_OutOfRangeVolumeAndPan_AreClamped()
+        public async Task ParseAsync_WithOutOfRangeVolumeAndPan_ShouldBeClamped()
         {
             var content =
                 "#WAV01: a.wav\n" +
@@ -789,7 +789,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_PanelHeader_IsNotTreatedAsPanDefinition()
+        public async Task ParseAsync_WithPanelHeader_ShouldNotBeTreatedAsPanDefinition()
         {
             // "#PANEL" starts with "#PAN" but its value is non-numeric, so it must
             // not create a pan entry.
@@ -804,7 +804,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_BackgroundWavId_TracksCommonBgmFilename()
+        public async Task ParseAsync_BackgroundWavId_ShouldTrackCommonBgmFilename()
         {
             var content =
                 "#WAV01: snare.wav\n" +
@@ -818,7 +818,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_BackgroundWavId_FallsBackToFirstWavWhenNoBgmEvents()
+        public async Task ParseAsync_BackgroundWavId_ShouldFallBackToFirstWavWhenNoBgmEvents()
         {
             var content =
                 "#WAV05: only.ogg\n" +
@@ -831,7 +831,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_BackgroundWavVolumeAndPan_AreResolvableViaWavId()
+        public async Task ParseAsync_BackgroundWavVolumeAndPan_ShouldBeResolvableViaWavId()
         {
             var content =
                 "#WAV01: bgm.ogg\n" +
@@ -848,7 +848,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_NoWavDefinitions_LeavesBackgroundWavIdEmpty()
+        public async Task ParseAsync_WithNoWavDefinitions_ShouldLeaveBackgroundWavIdEmpty()
         {
             var content = "#BPM: 120.0\n";
             var path = CreateTempDtx(content);
@@ -859,7 +859,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_NoVolumeOrPanHeaders_LeavesMapsEmpty()
+        public async Task ParseAsync_WithNoVolumeOrPanHeaders_ShouldLeaveMapsEmpty()
         {
             var content =
                 "#WAV01: a.wav\n" +
@@ -873,7 +873,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_PanelHeader_DoesNotCreateBogusPanEntry()
+        public async Task ParseAsync_WithPanelHeader_ShouldNotCreateBogusPanEntry()
         {
             // #PANEL is metadata (player panel count), not a per-WAV pan directive.
             // Without a guard, "#PANEL" matches the "#PAN" prefix and would store
@@ -890,7 +890,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_PanelAndPanHeaders_CoexistWithoutInterference()
+        public async Task ParseAsync_WithPanelAndPanHeaders_ShouldCoexistWithoutInterference()
         {
             // Proves the #PANEL guard does not over-reject a valid #PAN01 entry.
             // Both headers start with "#PAN"; the guard must exclude only "#PANEL"
@@ -909,7 +909,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_LowercasePanHeader_NormalizedToUpperAndStored()
+        public async Task ParseAsync_WithLowercasePanHeader_ShouldBeNormalizedToUpperAndStored()
         {
             // ParseHeaderCommand uppercases the command via ToUpperInvariant before
             // the #PAN branch, so "#pan01" must still produce wavPans["01"].
@@ -926,7 +926,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_PanelHeaderWithWhitespaceValue_StillExcludedFromPanMap()
+        public async Task ParseAsync_WithPanelHeaderWithWhitespaceValue_ShouldStillBeExcludedFromPanMap()
         {
             // A #PANEL value with surrounding whitespace must still be ignored by the
             // pan branch. The guard checks the command prefix, not the value, so
@@ -958,7 +958,7 @@ namespace DTXMania.Test.Song
         /// unreachable.
         /// </summary>
         [Fact]
-        public async Task ParseAsync_ValidFile_ProducesExactNoteAndWavCount()
+        public async Task ParseAsync_WithValidFile_ShouldProduceExactNoteAndWavCount()
         {
             // Channel 0x11 = LC lane. Note data is pairs of hex chars; "00" = rest.
             // "01020300" → 3 notes (pairs 01, 02, 03); pair 00 is a rest.
@@ -989,7 +989,7 @@ namespace DTXMania.Test.Song
         /// instantiation is correct defensive hardening.
         /// </summary>
         [Fact]
-        public async Task ParseFileContentAsync_CalledTwiceOnSameChart_AccumulatesNotesProvingSharedStateHazard()
+        public async Task ParseFileContentAsync_WhenCalledTwiceOnSameChart_ShouldAccumulateNotesProvingSharedStateHazard()
         {
             var content =
                 "#BPM: 120.0\n" +
@@ -1043,7 +1043,7 @@ namespace DTXMania.Test.Song
         /// failed attempt added notes before throwing.
         /// </summary>
         [Fact]
-        public async Task ParseAsync_EmptyFile_ReturnsEmptyChartWithoutThrowing()
+        public async Task ParseAsync_WithEmptyFile_ShouldReturnEmptyChartWithoutThrowing()
         {
             var path = CreateTempDtx("");
             // Write empty bytes explicitly (CreateTempDtx uses WriteAllText which
@@ -1062,7 +1062,7 @@ namespace DTXMania.Test.Song
         /// but exercises the comment/whitespace skipping paths in ParseFileContentAsync.
         /// </summary>
         [Fact]
-        public async Task ParseAsync_FileWithOnlyCommentsAndWhitespace_ReturnsEmptyChart()
+        public async Task ParseAsync_WithFileWithOnlyCommentsAndWhitespace_ShouldReturnEmptyChart()
         {
             var content =
                 "// This is a comment\n" +
@@ -1084,7 +1084,7 @@ namespace DTXMania.Test.Song
         /// conflate "no notes" with "parse failed."
         /// </summary>
         [Fact]
-        public async Task ParseAsync_HeadersOnly_NoNotes_ReturnsChartWithoutThrowing()
+        public async Task ParseAsync_WithHeadersOnlyAndNoNotes_ShouldReturnChartWithoutThrowing()
         {
             var content =
                 "#BPM: 120.0\n" +

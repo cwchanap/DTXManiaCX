@@ -50,7 +50,7 @@ namespace DTXMania.Test.Song
         #region WavDefinitions Tests
 
         [Fact]
-        public void WavDefinitions_DefaultsToEmpty()
+        public void WavDefinitions_ShouldDefaultToEmpty()
         {
             var chart = new ParsedChart();
             Assert.NotNull(chart.WavDefinitions);
@@ -58,7 +58,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetWavDefinitions_StoresFrozenCopy()
+        public void SetWavDefinitions_ShouldStoreFrozenCopy()
         {
             var chart = new ParsedChart();
             var input = new Dictionary<string, string> { ["01"] = "/path/snare.wav" };
@@ -71,7 +71,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetWavDefinitions_NullInput_ClearsToEmpty()
+        public void SetWavDefinitions_WithNullInput_ShouldClearToEmpty()
         {
             var chart = new ParsedChart();
             chart.SetWavDefinitions(new Dictionary<string, string> { ["01"] = "x" });
@@ -84,7 +84,7 @@ namespace DTXMania.Test.Song
         #region WavVolumes / WavPans Tests
 
         [Fact]
-        public void WavVolumesAndPans_DefaultToEmpty()
+        public void WavVolumesAndPans_ShouldDefaultToEmpty()
         {
             var chart = new ParsedChart();
             Assert.NotNull(chart.WavVolumes);
@@ -94,7 +94,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetVolume_UndefinedId_ReturnsFullVolume()
+        public void GetVolume_WithUndefinedId_ShouldReturnFullVolume()
         {
             var chart = new ParsedChart();
             Assert.Equal(1.0f, chart.GetVolume("01"));
@@ -103,7 +103,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetPan_UndefinedId_ReturnsCentered()
+        public void GetPan_WithUndefinedId_ShouldReturnCentered()
         {
             var chart = new ParsedChart();
             Assert.Equal(0.0f, chart.GetPan("01"));
@@ -112,7 +112,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetVolume_NormalizesDtxScaleToZeroToOne()
+        public void GetVolume_ShouldNormalizeDtxScaleToZeroToOne()
         {
             var chart = new ParsedChart();
             chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 50, ["02"] = 100, ["03"] = 0 });
@@ -123,7 +123,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetPan_NormalizesDtxScaleToMinusOneToOne()
+        public void GetPan_ShouldNormalizeDtxScaleToMinusOneToOne()
         {
             var chart = new ParsedChart();
             chart.SetWavPans(new Dictionary<string, int> { ["01"] = -100, ["02"] = 0, ["03"] = 100, ["04"] = 50 });
@@ -135,7 +135,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetWavVolumes_StoresFrozenCopy()
+        public void SetWavVolumes_ShouldStoreFrozenCopy()
         {
             var chart = new ParsedChart();
             var input = new Dictionary<string, int> { ["01"] = 80 };
@@ -148,7 +148,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetWavPans_NullInput_ClearsToEmpty()
+        public void SetWavPans_WithNullInput_ShouldClearToEmpty()
         {
             var chart = new ParsedChart();
             chart.SetWavPans(new Dictionary<string, int> { ["01"] = 50 });
@@ -331,7 +331,7 @@ namespace DTXMania.Test.Song
         #region GetNotesInTimeRange Tests
 
         [Fact]
-        public void GetNotesInTimeRange_ReturnsOnlyNotesInRange()
+        public void GetNotesInTimeRange_ShouldReturnOnlyNotesInRange()
         {
             var chart = new ParsedChart();
             chart.Notes.Add(new Note(0, 0, 0, 0, "01") { TimeMs = 100.0 });
@@ -346,7 +346,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetNotesInTimeRange_EmptyRange_ReturnsNoNotes()
+        public void GetNotesInTimeRange_WithEmptyRange_ShouldReturnNoNotes()
         {
             var chart = new ParsedChart();
             chart.Notes.Add(new Note(0, 0, 0, 0, "01") { TimeMs = 5000.0 });
@@ -361,7 +361,7 @@ namespace DTXMania.Test.Song
         #region GetNotesForLane Tests
 
         [Fact]
-        public void GetNotesForLane_ReturnsOnlyNotesInThatLane()
+        public void GetNotesForLane_ShouldReturnOnlyNotesInThatLane()
         {
             var chart = new ParsedChart();
             chart.Notes.Add(new Note(laneIndex: 0, 0, 0, 0, "01") { TimeMs = 100.0 });
@@ -376,7 +376,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void GetNotesForLane_EmptyLane_ReturnsEmpty()
+        public void GetNotesForLane_WithEmptyLane_ShouldReturnEmpty()
         {
             var chart = new ParsedChart();
             chart.Notes.Add(new Note(0, 0, 0, 0, "01") { TimeMs = 100.0 });
