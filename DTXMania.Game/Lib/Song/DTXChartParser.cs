@@ -348,7 +348,7 @@ namespace DTXMania.Game.Lib.Song
                     {
                         TryStoreVolume(command.Substring(7), value, wavVolumes);
                     }
-                    else if (command.StartsWith("#PAN") && command.Length > 4)
+                    else if (command.StartsWith("#PAN") && !command.StartsWith("#PANEL") && command.Length > 4)
                     {
                         TryStorePan(command.Substring(4), value, wavPans);
                     }

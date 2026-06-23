@@ -871,6 +871,23 @@ namespace DTXMania.Test.Song
             Assert.Empty(chart.WavPans);
         }
 
+        [Fact]
+        public async Task ParseAsync_PanelHeader_DoesNotCreateBogusPanEntry()
+        {
+            // #PANEL is metadata (player panel count), not a per-WAV pan directive.
+            // Without a guard, "#PANEL" matches the "#PAN" prefix and would store
+            // wavPans["EL"] = <value>, polluting the pan map with a bogus "EL" key.
+            var content =
+                "#WAV01: a.wav\n" +
+                "#PANEL: 50\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.False(chart.WavPans.ContainsKey("EL"));
+            Assert.Empty(chart.WavPans);
+        }
+
         #endregion
 
         #region Encoding Retry Isolation Tests

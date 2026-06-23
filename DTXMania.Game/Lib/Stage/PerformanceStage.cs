@@ -1084,6 +1084,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Honor the chart's per-WAV #VOLUME/#PAN for backing-track audio;
                     // defaults to full volume, centered when undefined.
+                    // NOTE: ConfigData.MasterVolume is not yet combined here — this is
+                    // the integration point once master-volume routing is wired into Lib/.
                     float volume = _parsedChart?.GetVolume(bgmEvent.WavId) ?? 1.0f;
                     float pan = _parsedChart?.GetPan(bgmEvent.WavId) ?? 0.0f;
                     sound.Play(volume, 0.0f, pan);
@@ -1377,6 +1379,8 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             // Honor the chart's per-WAV #VOLUME/#PAN; defaults to full volume, centered.
+            // NOTE: ConfigData.MasterVolume is not yet combined here — this is the
+            // integration point once master-volume routing is wired into Lib/.
             float volume = _parsedChart?.GetVolume(note.Value) ?? 1.0f;
             float pan = _parsedChart?.GetPan(note.Value) ?? 0.0f;
             _chipSoundCache?.Play(note.Value, volume, pan);
