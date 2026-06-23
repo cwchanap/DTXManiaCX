@@ -126,12 +126,32 @@ namespace DTXMania.Game.Lib.Song
             // are discarded rather than carried into the next attempt where they would
             // duplicate. The three WAV dicts use key assignment so they would self-heal,
             // but the list-based state does not — hence per-attempt instantiation.
+            //
+            // Note: the retry path is currently unreachable through this method because
+            // the parser is fully defensive (no throw on malformed input) and Encoding.UTF8
+            // uses replacement fallback (invalid bytes become U+FFFD, no throw). The
+            // per-attempt instantiation is defensive hardening for a future strict-encoding
+            // or test-seam scenario. See DTXChartParserAdditionalTests for the mechanical
+            // proof of why shared state would duplicate notes.
+            //
+            // Failure detection uses a `parsed` flag (set true only after a full,
+            // exception-free parse) rather than checking Notes.Count. The old Notes.Count
+            // check was inconsistent: success was "no throw" but failure was "zero notes,"
+            // so a file that added notes on a failed attempt before throwing would skip
+            // the failure throw and return a truncated chart. The flag makes success and
+            // failure symmetric on "did any attempt complete without throwing."
+            //
+            // The catch is narrowed to IOException (I/O errors during file reading) and
+            // DecoderFallbackException (strict-encoding decode failures, forward-looking).
+            // Programmer errors (NullReferenceException, IndexOutOfRangeException, etc.)
+            // propagate immediately rather than being swallowed as "encoding failures."
             ParsedChart chart = null!;
             Dictionary<string, string> wavDefinitions = null!; // WAV ID -> file path
             Dictionary<string, int> wavVolumes = null!;        // WAV ID -> volume (0-100)
             Dictionary<string, int> wavPans = null!;           // WAV ID -> pan (-100..100)
 
             Exception lastException = null;
+            bool parsed = false;
 
             foreach (var encoding in encodings)
             {
@@ -147,19 +167,21 @@ namespace DTXMania.Game.Lib.Song
 
                     await ParseFileContentAsync(reader, chart, wavDefinitions, wavVolumes, wavPans);
 
-                    // If we got here without exception, parsing succeeded
+                    // Full parse completed without exception — this attempt succeeded.
+                    parsed = true;
                     break;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is IOException or DecoderFallbackException)
                 {
                     lastException = ex;
+                    Debug.WriteLine($"DTXChartParser: Failed to parse with encoding {encoding.EncodingName}: {ex.Message}");
                     // Try next encoding
                     continue;
                 }
             }
 
-            // If all encodings failed, throw the last exception
-            if (chart.Notes.Count == 0 && lastException != null)
+            // If no encoding fully succeeded, throw the last exception
+            if (!parsed && lastException != null)
             {
                 throw new InvalidOperationException($"Failed to parse DTX file with any encoding: {filePath}", lastException);
             }
