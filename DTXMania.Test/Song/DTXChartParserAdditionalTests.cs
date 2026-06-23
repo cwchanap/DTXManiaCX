@@ -12,6 +12,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Additional tests for DTXChartParser covering uncovered code paths
     /// </summary>
+    [Trait("Category", "Unit")]
     public class DTXChartParserAdditionalTests : IDisposable
     {
         private readonly string _tempDir;
