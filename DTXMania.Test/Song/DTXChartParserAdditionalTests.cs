@@ -873,6 +873,82 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region Encoding Retry Isolation Tests
+
+        /// <summary>
+        /// Regression guard: a valid UTF-8 DTX file must produce exactly the expected
+        /// note count. If chart/dict state were shared across encoding attempts (the old
+        /// design), a mid-parse throw + retry would duplicate notes. Per-attempt
+        /// instantiation in ParseAsync prevents this.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_ValidFile_ProducesExactNoteCountWithoutDuplication()
+        {
+            // Channel 0x11 = LC lane. Note data is pairs of hex chars; "00" = rest.
+            // "01020300" → 3 notes (pairs 01, 02, 03); pair 00 is a rest.
+            var content =
+                "#BPM: 120.0\n" +
+                "#WAV01: kick.wav\n" +
+                "#WAV02: snare.wav\n" +
+                "#00011: 01020300\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(3, chart.TotalNotes);
+            // WAV definitions should also not be duplicated
+            Assert.Equal(2, chart.WavDefinitions.Count);
+        }
+
+        /// <summary>
+        /// Documents WHY ParseAsync uses per-attempt chart instantiation: calling
+        /// ParseFileContentAsync twice on the same ParsedChart (as the old shared-state
+        /// design would on encoding retry) doubles the notes because Notes is a List
+        /// populated via Add, not a dict that self-heals via key assignment.
+        /// </summary>
+        [Fact]
+        public async Task ParseFileContentAsync_CalledTwiceOnSameChart_AccumulatesNotesProvingSharedStateHazard()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#WAV01: kick.wav\n" +
+                "#00011: 01000200\n";
+            var path = CreateTempDtx(content);
+
+            var method = typeof(DTXChartParser).GetMethod(
+                "ParseFileContentAsync", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var chart = new ParsedChart(path);
+            var wavDefinitions = new Dictionary<string, string>();
+            var wavVolumes = new Dictionary<string, int>();
+            var wavPans = new Dictionary<string, int>();
+
+            // First parse pass
+            using (var stream1 = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader1 = new StreamReader(stream1, System.Text.Encoding.UTF8))
+            {
+                var task = (Task)method!.Invoke(null, new object[] { reader1, chart, wavDefinitions, wavVolumes, wavPans })!;
+                await task;
+            }
+            var countAfterFirstPass = chart.Notes.Count;
+            Assert.True(countAfterFirstPass > 0, "Expected at least one note after first pass");
+
+            // Second parse pass on the SAME chart (simulates encoding retry with shared state)
+            using (var stream2 = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader2 = new StreamReader(stream2, System.Text.Encoding.UTF8))
+            {
+                var task = (Task)method!.Invoke(null, new object[] { reader2, chart, wavDefinitions, wavVolumes, wavPans })!;
+                await task;
+            }
+
+            // Notes DOUBLED because Notes is a List<Note> — this proves the shared-state
+            // hazard that ParseAsync's per-attempt instantiation eliminates.
+            Assert.Equal(countAfterFirstPass * 2, chart.Notes.Count);
+        }
+
+        #endregion
+
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
         {
             var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);
