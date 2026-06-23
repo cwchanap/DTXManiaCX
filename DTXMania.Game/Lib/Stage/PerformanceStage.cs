@@ -635,15 +635,9 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 _songTimer = songTimer;
 
-                // Honor the chart's per-WAV #VOLUME/#PAN for the master background track
-                // (no-op on the silent fallback timer, which has no sound instance).
-                var backgroundWavId = _parsedChart.BackgroundWavId;
-                if (!string.IsNullOrEmpty(backgroundWavId))
-                {
-                    _songTimer.Volume = _parsedChart.GetVolume(backgroundWavId);
-                    _songTimer.Pan = _parsedChart.GetPan(backgroundWavId);
-                }
-
+                // Note: per-WAV #VOLUME/#PAN for the background track are applied in
+                // StartSong() (no-BGM-events path) rather than here, because StartSong()
+                // overwrites Volume when playback begins.
                 _isLoading = false;
                 _isReady = true;
             }
@@ -768,8 +762,19 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 else
                 {
-                    // Legacy approach: Play background audio immediately (no BGM events)
-                    _songTimer.Volume = 1.0f; // Ensure background audio is audible
+                    // Legacy approach: Play background audio immediately (no BGM events).
+                    // Honor the chart's per-WAV #VOLUME/#PAN for the master background track
+                    // when a background WAV id is defined; otherwise default to full volume.
+                    var backgroundWavId = _parsedChart?.BackgroundWavId;
+                    if (!string.IsNullOrEmpty(backgroundWavId))
+                    {
+                        _songTimer.Volume = _parsedChart.GetVolume(backgroundWavId);
+                        _songTimer.Pan = _parsedChart.GetPan(backgroundWavId);
+                    }
+                    else
+                    {
+                        _songTimer.Volume = 1.0f; // Ensure background audio is audible
+                    }
                 }
             }
         }
