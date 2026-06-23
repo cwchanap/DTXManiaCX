@@ -36,7 +36,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void IsPlaying_WhenInternalFlagTrueAndSoundInstanceNull_ReturnsTrue()
+        public void IsPlaying_WhenInternalFlagTrueAndSoundInstanceNull_ShouldReturnTrue()
         {
             // When the backing sound is absent, the timer should still report the stored playing state.
             var timer = CreateTimer(isPlaying: true);
@@ -44,7 +44,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void IsPlaying_WhenInternalFlagFalse_ReturnsFalse()
+        public void IsPlaying_WhenInternalFlagFalse_ShouldReturnFalse()
         {
             var timer = CreateTimer(isPlaying: false);
             Assert.False(timer.IsPlaying);
@@ -55,7 +55,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void GetCurrentMs_GameTime_WhenNotPlaying_ReturnsZero()
+        public void GetCurrentMs_GameTime_WhenNotPlaying_ShouldReturnZero()
         {
             var timer = CreateTimer(isPlaying: false);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero);
@@ -63,7 +63,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GetCurrentMs_GameTime_WhenDisposed_ReturnsZero()
+        public void GetCurrentMs_GameTime_WhenDisposed_ShouldReturnZero()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero);
@@ -71,7 +71,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GetCurrentMs_GameTime_WhenPlaying_ReturnsElapsedMs()
+        public void GetCurrentMs_GameTime_WhenPlaying_ShouldReturnElapsedMs()
         {
             // _startTime = 100 ms, totalGameTime = 500 ms → elapsed = 400 ms
             var timer = CreateTimer(isPlaying: true);
@@ -84,21 +84,21 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void GetCurrentMs_WhenNotPlaying_ReturnsZero()
+        public void GetCurrentMs_WhenNotPlaying_ShouldReturnZero()
         {
             var timer = CreateTimer(isPlaying: false);
             Assert.Equal(0.0, timer.GetCurrentMs());
         }
 
         [Fact]
-        public void GetCurrentMs_WhenDisposed_ReturnsZero()
+        public void GetCurrentMs_WhenDisposed_ShouldReturnZero()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             Assert.Equal(0.0, timer.GetCurrentMs());
         }
 
         [Fact]
-        public void GetCurrentMs_WhenPlaying_ReturnsPositiveElapsed()
+        public void GetCurrentMs_WhenPlaying_ShouldReturnPositiveElapsed()
         {
             // _systemStartTime is 250 ms in the past → result should be ≥ 250 ms
             var timer = CreateTimer(isPlaying: true);
@@ -111,14 +111,14 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void Volume_Get_WhenSoundInstanceNull_ReturnsZero()
+        public void Volume_Get_WhenSoundInstanceNull_ShouldReturnZero()
         {
             var timer = CreateTimer();
             Assert.Equal(0f, timer.Volume);
         }
 
         [Fact]
-        public void Volume_Set_WhenSoundInstanceNull_DoesNotThrow()
+        public void Volume_Set_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer();
             // Must not throw
@@ -127,14 +127,14 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Pan_Get_WhenSoundInstanceNull_ReturnsCentered()
+        public void Pan_Get_WhenSoundInstanceNull_ShouldReturnCentered()
         {
             var timer = CreateTimer();
             Assert.Equal(0f, timer.Pan);
         }
 
         [Fact]
-        public void Pan_Set_WhenSoundInstanceNull_DoesNotThrow()
+        public void Pan_Set_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer();
             var ex = Record.Exception(() => timer.Pan = -0.5f);
@@ -142,14 +142,14 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void IsLooped_Get_WhenSoundInstanceNull_ReturnsFalse()
+        public void IsLooped_Get_WhenSoundInstanceNull_ShouldReturnFalse()
         {
             var timer = CreateTimer();
             Assert.False(timer.IsLooped);
         }
 
         [Fact]
-        public void IsLooped_Set_WhenSoundInstanceNull_DoesNotThrow()
+        public void IsLooped_Set_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer();
             var ex = Record.Exception(() => timer.IsLooped = true);
@@ -161,7 +161,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void Pause_WhenDisposed_DoesNotThrow()
+        public void Pause_WhenDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -170,7 +170,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Stop_WhenDisposed_DoesNotThrow()
+        public void Stop_WhenDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             var ex = Record.Exception(() => timer.Stop());
@@ -178,7 +178,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_WhenDisposed_DoesNotThrow()
+        public void Update_WhenDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -187,7 +187,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void SetPosition_WhenDisposed_DoesNotThrow()
+        public void SetPosition_WhenDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -196,7 +196,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Resume_WhenDisposed_DoesNotThrow()
+        public void Resume_WhenDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: false, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -209,7 +209,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void Pause_WhenSoundInstanceNull_DoesNotThrow()
+        public void Pause_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -218,7 +218,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Stop_WhenSoundInstanceNull_DoesNotThrow()
+        public void Stop_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true);
             var ex = Record.Exception(() => timer.Stop());
@@ -226,7 +226,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Resume_WhenSoundInstanceNull_DoesNotThrow()
+        public void Resume_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: false);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -235,7 +235,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void SetPosition_WhenSoundInstanceNull_DoesNotThrow()
+        public void SetPosition_WhenSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -244,7 +244,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_WhenNotDisposed_DoesNotThrow()
+        public void Update_WhenNotDisposed_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: false);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -253,7 +253,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Update_WhenPlayingAndSoundInstanceNull_DoesNotThrow()
+        public void Update_WhenPlayingAndSoundInstanceNull_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -268,7 +268,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void Dispose_CalledTwice_DoesNotThrow()
+        public void Dispose_CalledTwice_ShouldNotThrow()
         {
             var timer = CreateTimer(isPlaying: false);
             // First Dispose() releases state; second Dispose() should be a no-op.
@@ -282,7 +282,7 @@ namespace DTXMania.Test.Stage.Performance
         // ---------------------------------------------------------------
 
         [Fact]
-        public void IsFinished_WhenSoundInstanceNull_ReturnsFalse()
+        public void IsFinished_WhenSoundInstanceNull_ShouldReturnFalse()
         {
             // _soundInstance?.State == SoundState.Stopped → null == Stopped → false
             var timer = CreateTimer(isPlaying: true);
@@ -306,7 +306,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Play_WhenDisposed_ReturnsFalse()
+        public void Play_WhenDisposed_ShouldReturnFalse()
         {
             var timer = CreateTimer(isPlaying: false, disposed: true);
             var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
@@ -347,7 +347,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Pause_CachesElapsedBeforeClearingIsPlaying()
+        public void Pause_ShouldCacheElapsedBeforeClearingIsPlaying()
         {
             var timer = new SongTimer();
             var start = new GameTime(TimeSpan.FromMilliseconds(0), TimeSpan.Zero);

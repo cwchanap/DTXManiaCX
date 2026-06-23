@@ -13,14 +13,14 @@ namespace DTXMania.Test.Stage.Performance
     public class ChipSoundCacheTests
     {
         [Fact]
-        public void Count_NewInstance_IsZero()
+        public void Count_OnNewInstance_ShouldBeZero()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             Assert.Equal(0, cache.Count);
         }
 
         [Fact]
-        public void Play_UnknownWavId_DoesNotThrow()
+        public void Play_WithUnknownWavId_ShouldNotThrow()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             var ex = Record.Exception(() => cache.Play("NOPE"));
@@ -28,7 +28,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void Play_NullOrEmptyWavId_DoesNotThrow()
+        public void Play_WithNullOrEmptyWavId_ShouldNotThrow()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             Assert.Null(Record.Exception(() => cache.Play(null!)));
@@ -36,7 +36,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_LoadsExistingFilesViaFactory()
+        public async Task PreloadAsync_ShouldLoadExistingFilesViaFactory()
         {
             var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
             try
@@ -67,7 +67,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_MissingFile_SkipsAndContinues()
+        public async Task PreloadAsync_WithMissingFile_ShouldSkipAndContinue()
         {
             var (dir, validFile, _) = CreateTempWavFiles("ok.wav", "ignored.wav");
             try
@@ -90,7 +90,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_FactoryThrows_SkipsThatEntry()
+        public async Task PreloadAsync_WhenFactoryThrows_ShouldSkipThatEntry()
         {
             var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
             try
@@ -120,7 +120,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_NullDict_DoesNothing()
+        public async Task PreloadAsync_WithNullDict_ShouldDoNothing()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             await cache.PreloadAsync(null!);
@@ -128,7 +128,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Play_KnownWavId_InvokesPlayOnSound()
+        public async Task Play_WithKnownWavId_ShouldInvokePlayOnSound()
         {
             var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
             try
@@ -148,7 +148,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Play_WithReducedVolumeOrPan_InvokesVolumePanOverload()
+        public async Task Play_WithReducedVolumeOrPan_ShouldInvokeVolumePanOverload()
         {
             var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
             try
@@ -169,7 +169,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Play_WithFullVolumeAndCenterPan_InvokesParameterlessPlay()
+        public async Task Play_WithFullVolumeAndCenterPan_ShouldInvokeParameterlessPlay()
         {
             // Full volume + centered should stay on the simple Play() path so the
             // common (no #VOLUME/#PAN) case is unchanged.
@@ -192,7 +192,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Play_WithVolumePan_AfterDispose_IsSilent()
+        public async Task Play_WithVolumePanAfterDispose_ShouldBeSilent()
         {
             var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
             try
@@ -213,7 +213,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task Dispose_ReleasesAllSounds()
+        public async Task Dispose_ShouldReleaseAllSounds()
         {
             var (dir, file1, file2) = CreateTempWavFiles("a.wav", "b.wav");
             try
@@ -245,7 +245,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_AfterDispose_Throws()
+        public async Task PreloadAsync_AfterDispose_ShouldThrow()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             cache.Dispose();
@@ -254,7 +254,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PreloadAsync_FilteredSubset_OnlyLoadsSubset()
+        public async Task PreloadAsync_WithFilteredSubset_ShouldOnlyLoadSubset()
         {
             // Simulates filtering WavDefinitions to only note-referenced ids,
             // excluding BGM-only ids that are loaded separately.
@@ -335,7 +335,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
-        public void Contains_WithNullOrEmptyWavId_ReturnsFalse(string? wavId)
+        public void Contains_WithNullOrEmptyWavId_ShouldReturnFalse(string? wavId)
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             Assert.False(cache.Contains(wavId!));
@@ -446,7 +446,7 @@ namespace DTXMania.Test.Stage.Performance
         // --- Instance tracking tests ---
 
         [Fact]
-        public void Play_SoundReturnsNullInstance_DoesNotThrow()
+        public void Play_WhenSoundReturnsNullInstance_ShouldNotThrow()
         {
             // ISound.Play() can return null (e.g. disposed sound). Should be handled gracefully.
             var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
@@ -469,7 +469,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void StopAll_AfterDispose_DoesNotThrow()
+        public void StopAll_AfterDispose_ShouldNotThrow()
         {
             var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             cache.Dispose();
@@ -480,7 +480,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void CleanupStoppedInstances_AfterDispose_DoesNotThrow()
+        public void CleanupStoppedInstances_AfterDispose_ShouldNotThrow()
         {
             var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             cache.Dispose();
@@ -491,7 +491,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void ActiveInstanceCount_NewInstance_IsZero()
+        public void ActiveInstanceCount_OnNewInstance_ShouldBeZero()
         {
             using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
             Assert.Equal(0, cache.ActiveInstanceCount);
