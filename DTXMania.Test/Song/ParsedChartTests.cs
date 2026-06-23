@@ -8,6 +8,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Tests for ParsedChart methods and statistics
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ParsedChartTests
     {
         #region Constructor Tests
