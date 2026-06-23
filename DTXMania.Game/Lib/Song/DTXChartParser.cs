@@ -104,15 +104,6 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                 throw new FileNotFoundException($"DTX file not found: {filePath}");
 
-            var chart = new ParsedChart(filePath);
-            var wavDefinitions = new Dictionary<string, string>(); // WAV ID -> file path
-            // NOTE: These maps (like wavDefinitions/chart.Notes) are declared outside the
-            // encoding-retry loop below. If the first encoding throws mid-parse, the retry
-            // accumulates into the same dicts. This is harmless — dict keys overwrite — and
-            // matches the pre-existing pattern, but is a latent design smell.
-            var wavVolumes = new Dictionary<string, int>();        // WAV ID -> volume (0-100)
-            var wavPans = new Dictionary<string, int>();           // WAV ID -> pan (-100..100)
-
             // Try different encodings for Japanese text support
             var encodings = new List<Encoding>
             {
@@ -130,10 +121,25 @@ namespace DTXMania.Game.Lib.Song
                 // Shift_JIS not available, continue with available encodings
             }
 
+            // Each encoding attempt gets fresh chart/dict state. If an attempt throws
+            // mid-parse, its partial Notes (a List, not a dict) and NotesPerLane counters
+            // are discarded rather than carried into the next attempt where they would
+            // duplicate. The three WAV dicts use key assignment so they would self-heal,
+            // but the list-based state does not — hence per-attempt instantiation.
+            ParsedChart chart = null!;
+            Dictionary<string, string> wavDefinitions = null!; // WAV ID -> file path
+            Dictionary<string, int> wavVolumes = null!;        // WAV ID -> volume (0-100)
+            Dictionary<string, int> wavPans = null!;           // WAV ID -> pan (-100..100)
+
             Exception lastException = null;
 
             foreach (var encoding in encodings)
             {
+                chart = new ParsedChart(filePath);
+                wavDefinitions = new Dictionary<string, string>();
+                wavVolumes = new Dictionary<string, int>();
+                wavPans = new Dictionary<string, int>();
+
                 try
                 {
                     using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
