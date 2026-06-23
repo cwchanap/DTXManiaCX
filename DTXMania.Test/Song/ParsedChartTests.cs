@@ -148,6 +148,15 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void SetWavVolumes_WithNullInput_ShouldClearToEmpty()
+        {
+            var chart = new ParsedChart();
+            chart.SetWavVolumes(new Dictionary<string, int> { ["01"] = 60 });
+            chart.SetWavVolumes(null);
+            Assert.Empty(chart.WavVolumes);
+        }
+
+        [Fact]
         public void SetWavPans_WithNullInput_ShouldClearToEmpty()
         {
             var chart = new ParsedChart();
