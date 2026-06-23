@@ -889,18 +889,76 @@ namespace DTXMania.Test.Song
             Assert.Empty(chart.WavPans);
         }
 
+        [Fact]
+        public async Task ParseAsync_PanelAndPanHeaders_CoexistWithoutInterference()
+        {
+            // Proves the #PANEL guard does not over-reject a valid #PAN01 entry.
+            // Both headers start with "#PAN"; the guard must exclude only "#PANEL"
+            // while still routing "#PAN01" into wavPans.
+            var content =
+                "#WAV01: a.wav\n" +
+                "#PANEL: 2\n" +
+                "#PAN01: 75\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.False(chart.WavPans.ContainsKey("EL"));
+            Assert.True(chart.WavPans.ContainsKey("01"));
+            Assert.Equal(75, chart.WavPans["01"]);
+        }
+
+        [Fact]
+        public async Task ParseAsync_LowercasePanHeader_NormalizedToUpperAndStored()
+        {
+            // ParseHeaderCommand uppercases the command via ToUpperInvariant before
+            // the #PAN branch, so "#pan01" must still produce wavPans["01"].
+            // Pins the normalization contract that note/WAV id lookups rely on.
+            var content =
+                "#WAV01: a.wav\n" +
+                "#pan01: -30\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.True(chart.WavPans.ContainsKey("01"));
+            Assert.Equal(-30, chart.WavPans["01"]);
+        }
+
+        [Fact]
+        public async Task ParseAsync_PanelHeaderWithWhitespaceValue_StillExcludedFromPanMap()
+        {
+            // A #PANEL value with surrounding whitespace must still be ignored by the
+            // pan branch. The guard checks the command prefix, not the value, so
+            // whitespace-only or non-numeric values must not leak into wavPans.
+            var content =
+                "#WAV01: a.wav\n" +
+                "#PANEL:  \n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.False(chart.WavPans.ContainsKey("EL"));
+            Assert.Empty(chart.WavPans);
+        }
+
         #endregion
 
         #region Encoding Retry Isolation Tests
 
         /// <summary>
-        /// Regression guard: a valid UTF-8 DTX file must produce exactly the expected
-        /// note count. If chart/dict state were shared across encoding attempts (the old
-        /// design), a mid-parse throw + retry would duplicate notes. Per-attempt
-        /// instantiation in ParseAsync prevents this.
+        /// Basic correctness: a valid UTF-8 DTX file produces exactly the expected
+        /// note count and WAV definition count. This is NOT a regression guard for
+        /// the per-attempt state isolation in ParseAsync — the retry path is
+        /// unreachable through the public API because the parser is fully defensive
+        /// (no throw on malformed input) and Encoding.UTF8 uses replacement fallback
+        /// (no throw on invalid bytes). See the reflection test below for why
+        /// per-attempt instantiation matters, and see the comment in ParseAsync for
+        /// why the retry path exists as defensive hardening despite being currently
+        /// unreachable.
         /// </summary>
         [Fact]
-        public async Task ParseAsync_ValidFile_ProducesExactNoteCountWithoutDuplication()
+        public async Task ParseAsync_ValidFile_ProducesExactNoteAndWavCount()
         {
             // Channel 0x11 = LC lane. Note data is pairs of hex chars; "00" = rest.
             // "01020300" → 3 notes (pairs 01, 02, 03); pair 00 is a rest.
@@ -914,7 +972,6 @@ namespace DTXMania.Test.Song
             var chart = await DTXChartParser.ParseAsync(path);
 
             Assert.Equal(3, chart.TotalNotes);
-            // WAV definitions should also not be duplicated
             Assert.Equal(2, chart.WavDefinitions.Count);
         }
 
@@ -923,6 +980,13 @@ namespace DTXMania.Test.Song
         /// ParseFileContentAsync twice on the same ParsedChart (as the old shared-state
         /// design would on encoding retry) doubles the notes because Notes is a List
         /// populated via Add, not a dict that self-heals via key assignment.
+        ///
+        /// This is a documentation test, not a regression guard. The retry path in
+        /// ParseAsync is currently unreachable through the public API (the parser is
+        /// fully defensive and Encoding.UTF8 uses replacement fallback), so no
+        /// behavioral test can exercise the retry decision. This test proves the
+        /// hazard exists at the mechanical level, which is the reason per-attempt
+        /// instantiation is correct defensive hardening.
         /// </summary>
         [Fact]
         public async Task ParseFileContentAsync_CalledTwiceOnSameChart_AccumulatesNotesProvingSharedStateHazard()
@@ -963,6 +1027,76 @@ namespace DTXMania.Test.Song
             // Notes DOUBLED because Notes is a List<Note> — this proves the shared-state
             // hazard that ParseAsync's per-attempt instantiation eliminates.
             Assert.Equal(countAfterFirstPass * 2, chart.Notes.Count);
+        }
+
+        #endregion
+
+        #region Parse Failure Detection Tests
+
+        /// <summary>
+        /// An empty file (zero bytes) must parse successfully and return an empty
+        /// chart, not throw. This guards the parsed-flag failure detection: success
+        /// is determined by "no exception during parse" (parsed=true), NOT by
+        /// "chart has notes." The old Notes.Count==0 check would incorrectly throw
+        /// InvalidOperationException for an empty file if lastException were non-null
+        /// for any reason, and would incorrectly return a truncated chart if a
+        /// failed attempt added notes before throwing.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_EmptyFile_ReturnsEmptyChartWithoutThrowing()
+        {
+            var path = CreateTempDtx("");
+            // Write empty bytes explicitly (CreateTempDtx uses WriteAllText which
+            // may write a BOM; ensure truly empty)
+            File.WriteAllBytes(path, Array.Empty<byte>());
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(0, chart.TotalNotes);
+            Assert.Empty(chart.WavDefinitions);
+        }
+
+        /// <summary>
+        /// A file with only comments and whitespace must parse successfully and
+        /// return an empty chart. Same parsed-flag guard as the empty-file test,
+        /// but exercises the comment/whitespace skipping paths in ParseFileContentAsync.
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_FileWithOnlyCommentsAndWhitespace_ReturnsEmptyChart()
+        {
+            var content =
+                "// This is a comment\n" +
+                "   \n" +
+                "\n" +
+                "// Another comment\n" +
+                "  \t  \n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(0, chart.TotalNotes);
+            Assert.Empty(chart.WavDefinitions);
+        }
+
+        /// <summary>
+        /// A file with headers but no note data must parse successfully and return
+        /// a chart with zero notes. Guards that the parsed-flag check does not
+        /// conflate "no notes" with "parse failed."
+        /// </summary>
+        [Fact]
+        public async Task ParseAsync_HeadersOnly_NoNotes_ReturnsChartWithoutThrowing()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#WAV01: kick.wav\n" +
+                "#TITLE: Test Song\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(0, chart.TotalNotes);
+            Assert.Single(chart.WavDefinitions);
+            Assert.Equal(120.0, chart.Bpm);
         }
 
         #endregion
