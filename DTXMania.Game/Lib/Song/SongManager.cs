@@ -1269,9 +1269,14 @@ namespace DTXMania.Game.Lib.Song
                         else if (command.StartsWith("L") &&
                                  (command.EndsWith("LABEL") || command.EndsWith("FILE")))
                         {
-                            // Extract level number (L1LABEL -> 1, L1FILE -> 1)
+                            // Extract level number (L1LABEL -> 1, L1FILE -> 1).
+                            // Guard the slice length: a malformed command such as "#LABEL"
+                            // (length 5, LABEL suffix 6) would otherwise pass a negative length to
+                            // Substring and crash enumeration with ArgumentOutOfRangeException.
                             int suffixLength = command.EndsWith("LABEL") ? 6 : 5;
-                            if (int.TryParse(command.Substring(1, command.Length - suffixLength), out int level))
+                            int levelTokenLength = command.Length - suffixLength;
+                            if (levelTokenLength > 0 &&
+                                int.TryParse(command.Substring(1, levelTokenLength), out int level))
                             {
                                 if (!difficulties.ContainsKey(level))
                                     difficulties[level] = ("", "");
@@ -1445,7 +1450,14 @@ namespace DTXMania.Game.Lib.Song
                                     // badge without re-reading the SET.def. Legacy databases stored an empty
                                     // label, so GetSetDefLabelsByFile recovers it from disk at load time.
                                     if (!string.IsNullOrEmpty(label))
-                                        diffChart.DifficultyLabel = label;
+                                    {
+                                        // SongChart.DifficultyLabel is [MaxLength(50)]; clamp the
+                                        // raw SET.def value so an unusually long label cannot violate
+                                        // the persisted column contract.
+                                        diffChart.DifficultyLabel = label.Length > 50
+                                            ? label.Substring(0, 50)
+                                            : label;
+                                    }
 
                                     // Add each difficulty to EF Core database if we have the database service
                                     if (_databaseService != null)
