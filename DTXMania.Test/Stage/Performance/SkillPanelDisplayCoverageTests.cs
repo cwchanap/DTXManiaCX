@@ -73,6 +73,48 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
+        #region Difficulty Label Resolution
+
+        [Fact]
+        public void Constructor_ExplicitDifficultyLabel_ShouldBeUsedForBadge()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), null, "MASTER"));
+
+            Assert.Equal("MASTER", GetPrivateField<string?>(display, "_difficultyLabel"));
+            display.Dispose();
+        }
+
+        [Fact]
+        public void Constructor_NoExplicitLabel_ShouldFallBackToChartLabel()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var chart = new SongChart { DifficultyLabel = "EXTREME" };
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), chart, null));
+
+            Assert.Equal("EXTREME", GetPrivateField<string?>(display, "_difficultyLabel"));
+            display.Dispose();
+        }
+
+        [Fact]
+        public void Constructor_WhitespaceLabel_ShouldFallBackToChartLabel()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var chart = new SongChart { DifficultyLabel = "BASIC" };
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), chart, "   "));
+
+            Assert.Equal("BASIC", GetPrivateField<string?>(display, "_difficultyLabel"));
+            display.Dispose();
+        }
+
+        #endregion
+
         #region Update Tests
 
         [Fact]
