@@ -1551,7 +1551,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
-                        Level = chart.DrumLevel, // Use actual difficulty level (3.60, 6.00, etc.) for display
+                        // DrumLevel is tenths-encoded (e.g. 36 == 3.60), matching the level
+                        // convention in SkillPanelDisplay/SongScore. DrawDifficultyCellContent
+                        // divides by 10 to render the display value.
+                        Level = chart.DrumLevel,
                         InstrumentColumn = 0, // Drums column
                         InstrumentName = "DRUMS",
                         Chart = chart

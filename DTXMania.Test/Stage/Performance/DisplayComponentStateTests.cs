@@ -108,6 +108,24 @@ namespace DTXMania.Test.Stage.Performance
             Assert.NotNull(ex.InnerException);
         }
 
+        [Fact]
+        public void ScoreDisplay_Constructor_WhenFontFailsButBitmapAvailable_ShouldNotThrow()
+        {
+            // The system font is only a fallback for the bitmap score sprite. When the bitmap
+            // loads successfully, a font-load failure must not abort construction because Draw()
+            // takes the bitmap render path and never touches the font.
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager
+                .Setup(r => r.LoadTexture(TexturePath.ScoreNumbers))
+                .Returns(new Mock<ITexture>().Object);
+
+            using var display = WithManagedFontFactoryUnavailable(() =>
+                new ScoreDisplay(resourceManager.Object, CreateGraphicsDeviceStub()));
+
+            Assert.NotNull(GetPrivateField<ITexture>(display, "_scoreNumbersTexture"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_scoreFont"));
+        }
+
         #endregion
 
         #region ComboDisplay State Tests

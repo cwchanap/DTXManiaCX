@@ -165,14 +165,16 @@ namespace DTXMania.Test.Song
             // DTXMania SET.def files are commonly UTF-16; read as UTF-8 they appear as the
             // spaced "# L 1 L A B E L   B A S I C" form. NormalizeSetDefLine must repair this so
             // the difficulty badge still resolves. This mirrors the real on-disk file that
-            // exposed the original bug.
+            // exposed the original bug. The L5 label is non-ASCII (Japanese) to verify the
+            // UTF-16 round-trip preserves multibyte characters, not just ASCII tier names.
             var dir = CreateTempDirectory();
             var content =
                 "#TITLE Soukyuu\r\n" +
                 "#L1LABEL BASIC\r\n#L1FILE bas.dtx\r\n" +
                 "#L2LABEL ADVANCED\r\n#L2FILE adv.dtx\r\n" +
                 "#L3LABEL EXTREME\r\n#L3FILE ext.dtx\r\n" +
-                "#L4LABEL MASTER\r\n#L4FILE mas.dtx\r\n";
+                "#L4LABEL MASTER\r\n#L4FILE mas.dtx\r\n" +
+                "#L5LABEL 初級\r\n#L5FILE haj.dtx\r\n";
             File.WriteAllText(Path.Combine(dir, "set.def"), content, Encoding.Unicode);
 
             var labels = _songManager.GetSetDefLabelsByFile(dir);
@@ -181,6 +183,7 @@ namespace DTXMania.Test.Song
             Assert.Equal("ADVANCED", labels["adv.dtx"]);
             Assert.Equal("EXTREME", labels["ext.dtx"]);
             Assert.Equal("MASTER", labels["mas.dtx"]);
+            Assert.Equal("初級", labels["haj.dtx"]);
         }
 
         [Trait("Category", "Unit")]
@@ -192,6 +195,27 @@ namespace DTXMania.Test.Song
             var labels = _songManager.GetSetDefLabelsByFile(dir);
 
             Assert.Empty(labels);
+        }
+
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void GetSetDefLabelsByFile_MalformedLCommand_ShouldNotThrow()
+        {
+            // A command like "#LABEL" starts with 'L' and ends with "LABEL" but is shorter than
+            // the 6-char LABEL suffix. The level-token slice length is therefore negative and must
+            // be guarded so Substring does not throw ArgumentOutOfRangeException during enumeration.
+            var dir = CreateTempDirectory();
+            var content =
+                "#TITLE Soukyuu\n" +
+                "#LABEL StrayLabel\n" +
+                "#LFILE OrphanFile\n" +
+                "#L1LABEL BASIC\n#L1FILE bas.dtx\n";
+            File.WriteAllText(Path.Combine(dir, "set.def"), content, Encoding.UTF8);
+
+            var labels = _songManager.GetSetDefLabelsByFile(dir);
+
+            // The malformed lines are skipped; the well-formed L1 pair still resolves.
+            Assert.Equal("BASIC", labels["bas.dtx"]);
         }
 
         #endregion
@@ -248,6 +272,40 @@ namespace DTXMania.Test.Song
             Assert.Equal("ADVANCED", song.DifficultyLabels[1]);
             Assert.Equal("EXTREME", song.DifficultyLabels[2]);
             Assert.Equal("MASTER", song.DifficultyLabels[3]);
+        }
+
+        [Trait("Category", "Integration")]
+        [Fact]
+        public async System.Threading.Tasks.Task BuildSongListFromDatabase_OverlongDifficultyLabel_ShouldBeClampedToMaxLength()
+        {
+            // SongChart.DifficultyLabel is [MaxLength(50)]. A raw SET.def label longer than that
+            // must be clamped before persistence so the column contract is never violated.
+            var dir = CreateTempDirectory();
+            var overlongLabel = new string('A', 60); // 60 chars > 50
+            var setDefContent =
+                "#TITLE Clamp test\n" +
+                "#L1LABEL " + overlongLabel + "\n#L1FILE bas.dtx\n";
+            File.WriteAllText(Path.Combine(dir, "set.def"), setDefContent, Encoding.UTF8);
+            File.WriteAllText(Path.Combine(dir, "bas.dtx"), "#TITLE: Clamp test\n#DLEVEL: 36", Encoding.UTF8);
+
+            await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+            await _songManager.EnumerateSongsAsync(new[] { dir });
+            await _songManager.BuildSongListFromDatabasePublicAsync(new[] { dir });
+
+            SongListNode? song = null;
+            foreach (var node in _songManager.RootSongs)
+            {
+                if (node.Type == NodeType.Score)
+                {
+                    song = node;
+                    break;
+                }
+            }
+            Assert.NotNull(song);
+
+            var persistedChart = song!.DatabaseChart ?? song.DatabaseSong?.Charts?.FirstOrDefault();
+            Assert.NotNull(persistedChart);
+            Assert.Equal(50, persistedChart!.DifficultyLabel.Length);
         }
 
         #endregion

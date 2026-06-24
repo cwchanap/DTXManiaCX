@@ -129,7 +129,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException("ScoreDisplay could not be initialized because the font could not be loaded.", ex);
+                // The system font is only a fallback for the bitmap score sprite. When the bitmap
+                // loaded successfully the display can render without it, so treat the font as
+                // optional. Only abort construction when neither the bitmap nor the font is
+                // available (Draw() would otherwise have nothing to render).
+                if (_scoreNumbersTexture == null)
+                {
+                    throw new InvalidOperationException(
+                        "ScoreDisplay could not be initialized because the font could not be loaded.", ex);
+                }
             }
         }
 
