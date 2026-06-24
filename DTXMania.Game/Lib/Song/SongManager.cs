@@ -1196,6 +1196,130 @@ namespace DTXMania.Game.Lib.Song
             return $"#{parts[0]} {string.Join(" ", parts.Skip(1))}";
         }
 
+        /// <summary>
+        /// Reads a SET.def file, trying the same encodings as enumeration (UTF-8 first, then
+        /// the system default and Shift_JIS). Returns null when the file cannot be read with
+        /// any encoding. NormalizeSetDefLine repairs the BOM/null-byte/spaced artifacts that
+        /// result from reading a Shift_JIS or UTF-16 SET.def as UTF-8.
+        /// </summary>
+        private static string[]? ReadSetDefLines(string setDefPath)
+        {
+            var encodings = new List<Encoding> { Encoding.UTF8, Encoding.Default };
+            try
+            {
+                encodings.Add(Encoding.GetEncoding("Shift_JIS"));
+            }
+            catch (ArgumentException)
+            {
+                Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
+            }
+
+            foreach (var encoding in encodings)
+            {
+                try
+                {
+                    return File.ReadAllLines(setDefPath, encoding);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Parses the #TITLE and #Ln(LABEL|FILE) commands out of SET.def lines into the
+        /// title plus a per-difficulty (label, file) map keyed by the L-slot number. Shared by
+        /// enumeration (ParseSetDefinitionAsync) and the database-load path so the difficulty
+        /// badge can recover the authentic difficulty label from the SET.def.
+        /// </summary>
+        private (string title, Dictionary<int, (string label, string file)> difficulties) ParseSetDefContent(
+            string[] lines, CancellationToken cancellationToken)
+        {
+            string songTitle = "";
+            var difficulties = new Dictionary<int, (string label, string file)>();
+
+            foreach (var line in lines)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
+                    continue;
+
+                // Parse SET.def commands with robust parsing for corrupted/spaced text
+                if (trimmedLine.StartsWith("#") || trimmedLine.Contains("#"))
+                {
+                    // Handle both normal and spaced-out command formats
+                    string normalizedLine = NormalizeSetDefLine(trimmedLine);
+
+                    if (string.IsNullOrEmpty(normalizedLine)) continue;
+
+                    var parts = normalizedLine.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        var command = parts[0].Substring(1).ToUpperInvariant(); // Remove # and convert to uppercase
+                        var value = parts[1].Trim();
+
+                        if (command == "TITLE")
+                        {
+                            songTitle = value;
+                        }
+                        else if (command.StartsWith("L") &&
+                                 (command.EndsWith("LABEL") || command.EndsWith("FILE")))
+                        {
+                            // Extract level number (L1LABEL -> 1, L1FILE -> 1)
+                            int suffixLength = command.EndsWith("LABEL") ? 6 : 5;
+                            if (int.TryParse(command.Substring(1, command.Length - suffixLength), out int level))
+                            {
+                                if (!difficulties.ContainsKey(level))
+                                    difficulties[level] = ("", "");
+
+                                if (command.EndsWith("LABEL"))
+                                    difficulties[level] = (value, difficulties[level].file);
+                                else
+                                    difficulties[level] = (difficulties[level].label, value);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return (songTitle, difficulties);
+        }
+
+        /// <summary>
+        /// Reads the SET.def in <paramref name="directory"/> (if any) and returns a map of
+        /// chart file name (e.g. "bas.dtx", case-insensitive) to its authentic #LnLABEL
+        /// (e.g. "BASIC"). The database-load path uses this to recover difficulty-tier labels
+        /// for the performance-stage difficulty badge when the persisted SongChart.DifficultyLabel
+        /// is empty (legacy databases never stored it). Returns an empty map when there is no
+        /// SET.def or it declares no labelled difficulties.
+        /// </summary>
+        internal Dictionary<string, string> GetSetDefLabelsByFile(string directory)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(directory))
+                return result;
+
+            var setDefPath = Path.Combine(directory, "set.def");
+            if (!File.Exists(setDefPath))
+                return result;
+
+            var lines = ReadSetDefLines(setDefPath);
+            if (lines == null)
+                return result;
+
+            var (_, difficulties) = ParseSetDefContent(lines, CancellationToken.None);
+            foreach (var (label, file) in difficulties.Values)
+            {
+                if (!string.IsNullOrEmpty(file) && !string.IsNullOrEmpty(label))
+                    result[file] = label;
+            }
+            return result;
+        }
+
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
         {
             var results = new List<SongListNode>();
@@ -1242,54 +1366,7 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 SongListNode? currentSong = null;
-                string songTitle = "";
-                var difficulties = new Dictionary<int, (string label, string file)>();
-
-                foreach (var line in lines)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var trimmedLine = line.Trim();
-                    if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("//"))
-                        continue;
-
-                    // Parse SET.def commands with robust parsing for corrupted/spaced text
-                    if (trimmedLine.StartsWith("#") || trimmedLine.Contains("#"))
-                    {
-                        // Handle both normal and spaced-out command formats
-                        string normalizedLine = NormalizeSetDefLine(trimmedLine);
-                        
-                        if (string.IsNullOrEmpty(normalizedLine)) continue;
-                        
-                        var parts = normalizedLine.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length >= 2)
-                        {
-                            var command = parts[0].Substring(1).ToUpperInvariant(); // Remove # and convert to uppercase
-                            var value = parts[1].Trim();
-
-                            if (command == "TITLE")
-                            {
-                                songTitle = value;
-                            }
-                            else if (command.StartsWith("L") &&
-                                     (command.EndsWith("LABEL") || command.EndsWith("FILE")))
-                            {
-                                // Extract level number (L1LABEL -> 1, L1FILE -> 1)
-                                int suffixLength = command.EndsWith("LABEL") ? 6 : 5;
-                                if (int.TryParse(command.Substring(1, command.Length - suffixLength), out int level))
-                                {
-                                    if (!difficulties.ContainsKey(level))
-                                        difficulties[level] = ("", "");
-                                    
-                                    if (command.EndsWith("LABEL"))
-                                        difficulties[level] = (value, difficulties[level].file);
-                                    else
-                                        difficulties[level] = (difficulties[level].label, value);
-                                }
-                            }
-                        }
-                    }
-                }
+                var (songTitle, difficulties) = ParseSetDefContent(lines, cancellationToken);
 
                 // Store the SET.def title (may be empty if parsing failed)
                 string setDefTitle = songTitle;
@@ -1362,6 +1439,13 @@ namespace DTXMania.Game.Lib.Song
 
                                     // Set the chart difficulty level from SET.def (L1, L2, L3, L5 etc.)
                                     diffChart.DifficultyLevel = level;
+
+                                    // Persist the SET.def difficulty label (BASIC/ADVANCED/EXTREME/...) on the
+                                    // chart so the database-load path can drive the performance-stage difficulty
+                                    // badge without re-reading the SET.def. Legacy databases stored an empty
+                                    // label, so GetSetDefLabelsByFile recovers it from disk at load time.
+                                    if (!string.IsNullOrEmpty(label))
+                                        diffChart.DifficultyLabel = label;
 
                                     // Add each difficulty to EF Core database if we have the database service
                                     if (_databaseService != null)
@@ -2519,6 +2603,12 @@ namespace DTXMania.Game.Lib.Song
                 // If there are multiple charts, populate the difficulties
                 if (charts.Length > 1)
                 {
+                    // Recover the authentic difficulty-tier labels (BASIC/ADVANCED/EXTREME/...) from the
+                    // SET.def when the persisted chart label is empty, so the performance-stage difficulty
+                    // badge selects the matching cell instead of always falling back to the DTX cell.
+                    // Legacy databases stored an empty SongChart.DifficultyLabel.
+                    var setDefLabels = GetSetDefLabelsByFile(Path.GetDirectoryName(primaryChart.FilePath) ?? "");
+
                     int scoreIndex = 0;
                     foreach (var chart in charts.Take(5)) // Limit to 5 difficulties
                     {
@@ -2544,15 +2634,17 @@ namespace DTXMania.Game.Lib.Song
                             difficultyLevel = chart.BassLevel;
                         }
 
+                        string difficultyLabelText = ResolveDifficultyLabel(chart, setDefLabels, scoreIndex);
+
                         songNode.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
                         {
                             ChartId = chart.Id,
                             Instrument = primaryInstrument,
                             DifficultyLevel = difficultyLevel,
-                            DifficultyLabel = $"Level {scoreIndex + 1}"
+                            DifficultyLabel = difficultyLabelText
                         };
 
-                        songNode.DifficultyLabels[scoreIndex] = $"Level {scoreIndex + 1}";
+                        songNode.DifficultyLabels[scoreIndex] = difficultyLabelText;
                         scoreIndex++;
                     }
                 }
@@ -2567,6 +2659,27 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Error creating song node from database entities: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Resolves the difficulty-tier label shown by the performance-stage difficulty badge for a
+        /// chart. Prefers the persisted <see cref="SongChart.DifficultyLabel"/>, then the SET.def
+        /// #LnLABEL recovered by matching the chart's file name (e.g. "bas.dtx" -> "BASIC"), and
+        /// finally a synthetic "Level N" placeholder when no authentic label is available.
+        /// </summary>
+        internal static string ResolveDifficultyLabel(SongChart chart, IReadOnlyDictionary<string, string> setDefLabels, int scoreIndex)
+        {
+            if (!string.IsNullOrWhiteSpace(chart.DifficultyLabel))
+                return chart.DifficultyLabel;
+
+            if (setDefLabels != null && !string.IsNullOrEmpty(chart.FilePath))
+            {
+                var fileName = Path.GetFileName(chart.FilePath);
+                if (setDefLabels.TryGetValue(fileName, out var label) && !string.IsNullOrWhiteSpace(label))
+                    return label;
+            }
+
+            return $"Level {scoreIndex + 1}";
         }
 
         /// <summary>
