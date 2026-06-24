@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
@@ -557,6 +558,49 @@ public class SongManagerCoverageTests : IDisposable
         var results = await task!;
         
         Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task ParseSetDefinitionAsync_WithUtf16SetDef_ShouldRecoverLabelViaSharedEncodings()
+    {
+        // Both the async enumeration path (ParseSetDefinitionAsync) and the sync database-load
+        // path (ReadSetDefLines -> GetSetDefLabelsByFile) now share BuildSetDefEncodings.
+        // A UTF-16 SET.def read as UTF-8 appears as the spaced "# L 1 L A B E L ..." form that
+        // NormalizeSetDefLine must repair. This locks in the invariant that the async path uses
+        // the same encoding fallback chain as the sync path (which is covered separately in
+        // SongManagerDifficultyLabelTests.GetSetDefLabelsByFile_Utf16SpacedFormat).
+        var setFolder = Path.Combine(_testRoot, "Utf16Set");
+        var setDefPath = Path.Combine(setFolder, "set.def");
+        Directory.CreateDirectory(setFolder);
+
+        var setDefContent =
+            "#TITLE Utf16 Song\r\n" +
+            "#L1LABEL BASIC\r\n#L1FILE bas.dtx\r\n";
+        await File.WriteAllTextAsync(setDefPath, setDefContent, Encoding.Unicode);
+
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "bas.dtx"), """
+#TITLE: Utf16 Song
+#BPM: 140
+#DLEVEL: 50
+#00002:11111111
+""");
+
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+
+        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+            _manager,
+            "ParseSetDefinitionAsync",
+            setDefPath,
+            null!,
+            CancellationToken.None);
+
+        Assert.NotNull(task);
+        var results = await task!;
+
+        var node = Assert.Single(results);
+        // The recovered SET.def label proves the UTF-16 file was decoded through the shared
+        // encoding chain and repaired by NormalizeSetDefLine on the async path.
+        Assert.Equal("BASIC", node.DifficultyLabels[0]);
     }
 
     [Fact]
