@@ -21,6 +21,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private readonly GraphicsDevice _graphicsDevice;
         private readonly SongChart? _chart;
+        private readonly string? _difficultyLabel;
         private ManagedFont? _font;
         private ITexture? _maxBadgeTexture;
         private ITexture? _smallRateNumbersTexture;
@@ -61,11 +62,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public SkillPanelDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice, SongChart? chart)
+        public SkillPanelDisplay(IResourceManager resourceManager, GraphicsDevice graphicsDevice, SongChart? chart, string? difficultyLabel = null)
         {
             if (resourceManager == null) throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice  = graphicsDevice  ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart           = chart;
+            // The DB-loaded chart carries no difficulty label (DifficultyLabel is never written and the
+            // DifficultyLabels dict is [NotMapped]), so the per-level badge name is supplied by the caller
+            // from SongListNode.DifficultyLabels[index]. Fall back to the chart's own label if present.
+            _difficultyLabel = !string.IsNullOrWhiteSpace(difficultyLabel) ? difficultyLabel : chart?.DifficultyLabel;
 
             try
             {
@@ -152,7 +157,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _difficultyPanelTexture.Draw(
                     spriteBatch,
                     new Vector2(iconBounds.X, iconBounds.Y),
-                    GetDifficultyPanelSourceRect(_chart?.DifficultyLabel));
+                    GetDifficultyPanelSourceRect(_difficultyLabel));
             }
 
             string levelText = FormatLevelText(level, levelDec);

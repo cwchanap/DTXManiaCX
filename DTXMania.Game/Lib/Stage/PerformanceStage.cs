@@ -366,7 +366,15 @@ namespace DTXMania.Game.Lib.Stage
             // Skill displays (SkillManager itself is constructed in InitializeGameplayManagers
             // because it needs ComboManager + ChartManager.TotalNotes which arrive later)
             var skillChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
-            _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart);
+            // The difficulty badge name comes from the selected song-select slot (the chart entity has
+            // none once loaded from the DB). This is the same label the song-select panel shows.
+            string? difficultyLabel = null;
+            var labels = _selectedSong?.DifficultyLabels;
+            if (labels != null && _selectedDifficulty >= 0 && _selectedDifficulty < labels.Length)
+            {
+                difficultyLabel = labels[_selectedDifficulty];
+            }
+            _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart, difficultyLabel);
             _skillMeterDisplay = new SkillMeterDisplay(_resourceManager, graphicsDevice);
 
             // Initialize Phase 2 components
