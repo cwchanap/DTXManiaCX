@@ -152,6 +152,33 @@ namespace DTXMania.Game.Lib.Resources
         public const string GraphPanelGuitarBass = "Graphics/5_graph panel guitar bass.png";
 
         /// <summary>
+        /// Difficulty/level number bitmap font for the song-select status panel (250x28).
+        /// Sprite layout: digits 0-9 at (d*20,0,20,28), '.' (200,0,10,28), '-' (210,0,20,28), '?' (230,0,20,28).
+        /// NX: txDifficultyNumber. Also used for the skill-point value.
+        /// </summary>
+        public const string SongSelectDifficultyNumber = "Graphics/5_level number.png";
+
+        /// <summary>
+        /// Achievement-rate number bitmap font for the song-select difficulty grid (138x20).
+        /// Sprite layout: digits 0-9 at (d*12,0,12,20), '.' (120,0,6,20), '%' (126,0,12,20).
+        /// NX: txAchievementRateNumber.
+        /// </summary>
+        public const string SongSelectAchievementNumber = "Graphics/5_skill number.png";
+
+        /// <summary>
+        /// Achievement-rate MAX badge drawn instead of the number when a cell is 100% (53x20).
+        /// NX: tx達成率MAX.
+        /// </summary>
+        public const string SongSelectAchievementMax = "Graphics/5_skill max.png";
+
+        /// <summary>
+        /// BPM/length/total-notes number bitmap font for the song-select status panel (132x20).
+        /// Sprite layout: digits 0-9 at (d*12,0,12,20), ':' (123,0,6,20).
+        /// NX: txBPM数字.
+        /// </summary>
+        public const string SongSelectBpmNumber = "Graphics/5_bpm font.png";
+
+        /// <summary>
         /// Comment bar background texture for artist name and song comments
         /// </summary>
         public const string CommentBar = "Graphics/5_comment bar.png";
@@ -498,6 +525,10 @@ namespace DTXMania.Game.Lib.Resources
                 DifficultyFrame,
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
+                SongSelectDifficultyNumber,
+                SongSelectAchievementNumber,
+                SongSelectAchievementMax,
+                SongSelectBpmNumber,
                 SkillIcon,
                 CommentBar,
                 BarScore,
@@ -610,6 +641,10 @@ namespace DTXMania.Game.Lib.Resources
                 DifficultyFrame,
                 GraphPanelDrums,
                 GraphPanelGuitarBass,
+                SongSelectDifficultyNumber,
+                SongSelectAchievementNumber,
+                SongSelectAchievementMax,
+                SongSelectBpmNumber,
                 CommentBar,
                 BarScore,
                 BarScoreSelected,

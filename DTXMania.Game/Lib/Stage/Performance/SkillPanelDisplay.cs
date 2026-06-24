@@ -170,6 +170,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 DrawFallbackText(spriteBatch, "%", PerformanceUILayout.SkillPanel.SkillPercent.PercentPosition);
             }
 
+            // Game skill ("曲別SKILL"): the level-weighted skill value NX draws near the bottom of
+            // the panel via tCalculateGameSkillFromPlayingSkill. Without this the panel's SKILL slot
+            // shows no number. Reuses the large rate-number sprite, mirroring NX t大文字表示.
+            string gameSkillText = FormatSkillText(SongScore.CalculateGameSkill(Skill, level, levelDec));
+            if (_largeRateNumbersTexture != null)
+            {
+                DrawLargeRateText(spriteBatch, gameSkillText, PerformanceUILayout.SkillPanel.GameSkill.NumbersPosition);
+            }
+            else
+            {
+                DrawFallbackText(spriteBatch, gameSkillText, PerformanceUILayout.SkillPanel.GameSkill.NumbersPosition);
+            }
+
             DrawJudgementCounts(spriteBatch);
 
             if (ShowMax && _maxBadgeTexture != null)

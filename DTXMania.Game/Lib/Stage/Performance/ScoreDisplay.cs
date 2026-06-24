@@ -16,7 +16,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private readonly GraphicsDevice _graphicsDevice;
         private ManagedFont _scoreFont;
+        private ManagedFont _titleFont;
         private readonly Vector2 _position;
+        private const string TitleText = "SCORE";
         private int _currentScore = 0;
         private string _scoreText = "0000000";
         private Color _textColor = Color.White;
@@ -135,6 +137,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || spriteBatch == null || _scoreFont == null)
                 return;
 
+            // Draw the "SCORE" title above the digits. The performance background is plain,
+            // so the label must be rendered here (its slot is PerformanceUILayout.Score.LabelPosition).
+            _titleFont?.DrawStringWithShadow(
+                spriteBatch,
+                TitleText,
+                PerformanceUILayout.Score.LabelPosition,
+                _textColor,
+                _shadowColor,
+                _shadowOffset
+            );
+
             // Draw score with shadow effect
             _scoreFont.DrawStringWithShadow(
                 spriteBatch,
@@ -162,11 +175,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     32,
                     FontStyle.Bold
                 );
+
+                // Smaller font for the "SCORE" title that sits in the 86x28 label slot above the digits.
+                _titleFont = ManagedFont.CreateFont(
+                    _graphicsDevice,
+                    "NotoSerifJP",
+                    22,
+                    FontStyle.Bold
+                );
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ScoreDisplay: Failed to load font: {ex.Message}");
                 _scoreFont = null;
+                _titleFont = null;
                 throw;
             }
         }
@@ -190,6 +212,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // Dispose managed resources
                     _scoreFont?.Dispose();
                     _scoreFont = null;
+                    _titleFont?.Dispose();
+                    _titleFont = null;
                 }
 
                 _disposed = true;
