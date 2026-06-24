@@ -355,7 +355,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             }
             
             /// <summary>
-            /// Large skill percentage display
+            /// Large skill percentage display (達成率 / achievement rate)
             /// </summary>
             public static class SkillPercent
             {
@@ -363,6 +363,15 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static readonly Vector2 PercentPosition = new Vector2(239, 537);
                 public static readonly Vector2 MaxBadgePosition = new Vector2(149, 527);
                 public const int DigitWidth = 28;
+            }
+
+            /// <summary>
+            /// Game skill value (曲別SKILL) drawn near the bottom of the panel.
+            /// NX CActPerfDrumsStatusPanel: t大文字表示(88 + n本体X, 363 + n本体Y) with n本体X=22, n本体Y=250.
+            /// </summary>
+            public static class GameSkill
+            {
+                public static readonly Vector2 NumbersPosition = new Vector2(110, 613);
             }
             
             /// <summary>
