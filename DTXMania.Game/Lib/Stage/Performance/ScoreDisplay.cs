@@ -17,8 +17,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly GraphicsDevice _graphicsDevice;
         private ManagedFont _scoreFont;
         private ManagedFont _titleFont;
+        private ITexture _scoreNumbersTexture;
         private readonly Vector2 _position;
         private const string TitleText = "SCORE";
+
+        // 7_score numbersGD.png layout (NX CActPerfDrumsScore): ten 36x50 digit cells on the top row,
+        // and the "SCORE" label sprite at (0,50,86,28).
+        private const int DigitCellWidth = 36;
+        private const int DigitCellHeight = 50;
+        private static readonly Rectangle LabelSourceRect = new Rectangle(0, 50, 86, 28);
         private int _currentScore = 0;
         private string _scoreText = "0000000";
         private Color _textColor = Color.White;
@@ -103,7 +110,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Initialize with default score
             Score = 0;
 
-            // Load font
+            // Preferred renderer: the DTXManiaNX 7_score numbersGD.png bitmap font, which places the
+            // digits and "SCORE" label at exact pixel positions. The system font is only a fallback.
+            try
+            {
+                _scoreNumbersTexture = resourceManager.LoadTexture(TexturePath.ScoreNumbers);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ScoreDisplay: Failed to load score numbers texture: {ex.Message}");
+                _scoreNumbersTexture = null;
+            }
+
+            // Load font (used as the fallback when the bitmap is unavailable).
             try
             {
                 LoadFont();
@@ -134,11 +153,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="spriteBatch">SpriteBatch for drawing</param>
         public void Draw(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _scoreFont == null)
+            if (_disposed || spriteBatch == null)
                 return;
 
-            // Draw the "SCORE" title above the digits. The performance background is plain,
-            // so the label must be rendered here (its slot is PerformanceUILayout.Score.LabelPosition).
+            // Preferred: bitmap font, positioned exactly as DTXManiaNX (digits start at
+            // Score.FirstDigitPosition, advancing by DigitSpacing; label sprite at Score.LabelPosition).
+            if (_scoreNumbersTexture != null)
+            {
+                DrawBitmapScore(spriteBatch);
+                return;
+            }
+
+            if (_scoreFont == null)
+                return;
+
+            // Fallback: system font. Draw the "SCORE" title above the digits since the bitmap label
+            // sprite is unavailable here.
             _titleFont?.DrawStringWithShadow(
                 spriteBatch,
                 TitleText,
@@ -157,6 +187,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _shadowColor,
                 _shadowOffset
             );
+        }
+
+        /// <summary>
+        /// Draws the score using the 7_score numbersGD.png bitmap, mirroring DTXManiaNX
+        /// CActPerfDrumsScore: the "SCORE" label sprite followed by seven 36x50 digit cells.
+        /// </summary>
+        private void DrawBitmapScore(SpriteBatch spriteBatch)
+        {
+            // "SCORE" label sprite.
+            _scoreNumbersTexture.Draw(spriteBatch, PerformanceUILayout.Score.LabelPosition, LabelSourceRect);
+
+            var digitPos = PerformanceUILayout.Score.FirstDigitPosition;
+            for (int i = 0; i < _scoreText.Length; i++)
+            {
+                char c = _scoreText[i];
+                if (c >= '0' && c <= '9')
+                {
+                    var source = new Rectangle((c - '0') * DigitCellWidth, 0, DigitCellWidth, DigitCellHeight);
+                    var position = new Vector2(digitPos.X + i * PerformanceUILayout.Score.DigitSpacing, digitPos.Y);
+                    _scoreNumbersTexture.Draw(spriteBatch, position, source);
+                }
+            }
         }
 
         #endregion
@@ -214,6 +266,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _scoreFont = null;
                     _titleFont?.Dispose();
                     _titleFont = null;
+                    _scoreNumbersTexture?.RemoveReference();
+                    _scoreNumbersTexture = null;
                 }
 
                 _disposed = true;

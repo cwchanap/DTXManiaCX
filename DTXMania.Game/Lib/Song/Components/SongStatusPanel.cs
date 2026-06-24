@@ -1027,7 +1027,11 @@ namespace DTXMania.Game.Lib.Song.Components
             if (score == null)
                 return;
 
-            double rate = Math.Clamp(score.HighSkill, 0.0, 100.0);
+            // NX draws the achievement rate (達成率 / playing skill, 0-100) here — db現在選択中の曲の最高スキル値,
+            // sourced from SongInformation.HighSkill = dbPerformanceSkill. That maps to BestAchievementRate,
+            // NOT HighSkill (which holds the level-weighted game skill and routinely exceeds 100, wrongly
+            // triggering the MAX badge for non-perfect plays).
+            double rate = Math.Clamp(score.BestAchievementRate, 0.0, 100.0);
             if (rate <= 0.0)
                 return; // NX draws the rate only when the value is non-zero
 
@@ -1406,20 +1410,13 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private Color GetDrumLaneColor(int lane)
         {
-            // Colors for drum lanes: LC, HH, LP, SD, HT, BD, LT, FT, CY
-            return lane switch
-            {
-                0 => Color.Purple,    // LC
-                1 => Color.Yellow,    // HH
-                2 => Color.Purple,    // LP
-                3 => Color.Red,       // SD
-                4 => Color.Blue,      // HT
-                5 => Color.Orange,    // BD
-                6 => Color.Blue,      // LT
-                7 => Color.Green,     // FT
-                8 => Color.Cyan,      // CY
-                _ => Color.White
-            };
+            // Color each distribution bar by its drum lane, reusing the authentic gameplay lane
+            // palette (LC, HH, LP, SN, HT, DB, LT, FT, CY, RD) so the song-select bars match the
+            // colors a player sees in the performance stage. The previous ad-hoc 9-entry table used
+            // the wrong hues and left lane 9 (RD) white.
+            if (lane >= 0 && lane < PerformanceUILayout.LaneCount)
+                return PerformanceUILayout.GetLaneColor(lane);
+            return Color.White;
         }
 
         private Color GetGuitarBassLaneColor(int lane)

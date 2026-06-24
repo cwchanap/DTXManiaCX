@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Stage.Performance;
+using Microsoft.Xna.Framework;
 using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
@@ -54,6 +55,40 @@ namespace DTXMania.Test.Stage.Performance
         public void FormatJudgementPercent_WithVariousInputs_ShouldReturnThreeColumnPercent(int count, int total, string expected)
         {
             Assert.Equal(expected, SkillPanelDisplay.FormatJudgementPercent(count, total));
+        }
+
+        // Difficulty badge cell selection mirrors Script/difficult.dtxs scene 7 (7_Difficulty.png is a
+        // 60x720 vertical strip of twelve 60x60 cells; all cells share X=0, the label picks the Y row).
+        [Theory]
+        [InlineData("DTX", 0)]
+        [InlineData("DEBUT", 60)]
+        [InlineData("NOVICE", 120)]
+        [InlineData("REGULAR", 180)]
+        [InlineData("EXPERT", 240)]
+        [InlineData("MASTER", 300)]
+        [InlineData("BASIC", 360)]
+        [InlineData("ADVANCED", 420)]
+        [InlineData("EXTREME", 480)]
+        [InlineData("RAW", 540)]
+        [InlineData("RWS", 600)]
+        [InlineData("REAL", 660)]
+        [InlineData("extreme", 480)]   // case-insensitive
+        [InlineData("  MASTER  ", 300)] // trimmed
+        public void GetDifficultyPanelSourceRect_KnownLabels_SelectExpectedCell(string label, int expectedY)
+        {
+            var rect = SkillPanelDisplay.GetDifficultyPanelSourceRect(label);
+            Assert.Equal(new Rectangle(0, expectedY, 60, 60), rect);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Level 3")]
+        [InlineData("SPECIAL")]
+        public void GetDifficultyPanelSourceRect_UnknownLabel_FallsBackToFirstCell(string? label)
+        {
+            var rect = SkillPanelDisplay.GetDifficultyPanelSourceRect(label);
+            Assert.Equal(new Rectangle(0, 0, 60, 60), rect);
         }
 
         [Fact]

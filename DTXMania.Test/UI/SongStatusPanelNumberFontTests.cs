@@ -1,5 +1,6 @@
 using System.Reflection;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -85,6 +86,36 @@ namespace DTXMania.Test.UI
         public void MeasureBpmNumberWidth_ReturnsTotalAdvanceWidth(string text, int expected)
         {
             Assert.Equal(expected, SongStatusPanel.MeasureBpmNumberWidth(text));
+        }
+
+        private static Color InvokeDrumLaneColor(int lane)
+        {
+            var panel = new SongStatusPanel();
+            var method = typeof(SongStatusPanel).GetMethod(
+                "GetDrumLaneColor", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
+            return (Color)method!.Invoke(panel, new object[] { lane })!;
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(4)]
+        [InlineData(5)]
+        [InlineData(9)]
+        public void GetDrumLaneColor_MatchesAuthenticGameplayLaneColor(int lane)
+        {
+            // The distribution bars must be colored by lane type using the same palette as the
+            // performance stage (regression guard against the old ad-hoc color table).
+            Assert.Equal(PerformanceUILayout.GetLaneColor(lane), InvokeDrumLaneColor(lane));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(10)]
+        public void GetDrumLaneColor_OutOfRange_ReturnsWhite(int lane)
+        {
+            Assert.Equal(Color.White, InvokeDrumLaneColor(lane));
         }
     }
 }

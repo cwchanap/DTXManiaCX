@@ -376,6 +376,12 @@ namespace DTXMania.Game.Lib.Resources
         /// Level number bitmap font texture
         /// </summary>
         public const string LevelNumbers = "Graphics/7_LevelNumber.png";
+
+        /// <summary>
+        /// Performance-stage difficulty badge sprite sheet (60x720, twelve 60x60 cells).
+        /// NX: tx難易度パネル. The cell is selected per difficulty label (Script/difficult.dtxs scene 7).
+        /// </summary>
+        public const string PerformanceDifficultyPanel = "Graphics/7_Difficulty.png";
         
         /// <summary>
         /// Large rate numbers texture
@@ -566,6 +572,7 @@ namespace DTXMania.Game.Lib.Resources
                 PerfGraphGauge,
                 PanelIcons,
                 LevelNumbers,
+                PerformanceDifficultyPanel,
                 RateNumbersLarge,
                 RatePercent,
                 SkillMax,
