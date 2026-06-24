@@ -108,6 +108,72 @@ namespace DTXMania.Test.Song
             Assert.Equal(162.6, saved.LastSkillPoint, 4);
             Assert.Equal(800000, saved.LastScore);
             Assert.Equal(4, saved.PlayCount);
+            // On a new skill record the achievement rate (達成率 / playing skill) is persisted too,
+            // so the song-select panel shows the actual percentage instead of a stale value.
+            Assert.Equal(92.5, saved.BestAchievementRate, 4);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_NewSkillRecord_ShouldPersistBestAchievementRate()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                HighSkill = 100.0,
+                BestAchievementRate = 60.0,
+                PlayCount = 1
+            });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 850000,
+                ClearFlag = true,
+                PerfectCount = 95,
+                GreatCount = 5,
+                TotalNotes = 100,
+                MaxCombo = 100,
+                PlayingSkill = 96.25,  // new playing-skill best
+                GameSkill = 150.0,     // > stored HighSkill (100) → new skill record
+                ChartLevel = 78,
+                ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(150.0, saved.HighSkill, 4);
+            Assert.Equal(96.25, saved.BestAchievementRate, 4);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_GameSkillNotHigher_ShouldPreserveBestAchievementRate()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                HighSkill = 180.0,
+                BestAchievementRate = 95.0,
+                PlayCount = 2
+            });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 500000,
+                ClearFlag = false,
+                PerfectCount = 40,
+                MissCount = 60,
+                TotalNotes = 100,
+                PlayingSkill = 36.0,  // worse playing skill
+                GameSkill = 60.0,     // < stored HighSkill (180) → not a new skill record
+                ChartLevel = 78,
+                ChartLevelDec = 33
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(180.0, saved.HighSkill, 4);
+            Assert.Equal(95.0, saved.BestAchievementRate, 4); // preserved, not regressed
         }
 
         [Fact]

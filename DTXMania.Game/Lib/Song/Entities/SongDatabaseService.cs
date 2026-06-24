@@ -529,6 +529,10 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (summary.GameSkill > score.HighSkill)
             {
                 score.HighSkill = summary.GameSkill;
+                // NX stores the achievement rate (達成率 / playing skill, 0-100) on a new skill record
+                // (CStageResult: HighSkill[m] = dbPerformanceSkill when bNewRecordSkill). The song-select
+                // panel reads this as the per-cell percentage, so it must be persisted alongside HighSkill.
+                score.BestAchievementRate = summary.PlayingSkill;
             }
             score.SongSkill = summary.GameSkill;
 

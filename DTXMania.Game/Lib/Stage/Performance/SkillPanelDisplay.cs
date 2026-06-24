@@ -27,6 +27,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private ITexture? _largeRateNumbersTexture;
         private ITexture? _levelNumbersTexture;
         private ITexture? _ratePercentTexture;
+        private ITexture? _difficultyPanelTexture;
         private bool _disposed;
 
         #endregion
@@ -90,6 +91,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _largeRateNumbersTexture = TryLoadTexture(resourceManager, TexturePath.RateNumbersLarge, "large rate numbers");
             _levelNumbersTexture = TryLoadTexture(resourceManager, TexturePath.LevelNumbers, "level numbers");
             _ratePercentTexture = TryLoadTexture(resourceManager, TexturePath.RatePercent, "rate percent");
+            _difficultyPanelTexture = TryLoadTexture(resourceManager, TexturePath.PerformanceDifficultyPanel, "difficulty badge");
         }
 
         #endregion
@@ -140,6 +142,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             int level    = _chart?.DrumLevel    ?? 0;
             int levelDec = _chart?.DrumLevelDec ?? 0;
+
+            // Difficulty badge (7_Difficulty.png). NX draws the 60x60 cell for the chart's difficulty
+            // label at (14 + n本体X, 266 + n本体Y), which equals DifficultyIcon.Bounds. The level number
+            // is drawn on top of it just below.
+            if (_difficultyPanelTexture != null)
+            {
+                var iconBounds = PerformanceUILayout.SkillPanel.DifficultyIcon.Bounds;
+                _difficultyPanelTexture.Draw(
+                    spriteBatch,
+                    new Vector2(iconBounds.X, iconBounds.Y),
+                    GetDifficultyPanelSourceRect(_chart?.DifficultyLabel));
+            }
 
             string levelText = FormatLevelText(level, levelDec);
             if (_levelNumbersTexture != null && CanRenderWithLevelTexture(levelText))
@@ -205,6 +219,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 ? level / 100.0
                 : (level / 10.0) + (levelDec / 100.0);
             return actual.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Maps a difficulty label to its 60x60 source cell in 7_Difficulty.png (scene 7 of the
+        /// default Script/difficult.dtxs). All cells share X=0; the label selects the Y offset.
+        /// Unknown/empty labels fall back to the first cell ("DTX"), matching NX's default rect.
+        /// </summary>
+        public static Rectangle GetDifficultyPanelSourceRect(string? label)
+        {
+            const int cell = 60;
+            int row = (label ?? string.Empty).Trim().ToUpperInvariant() switch
+            {
+                "DTX" => 0,
+                "DEBUT" => 1,
+                "NOVICE" => 2,
+                "REGULAR" => 3,
+                "EXPERT" => 4,
+                "MASTER" => 5,
+                "BASIC" => 6,
+                "ADVANCED" => 7,
+                "EXTREME" => 8,
+                "RAW" => 9,
+                "RWS" => 10,
+                "REAL" => 11,
+                _ => 0
+            };
+            return new Rectangle(0, row * cell, cell, cell);
         }
 
         /// <summary>
@@ -405,6 +446,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _levelNumbersTexture = null;
                 _ratePercentTexture?.RemoveReference();
                 _ratePercentTexture = null;
+                _difficultyPanelTexture?.RemoveReference();
+                _difficultyPanelTexture = null;
             }
             _disposed = true;
         }
