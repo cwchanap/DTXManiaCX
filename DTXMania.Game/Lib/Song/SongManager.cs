@@ -1197,12 +1197,13 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Reads a SET.def file, trying the same encodings as enumeration (UTF-8 first, then
-        /// the system default and Shift_JIS). Returns null when the file cannot be read with
-        /// any encoding. NormalizeSetDefLine repairs the BOM/null-byte/spaced artifacts that
-        /// result from reading a Shift_JIS or UTF-16 SET.def as UTF-8.
+        /// Builds the encoding fallback chain used to read SET.def files: UTF-8 first, then the
+        /// system default, then Shift_JIS (for legacy Japanese charts). Shift_JIS is added
+        /// defensively because it needs a registered code-page provider on some runtimes.
+        /// Shared by <see cref="ReadSetDefLines"/> (synchronous database-load path) and
+        /// <see cref="ParseSetDefinitionAsync"/> (async enumeration path) so the two never drift.
         /// </summary>
-        private static string[]? ReadSetDefLines(string setDefPath)
+        private static List<Encoding> BuildSetDefEncodings()
         {
             var encodings = new List<Encoding> { Encoding.UTF8, Encoding.Default };
             try
@@ -1213,8 +1214,23 @@ namespace DTXMania.Game.Lib.Song
             {
                 Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
             }
+            return encodings;
+        }
 
-            foreach (var encoding in encodings)
+        /// <summary>
+        /// Reads a SET.def file, trying the same encodings as enumeration (UTF-8 first, then
+        /// the system default and Shift_JIS). Returns null when the file cannot be read with
+        /// any encoding. NormalizeSetDefLine repairs the BOM/null-byte/spaced artifacts that
+        /// result from reading a Shift_JIS or UTF-16 SET.def as UTF-8.
+        /// </summary>
+        /// <remarks>
+        /// Synchronous by design: the only caller is <see cref="GetSetDefLabelsByFile"/>, which
+        /// runs on the synchronous database-load path. The async enumeration path reads via
+        /// <see cref="File.ReadAllLinesAsync"/> in <see cref="ParseSetDefinitionAsync"/>.
+        /// </remarks>
+        private static string[]? ReadSetDefLines(string setDefPath)
+        {
+            foreach (var encoding in BuildSetDefEncodings())
             {
                 try
                 {
@@ -1332,22 +1348,8 @@ namespace DTXMania.Game.Lib.Song
 
             try
             {
-                // Try different encodings for Japanese text support
-                var encodings = new List<Encoding>
-                {
-                    Encoding.UTF8,
-                    Encoding.Default
-                };
-
-                // Try to add Shift_JIS if available
-                try
-                {
-                    encodings.Add(Encoding.GetEncoding("Shift_JIS"));
-                }
-                catch (ArgumentException)
-                {
-                    Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
-                }
+                // Try different encodings for Japanese text support (shared with ReadSetDefLines)
+                var encodings = BuildSetDefEncodings();
 
                 string[]? lines = null;
                 foreach (var encoding in encodings)
