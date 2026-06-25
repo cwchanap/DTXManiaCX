@@ -91,6 +91,33 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(new Rectangle(0, 0, 60, 60), rect);
         }
 
+        [Theory]
+        [InlineData("DTX")]
+        [InlineData("BASIC")]
+        [InlineData("ADVANCED")]
+        [InlineData("EXTREME")]
+        [InlineData("MASTER")]
+        [InlineData("REAL")]
+        [InlineData("extreme")]      // case-insensitive
+        [InlineData("  BASIC  ")]    // trimmed
+        public void IsKnownDifficultyTier_AuthenticTierName_ShouldReturnTrue(string? label)
+        {
+            Assert.True(SkillPanelDisplay.IsKnownDifficultyTier(label));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("DRUMS Lv.36")]   // synthetic song-select display label, not a tier name
+        [InlineData("GUITAR Lv.50")]
+        [InlineData("Level 3")]
+        [InlineData("SPECIAL")]
+        public void IsKnownDifficultyTier_SyntheticOrUnknownLabel_ShouldReturnFalse(string? label)
+        {
+            Assert.False(SkillPanelDisplay.IsKnownDifficultyTier(label));
+        }
+
         [Fact]
         public void GetProcessedJudgementCount_ShouldSumJudgementCounts()
         {

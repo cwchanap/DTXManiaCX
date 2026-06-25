@@ -4,7 +4,9 @@ using System.IO;
 using System.Text;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Test.TestData;
 using Xunit;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song
 {
@@ -257,6 +259,43 @@ namespace DTXMania.Test.Song
             Assert.Equal("BASIC", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 0));
         }
 
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void GetSetDefLabelsByFile_ChartInSubdirectory_ShouldFindSetDefInParentFolder()
+        {
+            // A legacy SET.def may reference charts in a subdirectory ("#L1FILE charts/bas.dtx").
+            // The DB-load path passes the chart's directory (".../song/charts") to this method, so
+            // it must walk up to the song-folder root to find set.def. Without the walk-up the
+            // label map is empty and the badge falls back to "Level N"/DTX even though SET.def
+            // declares the label.
+            var songDir = CreateTempDirectory();
+            var chartsDir = Path.Combine(songDir, "charts");
+            Directory.CreateDirectory(chartsDir);
+            var content =
+                "#TITLE Subdir song\n" +
+                "#L1LABEL BASIC\n#L1FILE charts/bas.dtx\n" +
+                "#L3LABEL EXTREME\n#L3FILE charts/ext.dtx\n";
+            File.WriteAllText(Path.Combine(songDir, "set.def"), content, Encoding.UTF8);
+
+            // Pass the chart's directory (charts/), not the song root.
+            var labels = _songManager.GetSetDefLabelsByFile(chartsDir);
+
+            Assert.Equal("BASIC", labels["bas.dtx"]);
+            Assert.Equal("EXTREME", labels["ext.dtx"]);
+        }
+
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void GetSetDefLabelsByFile_NoSetDefAnywhere_ShouldReturnEmpty()
+        {
+            var nestedDir = Path.Combine(CreateTempDirectory(), "deep", "charts");
+            Directory.CreateDirectory(nestedDir);
+
+            var labels = _songManager.GetSetDefLabelsByFile(nestedDir);
+
+            Assert.Empty(labels);
+        }
+
         #endregion
 
         #region Database-load path (normal launch)
@@ -390,6 +429,52 @@ namespace DTXMania.Test.Song
             Assert.NotNull(song);
             Assert.Equal("BASIC", song!.DifficultyLabels[0]);
             Assert.Equal("ADVANCED", song.DifficultyLabels[1]);
+        }
+
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void CreateSongNodeFromDatabaseEntities_ChartsInSubdirectoryWithEmptyLabels_ShouldRecoverFromParentSetDef()
+        {
+            // Reproduces the exact scenario from review: a multi-difficulty SET.def references
+            // charts in a subdirectory ("#L1FILE charts/bas.dtx"), and a legacy database stored
+            // an empty SongChart.DifficultyLabel. primaryChart.FilePath then points inside
+            // "charts/", so the DB-load path used to read "charts/set.def" (missing) instead of
+            // the song-folder "set.def". The directory walk-up must recover the authentic labels
+            // so the performance-stage badge shows BASIC/EXTREME rather than "Level N"/DTX.
+            var songDir = CreateTempDirectory();
+            var chartsDir = Path.Combine(songDir, "charts");
+            Directory.CreateDirectory(chartsDir);
+            var setDefContent =
+                "#TITLE Subdir song\n" +
+                "#L1LABEL BASIC\n#L1FILE charts/bas.dtx\n" +
+                "#L2LABEL EXTREME\n#L2FILE charts/ext.dtx\n";
+            File.WriteAllText(Path.Combine(songDir, "set.def"), setDefContent, Encoding.UTF8);
+
+            var song = new SongEntity { Title = "Subdir song" };
+            var charts = new[]
+            {
+                new SongChart
+                {
+                    FilePath = Path.Combine(chartsDir, "bas.dtx"),
+                    DifficultyLabel = "",   // legacy DB: empty persisted label
+                    HasDrumChart = true,
+                    DrumLevel = 36
+                },
+                new SongChart
+                {
+                    FilePath = Path.Combine(chartsDir, "ext.dtx"),
+                    DifficultyLabel = "",
+                    HasDrumChart = true,
+                    DrumLevel = 74
+                }
+            };
+
+            var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(
+                _songManager, "CreateSongNodeFromDatabaseEntities", song, charts);
+
+            Assert.NotNull(result);
+            Assert.Equal("BASIC", result!.DifficultyLabels[0]);
+            Assert.Equal("EXTREME", result.DifficultyLabels[1]);
         }
 
         #endregion
