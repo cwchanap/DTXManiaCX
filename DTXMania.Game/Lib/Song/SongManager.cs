@@ -1356,7 +1356,14 @@ namespace DTXMania.Game.Lib.Song
             foreach (var (label, file) in difficulties.Values)
             {
                 if (!string.IsNullOrEmpty(file) && !string.IsNullOrEmpty(label))
-                    result[file] = label;
+                {
+                    // Normalize to the bare file name. A legacy SET.def may reference a chart via a
+                    // relative path (e.g. "#L1FILE charts/bas.dtx"), but ResolveDifficultyLabel looks
+                    // up by Path.GetFileName(chart.FilePath) ("bas.dtx"). Storing the file name only
+                    // keeps the producer and consumer keys consistent so subdirectory references also
+                    // resolve; plain file names ("bas.dtx") are unaffected by GetFileName.
+                    result[Path.GetFileName(file)] = label;
+                }
             }
             return result;
         }
@@ -2657,7 +2664,18 @@ namespace DTXMania.Game.Lib.Song
                         : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                     int scoreIndex = 0;
-                    foreach (var chart in charts.Take(5)) // Limit to 5 difficulties
+                    // Order the charts by the same criteria SongChartHelper.GetCurrentDifficultyChart
+                    // uses to map a difficulty index to a chart (drum charts with a positive level,
+                    // ascending by DrumLevel), so DifficultyLabels[scoreIndex] corresponds to the chart
+                    // selected for that difficulty. Without this, an arbitrary database ordering could
+                    // place an EXTREME chart's label in slot 0 while difficulty 0 loads the BASIC chart,
+                    // making the performance-stage badge show the wrong difficulty cell. Non-drum charts
+                    // (DrumLevel == 0) sort after drum charts, matching the drum-first selection fallback.
+                    var orderedCharts = charts
+                        .OrderBy(c => (c.HasDrumChart && c.DrumLevel > 0) ? 0 : 1)
+                        .ThenBy(c => c.DrumLevel)
+                        .ToArray();
+                    foreach (var chart in orderedCharts.Take(5)) // Limit to 5 difficulties
                     {
                         if (scoreIndex >= songNode.Scores.Length) break;
 

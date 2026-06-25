@@ -671,9 +671,12 @@ public class SongManagerCoverageTests : IDisposable
         var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
 
         Assert.NotNull(result);
-        Assert.NotNull(result!.Scores[0]);
-        Assert.Equal(instrument, result.Scores[0]!.Instrument);
-        Assert.Equal(expectedLevel, result.Scores[0].DifficultyLevel);
+        // Charts are ordered drum-first (see CreateSongNodeFromDatabaseEntities), so the string-part
+        // chart sorts after the supporting drum chart. Locate its score by instrument rather than a
+        // fixed index to verify the requested part is still detected with its level.
+        var stringPartScore = result!.Scores.FirstOrDefault(s => s != null && s.Instrument == instrument);
+        Assert.NotNull(stringPartScore);
+        Assert.Equal(expectedLevel, stringPartScore!.DifficultyLevel);
     }
 
     [Fact]
@@ -698,6 +701,38 @@ public class SongManagerCoverageTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(5, result!.Scores.Count(s => s != null));
         Assert.Equal("Level 5", result.DifficultyLabels[4]);
+    }
+
+    [Fact]
+    public void CreateSongNodeFromDatabaseEntities_DrumChartsReturnedOutOfOrder_ShouldAssignSlotsByAscendingLevel()
+    {
+        // Regression: SongChartHelper.GetCurrentDifficultyChart selects the chart for a given
+        // difficulty by ordering drum charts ascending by DrumLevel. The score slots must be
+        // filled in the same order, otherwise DifficultyLabels[0] can hold the EXTREME chart's
+        // label while difficulty 0 loads the BASIC chart, making the performance-stage badge
+        // show the wrong difficulty cell. Here the database returns EXTREME first.
+        var song = new SongEntity
+        {
+            Title = "Out-of-order Song",
+            Artist = "Coverage Bot",
+            Genre = "Rock"
+        };
+
+        var charts = new[]
+        {
+            new SongChart { FilePath = Path.Combine(_testRoot, "ext.dtx"), HasDrumChart = true, DrumLevel = 90, DifficultyLabel = "" },
+            new SongChart { FilePath = Path.Combine(_testRoot, "bas.dtx"), HasDrumChart = true, DrumLevel = 30, DifficultyLabel = "" },
+            new SongChart { FilePath = Path.Combine(_testRoot, "adv.dtx"), HasDrumChart = true, DrumLevel = 60, DifficultyLabel = "" }
+        };
+
+        var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
+
+        Assert.NotNull(result);
+        // Slot ordering must match GetCurrentDifficultyChart: ascending drum level.
+        Assert.Equal(30, result!.Scores[0]!.DifficultyLevel);
+        Assert.Equal(60, result.Scores[1]!.DifficultyLevel);
+        Assert.Equal(90, result.Scores[2]!.DifficultyLevel);
+        Assert.Equal(EInstrumentPart.DRUMS, result.Scores[0]!.Instrument);
     }
 
     [Fact]

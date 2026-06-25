@@ -126,6 +126,29 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(GetPrivateField<ManagedFont?>(display, "_scoreFont"));
         }
 
+        [Fact]
+        public void ScoreDisplay_LoadFont_WhenFontFactoryFails_ShouldDisposePartiallyCreatedScoreFont()
+        {
+            // Regression: if _scoreFont exists when a later ManagedFont.CreateFont call throws,
+            // the catch in LoadFont must dispose it rather than only nulling the field, otherwise
+            // the fallback font resource leaks on the font-failure path. We pre-set _scoreFont to a
+            // disposal-tracking font and force the factory to throw on the first CreateFont call.
+            var display = CreateUninitialized<ScoreDisplay>();
+            var scoreFont = CreateTrackingManagedFont();
+            SetPrivateField(display, "_scoreFont", scoreFont);
+
+            WithManagedFontFactoryUnavailable(() =>
+            {
+                var invocation = Assert.Throws<TargetInvocationException>(() =>
+                    InvokePrivateMethod(display, "LoadFont"));
+                // The original font-load failure is wrapped; disposal must happen regardless.
+                Assert.NotNull(invocation.InnerException);
+            });
+
+            Assert.Equal(1, scoreFont.DisposeCount);
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_scoreFont"));
+        }
+
         #endregion
 
         #region ComboDisplay State Tests
@@ -717,6 +740,11 @@ namespace DTXMania.Test.Stage.Performance
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
         }
 
+        private static void WithManagedFontFactoryUnavailable(Action action)
+        {
+            WithManagedFontFactoryUnavailable(() => { action(); return true; });
+        }
+
         private static T WithManagedFontFactoryUnavailable<T>(Func<T> action)
         {
             var managedFontType = typeof(ManagedFont);
@@ -765,6 +793,13 @@ namespace DTXMania.Test.Stage.Performance
                 type = type.BaseType;
             }
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
+        }
+
+        private static void InvokePrivateMethod(object target, string methodName)
+        {
+            var method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"Method '{methodName}' not found on {target.GetType().Name}");
+            method.Invoke(target, null);
         }
 
         private sealed class TrackingManagedFont : ManagedFont
