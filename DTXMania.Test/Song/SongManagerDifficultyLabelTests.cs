@@ -308,6 +308,51 @@ namespace DTXMania.Test.Song
             Assert.Equal(50, persistedChart!.DifficultyLabel.Length);
         }
 
+        [Trait("Category", "Integration")]
+        [Fact]
+        public async System.Threading.Tasks.Task BuildSongListFromDatabase_PersistedLabelsSurviveSetDefRemoval()
+        {
+            // Contract: once difficulty labels are persisted to the database, the DB-load path
+            // (CreateSongNodeFromDatabaseEntities -> ResolveDifficultyLabel) surfaces them without
+            // needing SET.def on disk. This is the user-facing guarantee behind the skip optimization
+            // at SongManager.cs (only read SET.def when a chart label is missing).
+            //
+            // NOTE: this does NOT prove the disk read is skipped — that is a pure performance
+            // optimization that is unobservable behaviorally (the persisted label always wins in
+            // ResolveDifficultyLabel, verified by ResolveDifficultyLabel_PersistedLabelPresent).
+            // The skip is correct by inspection; this test locks in the contract it relies on.
+            var dir = CreateTempDirectory();
+            var setDefContent =
+                "#TITLE Persistence contract\n" +
+                "#L1LABEL BASIC\n#L1FILE bas.dtx\n" +
+                "#L2LABEL ADVANCED\n#L2FILE adv.dtx\n";
+            File.WriteAllText(Path.Combine(dir, "set.def"), setDefContent, Encoding.UTF8);
+            File.WriteAllText(Path.Combine(dir, "bas.dtx"), "#TITLE: Persistence contract\n#DLEVEL: 36", Encoding.UTF8);
+            File.WriteAllText(Path.Combine(dir, "adv.dtx"), "#TITLE: Persistence contract\n#DLEVEL: 60", Encoding.UTF8);
+
+            // First launch: enumerate, persisting the recovered labels to the database.
+            await _songManager.InitializeDatabaseServiceAsync(_testDbPath);
+            await _songManager.EnumerateSongsAsync(new[] { dir });
+
+            // Simulate a subsequent launch where SET.def is gone (renamed/moved) but the DB persists.
+            File.Delete(Path.Combine(dir, "set.def"));
+            await _songManager.BuildSongListFromDatabasePublicAsync(new[] { dir });
+
+            SongListNode? song = null;
+            foreach (var node in _songManager.RootSongs)
+            {
+                if (node.Type == NodeType.Score)
+                {
+                    song = node;
+                    break;
+                }
+            }
+
+            Assert.NotNull(song);
+            Assert.Equal("BASIC", song!.DifficultyLabels[0]);
+            Assert.Equal("ADVANCED", song.DifficultyLabels[1]);
+        }
+
         #endregion
     }
 }

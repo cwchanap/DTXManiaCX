@@ -1249,7 +1249,14 @@ namespace DTXMania.Game.Lib.Song
                 {
                     return File.ReadAllLines(setDefPath, encoding);
                 }
-                catch (Exception ex)
+                // Only realistic failures here are I/O (the path is pre-validated and UTF-8 uses
+                // DecoderReplacementFallback, so encoding mismatches never throw). Let genuinely
+                // unexpected exceptions (OOM, contract changes) propagate instead of being masked.
+                catch (IOException ex)
+                {
+                    Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                }
+                catch (UnauthorizedAccessException ex)
                 {
                     Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
                 }
@@ -1373,7 +1380,15 @@ namespace DTXMania.Game.Lib.Song
                         lines = await File.ReadAllLinesAsync(setDefPath, encoding, cancellationToken);
                         break; // Success, use this encoding
                     }
-                    catch (Exception ex)
+                    // Only realistic failures here are I/O (UTF-8 uses DecoderReplacementFallback,
+                    // so encoding mismatches never throw). Let genuinely unexpected exceptions
+                    // propagate instead of being masked.
+                    catch (IOException ex)
+                    {
+                        Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                        continue;
+                    }
+                    catch (UnauthorizedAccessException ex)
                     {
                         Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
                         continue;

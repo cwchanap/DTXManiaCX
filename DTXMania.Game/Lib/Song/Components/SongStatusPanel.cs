@@ -1013,6 +1013,32 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// How to render a per-cell achievement rate. Extracted from <see cref="DrawAchievementRate"/>
+        /// so the boundary/source-field logic is unit-testable without a graphics device.
+        /// </summary>
+        internal enum AchievementRateMode { Skip, Max, Digits }
+
+        /// <summary>
+        /// Classifies how to render a per-cell achievement rate: <see cref="Skip"/> (no history or
+        /// zero), <see cref="Max"/> (perfect 100% rate), or <see cref="Digits"/> (a numeric rate).
+        /// Reads <see cref="SongScore.BestAchievementRate"/> — NOT <c>HighSkill</c>, which holds the
+        /// level-weighted game skill and routinely exceeds 100, wrongly triggering the MAX badge for
+        /// non-perfect plays. The input is clamped to [0,100] before classification.
+        /// </summary>
+        internal static AchievementRateMode ClassifyAchievementRate(SongScore? score)
+        {
+            if (score == null)
+                return AchievementRateMode.Skip;
+
+            double rate = Math.Clamp(score.BestAchievementRate, 0.0, 100.0);
+            if (rate <= 0.0)
+                return AchievementRateMode.Skip; // NX draws the rate only when the value is non-zero
+            if (rate >= 100.0)
+                return AchievementRateMode.Max;
+            return AchievementRateMode.Digits;
+        }
+
+        /// <summary>
         /// Draws the per-cell achievement rate (best skill) using the 5_skill number.png bitmap font,
         /// or a 100% MAX badge. Mirrors DTXManiaNX (only drawn when the value is non-zero).
         /// </summary>
@@ -1027,19 +1053,12 @@ namespace DTXMania.Game.Lib.Song.Components
             };
 
             var score = chartInfo.Chart.Scores?.FirstOrDefault(s => s.Instrument == instrumentPart);
-            if (score == null)
+            var mode = ClassifyAchievementRate(score);
+            if (mode == AchievementRateMode.Skip)
                 return;
 
-            // NX draws the achievement rate (達成率 / playing skill, 0-100) here — db現在選択中の曲の最高スキル値,
-            // sourced from SongInformation.HighSkill = dbPerformanceSkill. That maps to BestAchievementRate,
-            // NOT HighSkill (which holds the level-weighted game skill and routinely exceeds 100, wrongly
-            // triggering the MAX badge for non-perfect plays).
-            double rate = Math.Clamp(score.BestAchievementRate, 0.0, 100.0);
-            if (rate <= 0.0)
-                return; // NX draws the rate only when the value is non-zero
-
             // 100% shows the MAX badge instead of digits (NX: tx達成率MAX at nBoxX + nPanelW - 142).
-            if (rate >= 100.0 && _achievementMaxTexture != null)
+            if (mode == AchievementRateMode.Max && _achievementMaxTexture != null)
             {
                 _achievementMaxTexture.Draw(spriteBatch, new Vector2(
                     nBoxX + nPanelW - SongSelectionUILayout.DifficultyGrid.AchievementMaxOffsetFromRight,
@@ -1047,6 +1066,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
             }
 
+            // Digits, or the MAX-mode fallback when the MAX texture is unavailable.
+            double rate = Math.Clamp(score!.BestAchievementRate, 0.0, 100.0);
             var text = string.Format(CultureInfo.InvariantCulture, "{0,6:##0.00}%", rate);
             float rateX = nBoxX + nPanelW - SongSelectionUILayout.DifficultyGrid.AchievementRateOffsetFromRight;
             float rateY = nBoxY + nPanelH - SongSelectionUILayout.DifficultyGrid.AchievementRateOffsetFromBottom;
@@ -1234,7 +1255,6 @@ namespace DTXMania.Game.Lib.Song.Components
             
             // The count to display: current instrument when it has notes, otherwise the chart total.
             int displayCount = currentInstrumentCount > 0 ? currentInstrumentCount : total;
-            Color textColor = currentInstrumentCount > 0 ? Color.Yellow : Color.Cyan;
 
             // NX renders the total-notes count with the BPM bitmap font (5_bpm font.png), centered
             // on the counter point. position.X is the NX-authentic center anchor.
@@ -1242,12 +1262,16 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 var digits = displayCount.ToString(CultureInfo.InvariantCulture);
                 // NX: nGraphBaseX + 66 - (len-1)*(charWidth/2); position.X already equals nGraphBaseX + 66.
-                float startX = position.X - (digits.Length - 1) * 6f;
+                // Source the per-character advance from the shared table so a width change can't drift
+                // away from the unit-tested MeasureBpmNumberWidth helper.
+                float halfAdvance = BpmNumberAdvance('0') / 2f;
+                float startX = position.X - (digits.Length - 1) * halfAdvance;
                 DrawBpmNumberBitmap(spriteBatch, startX, position.Y, digits);
                 return;
             }
 
             // System-font fallback (keeps thousands separator when the bitmap font is unavailable).
+            Color textColor = currentInstrumentCount > 0 ? Color.Yellow : Color.Cyan;
             string notesText = currentInstrumentCount > 0
                 ? $"{currentInstrumentCount:N0}"
                 : chart.GetFormattedNoteCount(false);
@@ -1296,12 +1320,19 @@ namespace DTXMania.Game.Lib.Song.Components
             return null;
         }
 
-        /// <summary>Advance width per character for the BPM/level/achievement fonts (used for centering).</summary>
+        /// <summary>
+        /// Advance width per character for each bitmap font. The BPM advance is also the source of
+        /// the production centering offset (see <see cref="DrawNotesCounter"/>); the others are used
+        /// by the corresponding Draw*Bitmap renderers.
+        /// </summary>
         private static int DifficultyNumberAdvance(char c) => c == '.' ? 10 : 20;
         private static int AchievementNumberAdvance(char c) => c == '.' ? 6 : 12;
         private static int BpmNumberAdvance(char c) => c == ':' ? 6 : 12;
 
-        /// <summary>Total pixel width of a BPM-font string (used to center the total-notes count).</summary>
+        /// <summary>
+        /// Total pixel width of a BPM-font string. Unit-tested directly; production centering derives
+        /// from the same <see cref="BpmNumberAdvance"/> source so the two cannot drift apart.
+        /// </summary>
         internal static int MeasureBpmNumberWidth(string text)
         {
             int width = 0;
@@ -1416,7 +1447,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private Color GetDrumLaneColor(int lane)
         {
             // Color each distribution bar by its drum lane, reusing the authentic gameplay lane
-            // palette (LC, HH, LP, SN, HT, DB, LT, FT, CY, RD) so the song-select bars match the
+            // palette (LC, HH, LP, SN, HT, BD, LT, FT, CY, RD) so the song-select bars match the
             // colors a player sees in the performance stage. The previous ad-hoc 9-entry table used
             // the wrong hues and left lane 9 (RD) white.
             if (lane >= 0 && lane < PerformanceUILayout.LaneCount)

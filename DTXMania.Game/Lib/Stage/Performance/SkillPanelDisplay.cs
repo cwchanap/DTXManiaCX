@@ -67,10 +67,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (resourceManager == null) throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice  = graphicsDevice  ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart           = chart;
-            // The DB-loaded chart may carry a difficulty label recovered from SET.def by SongManager
-            // (see CreateSongNodeFromDatabaseEntities), but the DifficultyLabels dict is [NotMapped],
-            // so the per-level badge name is supplied by the caller from
-            // SongListNode.DifficultyLabels[index]. Fall back to the chart's own label if present.
+            // The per-level badge name (BASIC/ADVANCED/EXTREME/...) lives on the song-select slot
+            // — SongListNode.DifficultyLabels[index], a slot-keyed string[5] — not on the chart
+            // entity. SongChart.DifficultyLabels is a *different*, instrument-keyed dict that is
+            // [NotMapped], so it is not the source here. The caller (PerformanceStage) reads the
+            // slot label and supplies it; see CreateSongNodeFromDatabaseEntities for how it is
+            // recovered from SET.def. Fall back to the chart's own DifficultyLabel if present.
             _difficultyLabel = !string.IsNullOrWhiteSpace(difficultyLabel) ? difficultyLabel : chart?.DifficultyLabel;
 
             try
