@@ -227,22 +227,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             try
             {
-                // Create a font for score display
-                // Using a larger font size for visibility
-                _scoreFont = ManagedFont.CreateFont(
-                    _graphicsDevice,
-                    "NotoSerifJP",
-                    32,
-                    FontStyle.Bold
-                );
-
-                // Smaller font for the "SCORE" title that sits in the 86x28 label slot above the digits.
-                _titleFont = ManagedFont.CreateFont(
-                    _graphicsDevice,
-                    "NotoSerifJP",
-                    22,
-                    FontStyle.Bold
-                );
+                // Larger font for the score digits, and a smaller font for the "SCORE" title that
+                // sits in the 86x28 label slot above the digits.
+                _scoreFont = CreateScoreFont();
+                _titleFont = CreateTitleFont();
             }
             catch (Exception ex)
             {
@@ -257,6 +245,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 throw;
             }
         }
+
+        /// <summary>
+        /// Creates the large digit font. Virtual so tests can inject a controllable factory and
+        /// exercise the partial-initialization failure path of <see cref="LoadFont"/> (the case
+        /// where the score font loads but the title font then throws). Production behavior is
+        /// unchanged.
+        /// </summary>
+        protected virtual ManagedFont CreateScoreFont()
+            => ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 32, FontStyle.Bold);
+
+        /// <summary>
+        /// Creates the smaller "SCORE" label font. Virtual for the same reason as
+        /// <see cref="CreateScoreFont"/>; this is the call whose failure after a successful
+        /// <see cref="CreateScoreFont"/> exercises the leak-prevention dispose in <see cref="LoadFont"/>.
+        /// </summary>
+        protected virtual ManagedFont CreateTitleFont()
+            => ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 22, FontStyle.Bold);
 
         #endregion
 

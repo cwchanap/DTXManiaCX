@@ -524,22 +524,25 @@ public class SongStatusPanelLogicTests
         var gbKnown = InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 1);
         var gbUnknown = InvokePrivate<Color>(panel, "GetGuitarBassLaneColor", 999);
 
-        Assert.Equal(Color.Orange, drumKnown);
+        // Drum bars reuse the authentic gameplay lane palette (PerformanceUILayout.LaneColors),
+        // so lane 5 (LP/Bass) is the gameplay orange (255,128,0) rather than XNA's Color.Orange.
+        Assert.Equal(new Color(255, 128, 0), drumKnown);
         Assert.Equal(Color.White, drumUnknown);
         Assert.Equal(Color.Green, gbKnown);
         Assert.Equal(Color.White, gbUnknown);
     }
 
     [Theory]
-    [InlineData(0, 128, 0, 128)]
-    [InlineData(1, 255, 255, 0)]
-    [InlineData(2, 128, 0, 128)]
-    [InlineData(3, 255, 0, 0)]
-    [InlineData(4, 0, 0, 255)]
-    [InlineData(5, 255, 165, 0)]
-    [InlineData(6, 0, 0, 255)]
-    [InlineData(7, 0, 128, 0)]
-    [InlineData(8, 0, 255, 255)]
+    [InlineData(0, 160, 64, 255)]   // LC - Purple
+    [InlineData(1, 255, 200, 0)]    // HH - Yellow
+    [InlineData(2, 255, 96, 255)]   // LP(missing) - Magenta
+    [InlineData(3, 255, 64, 64)]    // SD - Red
+    [InlineData(4, 0, 200, 255)]    // HT - Light Blue
+    [InlineData(5, 255, 128, 0)]    // LP (Bass) - Orange
+    [InlineData(6, 0, 128, 255)]    // LT - Blue
+    [InlineData(7, 0, 255, 128)]    // FT - Green
+    [InlineData(8, 255, 100, 200)]  // RC - Pink
+    [InlineData(9, 255, 100, 200)]  // RD - Pink (was White before reusing gameplay palette)
     public void GetDrumLaneColor_MapsCommonNamedLanes(int lane, byte r, byte g, byte b)
     {
         var panel = new SongStatusPanel();

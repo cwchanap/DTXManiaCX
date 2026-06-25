@@ -388,7 +388,7 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Integration")]
         [Fact]
-        public async System.Threading.Tasks.Task BuildSongListFromDatabase_PersistedLabelsSurviveSetDefRemoval()
+        public async System.Threading.Tasks.Task BuildSongListFromDatabase_AfterSetDefRemoval_ShouldRetainPersistedLabels()
         {
             // Contract: once difficulty labels are persisted to the database, the DB-load path
             // (CreateSongNodeFromDatabaseEntities -> ResolveDifficultyLabel) surfaces them without
