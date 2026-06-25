@@ -1197,12 +1197,23 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Builds the encoding fallback chain used to read SET.def files: UTF-8 first, then the
-        /// system default, then Shift_JIS (for legacy Japanese charts). Shift_JIS is added
-        /// defensively because it needs a registered code-page provider on some runtimes.
-        /// Shared by <see cref="ReadSetDefLines"/> (synchronous database-load path) and
+        /// Builds the list of encodings used to read SET.def files. Shared by
+        /// <see cref="ReadSetDefLines"/> (synchronous database-load path) and
         /// <see cref="ParseSetDefinitionAsync"/> (async enumeration path) so the two never drift.
         /// </summary>
+        /// <remarks>
+        /// NOTE: this is <b>not</b> a true encoding fallback chain as written today.
+        /// <see cref="Encoding.UTF8"/> uses <see cref="DecoderReplacementFallback"/>, so
+        /// <c>File.ReadAllLines(UTF-8)</c> never throws on bad bytes — it emits U+FFFD and
+        /// "succeeds" on the first entry, and the subsequent system-default / Shift_JIS entries
+        /// are never exercised for decoding reasons. (The <c>catch</c> below only catches I/O
+        /// errors, which fail identically across the whole list.) Shift_JIS is retained so that a
+        /// future switch to <c>new UTF8Encoding(false, throwOnInvalidBytes: true)</c> could enable a
+        /// real fallback for legacy Japanese charts; it is added defensively because it needs a
+        /// registered code-page provider on some runtimes. The actual repair of the
+        /// BOM/null-byte/spaced artifacts produced by reading a Shift_JIS or UTF-16 SET.def as
+        /// UTF-8 happens after the read, in <see cref="NormalizeSetDefLine"/>.
+        /// </remarks>
         private static List<Encoding> BuildSetDefEncodings()
         {
             var encodings = new List<Encoding> { Encoding.UTF8, Encoding.Default };
@@ -1218,10 +1229,12 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Reads a SET.def file, trying the same encodings as enumeration (UTF-8 first, then
-        /// the system default and Shift_JIS). Returns null when the file cannot be read with
-        /// any encoding. NormalizeSetDefLine repairs the BOM/null-byte/spaced artifacts that
-        /// result from reading a Shift_JIS or UTF-16 SET.def as UTF-8.
+        /// Reads a SET.def file using <see cref="BuildSetDefEncodings"/>. Returns null only when the
+        /// file cannot be read at all (it does not exist or an I/O error occurs). Because UTF-8 uses
+        /// <see cref="DecoderReplacementFallback"/>, a read with invalid bytes never throws and the
+        /// later encodings in the list are not retried — see the remarks on
+        /// <see cref="BuildSetDefEncodings"/>. <see cref="NormalizeSetDefLine"/> repairs the
+        /// BOM/null-byte/spaced artifacts that result from reading a Shift_JIS or UTF-16 SET.def as UTF-8.
         /// </summary>
         /// <remarks>
         /// Synchronous by design: the only caller is <see cref="GetSetDefLabelsByFile"/>, which
@@ -1348,7 +1361,8 @@ namespace DTXMania.Game.Lib.Song
 
             try
             {
-                // Try different encodings for Japanese text support (shared with ReadSetDefLines)
+                // Read with the shared encoding list (see BuildSetDefEncodings for why this is not
+                // a true fallback chain — UTF-8 always "wins" and repair happens in NormalizeSetDefLine).
                 var encodings = BuildSetDefEncodings();
 
                 string[]? lines = null;
