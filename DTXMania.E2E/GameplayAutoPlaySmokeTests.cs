@@ -49,6 +49,12 @@ public sealed class GameplayAutoPlaySmokeTests
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
 
             await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
+
+            // Capture a screenshot of the song-select stage so the status-panel rendering
+            // (DrawBackground behavior against the default skin) can be visually inspected
+            // from CI artifacts without a separate manual smoke pass.
+            await SaveScreenshotAsync(client, fixture, "song-select-screenshot.png", cancellation.Token);
+
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(500, cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
@@ -69,7 +75,7 @@ public sealed class GameplayAutoPlaySmokeTests
         catch (Exception ex)
         {
             await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", ex.ToString());
-            await TryWriteScreenshotAsync(client, fixture);
+            await SaveScreenshotAsync(client, fixture, "failure-screenshot.png", CancellationToken.None);
             throw;
         }
         finally
@@ -95,22 +101,33 @@ public sealed class GameplayAutoPlaySmokeTests
             cancellationToken);
     }
 
-    private static async Task TryWriteScreenshotAsync(JsonRpcGameClient client, E2EFixture fixture)
+    /// <summary>
+    /// Captures a screenshot via the JSON-RPC takeScreenshot endpoint and saves it
+    /// as a PNG artifact. Used both for proactive stage screenshots (e.g. SongSelect
+    /// status-panel visual verification) and for failure diagnostics.
+    /// </summary>
+    private static async Task SaveScreenshotAsync(
+        JsonRpcGameClient client,
+        E2EFixture fixture,
+        string fileName,
+        CancellationToken cancellationToken)
     {
         try
         {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
             var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
             if (string.IsNullOrWhiteSpace(imageData))
                 return;
 
             var imageBytes = Convert.FromBase64String(imageData);
             Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, "failure-screenshot.png"), imageBytes, cancellation.Token);
+            await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, fileName), imageBytes, cancellation.Token);
         }
         catch
         {
-            // Failure artifacts should never hide the original E2E assertion or launch error.
+            // Screenshot artifacts should never hide the original E2E assertion or launch error.
         }
     }
 
