@@ -987,14 +987,17 @@ namespace DTXMania.Game.Lib.Song.Components
             var cellPos = SongSelectionUILayout.DifficultyGrid.GetCellPosition(gridRow, instrument);
             int nBoxX = (int)cellPos.X;
             int nBoxY = (int)cellPos.Y;
-            const int nPanelW = 187;
-            const int nPanelH = 60;
+            int nPanelW = SongSelectionUILayout.DifficultyGrid.CellWidth;
+            int nPanelH = SongSelectionUILayout.DifficultyGrid.CellHeight;
 
             // Difficulty level (e.g. "3.80"). NX: tDrawDifficulty(nBoxX + nPanelW - 77, nBoxY + nPanelH - 35).
             var levelText = (chartInfo.Level / 10.0f).ToString("F2", CultureInfo.InvariantCulture);
             if (_difficultyNumberTexture != null)
             {
-                DrawDifficultyNumberBitmap(spriteBatch, nBoxX + nPanelW - 77, nBoxY + nPanelH - 35, levelText);
+                DrawDifficultyNumberBitmap(spriteBatch,
+                    nBoxX + nPanelW - SongSelectionUILayout.DifficultyGrid.LevelTextOffsetFromRight,
+                    nBoxY + nPanelH - SongSelectionUILayout.DifficultyGrid.LevelTextOffsetFromBottom,
+                    levelText);
             }
             else
             {
@@ -1038,13 +1041,15 @@ namespace DTXMania.Game.Lib.Song.Components
             // 100% shows the MAX badge instead of digits (NX: tx達成率MAX at nBoxX + nPanelW - 142).
             if (rate >= 100.0 && _achievementMaxTexture != null)
             {
-                _achievementMaxTexture.Draw(spriteBatch, new Vector2(nBoxX + nPanelW - 142, nBoxY + nPanelH - 27));
+                _achievementMaxTexture.Draw(spriteBatch, new Vector2(
+                    nBoxX + nPanelW - SongSelectionUILayout.DifficultyGrid.AchievementMaxOffsetFromRight,
+                    nBoxY + nPanelH - SongSelectionUILayout.DifficultyGrid.AchievementRateOffsetFromBottom));
                 return;
             }
 
             var text = string.Format(CultureInfo.InvariantCulture, "{0,6:##0.00}%", rate);
-            float rateX = nBoxX + nPanelW - 157;
-            float rateY = nBoxY + nPanelH - 27;
+            float rateX = nBoxX + nPanelW - SongSelectionUILayout.DifficultyGrid.AchievementRateOffsetFromRight;
+            float rateY = nBoxY + nPanelH - SongSelectionUILayout.DifficultyGrid.AchievementRateOffsetFromBottom;
             if (_achievementNumberTexture != null)
             {
                 DrawAchievementNumberBitmap(spriteBatch, rateX, rateY, text);

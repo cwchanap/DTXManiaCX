@@ -94,6 +94,16 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int CellRankOffsetY = 25;   // Rank text offset from cell top edge
             public const int CellScoreOffsetY = 40;  // Score text offset from cell top edge
             public const int CellEmptyOffsetY = 10;  // Empty cell text offset from top edge
+
+            // NX-authentic pixel offsets for bitmap content within a difficulty cell.
+            // NX positions content as nBoxX + nPanelW - offset (from the right edge) and
+            // nBoxY + nPanelH - offset (from the bottom edge). These mirror the original
+            // tDrawDifficulty / tDrawAchievementRate coordinates in CActSelectStatus.
+            public const int LevelTextOffsetFromRight = 77;  // tDrawDifficulty X offset
+            public const int LevelTextOffsetFromBottom = 35; // tDrawDifficulty Y offset
+            public const int AchievementRateOffsetFromRight = 157; // tDrawAchievementRate X offset
+            public const int AchievementRateOffsetFromBottom = 27; // tDrawAchievementRate Y offset
+            public const int AchievementMaxOffsetFromRight = 142;  // tx達成率MAX X offset
             
             public static Vector2 BasePosition => new Vector2(BaseX, BaseY);
             public static Vector2 GridPosition => new Vector2(GridX, GridY);
