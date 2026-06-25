@@ -114,9 +114,11 @@ public sealed class GameplayAutoPlaySmokeTests
     {
         try
         {
+            // The timer-backed CTS must have its own 'using' — wrapping it inline in
+            // CreateLinkedTokenSource leaks it because only the linked CTS is disposed.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
+                cancellationToken, timeoutCts.Token);
             var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
             if (string.IsNullOrWhiteSpace(imageData))
                 return;
@@ -125,9 +127,12 @@ public sealed class GameplayAutoPlaySmokeTests
             Directory.CreateDirectory(fixture.ArtifactRoot);
             await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, fileName), imageBytes, cancellation.Token);
         }
-        catch
+        catch (Exception ex)
         {
-            // Screenshot artifacts should never hide the original E2E assertion or launch error.
+            // Screenshot artifacts should never hide the original E2E assertion or launch error,
+            // but log the reason so a missing CI artifact is explainable (e.g. the test's own
+            // cancellation budget surfaced here as OperationCanceledException).
+            Console.WriteLine($"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
         }
     }
 
