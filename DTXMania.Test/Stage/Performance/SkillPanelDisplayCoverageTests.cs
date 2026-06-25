@@ -113,6 +113,39 @@ namespace DTXMania.Test.Stage.Performance
             display.Dispose();
         }
 
+        [Fact]
+        public void Constructor_SyntheticSlotLabel_ShouldPreferRealChartLabel()
+        {
+            // Regression: a single-chart SET.def song keeps the synthetic "DRUMS Lv.36" slot
+            // label produced by SongListNode.CreateSongNode. That string never matches a badge
+            // cell, so the badge must fall back to the chart's persisted DifficultyLabel
+            // (the authentic SET.def label) instead of rendering the default DTX cell.
+            var resourceManager = new Mock<IResourceManager>();
+            var chart = new SongChart { DifficultyLabel = "BASIC" };
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), chart, "DRUMS Lv.36"));
+
+            Assert.Equal("BASIC", GetPrivateField<string?>(display, "_difficultyLabel"));
+            display.Dispose();
+        }
+
+        [Fact]
+        public void Constructor_SyntheticSlotLabelAndEmptyChartLabel_ShouldKeepSlotLabel()
+        {
+            // When neither the slot label nor the chart label names a real tier, keep the slot
+            // label so a non-empty display string is still rendered as the default DTX cell
+            // rather than collapsing to null.
+            var resourceManager = new Mock<IResourceManager>();
+            var chart = new SongChart { DifficultyLabel = "" };
+
+            var display = WithManagedFontUnavailable(() =>
+                new SkillPanelDisplay(resourceManager.Object, CreateUninitialized<GraphicsDevice>(), chart, "DRUMS Lv.36"));
+
+            Assert.Equal("DRUMS Lv.36", GetPrivateField<string?>(display, "_difficultyLabel"));
+            display.Dispose();
+        }
+
         #endregion
 
         #region Update Tests

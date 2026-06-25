@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.Xna.Framework;
@@ -72,8 +73,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // entity. SongChart.DifficultyLabels is a *different*, instrument-keyed dict that is
             // [NotMapped], so it is not the source here. The caller (PerformanceStage) reads the
             // slot label and supplies it; see CreateSongNodeFromDatabaseEntities for how it is
-            // recovered from SET.def. Fall back to the chart's own DifficultyLabel if present.
-            _difficultyLabel = !string.IsNullOrWhiteSpace(difficultyLabel) ? difficultyLabel : chart?.DifficultyLabel;
+            // recovered from SET.def.
+            //
+            // A slot label is only authoritative when it names a real badge tier. For a
+            // single-chart song, SongListNode.CreateSongNode fills the slot with a synthetic
+            // display string ("DRUMS Lv.36") that GetDifficultyPanelSourceRect never matches,
+            // silently falling through to the default DTX cell. In that case prefer the chart's
+            // persisted DifficultyLabel (the authentic SET.def label), which selects the right cell.
+            _difficultyLabel = ResolveBadgeLabel(difficultyLabel, chart?.DifficultyLabel);
 
             try
             {
@@ -237,23 +244,57 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public static Rectangle GetDifficultyPanelSourceRect(string? label)
         {
             const int cell = 60;
-            int row = (label ?? string.Empty).Trim().ToUpperInvariant() switch
-            {
-                "DTX" => 0,
-                "DEBUT" => 1,
-                "NOVICE" => 2,
-                "REGULAR" => 3,
-                "EXPERT" => 4,
-                "MASTER" => 5,
-                "BASIC" => 6,
-                "ADVANCED" => 7,
-                "EXTREME" => 8,
-                "RAW" => 9,
-                "RWS" => 10,
-                "REAL" => 11,
-                _ => 0
-            };
+            int row = DifficultyTierRows.TryGetValue((label ?? string.Empty).Trim(), out var r) ? r : 0;
             return new Rectangle(0, row * cell, cell, cell);
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="label"/> names a real difficulty-tier badge cell
+        /// (DTX, BASIC, ADVANCED, EXTREME, ...). Synthetic song-select labels such as
+        /// "DRUMS Lv.36" return false so the caller can fall back to the chart's persisted
+        /// DifficultyLabel instead of rendering the default DTX cell.
+        /// </summary>
+        public static bool IsKnownDifficultyTier(string? label)
+        {
+            return !string.IsNullOrWhiteSpace(label)
+                && DifficultyTierRows.ContainsKey(label.Trim());
+        }
+
+        /// <summary>
+        /// Shared, case-insensitive table of authentic difficulty-tier names to their row in
+        /// 7_Difficulty.png. Drives both <see cref="GetDifficultyPanelSourceRect"/> and
+        /// <see cref="IsKnownDifficultyTier"/> so a label is classified consistently.
+        /// </summary>
+        private static readonly Dictionary<string, int> DifficultyTierRows =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["DTX"] = 0,
+                ["DEBUT"] = 1,
+                ["NOVICE"] = 2,
+                ["REGULAR"] = 3,
+                ["EXPERT"] = 4,
+                ["MASTER"] = 5,
+                ["BASIC"] = 6,
+                ["ADVANCED"] = 7,
+                ["EXTREME"] = 8,
+                ["RAW"] = 9,
+                ["RWS"] = 10,
+                ["REAL"] = 11,
+            };
+
+        /// <summary>
+        /// Chooses the label that drives the performance-stage difficulty badge. Prefers a slot
+        /// label that names a real badge tier; otherwise falls back to the chart's persisted
+        /// DifficultyLabel (the authentic SET.def label). Keeps the slot label when neither is a
+        /// known tier so a non-empty display string is still rendered as the default DTX cell.
+        /// </summary>
+        private static string? ResolveBadgeLabel(string? slotLabel, string? chartLabel)
+        {
+            if (IsKnownDifficultyTier(slotLabel))
+                return slotLabel;
+            if (!string.IsNullOrWhiteSpace(chartLabel))
+                return chartLabel;
+            return slotLabel;
         }
 
         /// <summary>

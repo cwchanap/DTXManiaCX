@@ -1344,8 +1344,13 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrEmpty(directory))
                 return result;
 
-            var setDefPath = Path.Combine(directory, "set.def");
-            if (!File.Exists(setDefPath))
+            // The chart referenced by #LnFILE may live in a subdirectory (e.g. "#L1FILE
+            // charts/bas.dtx"), so the caller passes the chart's directory while set.def sits in
+            // the song-folder root one level up. Walk up from the chart's directory until set.def
+            // is found so subdirectory chart references resolve to the correct labels instead of
+            // returning an empty map (which would make the badge fall back to "Level N"/DTX).
+            var setDefPath = FindSetDefPath(directory);
+            if (setDefPath == null)
                 return result;
 
             var lines = ReadSetDefLines(setDefPath);
@@ -1366,6 +1371,29 @@ namespace DTXMania.Game.Lib.Song
                 }
             }
             return result;
+        }
+
+        /// <summary>
+        /// Searches <paramref name="directory"/> and its parent directories (bounded) for a
+        /// <c>set.def</c> file, returning the first match. This lets the database-load path
+        /// recover difficulty labels for charts that live in a subdirectory of the song folder.
+        /// Returns null when no set.def is found within the search depth.
+        /// </summary>
+        private static string? FindSetDefPath(string directory)
+        {
+            var current = directory;
+            for (int depth = 0; depth < 4 && !string.IsNullOrEmpty(current); depth++)
+            {
+                var candidate = Path.Combine(current, "set.def");
+                if (File.Exists(candidate))
+                    return candidate;
+
+                var parent = Path.GetDirectoryName(current);
+                if (parent == null || parent == current)
+                    break;
+                current = parent;
+            }
+            return null;
         }
 
         private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
