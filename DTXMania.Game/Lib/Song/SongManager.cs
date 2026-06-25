@@ -2635,7 +2635,11 @@ namespace DTXMania.Game.Lib.Song
                     // SET.def when the persisted chart label is empty, so the performance-stage difficulty
                     // badge selects the matching cell instead of always falling back to the DTX cell.
                     // Legacy databases stored an empty SongChart.DifficultyLabel.
-                    var setDefLabels = GetSetDefLabelsByFile(Path.GetDirectoryName(primaryChart.FilePath) ?? "");
+                    // Only hit disk when at least one chart is missing its label — avoids re-reading
+                    // SET.def for every multi-chart song on startup when labels are already persisted.
+                    var setDefLabels = charts.Any(c => string.IsNullOrWhiteSpace(c.DifficultyLabel))
+                        ? GetSetDefLabelsByFile(Path.GetDirectoryName(primaryChart.FilePath) ?? "")
+                        : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                     int scoreIndex = 0;
                     foreach (var chart in charts.Take(5)) // Limit to 5 difficulties

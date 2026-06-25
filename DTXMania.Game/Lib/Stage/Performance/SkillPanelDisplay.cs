@@ -67,9 +67,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (resourceManager == null) throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice  = graphicsDevice  ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart           = chart;
-            // The DB-loaded chart carries no difficulty label (DifficultyLabel is never written and the
-            // DifficultyLabels dict is [NotMapped]), so the per-level badge name is supplied by the caller
-            // from SongListNode.DifficultyLabels[index]. Fall back to the chart's own label if present.
+            // The DB-loaded chart may carry a difficulty label recovered from SET.def by SongManager
+            // (see CreateSongNodeFromDatabaseEntities), but the DifficultyLabels dict is [NotMapped],
+            // so the per-level badge name is supplied by the caller from
+            // SongListNode.DifficultyLabels[index]. Fall back to the chart's own label if present.
             _difficultyLabel = !string.IsNullOrWhiteSpace(difficultyLabel) ? difficultyLabel : chart?.DifficultyLabel;
 
             try
