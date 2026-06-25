@@ -218,6 +218,45 @@ namespace DTXMania.Test.Song
             Assert.Equal("BASIC", labels["bas.dtx"]);
         }
 
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void GetSetDefLabelsByFile_RelativeSubdirectoryPath_ShouldNormalizeKeyToFileName()
+        {
+            // A legacy SET.def may reference a chart through a relative path such as
+            // "#L1FILE charts/bas.dtx". ResolveDifficultyLabel looks up by
+            // Path.GetFileName(chart.FilePath) ("bas.dtx"), so the label map must be keyed by
+            // the bare file name rather than the raw relative path, otherwise subdirectory
+            // references never match and the badge falls back to "Level N"/DTX.
+            var dir = CreateTempDirectory();
+            var content =
+                "#TITLE Subdir song\n" +
+                "#L1LABEL BASIC\n#L1FILE charts/bas.dtx\n" +
+                "#L3LABEL EXTREME\n#L3FILE charts/ext.dtx\n";
+            File.WriteAllText(Path.Combine(dir, "set.def"), content, Encoding.UTF8);
+
+            var labels = _songManager.GetSetDefLabelsByFile(dir);
+
+            Assert.Equal("BASIC", labels["bas.dtx"]);
+            Assert.Equal("EXTREME", labels["ext.dtx"]);
+            Assert.False(labels.ContainsKey("charts/bas.dtx"));
+            Assert.False(labels.ContainsKey("charts/ext.dtx"));
+        }
+
+        [Trait("Category", "Unit")]
+        [Fact]
+        public void ResolveDifficultyLabel_SubDirectoryChartPath_ShouldRecoverByFileName()
+        {
+            // End-to-end: a chart whose FilePath includes a subdirectory ("charts/bas.dtx") must
+            // recover its label from the normalized (file-name-keyed) SET.def map.
+            var chart = new SongChart { FilePath = "/songs/song/charts/bas.dtx", DifficultyLabel = "" };
+            var setDefLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["bas.dtx"] = "BASIC"
+            };
+
+            Assert.Equal("BASIC", SongManager.ResolveDifficultyLabel(chart, setDefLabels, 0));
+        }
+
         #endregion
 
         #region Database-load path (normal launch)
