@@ -130,48 +130,61 @@ Input plumbing reuses the existing `IsConfigNavigationCommandPressed` /
 
 ## Component Architecture
 
-Follows the existing `DrumConfig/` subfolder + `*UILayout` conventions.
+Follows the existing `*UILayout` convention and `ConfigStage`'s established
+render-spy seam. **Rendering decision:** `ConfigStage` already routes its
+primitive drawing through overridable `protected virtual` seams
+(`BeginDrawFrame` / `EndDrawFrame` / `DrawFilledRectangle` / `GetViewport`) and
+guards every texture draw with a null check, which lets `RenderSpyConfigStage`
+exercise the draw logic on Mac with no GraphicsDevice. We therefore keep the NX
+rendering **in-stage** through that same seam rather than introducing separate
+GraphicsDevice-dependent renderer classes (which would force Mac-excluded tests).
+Only the pure, fully-testable pieces are extracted into focused files.
 
-- **`Lib/UI/Layout/ConfigUILayout.cs`** *(new)* — all coordinate/size constants:
-  panel origins, menu cursor step, item-row origin/stride, name/value offsets,
-  description panel origin and text inset, header/footer placement. Renderers carry
-  no magic numbers.
+- **`Lib/UI/Layout/ConfigUILayout.cs`** *(new, pure / no graphics)* — every
+  coordinate, size, and helper that maps an index to a `Rectangle` / `Vector2`:
+  panel origins, menu row stride, menu cursor rect, item-row rect, item name/value
+  positions, description panel rect + text inset/wrap width, header/footer/title
+  placement. The stage carries no magic numbers. Fully Mac-testable.
 
-- **`Lib/Stage/Config/`** *(new subfolder)*:
-  - `ConfigCategory.cs` — model: `string Name`, `string Description`,
-    `IReadOnlyList<IConfigItem> Items`, plus the remembered selected index.
-  - `ConfigMenuRenderer.cs` — draws menu panel, menu cursor, category labels;
-    highlights the current category and dims when focus = Items.
-  - `ConfigItemListRenderer.cs` — draws item-box rows (`4_itembox.png` /
-    `4_itembox other.png`), the item cursor, and name/value text; highlights the
-    focused row, dims the whole list when focus = Menu.
-  - `ConfigDescriptionRenderer.cs` — draws the description panel and word-wrapped
-    text (simple greedy wrap to the panel's inner width).
+- **`Lib/Stage/Config/ConfigCategory.cs`** *(new, pure / no graphics)* — model:
+  `string Name`, `string Description`, `IReadOnlyList<IConfigItem> Items`, mutable
+  `int SelectedIndex`, `bool HasItems`, `IConfigItem? SelectedItem`, and
+  `MoveSelectionUp()` / `MoveSelectionDown()` (wrap, no-op when empty). The **Exit**
+  category is simply a category with zero items (`HasItems == false`); no special
+  flag. Fully Mac-testable.
 
-- **`Lib/Resources/TexturePath.cs`** — add constants and register them in the
-  existing path arrays: `ConfigBackground` (`Graphics/4_background.png`),
-  `ConfigItemBar` (`4_item bar.png`), `ConfigMenuPanel` (`4_menu panel.png`),
-  `ConfigMenuCursor` (`4_menu cursor.png`), `ConfigHeaderPanel`
-  (`4_header panel.png`), `ConfigFooterPanel` (`4_footer panel.png`),
-  `ConfigItemBox` (`4_itembox.png`), `ConfigItemBoxOther` (`4_itembox other.png`),
-  `ConfigItemBoxCursor` (`4_itembox cursor.png`), `ConfigDescriptionPanel`
-  (`4_Description Panel.png`).
+- **`Lib/Resources/TexturePath.cs`** — add constants and register them in
+  `GetAllTexturePaths()` (all ten) and `GetPanelTextures()` (the nine panel/art
+  ones, i.e. all except `ConfigBackground`): `ConfigBackground`
+  (`Graphics/4_background.png`), `ConfigItemBar` (`4_item bar.png`),
+  `ConfigMenuPanel` (`4_menu panel.png`), `ConfigMenuCursor` (`4_menu cursor.png`),
+  `ConfigHeaderPanel` (`4_header panel.png`), `ConfigFooterPanel`
+  (`4_footer panel.png`), `ConfigItemBox` (`4_itembox.png`), `ConfigItemBoxOther`
+  (`4_itembox other.png`), `ConfigItemBoxCursor` (`4_itembox cursor.png`),
+  `ConfigDescriptionPanel` (`4_Description Panel.png`).
 
 - **`Lib/Config/IConfigItem.cs` + `ConfigItems.cs`** — add `string Description { get; }`
-  to `IConfigItem`, default `""` on `BaseConfigItem`, settable via an optional ctor
-  argument / object initializer. `NavigationConfigItem` and `ReadOnlyConfigItem`
-  inherit it. No value-semantics change.
+  to `IConfigItem`; `BaseConfigItem` implements it as `{ get; init; } = ""`, set via
+  object initializer at item-construction. `NavigationConfigItem` and
+  `ReadOnlyConfigItem` inherit it. No value-semantics change.
 
-- **`Lib/Stage/ConfigStage.cs`** — refactor:
+- **`Lib/Stage/ConfigStage.cs`** — refactor (single file, reusing its render seam):
+  - State: replace `_configItems` / `_selectedIndex` with `_categories`
+    (`List<ConfigCategory>`), `_currentCategoryIndex`, and `_focusOnMenu`.
   - `SetupConfigItems()` → builds the three `ConfigCategory` objects (reusing the
-    existing item instances, now with descriptions).
-  - Replace flat-list `HandleInput()` / `DrawConfigItems()` / `DrawButtons()` with
-    the focus-state machine + the three renderers.
-  - `InitializeGraphics()` loads the new textures (best-effort) and disposes them in
-    `OnDeactivate` / `Dispose`, matching the current font/background lifecycle.
-  - Preserve unchanged: NX-import (`StartNxScoreImport` and its `InlineProgress`),
+    existing item instances, now with `Description` set).
+  - `HandleInput()` → the two-focus state machine (Menu ↔ Items).
+  - Replace `DrawTitle` / `DrawConfigItems` / `DrawButtons` / `DrawInstructions`
+    with new `protected virtual` draw methods consuming `ConfigUILayout`:
+    `DrawConfigBackground`, `DrawItemBar`, `DrawCategoryMenu`, `DrawItemList`,
+    `DrawDescriptionPanel`, `DrawHeaderFooter`. Selection highlights draw a texture
+    when present, else a `DrawFilledRectangle` fallback (the assertable seam).
+  - `InitializeGraphics()` loads the new textures best-effort; `OnDeactivate` /
+    `Dispose` release them, matching the current font/background lifecycle.
+  - Preserve unchanged: NX-import (`StartNxScoreImport` + `InlineProgress`),
     key-panel wiring (`InitializePanels`, `OpenPanel`, `OnPanelSaved`/`Closed`),
-    `FlushPendingSaveSafely`, and the persist-on-edit contract.
+    `DrawImportStatus`, `FlushPendingSaveSafely`, persist-on-edit contract, and the
+    `IsConfigNavigationCommandPressed` / `IsPanelCommandPressed` input readers.
 
 ## Error Handling & Edge Cases
 
@@ -188,24 +201,37 @@ Follows the existing `DrumConfig/` subfolder + `*UILayout` conventions.
 
 ## Testing
 
-- **Excluded from `DTXMania.Test.Mac.csproj`** (GraphicsDevice-dependent, like
-  `SongBarRenderer*`): `ConfigMenuRenderer`, `ConfigItemListRenderer`,
-  `ConfigDescriptionRenderer` tests. Add the new test files to the Mac project's
-  explicit-exclude list.
-- **Mac-safe logic tests** (no GraphicsDevice):
-  - Category construction and item-to-category mapping (System has 7 items in
-    order, Drums has 4, Exit has 0).
-  - Focus-state transitions: Menu→Items on Enter over a settings category;
-    Items→Menu on Esc; Exit/Esc on menu triggers flush + Title.
-  - Category index wraps; per-category item index wraps and is remembered across
-    category switches.
-  - Each item exposes a non-empty `Description`; each category has a `Description`.
-- **Update existing `ConfigStage` tests** to the category structure (current tests
-  assume a flat `_configItems` list + Exit pseudo-button).
-- Where focus/navigation logic needs to be exercised without a GraphicsDevice,
-  follow the existing `ConfigStageLogicTests` pattern (subclass `ConfigStage`,
-  override `InitializeGraphics`, drive state via `ReflectionHelpers` and the
-  fallback-drawing paths, skipping real `OnActivate`).
+Everything is Mac-testable — **no new `DTXMania.Test.Mac.csproj` exclusions** —
+because rendering stays on `ConfigStage`'s render-spy seam and the new helpers are
+pure.
+
+- **`ConfigUILayout`** (pure): assert each helper returns the documented NX
+  rectangle/position for given indices.
+- **`ConfigCategory`** (pure): construction; `SelectedIndex` wrap on
+  up/down; empty category (`HasItems == false`, `SelectedItem == null`, moves are
+  no-ops).
+- **Config item `Description`**: default `""`; round-trips through the object
+  initializer.
+- **`ConfigStage` logic** (existing reflection / `ForcedCommandInputManager`
+  pattern, Mac-safe):
+  - `SetupConfigItems` builds 3 categories — System (7 items, in order), Drums
+    (4 items), Exit (0 items) — each with a non-empty `Description`, and each item
+    with a non-empty `Description`.
+  - Focus transitions: Menu→Items on Activate over System/Drums; Activate over Exit
+    flushes + returns to Title; Esc in Items returns to Menu; Esc in Menu flushes +
+    returns to Title.
+  - Category index wraps on up/down; per-category item index wraps and is remembered
+    across category switches.
+- **`ConfigStage` rendering** (existing `RenderSpyConfigStage` pattern, Mac-safe,
+  textures + fonts null): `DrawCategoryMenu` emits a highlight rect at
+  `ConfigUILayout.MenuCursorRect(currentCategoryIndex)`; `DrawItemList` emits an
+  item-cursor rect at `ItemCursorRect(selectedIndex)` only when `_focusOnMenu ==
+  false`; `DrawConfigBackground` falls back to the light fill when the texture is
+  absent.
+- **Update existing `ConfigStageLogicTests` / `ConfigStageTests`** that assume the
+  flat `_configItems` / `_selectedIndex` / Exit-pseudo-button model: delete the
+  obsolete `DrawConfigItems` / `DrawButtons` / flat-list-navigation tests, add the
+  category-structure and focus-model replacements above.
 
 ## Out-of-Scope Follow-ups (noted, not built)
 
