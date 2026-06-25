@@ -127,26 +127,32 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void ScoreDisplay_LoadFont_WhenFontFactoryFails_ShouldDisposePartiallyCreatedScoreFont()
+        public void ScoreDisplay_LoadFont_WhenTitleFontFactoryFails_ShouldDisposePartiallyCreatedScoreFont()
         {
-            // Regression: if _scoreFont exists when a later ManagedFont.CreateFont call throws,
-            // the catch in LoadFont must dispose it rather than only nulling the field, otherwise
-            // the fallback font resource leaks on the font-failure path. We pre-set _scoreFont to a
-            // disposal-tracking font and force the factory to throw on the first CreateFont call.
-            var display = CreateUninitialized<ScoreDisplay>();
+            // Regression for the partial-initialization leak in ScoreDisplay.LoadFont: when the
+            // score font loads but the title font then throws, the catch must dispose the already-
+            // created _scoreFont so the fallback font resource is not leaked. The static
+            // ManagedFont factory caches its SpriteFont and both LoadFont calls resolve to the same
+            // cached asset, so this path cannot be triggered by manipulating factory state; instead
+            // we inject a controllable factory through the protected CreateScoreFont/CreateTitleFont
+            // seams, returning a disposal-tracking font on the score path and throwing on the title
+            // path. Created via FormatterServices so the base constructor (needs a real
+            // GraphicsDevice) never runs.
             var scoreFont = CreateTrackingManagedFont();
-            SetPrivateField(display, "_scoreFont", scoreFont);
+            var display = CreateUninitialized<PartialInitScoreDisplay>();
+            display.ScoreFontToReturn = scoreFont;
 
-            WithManagedFontFactoryUnavailable(() =>
-            {
-                var invocation = Assert.Throws<TargetInvocationException>(() =>
-                    InvokePrivateMethod(display, "LoadFont"));
-                // The original font-load failure is wrapped; disposal must happen regardless.
-                Assert.NotNull(invocation.InnerException);
-            });
+            // LoadFont is private on the base ScoreDisplay; GetMethod on the derived
+            // PartialInitScoreDisplay won't see it (private members aren't inherited), so resolve
+            // it from the declaring type and invoke on the derived instance.
+            var loadFont = typeof(ScoreDisplay).GetMethod("LoadFont", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var invocation = Assert.Throws<TargetInvocationException>(() => loadFont.Invoke(display, null));
+            // The font-load failure is wrapped; disposal must happen regardless.
+            Assert.NotNull(invocation.InnerException);
 
             Assert.Equal(1, scoreFont.DisposeCount);
             Assert.Null(GetPrivateField<ManagedFont?>(display, "_scoreFont"));
+            Assert.Null(GetPrivateField<ManagedFont?>(display, "_titleFont"));
         }
 
         #endregion
@@ -830,6 +836,27 @@ namespace DTXMania.Test.Stage.Performance
                 WasDisposed = true;
                 DisposeCount++;
             }
+        }
+
+        /// <summary>
+        /// ScoreDisplay subclass that injects a controllable font factory so the partial-
+        /// initialization path of LoadFont (score font succeeds, title font throws) can be
+        /// exercised. Built via <see cref="CreateUninitialized{T}"/> so the base constructor
+        /// (which needs a real GraphicsDevice) never runs.
+        /// </summary>
+        private sealed class PartialInitScoreDisplay : ScoreDisplay
+        {
+            public TrackingManagedFont? ScoreFontToReturn;
+
+            // FormatterServices.GetUninitializedObject bypasses this ctor entirely, so the null
+            // base args never reach ScoreDisplay's null-checks. The declaration exists only to
+            // satisfy the compiler (the base has no parameterless ctor).
+            private PartialInitScoreDisplay() : base(null!, null!) { }
+
+            protected override ManagedFont CreateScoreFont() => ScoreFontToReturn!;
+
+            protected override ManagedFont CreateTitleFont()
+                => throw new InvalidOperationException("simulated _titleFont load failure");
         }
 
         #endregion
