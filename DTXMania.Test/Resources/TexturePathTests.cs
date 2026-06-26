@@ -433,5 +433,42 @@ namespace DTXMania.Test.Resources
         }
 
         #endregion
+
+        #region Config Stage Texture Constants
+
+        [Fact]
+        public void ConfigTexturePaths_ShouldUseExpectedSkinFiles()
+        {
+            Assert.Equal("Graphics/4_background.png", TexturePath.ConfigBackground);
+            Assert.Equal("Graphics/4_item bar.png", TexturePath.ConfigItemBar);
+            Assert.Equal("Graphics/4_menu panel.png", TexturePath.ConfigMenuPanel);
+            Assert.Equal("Graphics/4_menu cursor.png", TexturePath.ConfigMenuCursor);
+            Assert.Equal("Graphics/4_header panel.png", TexturePath.ConfigHeaderPanel);
+            Assert.Equal("Graphics/4_footer panel.png", TexturePath.ConfigFooterPanel);
+            Assert.Equal("Graphics/4_itembox.png", TexturePath.ConfigItemBox);
+            Assert.Equal("Graphics/4_itembox other.png", TexturePath.ConfigItemBoxOther);
+            Assert.Equal("Graphics/4_itembox cursor.png", TexturePath.ConfigItemBoxCursor);
+            Assert.Equal("Graphics/4_Description Panel.png", TexturePath.ConfigDescriptionPanel);
+        }
+
+        [Fact]
+        public void GetAllTexturePaths_ShouldContainConfigPaths()
+        {
+            var paths = TexturePath.GetAllTexturePaths();
+            Assert.Contains(TexturePath.ConfigBackground, paths);
+            Assert.Contains(TexturePath.ConfigMenuPanel, paths);
+            Assert.Contains(TexturePath.ConfigDescriptionPanel, paths);
+        }
+
+        [Fact]
+        public void GetPanelTextures_ShouldContainConfigPanels_ButNotBackground()
+        {
+            var paths = TexturePath.GetPanelTextures();
+            Assert.Contains(TexturePath.ConfigMenuPanel, paths);
+            Assert.Contains(TexturePath.ConfigItemBox, paths);
+            Assert.DoesNotContain(TexturePath.ConfigBackground, paths);
+        }
+
+        #endregion
     }
 }
