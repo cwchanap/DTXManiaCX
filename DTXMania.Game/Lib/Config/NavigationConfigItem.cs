@@ -3,8 +3,11 @@ using System;
 namespace DTXMania.Game.Lib.Config
 {
     /// <summary>
-    /// A config list item that navigates to a sub-panel when activated.
-    /// Left/right arrows and ToggleValue all invoke the same action.
+    /// A config list item that navigates to a sub-panel, a different stage, or runs an
+    /// action when activated. All three action methods (PreviousValue/NextValue/ToggleValue)
+    /// invoke the same callback so the item stays drop-in compatible with value-cycling
+    /// items; however, ConfigStage drives these items from the Activate path only — Left/Right
+    /// are value-adjust keys and must never trigger a stage change or an async import.
     /// </summary>
     public class NavigationConfigItem : BaseConfigItem
     {

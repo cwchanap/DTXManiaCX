@@ -403,6 +403,70 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void HandleInput_MoveLeftOnNavigationItem_ShouldNotChangeStage()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+
+            // Drum Key Mapping navigates to DrumConfig via an InstantTransition. Left is a
+            // value-adjust key and must never trigger that stage change.
+            SelectItemForEditing(stage, "Drum Key Mapping");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    Moq.It.IsAny<StageType>(),
+                    Moq.It.IsAny<IStageTransition>()),
+                Moq.Times.Never);
+        }
+    }
+
+    [Fact]
+    public void HandleInput_MoveRightOnNavigationItem_ShouldNotOpenPanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+
+            // System Key Mapping opens the key-assign panel. Right is a value-adjust key and
+            // must never pop that overlay open.
+            SelectItemForEditing(stage, "System Key Mapping");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
+            Assert.Null(activePanel);
+        }
+    }
+
+    [Fact]
+    public void HandleInput_ActivateOnSystemKeyMapping_ShouldOpenPanel()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+
+            // Activate is the supported path for navigation items; it must still open the panel.
+            SelectItemForEditing(stage, "System Key Mapping");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var activePanel = ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel");
+            Assert.NotNull(activePanel);
+        }
+    }
+
+    [Fact]
     public void IsConfigNavigationCommandPressed_RuntimeBindingPressed_ShouldReturnTrue()
     {
         var (stage, _, inputManager) = CreateStage();
