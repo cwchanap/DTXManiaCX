@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
@@ -10,8 +9,6 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 
@@ -28,16 +25,6 @@ public class ConfigStageCoverageTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
         return (new ConfigStage(game), configManager, inputManager);
-    }
-
-    private static (RenderSpyConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateRenderSpyStage(ConfigManager? configManager = null)
-    {
-        configManager ??= new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        return (new RenderSpyConfigStage(game), configManager, inputManager);
     }
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels)
@@ -157,50 +144,9 @@ public class ConfigStageCoverageTests
         }
     }
 
-    private static void SetFallbackDrawingState(ConfigStage stage)
-    {
-        ReflectionHelpers.SetPrivateField(stage, "_font", null);
-        ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
-        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", CreateUninitializedSpriteBatch());
-        ReflectionHelpers.SetPrivateField(stage, "_whitePixel", CreateUninitializedTexture());
-    }
-
-    private static SpriteBatch CreateUninitializedSpriteBatch()
-    {
-#pragma warning disable SYSLIB0050
-        var sb = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
-#pragma warning restore SYSLIB0050
-        GC.SuppressFinalize(sb);
-        return sb;
-    }
-
-    private static Texture2D CreateUninitializedTexture()
-    {
-#pragma warning disable SYSLIB0050
-        var texture = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-#pragma warning restore SYSLIB0050
-        GC.SuppressFinalize(texture);
-        return texture;
-    }
-
     private static void SetPrivateField(object target, string fieldName, object? value)
         => ReflectionHelpers.SetPrivateField(target, fieldName, value);
 
     private static T? GetPrivateField<T>(object target, string fieldName)
         => ReflectionHelpers.GetPrivateField<T>(target, fieldName);
-
-    private sealed class RenderSpyConfigStage : ConfigStage
-    {
-        public RenderSpyConfigStage(BaseGame game)
-            : base(game)
-        {
-        }
-
-        public List<(Rectangle Rectangle, Color Color)> RectangleDrawCalls { get; } = [];
-
-        protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
-        {
-            RectangleDrawCalls.Add((destinationRectangle, color));
-        }
-    }
 }
