@@ -543,6 +543,18 @@ namespace DTXMania.Game.Lib.Stage
             if (item == null)
                 return;
 
+            // Navigation items (sub-panel openers, stage transitions, async imports) have no
+            // cyclic value to adjust. Left/Right are the value-adjust keys, so letting them
+            // trigger navigation would surprise the player — e.g. an instant ChangeStage to
+            // DrumConfig or kicking off a long NX import from a stray keypress. Restrict them
+            // to the Activate path only (mirrors HandleMenuInput, where Left never activates).
+            if (item is NavigationConfigItem)
+            {
+                if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
+                    item.ToggleValue();
+                return;
+            }
+
             if (IsConfigNavigationCommandPressed(InputCommandType.MoveLeft))
             {
                 item.PreviousValue();
