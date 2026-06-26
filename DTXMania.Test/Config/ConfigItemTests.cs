@@ -288,6 +288,29 @@ namespace DTXMania.Test.Config
         }
 
         #endregion
+
+        #region Description Tests
+
+        [Fact]
+        public void Description_WhenNotSet_ShouldDefaultToEmptyString()
+        {
+            var item = new ToggleConfigItem("Fullscreen", () => false, _ => { });
+
+            Assert.Equal(string.Empty, item.Description);
+        }
+
+        [Fact]
+        public void Description_WhenSetViaInitializer_ShouldRoundTrip()
+        {
+            var item = new ToggleConfigItem("Fullscreen", () => false, _ => { })
+            {
+                Description = "Toggles fullscreen display mode."
+            };
+
+            Assert.Equal("Toggles fullscreen display mode.", item.Description);
+        }
+
+        #endregion
     }
 
     [Trait("Category", "Unit")]

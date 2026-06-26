@@ -9,6 +9,7 @@ namespace DTXMania.Game.Lib.Config
     public abstract class BaseConfigItem : IConfigItem
     {
         public string Name { get; protected set; }
+        public string Description { get; init; } = "";
 
         public event EventHandler ValueChanged;
 
