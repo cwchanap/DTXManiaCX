@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Lib.Stage.KeyAssign;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -30,33 +33,6 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void SetupConfigItems_ShouldCreateExpectedItemsAndSelectFirstItem()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            Assert.Equal(11, configItems!.Count);
-            Assert.Collection(configItems,
-                item => Assert.Equal("Screen Resolution", item.Name),
-                item => Assert.Equal("Fullscreen", item.Name),
-                item => Assert.Equal("VSync Wait", item.Name),
-                item => Assert.Equal("No Fail", item.Name),
-                item => Assert.Equal("Auto Play", item.Name),
-                item => Assert.Equal("Scroll Speed", item.Name),
-                item => Assert.Equal("Audio Latency Offset", item.Name),
-                item => Assert.Equal("DTX Folder", item.Name),
-                item => Assert.Equal("Drum Key Mapping", item.Name),
-                item => Assert.Equal("System Key Mapping", item.Name),
-                item => Assert.Equal("Import NX Scores", item.Name));
-            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
-        }
-    }
-
-    [Fact]
     public void SetupConfigItems_ShouldShowConfiguredDtxFolder()
     {
         var (stage, configManager, inputManager) = CreateStage();
@@ -65,8 +41,8 @@ public class ConfigStageLogicTests
             configManager.Config.DTXPath = "/tmp/custom dtx";
             InitializeStageMenu(stage, includePanels: false);
 
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            var item = Assert.Single(configItems!, item => item.Name == "DTX Folder");
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.SelectMany(c => c.Items).Single(i => i.Name == "DTX Folder");
 
             Assert.Equal("DTX Folder: /tmp/custom dtx", item.GetDisplayText());
         }
@@ -80,48 +56,13 @@ public class ConfigStageLogicTests
         {
             configManager.Config.DTXPath = "/tmp/custom dtx";
             InitializeStageMenu(stage, includePanels: false);
-            var dtxFolderIndex = GetConfigItemIndex(stage, "DTX Folder");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", dtxFolderIndex);
+            SelectItemForEditing(stage, "DTX Folder");
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
             // DTX Folder is read-only; Config must be unchanged.
             Assert.Equal("/tmp/custom dtx", configManager.Config.DTXPath);
-        }
-    }
-
-    [Fact]
-    public void MoveUpPressedAtFirstItem_ShouldWrapToExitButton()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Up), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.Equal(configItems!.Count, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
-        }
-    }
-
-    [Fact]
-    public void MoveDownPressedAtExitButton_ShouldWrapToFirstItem()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
         }
     }
 
@@ -134,7 +75,7 @@ public class ConfigStageLogicTests
             configManager.Config.ScreenWidth = 1280;
             configManager.Config.ScreenHeight = 720;
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+            SelectItemForEditing(stage, "Screen Resolution");
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -153,7 +94,7 @@ public class ConfigStageLogicTests
             configManager.Config.ScreenWidth = 1920;
             configManager.Config.ScreenHeight = 1080;
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+            SelectItemForEditing(stage, "Screen Resolution");
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -171,7 +112,7 @@ public class ConfigStageLogicTests
         {
             configManager.Config.FullScreen = false;
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 1);
+            SelectItemForEditing(stage, "Fullscreen");
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -190,7 +131,7 @@ public class ConfigStageLogicTests
             var stageManager = new Moq.Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
 
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "Drum Key Mapping"));
+            SelectItemForEditing(stage, "Drum Key Mapping");
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -255,7 +196,7 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: false);
             var stageManager = new Moq.Mock<IStageManager>();
             stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 7);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
             SetKeyboardStates(stage, new KeyboardState(Keys.Escape), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -266,78 +207,6 @@ public class ConfigStageLogicTests
                     Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
                 Moq.Times.Once);
         }
-    }
-
-    [Fact]
-    public void ActivatePressedOnExitButton_ShouldReturnToTitleStage()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Moq.Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            stageManager.Verify(
-                manager => manager.ChangeStage(
-                    StageType.Title,
-                    Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
-                Moq.Times.Once);
-        }
-    }
-
-    [Fact]
-    public void ExitButton_ShouldCallFlushPendingSaveAndTransitionToTitle()
-    {
-        // Spy on FlushPendingSave via a Mock<IConfigManager> to PROVE the exit path flushes,
-        // independent of internal ConfigManager state (the call must happen regardless).
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
-        InitializeStageMenu(stage, includePanels: false);
-        var stageManager = new Moq.Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count); // Exit button
-        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-        // EXIT must flush the pending save (persist-on-edit) and leave for Title.
-        mockConfig.Verify(c => c.FlushPendingSave(), Moq.Times.Once);
-        stageManager.Verify(
-            manager => manager.ChangeStage(
-                StageType.Title,
-                Moq.It.Is<IStageTransition>(transition => transition is CrossfadeTransition)),
-            Moq.Times.Once);
-    }
-
-    [Fact]
-    public void ExitButton_WhenFlushThrows_ShouldStillTransitionToTitle()
-    {
-        // Persist-on-edit contract: a flush failure must not trap the user on the config screen.
-        // The stage logs the failure, keeps the dirty flag for retry, and still transitions.
-        using var inputManager = new InputManagerCompat(new ConfigManager());
-        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
-        mockConfig.Setup(c => c.FlushPendingSave()).Throws(new IOException("disk full"));
-        InitializeStageMenu(stage, includePanels: false);
-        var stageManager = new Moq.Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count); // Exit button
-        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput"));
-
-        Assert.Null(exception);
-        mockConfig.Verify(c => c.FlushPendingSave(), Moq.Times.Once);
-        stageManager.Verify(
-            manager => manager.ChangeStage(StageType.Title, Moq.It.IsAny<IStageTransition>()),
-            Moq.Times.Once);
     }
 
     [Fact]
@@ -371,13 +240,13 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: false);
             var activePanel = new TrackingKeyAssignPanel { IsActive = true };
             ReflectionHelpers.SetPrivateField(stage, "_activePanel", activePanel);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 4);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 1);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.25);
 
             Assert.Equal(1, activePanel.UpdateCallCount);
             Assert.Equal(0.25, activePanel.LastDeltaTime, 3);
-            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
         }
     }
 
@@ -393,11 +262,12 @@ public class ConfigStageLogicTests
 
         InitializeStageMenu(stage, includePanels: false);
         ReflectionHelpers.SetPrivateField(stage, "_activePanel", (IKeyAssignPanel?)null);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+        ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+        ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.25);
 
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
     }
 
     [Fact]
@@ -414,17 +284,17 @@ public class ConfigStageLogicTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
 
             // Config is the single source of truth; getters read it directly.
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.NotNull(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
-            Assert.NotNull(configItems);
-            Assert.Equal(11, configItems!.Count);
+            Assert.NotNull(categories);
+            Assert.Equal(3, categories!.Count);
             Assert.NotNull(ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel"));
 
             // The resolution item reflects Config (truth).
-            Assert.Equal("Screen Resolution: 1920x1080", configItems[0].GetDisplayText());
+            Assert.Equal("Screen Resolution: 1920x1080", categories[0].Items[0].GetDisplayText());
         }
     }
 
@@ -468,31 +338,13 @@ public class ConfigStageLogicTests
         {
             stage.InitializeDrawingState();
 
-            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground"));
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigBackground"));
 
             var drawCall = Assert.Single(stage.RectangleDrawCalls);
             Assert.Equal(new Rectangle(0, 0, viewport.Width, viewport.Height), drawCall.Rectangle);
-            // Must match ConfigStage.FallbackBackgroundColor: a light fill keeps DarkText legible
-            // when the background texture is unavailable (dark-on-dark was the old failure mode).
-            Assert.Equal(new Color(220, 222, 230), drawCall.Color);
-        }
-    }
-
-    [Fact]
-    public void DrawTitle_WhenFontMissing_ShouldFallbackToRectangleDrawing()
-    {
-        var (stage, inputManager) = CreateRenderSpyStage(new Viewport(0, 0, 1280, 720));
-        using (inputManager)
-        {
-            stage.InitializeDrawingState();
-            ReflectionHelpers.SetPrivateField(stage, "_font", null);
-            ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
-
-            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
-
-            var drawCall = Assert.Single(stage.RectangleDrawCalls);
-            Assert.Equal(new Rectangle(100, 50, "CONFIGURATION".Length * 12, 20), drawCall.Rectangle);
-            Assert.Equal(new Color(26, 30, 46), drawCall.Color);
+            // Must match ConfigStage.FallbackBackgroundColor: dark fill keeps LightText legible
+            // when the background texture is unavailable (light-on-dark is the NX aesthetic).
+            Assert.Equal(new Color(18, 20, 34), drawCall.Color);
         }
     }
 
@@ -504,12 +356,13 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.SetPrivateField(stage, "_activePanel", (IKeyAssignPanel?)null);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
             SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
         }
     }
 
@@ -521,8 +374,7 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             // Drum Key Mapping is a NavigationConfigItem; Left should not change config values.
-            var drumIndex = GetConfigItemIndex(stage, "Drum Key Mapping");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", drumIndex);
+            SelectItemForEditing(stage, "Drum Key Mapping");
             var autoPlayBefore = configManager.Config.AutoPlay;
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
@@ -540,34 +392,13 @@ public class ConfigStageLogicTests
         {
             InitializeStageMenu(stage, includePanels: false);
             // System Key Mapping is a NavigationConfigItem; Right should not change config values.
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", GetConfigItemIndex(stage, "System Key Mapping"));
+            SelectItemForEditing(stage, "System Key Mapping");
             var autoPlayBefore = configManager.Config.AutoPlay;
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
             Assert.Equal(autoPlayBefore, configManager.Config.AutoPlay);
-        }
-    }
-
-    [Fact]
-    public void HandleInput_ActivateOnExitButton_ShouldInvokeExitButtonClicked()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            var stageManager = new Moq.Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-            stageManager.Verify(
-                manager => manager.ChangeStage(StageType.Title, Moq.It.IsAny<IStageTransition>()),
-                Moq.Times.Once);
         }
     }
 
@@ -724,8 +555,7 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: true);
             var systemPanel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
             Assert.NotNull(systemPanel);
-            var systemKeyMappingIndex = GetConfigItemIndex(stage, "System Key Mapping");
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", systemKeyMappingIndex);
+            SelectItemForEditing(stage, "System Key Mapping");
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
             var before = inputManager.GetKeyMappingSnapshot().Count;
 
@@ -733,7 +563,10 @@ public class ConfigStageLogicTests
 
             Assert.False(systemPanel.IsActive);
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            Assert.Equal(systemKeyMappingIndex, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedIndex"));
+            // Still in System category with System Key Mapping selected (index 5 in System items).
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            Assert.Equal(5, categories![0].SelectedIndex);
             // Cancel (Back) does not persist; system bindings unchanged.
             Assert.Equal(before, inputManager.GetKeyMappingSnapshot().Count);
         }
@@ -821,10 +654,10 @@ public class ConfigStageLogicTests
     }
 
     [Theory]
-    [InlineData(2, nameof(ConfigData.VSyncWait))]
-    [InlineData(3, nameof(ConfigData.NoFail))]
-    [InlineData(4, nameof(ConfigData.AutoPlay))]
-    public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(int selectedIndex, string propertyName)
+    [InlineData("VSync Wait", nameof(ConfigData.VSyncWait))]
+    [InlineData("No Fail", nameof(ConfigData.NoFail))]
+    [InlineData("Auto Play", nameof(ConfigData.AutoPlay))]
+    public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
         var (stage, configManager, inputManager) = CreateStage();
         using (inputManager)
@@ -833,7 +666,7 @@ public class ConfigStageLogicTests
             Assert.NotNull(property);
             property!.SetValue(configManager.Config, false);
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", selectedIndex);
+            SelectItemForEditing(stage, itemName);
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
@@ -851,8 +684,7 @@ public class ConfigStageLogicTests
             configManager.Config.AudioLatencyOffsetMs = 200;
             InitializeStageMenu(stage, includePanels: false);
 
-            // Audio Latency Offset is at index 6 (after Resolution, Fullscreen, VSync, NoFail, AutoPlay, ScrollSpeed)
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SelectItemForEditing(stage, "Audio Latency Offset");
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
@@ -869,7 +701,7 @@ public class ConfigStageLogicTests
             configManager.Config.AudioLatencyOffsetMs = 0;
             InitializeStageMenu(stage, includePanels: false);
 
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SelectItemForEditing(stage, "Audio Latency Offset");
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
@@ -886,7 +718,7 @@ public class ConfigStageLogicTests
             configManager.Config.AudioLatencyOffsetMs = 500;
             InitializeStageMenu(stage, includePanels: false);
 
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 6);
+            SelectItemForEditing(stage, "Audio Latency Offset");
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
@@ -942,6 +774,190 @@ public class ConfigStageLogicTests
         reloaded.LoadConfig(configPath);
         return reloaded.Config.AutoPlay;
     }
+
+    // ---- New NX master-detail behavior tests (Task 5) ----
+
+    [Fact]
+    public void SetupConfigItems_ShouldBuildSystemDrumsExitCategories()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+
+            Assert.Collection(categories!,
+                c => Assert.Equal("System", c.Name),
+                c => Assert.Equal("Drums", c.Name),
+                c => Assert.Equal("Exit", c.Name));
+
+            Assert.Collection(categories![0].Items,
+                i => Assert.Equal("Screen Resolution", i.Name),
+                i => Assert.Equal("Fullscreen", i.Name),
+                i => Assert.Equal("VSync Wait", i.Name),
+                i => Assert.Equal("Audio Latency Offset", i.Name),
+                i => Assert.Equal("DTX Folder", i.Name),
+                i => Assert.Equal("System Key Mapping", i.Name),
+                i => Assert.Equal("Import NX Scores", i.Name));
+
+            Assert.Collection(categories[1].Items,
+                i => Assert.Equal("Scroll Speed", i.Name),
+                i => Assert.Equal("Auto Play", i.Name),
+                i => Assert.Equal("No Fail", i.Name),
+                i => Assert.Equal("Drum Key Mapping", i.Name));
+
+            Assert.False(categories[2].HasItems);
+        }
+    }
+
+    [Fact]
+    public void EveryConfigCategoryAndItem_ShouldHaveNonEmptyDescription()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+
+            foreach (var category in categories!)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(category.Description));
+                foreach (var item in category.Items)
+                    Assert.False(string.IsNullOrWhiteSpace(item.Description), $"{item.Name} needs a description");
+            }
+        }
+    }
+
+    [Fact]
+    public void MenuActivateOnSettingsCategory_ShouldMoveFocusToItems()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+        }
+    }
+
+    [Fact]
+    public void MenuActivateOnExitCategory_ShouldFlushAndTransitionToTitle()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        var stageManager = new Moq.Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 2); // Exit
+        ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(c => c.FlushPendingSave(), Moq.Times.Once);
+        stageManager.Verify(
+            m => m.ChangeStage(StageType.Title, Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)),
+            Moq.Times.Once);
+    }
+
+    [Fact]
+    public void ItemsBackCommand_ShouldReturnFocusToMenu_WithoutLeavingStage()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Escape), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+            stageManager.Verify(
+                m => m.ChangeStage(Moq.It.IsAny<StageType>(), Moq.It.IsAny<IStageTransition>()),
+                Moq.Times.Never);
+        }
+    }
+
+    [Fact]
+    public void MenuMoveDown_ShouldWrapAcrossCategories()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 2); // Exit (last)
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
+        }
+    }
+
+    [Fact]
+    public void DrawCategoryMenu_ShouldHighlightCurrentCategory()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 1);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawCategoryMenu");
+
+            Assert.Contains(stage.RectangleDrawCalls, c => c.Rectangle == ConfigUILayout.MenuCursorRect(1));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WhenFocusOnItems_ShouldDrawItemCursorAtSelectedRow()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            categories![0].SelectedIndex = 2;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            Assert.Contains(stage.RectangleDrawCalls, c => c.Rectangle == ConfigUILayout.ItemCursorRect(2));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WhenFocusOnMenu_ShouldNotDrawItemCursor()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            Assert.DoesNotContain(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.ItemCursorRect(0));
+        }
+    }
+
+    // ---- End of new NX master-detail behavior tests ----
 
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
@@ -1020,13 +1036,29 @@ public class ConfigStageLogicTests
         cm.SetSystemKeyBindings(bindings);
     }
 
-    private static int GetConfigItemIndex(ConfigStage stage, string itemName)
+    /// <summary>
+    /// Finds (categoryIndex, itemIndex) for a named item across all categories, sets the stage's
+    /// current category + that category's SelectedIndex, and switches focus to the item list so a
+    /// subsequent HandleInput acts on the item. Mirrors the new master-detail navigation.
+    /// </summary>
+    private static void SelectItemForEditing(ConfigStage stage, string itemName)
     {
-        var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-        Assert.NotNull(configItems);
-        var index = configItems!.FindIndex(item => item.Name == itemName);
-        Assert.True(index >= 0, $"Config item '{itemName}' should exist.");
-        return index;
+        var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+        Assert.NotNull(categories);
+        for (int c = 0; c < categories!.Count; c++)
+        {
+            for (int i = 0; i < categories[c].Items.Count; i++)
+            {
+                if (categories[c].Items[i].Name == itemName)
+                {
+                    ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", c);
+                    categories[c].SelectedIndex = i;
+                    ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+                    return;
+                }
+            }
+        }
+        Assert.Fail($"Config item '{itemName}' should exist.");
     }
 
     private static void SetKeyboardStates(ConfigStage stage, KeyboardState current, KeyboardState previous)

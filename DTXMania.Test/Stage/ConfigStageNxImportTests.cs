@@ -178,7 +178,7 @@ public class ConfigStageNxImportTests : IDisposable
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawImportStatus");
 
-            font.Verify(f => f.DrawString(spriteBatch, "Importing... 1 / 5", It.IsAny<Microsoft.Xna.Framework.Vector2>(), new Microsoft.Xna.Framework.Color(18, 64, 132)), Times.Once);
+            font.Verify(f => f.DrawString(spriteBatch, "Importing... 1 / 5", It.IsAny<Microsoft.Xna.Framework.Vector2>(), new Microsoft.Xna.Framework.Color(180, 220, 255)), Times.Once);
         }
     }
 
