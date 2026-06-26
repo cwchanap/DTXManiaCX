@@ -14,6 +14,11 @@ namespace DTXMania.Game.Lib.Config
         string Name { get; }
 
         /// <summary>
+        /// Optional one-line help text shown in the config description panel. Empty by default.
+        /// </summary>
+        string Description { get; }
+
+        /// <summary>
         /// Get the current display text for this config item (name + current value)
         /// </summary>
         /// <returns>Display text for the UI list</returns>
