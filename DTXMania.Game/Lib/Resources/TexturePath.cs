@@ -201,6 +201,36 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public const string Scrollbar = "Graphics/5_scrollbar.png";
 
+        /// <summary>Config stage background (1280x720).</summary>
+        public const string ConfigBackground = "Graphics/4_background.png";
+
+        /// <summary>Config stage vertical divider between the menu and item columns (18x720, drawn at x=400).</summary>
+        public const string ConfigItemBar = "Graphics/4_item bar.png";
+
+        /// <summary>Config stage left category-menu panel (180x172, drawn at 245,140).</summary>
+        public const string ConfigMenuPanel = "Graphics/4_menu panel.png";
+
+        /// <summary>Config stage category-menu selection cursor.</summary>
+        public const string ConfigMenuCursor = "Graphics/4_menu cursor.png";
+
+        /// <summary>Config stage header panel (1280x105, drawn at 0,0).</summary>
+        public const string ConfigHeaderPanel = "Graphics/4_header panel.png";
+
+        /// <summary>Config stage footer panel (1280x30, drawn at 0,690).</summary>
+        public const string ConfigFooterPanel = "Graphics/4_footer panel.png";
+
+        /// <summary>Config stage normal item-row box.</summary>
+        public const string ConfigItemBox = "Graphics/4_itembox.png";
+
+        /// <summary>Config stage "other" item-row box (navigation/read-only items).</summary>
+        public const string ConfigItemBoxOther = "Graphics/4_itembox other.png";
+
+        /// <summary>Config stage item-row selection cursor.</summary>
+        public const string ConfigItemBoxCursor = "Graphics/4_itembox cursor.png";
+
+        /// <summary>Config stage description panel (280x360, drawn at 800,270).</summary>
+        public const string ConfigDescriptionPanel = "Graphics/4_Description Panel.png";
+
         #endregion
         
         #region Font Textures
@@ -592,7 +622,17 @@ namespace DTXMania.Game.Lib.Resources
                 ChipWave,
                 Bonus,
                 Bonus100,
-                HitFx
+                HitFx,
+                ConfigBackground,
+                ConfigItemBar,
+                ConfigMenuPanel,
+                ConfigMenuCursor,
+                ConfigHeaderPanel,
+                ConfigFooterPanel,
+                ConfigItemBox,
+                ConfigItemBoxOther,
+                ConfigItemBoxCursor,
+                ConfigDescriptionPanel
             };
         }
 
@@ -660,7 +700,16 @@ namespace DTXMania.Game.Lib.Resources
                 BarOther,
                 BarOtherSelected,
                 PreimagePanel,
-                Scrollbar
+                Scrollbar,
+                ConfigItemBar,
+                ConfigMenuPanel,
+                ConfigMenuCursor,
+                ConfigHeaderPanel,
+                ConfigFooterPanel,
+                ConfigItemBox,
+                ConfigItemBoxOther,
+                ConfigItemBoxCursor,
+                ConfigDescriptionPanel
             };
         }
 
