@@ -5,6 +5,7 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
@@ -64,37 +65,63 @@ public class ConfigStageInputCoverageTests
         [Keys.Right] = InputCommandType.MoveRight,
     };
 
+    /// <summary>
+    /// Finds (categoryIndex, itemIndex) for a named item across all categories, sets the stage's
+    /// current category + that category's SelectedIndex, and switches focus to the item list.
+    /// </summary>
+    private static void SelectItemForEditing(ConfigStage stage, string itemName)
+    {
+        var categories = GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+        Xunit.Assert.NotNull(categories);
+        for (int c = 0; c < categories!.Count; c++)
+        {
+            for (int i = 0; i < categories[c].Items.Count; i++)
+            {
+                if (categories[c].Items[i].Name == itemName)
+                {
+                    SetPrivateField(stage, "_currentCategoryIndex", c);
+                    categories[c].SelectedIndex = i;
+                    SetPrivateField(stage, "_focusOnMenu", false);
+                    return;
+                }
+            }
+        }
+        Xunit.Assert.Fail($"Config item '{itemName}' should exist.");
+    }
+
     [Fact]
-    public void HandleInput_WhenMoveDownPressed_ShouldIncrementSelectedIndex()
+    public void HandleInput_WhenMoveDownPressed_ShouldIncrementCategoryIndex()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
             SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-            SetPrivateField(stage, "_selectedIndex", 0);
+            SetPrivateField(stage, "_focusOnMenu", true);
+            SetPrivateField(stage, "_currentCategoryIndex", 0);
             SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
 
             InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(1, GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentCategoryIndex"));
         }
     }
 
     [Fact]
-    public void HandleInput_WhenMoveUpPressed_ShouldDecrementSelectedIndex()
+    public void HandleInput_WhenMoveUpPressed_ShouldDecrementCategoryIndex()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
             SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-            SetPrivateField(stage, "_selectedIndex", 2);
+            SetPrivateField(stage, "_focusOnMenu", true);
+            SetPrivateField(stage, "_currentCategoryIndex", 2);
             SetKeyboardStates(stage, new KeyboardState(Keys.Up), new KeyboardState());
 
             InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(1, GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentCategoryIndex"));
         }
     }
 
@@ -106,11 +133,7 @@ public class ConfigStageInputCoverageTests
         {
             InitializeStageMenu(stage, includePanels: false);
             SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-            SetPrivateField(stage, "_selectedIndex", 1); // Fullscreen toggle
-
-            var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            Assert.True(configItems!.Count > 1);
+            SelectItemForEditing(stage, "Fullscreen");
 
             var fullscreenBefore = configManager.Config.FullScreen;
 
@@ -122,34 +145,6 @@ public class ConfigStageInputCoverageTests
     }
 
     [Fact]
-    public void HandleInput_WhenActivatePressedOnExitButton_ShouldCallOnExitButtonClicked()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-            SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-
-            var configItems = GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            // Exit is the sole action button, at index == configItems.Count.
-            var exitButtonIndex = configItems!.Count;
-            SetPrivateField(stage, "_selectedIndex", exitButtonIndex);
-
-            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
-            InvokePrivateMethod(stage, "HandleInput");
-
-            stageManager.Verify(
-                m => m.ChangeStage(
-                    StageType.Title,
-                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                Times.Once);
-        }
-    }
-
-    [Fact]
     public void HandleInput_WhenMoveLeftPressed_ShouldPreviousValue()
     {
         var (stage, configManager, inputManager) = CreateStage();
@@ -157,7 +152,7 @@ public class ConfigStageInputCoverageTests
         {
             InitializeStageMenu(stage, includePanels: false);
             SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-            SetPrivateField(stage, "_selectedIndex", 5); // Scroll Speed
+            SelectItemForEditing(stage, "Scroll Speed");
 
             var scrollSpeedBefore = configManager.Config.ScrollSpeed;
 
@@ -177,7 +172,7 @@ public class ConfigStageInputCoverageTests
         {
             InitializeStageMenu(stage, includePanels: false);
             SetupRuntimeSystemBindings(inputManager, DefaultNavBindings());
-            SetPrivateField(stage, "_selectedIndex", 5); // Scroll Speed
+            SelectItemForEditing(stage, "Scroll Speed");
 
             var scrollSpeedBefore = configManager.Config.ScrollSpeed;
 

@@ -65,26 +65,6 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void OnExitButtonClicked_ShouldChangeStage()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var stageManager = new Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnExitButtonClicked", null, EventArgs.Empty);
-
-            stageManager.Verify(
-                m => m.ChangeStage(
-                    StageType.Title,
-                    It.Is<IStageTransition>(t => t is CrossfadeTransition)),
-                Times.Once);
-        }
-    }
-
-    [Fact]
     public void HandleInput_WhenBackCommandPressed_ShouldChangeStage()
     {
         var (stage, _, inputManager) = CreateStage();
@@ -152,173 +132,7 @@ public class ConfigStageCoverageTests
     }
 
     [Fact]
-    public void DrawTitle_WhenFontExists_ShouldUseMeasureStringAndDrawString()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            var font = new Mock<IFont>();
-            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(200, 20));
-            var spriteBatch = CreateUninitializedSpriteBatch();
-            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle");
-
-            font.Verify(f => f.MeasureString("CONFIGURATION"), Times.Once);
-            font.Verify(f => f.DrawString(spriteBatch, "CONFIGURATION", new Vector2(540, 50), new Color(26, 30, 46)), Times.Once);
-        }
-    }
-
-    [Fact]
-    public void DrawTitle_WhenFontNull_ShouldNotThrow()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            ReflectionHelpers.SetPrivateField(stage, "_font", null);
-
-            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawTitle"));
-
-            Assert.Null(exception);
-        }
-    }
-
-    [Fact]
-    public void DrawConfigItems_WhenSelected_ShouldUseBoldFont()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var font = new Mock<IFont>();
-            var boldFont = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
-            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigItems");
-
-            boldFont.Verify(f => f.DrawString(spriteBatch, It.IsAny<string>(), It.IsAny<Vector2>(), Color.Yellow), Times.AtLeastOnce);
-        }
-    }
-
-    [Fact]
-    public void DrawConfigItems_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
-    {
-        var (stage, _, inputManager) = CreateRenderSpyStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-            SetFallbackDrawingState(stage);
-
-            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigItems"));
-
-            Assert.Null(exception);
-            var expectedWidths = configItems
-                .ConvertAll(item => item.GetDisplayText().Length * 8)
-                .OrderBy(width => width)
-                .ToArray();
-            var actualWidths = stage.RectangleDrawCalls
-                .FindAll(call => call.Rectangle.Height == 16 && call.Color == new Color(26, 30, 46))
-                .ConvertAll(call => call.Rectangle.Width)
-                .OrderBy(width => width)
-                .ToArray();
-            Assert.Equal(expectedWidths, actualWidths);
-        }
-    }
-
-    [Fact]
-    public void DrawButtons_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
-    {
-        var (stage, _, inputManager) = CreateRenderSpyStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", 0);
-            SetFallbackDrawingState(stage);
-
-            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons"));
-
-            Assert.Null(exception);
-            var actualButtonRects = stage.RectangleDrawCalls
-                .FindAll(call => call.Rectangle.Height == 16)
-                .ConvertAll(call => (Width: call.Rectangle.Width, call.Color))
-                .OrderBy(call => call.Width)
-                .ToArray();
-            var expectedButtonRects = new[]
-            {
-                (Width: "EXIT".Length * 8, Color: Color.Green)
-            }
-            .OrderBy(call => call.Width)
-            .ToArray();
-            Assert.Equal(expectedButtonRects, actualButtonRects);
-        }
-    }
-
-    [Fact]
-    public void DrawInstructions_WhenFontIsNull_ShouldUseRectangleFallbackWithoutThrowing()
-    {
-        var (stage, _, inputManager) = CreateRenderSpyStage();
-        using (inputManager)
-        {
-            SetFallbackDrawingState(stage);
-
-            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions"));
-
-            Assert.Null(exception);
-            Assert.Contains(
-                stage.RectangleDrawCalls,
-                call => call.Rectangle.Height == 12 && call.Rectangle.Width > 0 && call.Color == new Color(26, 30, 46));
-        }
-    }
-
-    [Fact]
-    public void DrawButtons_WhenExitSelectedAndFontPresent_ShouldUseBoldFont()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            InitializeStageMenu(stage, includePanels: false);
-            var configItems = ReflectionHelpers.GetPrivateField<List<IConfigItem>>(stage, "_configItems");
-            Assert.NotNull(configItems);
-            var boldFont = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
-            ReflectionHelpers.SetPrivateField(stage, "_font", new Mock<IFont>().Object);
-            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedIndex", configItems!.Count);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "DrawButtons");
-
-            boldFont.Verify(f => f.DrawString(spriteBatch, "EXIT", It.IsAny<Vector2>(), Color.Yellow), Times.Once);
-        }
-    }
-
-    [Fact]
-    public void DrawInstructions_WhenFontPresent_ShouldDrawText()
-    {
-        var (stage, _, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            var font = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
-            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "DrawInstructions");
-
-            font.Verify(f => f.DrawString(spriteBatch, It.Is<string>(s => s.Contains("UP/DOWN")), It.IsAny<Vector2>(), new Color(26, 30, 46)), Times.Once);
-        }
-    }
-
-    [Fact]
-    public void HandleInput_WhenMoveDownPressed_ShouldIncrementSelectedIndex()
+    public void HandleInput_WhenMoveDownPressed_ShouldIncrementCategoryIndex()
     {
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
@@ -333,12 +147,13 @@ public class ConfigStageCoverageTests
                 [Keys.Left] = InputCommandType.MoveLeft,
                 [Keys.Right] = InputCommandType.MoveRight,
             });
-            SetPrivateField(stage, "_selectedIndex", 0);
+            SetPrivateField(stage, "_focusOnMenu", true);
+            SetPrivateField(stage, "_currentCategoryIndex", 0);
             SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(1, GetPrivateField<int>(stage, "_selectedIndex"));
+            Assert.Equal(1, GetPrivateField<int>(stage, "_currentCategoryIndex"));
         }
     }
 

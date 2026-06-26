@@ -4,71 +4,79 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using DTXMania.Game.Lib.Utilities;
-
 
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
-    /// Configuration stage with basic settings management.
-    /// Reads <see cref="IConfigManager.Config"/> as the single source of truth; every edit
-    /// applies immediately through the typed setters (which live-apply to the runtime via the
-    /// Phase 2 events and mark a deferred save dirty). The Back command (Esc) or the Exit
-    /// button flushes the pending save and leaves — there is no working copy, no
-    /// discard/rollback. Follows DTXMania patterns for config item handling.
+    /// NX-style master-detail configuration stage: a left category menu (System / Drums / Exit),
+    /// a right per-category item list, a description panel, and header/footer panels. Reads
+    /// <see cref="IConfigManager.Config"/> as the single source of truth; every edit applies
+    /// immediately through the typed setters and marks a deferred save dirty. Back/Exit flushes
+    /// the pending save and leaves — there is no working copy. Two focus states mirror the NX
+    /// bFocusIsOnMenu pattern.
     /// </summary>
     public class ConfigStage : BaseStage
     {
         #region Private Fields
 
         private IConfigManager _configManager;
-        private List<IConfigItem> _configItems;
-        private int _selectedIndex = 0;
+        private List<ConfigCategory> _categories = new();
+        private int _currentCategoryIndex = 0;
+        private bool _focusOnMenu = true;
 
-        // Input handling
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
 
-        // Key-assign sub-panels
         private SystemKeyAssignPanel? _systemPanel;
         private IKeyAssignPanel? _activePanel;
 
-        // Graphics resources
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
         private IFont _font;
         private IFont _boldFont;
         private IResourceManager _resourceManager;
+
         private ITexture? _backgroundTexture;
+        private ITexture? _itemBarTexture;
+        private ITexture? _menuPanelTexture;
+        private ITexture? _menuCursorTexture;
+        private ITexture? _headerPanelTexture;
+        private ITexture? _footerPanelTexture;
+        private ITexture? _itemBoxTexture;
+        private ITexture? _itemBoxOtherTexture;
+        private ITexture? _itemBoxCursorTexture;
+        private ITexture? _descriptionPanelTexture;
 
-        // Dark UI text, for legibility on the bright background image.
-        private static readonly Color DarkText = new(26, 30, 46);
+        // Light text reads on the dark NX config background.
+        private static readonly Color LightText = new(235, 238, 248);
+        private static readonly Color SelectedText = Color.Yellow;
+        private static readonly Color ValueText = new(255, 226, 150);
+        private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
+        private static readonly Color ItemCursorFallback = new(96, 96, 160, 180);
+        private static readonly Color ImportStatusColor = new(180, 220, 255);
 
-        // Light fallback used when the startup background texture is missing/unavailable, so the
-        // dark UI text stays readable instead of going dark-on-dark.
-        private static readonly Color FallbackBackgroundColor = new(220, 222, 230);
+        // Dark fill behind the UI when the background art is unavailable, so the light text stays
+        // legible (light-on-light was the failure mode to avoid).
+        private static readonly Color FallbackBackgroundColor = new(18, 20, 34);
 
-        // NX score import status
         private volatile string _importStatus = "";
         private volatile bool _importRunning;
         private CancellationTokenSource? _importCts;
-
-        // DTXMania-style constants
-        private const int MenuX = 100;
-        private const int MenuY = 100;
-        private const int MenuItemHeight = 40;
-        private const int MenuItemWidth = 600;
 
         #endregion
 
@@ -90,11 +98,11 @@ namespace DTXMania.Game.Lib.Stage
             System.Diagnostics.Debug.WriteLine("Activating Config Stage");
 
             InitializeGraphics();
-
-            // Config is the single source of truth; reads pull directly from ConfigManager.Config
-            // and the runtime (which mirrors Config). There is no working copy to (re)load.
             SetupConfigItems();
             InitializePanels();
+
+            _currentCategoryIndex = 0;
+            _focusOnMenu = true;
 
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
@@ -121,14 +129,14 @@ namespace DTXMania.Game.Lib.Stage
 
             BeginDrawFrame();
 
-            DrawBackground();
-            DrawTitle();
-            DrawConfigItems();
-            DrawButtons();
+            DrawConfigBackground();
+            DrawItemBar();
+            DrawCategoryMenu();
+            DrawItemList();
+            DrawDescriptionPanel();
+            DrawHeaderFooter();
             DrawImportStatus();
-            DrawInstructions();
 
-            // Draw active panel as overlay within the same sprite batch
             if (_activePanel?.IsActive == true)
             {
                 var vp = GetViewport();
@@ -142,24 +150,18 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
 
-            // Persist-on-edit safety net: flush any pending deferred save when leaving the stage.
-            // Back/Exit already flushes; this covers other deactivation paths so an edited Config
-            // is never left dirty in memory only.
             FlushPendingSaveSafely();
 
-            // Cancel any in-flight NX score import so it doesn't continue on a deactivated stage.
             _importCts?.Cancel();
 
             _activePanel?.Deactivate();
             _activePanel = null;
 
-            // Release font references (re-acquired in InitializeGraphics on re-activation)
             _font?.RemoveReference();
             _font = null;
             _boldFont?.RemoveReference();
             _boldFont = null;
-            _backgroundTexture?.RemoveReference();
-            _backgroundTexture = null;
+            ReleaseTextures();
 
             _previousKeyboardState = default;
             _currentKeyboardState = default;
@@ -171,26 +173,22 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
 
-                // Cancel and dispose import cancellation token
                 _importCts?.Cancel();
                 _importCts?.Dispose();
                 _importCts = null;
 
-                // Cleanup MonoGame resources
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
 
-                // Release font references if still held (e.g. stage disposed without deactivation)
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
-                _backgroundTexture?.RemoveReference();
+                ReleaseTextures();
 
                 _whitePixel = null;
                 _spriteBatch = null;
                 _font = null;
                 _boldFont = null;
-                _backgroundTexture = null;
-                _resourceManager = null; // Do NOT dispose — shared game-wide instance
+                _resourceManager = null; // shared game-wide instance; do NOT dispose
             }
 
             base.Dispose(disposing);
@@ -208,7 +206,6 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
 
-            // Initialize ResourceManager
             _resourceManager = _game.ResourceManager;
 
             try
@@ -229,23 +226,57 @@ namespace DTXMania.Game.Lib.Stage
                 throw;
             }
 
-            // Background: the bright startup artwork (best-effort; DrawBackground falls back to a
-            // dark fill if it is unavailable).
+            // All skin art is best-effort; every draw is null-guarded with a fill/text fallback.
+            _backgroundTexture = TryLoadTexture(TexturePath.ConfigBackground);
+            _itemBarTexture = TryLoadTexture(TexturePath.ConfigItemBar);
+            _menuPanelTexture = TryLoadTexture(TexturePath.ConfigMenuPanel);
+            _menuCursorTexture = TryLoadTexture(TexturePath.ConfigMenuCursor);
+            _headerPanelTexture = TryLoadTexture(TexturePath.ConfigHeaderPanel);
+            _footerPanelTexture = TryLoadTexture(TexturePath.ConfigFooterPanel);
+            _itemBoxTexture = TryLoadTexture(TexturePath.ConfigItemBox);
+            _itemBoxOtherTexture = TryLoadTexture(TexturePath.ConfigItemBoxOther);
+            _itemBoxCursorTexture = TryLoadTexture(TexturePath.ConfigItemBoxCursor);
+            _descriptionPanelTexture = TryLoadTexture(TexturePath.ConfigDescriptionPanel);
+        }
+
+        private ITexture? TryLoadTexture(string path)
+        {
             try
             {
-                _backgroundTexture = _resourceManager.LoadTexture(TexturePath.StartupBackground);
+                return _resourceManager.LoadTexture(path);
             }
             catch
             {
-                _backgroundTexture = null;
+                return null;
             }
+        }
+
+        private void ReleaseTextures()
+        {
+            _backgroundTexture?.RemoveReference();
+            _backgroundTexture = null;
+            _itemBarTexture?.RemoveReference();
+            _itemBarTexture = null;
+            _menuPanelTexture?.RemoveReference();
+            _menuPanelTexture = null;
+            _menuCursorTexture?.RemoveReference();
+            _menuCursorTexture = null;
+            _headerPanelTexture?.RemoveReference();
+            _headerPanelTexture = null;
+            _footerPanelTexture?.RemoveReference();
+            _footerPanelTexture = null;
+            _itemBoxTexture?.RemoveReference();
+            _itemBoxTexture = null;
+            _itemBoxOtherTexture?.RemoveReference();
+            _itemBoxOtherTexture = null;
+            _itemBoxCursorTexture?.RemoveReference();
+            _itemBoxCursorTexture = null;
+            _descriptionPanelTexture?.RemoveReference();
+            _descriptionPanelTexture = null;
         }
 
         private void SetupConfigItems()
         {
-            _configItems = new List<IConfigItem>();
-
-            // Screen Resolution dropdown
             var resolutionItem = new DropdownConfigItem(
                 "Screen Resolution",
                 () => $"{_configManager.Config.ScreenWidth}x{_configManager.Config.ScreenHeight}",
@@ -256,104 +287,97 @@ namespace DTXMania.Game.Lib.Stage
                     if (parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height))
                     {
                         _configManager.SetResolution(width, height);
-                        System.Diagnostics.Debug.WriteLine($"Resolution changed to {width}x{height}");
                     }
-                }
-            );
+                })
+            { Description = "Sets the game window resolution." };
 
-            // Fullscreen checkbox
             var fullscreenItem = new ToggleConfigItem(
                 "Fullscreen",
                 () => _configManager.Config.FullScreen,
-                value =>
-                {
-                    _configManager.SetFullscreen(value);
-                    System.Diagnostics.Debug.WriteLine($"Fullscreen changed to {value}");
-                }
-            );
+                value => _configManager.SetFullscreen(value))
+            { Description = "Toggles fullscreen display mode." };
 
-            // VSync toggle
             var vsyncItem = new ToggleConfigItem(
                 "VSync Wait",
                 () => _configManager.Config.VSyncWait,
-                value =>
-                {
-                    _configManager.SetVSync(value);
-                    System.Diagnostics.Debug.WriteLine($"VSync changed to {value}");
-                });
-
-            // NoFail toggle
-            var noFailItem = new ToggleConfigItem(
-                "No Fail",
-                () => _configManager.Config.NoFail,
-                value =>
-                {
-                    _configManager.SetNoFail(value);
-                    System.Diagnostics.Debug.WriteLine($"NoFail changed to {value}");
-                });
-
-            // AutoPlay toggle
-            var autoPlayItem = new ToggleConfigItem(
-                "Auto Play",
-                () => _configManager.Config.AutoPlay,
-                value =>
-                {
-                    _configManager.SetAutoPlay(value);
-                    System.Diagnostics.Debug.WriteLine($"AutoPlay changed to {value}");
-                });
-
-            var scrollSpeedItem = new IntegerConfigItem(
-                "Scroll Speed",
-                () => _configManager.Config.ScrollSpeed,
-                value =>
-                {
-                    // SetScrollSpeed snaps+clamps internally and raises ScrollSpeedChanged (which
-                    // the runtime mirrors), so the live-apply that ConfigStage previously bypassed
-                    // now happens here.
-                    _configManager.SetScrollSpeed(AppPaths.GetConfigFilePath(), value);
-                },
-                minValue: ScrollSpeedRange.Min,
-                maxValue: ScrollSpeedRange.Max,
-                step: ScrollSpeedRange.Step,
-                valueFormatter: ScrollSpeedRange.Format);
+                value => _configManager.SetVSync(value))
+            { Description = "Syncs drawing to the monitor refresh rate to reduce tearing." };
 
             var audioLatencyItem = new IntegerConfigItem(
                 "Audio Latency Offset",
                 () => _configManager.Config.AudioLatencyOffsetMs,
-                value =>
-                {
-                    _configManager.SetAudioLatency(value);
-                },
+                value => _configManager.SetAudioLatency(value),
                 minValue: 0,
                 maxValue: 500,
                 step: 10,
-                valueFormatter: v => $"{v} ms");
+                valueFormatter: v => $"{v} ms")
+            { Description = "Shifts audio timing to compensate for output latency." };
 
             var dtxFolderItem = new ReadOnlyConfigItem(
                 "DTX Folder",
-                () => _configManager.Config.DTXPath);
+                () => _configManager.Config.DTXPath)
+            { Description = "Folder scanned for songs and charts (read-only)." };
 
-            _configItems.Add(resolutionItem);
-            _configItems.Add(fullscreenItem);
-            _configItems.Add(vsyncItem);
-            _configItems.Add(noFailItem);
-            _configItems.Add(autoPlayItem);
-            _configItems.Add(scrollSpeedItem);
-            _configItems.Add(audioLatencyItem);
-            _configItems.Add(dtxFolderItem);
+            var systemKeyItem = new NavigationConfigItem("System Key Mapping",
+                () => OpenPanel(_systemPanel))
+            { Description = "Assign keys for menu and system commands." };
 
-            // Drum and system key mapping navigation items
-            _configItems.Add(new NavigationConfigItem("Drum Key Mapping",
-                () => NavigateToDrumConfig()));
-            _configItems.Add(new NavigationConfigItem("System Key Mapping",
-                () => OpenPanel(_systemPanel)));
+            var importItem = new NavigationConfigItem("Import NX Scores",
+                () => StartNxScoreImport())
+            { Description = "Import play counts and scores from a DTXManiaNX database." };
 
-            // NX score import (idempotent best/delta counters; history merged top-5)
-            _configItems.Add(new NavigationConfigItem("Import NX Scores",
-                () => StartNxScoreImport()));
+            var scrollSpeedItem = new IntegerConfigItem(
+                "Scroll Speed",
+                () => _configManager.Config.ScrollSpeed,
+                value => _configManager.SetScrollSpeed(AppPaths.GetConfigFilePath(), value),
+                minValue: ScrollSpeedRange.Min,
+                maxValue: ScrollSpeedRange.Max,
+                step: ScrollSpeedRange.Step,
+                valueFormatter: ScrollSpeedRange.Format)
+            { Description = "Sets how fast notes scroll down the lanes." };
 
-            if (_configItems.Count > 0)
-                _selectedIndex = 0;
+            var autoPlayItem = new ToggleConfigItem(
+                "Auto Play",
+                () => _configManager.Config.AutoPlay,
+                value => _configManager.SetAutoPlay(value))
+            { Description = "Plays the chart automatically without input." };
+
+            var noFailItem = new ToggleConfigItem(
+                "No Fail",
+                () => _configManager.Config.NoFail,
+                value => _configManager.SetNoFail(value))
+            { Description = "Continue playing even when the life gauge is empty." };
+
+            var drumKeyItem = new NavigationConfigItem("Drum Key Mapping",
+                () => NavigateToDrumConfig())
+            { Description = "Assign keys for each drum lane." };
+
+            var systemItems = new List<IConfigItem>
+            {
+                resolutionItem, fullscreenItem, vsyncItem, audioLatencyItem,
+                dtxFolderItem, systemKeyItem, importItem
+            };
+
+            var drumItems = new List<IConfigItem>
+            {
+                scrollSpeedItem, autoPlayItem, noFailItem, drumKeyItem
+            };
+
+            _categories = new List<ConfigCategory>
+            {
+                new ConfigCategory("System",
+                    "System settings: display, audio, file paths, and system key bindings.",
+                    systemItems),
+                new ConfigCategory("Drums",
+                    "Drum gameplay settings and drum pad key bindings.",
+                    drumItems),
+                new ConfigCategory("Exit",
+                    "Save changes and return to the title screen.",
+                    new List<IConfigItem>())
+            };
+
+            _currentCategoryIndex = 0;
+            _focusOnMenu = true;
         }
 
         private void InitializePanels()
@@ -362,9 +386,6 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new InvalidOperationException("InputManager not available");
 
             _systemPanel = new SystemKeyAssignPanel(inputManagerCompat);
-            // Providers read the RUNTIME, which always mirrors Config via the Phase 2 events
-            // (ConfigManager.KeyBindingsChanged/SystemKeyBindingsChanged -> InputManagerCompat
-            // reloads). Config is truth, so there is no working copy to read.
             _systemPanel._workingMappingProvider =
                 () => new Dictionary<Keys, InputCommandType>(inputManagerCompat.GetKeyMappingSnapshot());
             _systemPanel._liveDrumBindingsProvider =
@@ -383,11 +404,6 @@ namespace DTXMania.Game.Lib.Stage
             _activePanel.Activate();
         }
 
-        /// <summary>
-        /// Navigates to DrumConfigStage. DrumConfigStage reads ConfigManager as its single source of
-        /// truth (the runtime mirrors Config via the Phase 2 events), so there is no pending handoff
-        /// to forward.
-        /// </summary>
         private void NavigateToDrumConfig()
         {
             ChangeStage(StageType.DrumConfig, new InstantTransition());
@@ -395,9 +411,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnPanelSaved(object? sender, EventArgs e)
         {
-            // Persist-on-edit: the panel's working snapshot is written to Config immediately via the
-            // typed setter, which live-applies to the runtime (SystemKeyBindingsChanged) and marks a
-            // deferred save dirty. Flushed on stage exit.
             if (sender == _systemPanel)
             {
                 _configManager.SetSystemKeyBindings(_systemPanel.GetWorkingMappingSnapshot());
@@ -409,12 +422,6 @@ namespace DTXMania.Game.Lib.Stage
             _activePanel = null;
         }
 
-        /// <summary>
-        /// Starts the NX score import asynchronously. Guarded against re-entry; updates
-        /// <see cref="_importStatus"/> for the live status line. Best scores and counters
-        /// use idempotent max/delta merges (safe to re-run); performance history is merged
-        /// and deduplicated (top 5 kept). No confirmation prompt needed.
-        /// </summary>
         private void StartNxScoreImport()
         {
             if (_importRunning)
@@ -422,16 +429,11 @@ namespace DTXMania.Game.Lib.Stage
             _importRunning = true;
             _importStatus = "Importing NX scores...";
 
-            // Cancel any previous import (e.g. if stage was re-activated).
             _importCts?.Cancel();
             _importCts?.Dispose();
             _importCts = new CancellationTokenSource();
             var token = _importCts.Token;
 
-            // Use a synchronous IProgress<T> so the callback runs inline on the thread
-            // that calls Report(). Progress<T> would post asynchronously to the ThreadPool
-            // (no SynchronizationContext in MonoGame's loop), allowing a stale queued
-            // callback to overwrite the final status after the task completes.
             IProgress<NxImportProgress> progress = new InlineProgress<NxImportProgress>(p =>
             {
                 _importStatus = $"Importing... {p.Imported} imported / {p.Scanned} scanned";
@@ -447,8 +449,6 @@ namespace DTXMania.Game.Lib.Stage
                         : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
                           (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
 
-                    // Refresh the in-memory song list so SongSelectionStage sees the
-                    // updated play counts, ranks, etc. without requiring a restart.
                     if (result.Imported > 0)
                     {
                         token.ThrowIfCancellationRequested();
@@ -458,8 +458,6 @@ namespace DTXMania.Game.Lib.Stage
                         }
                         catch (System.Exception ex)
                         {
-                            // Import succeeded; refresh failure is non-fatal — the user
-                            // can restart or re-enter song select to trigger a rebuild.
                             System.Diagnostics.Debug.WriteLine(
                                 $"ConfigStage: NX import succeeded but song list refresh failed: {ex}");
                         }
@@ -488,56 +486,82 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleInput()
         {
+            if (_focusOnMenu)
+                HandleMenuInput();
+            else
+                HandleItemInput();
+        }
+
+        private void HandleMenuInput()
+        {
             if (IsConfigNavigationCommandPressed(InputCommandType.Back))
             {
-                // Back = exit: edits are already live+dirty, so flush the pending save and leave.
-                System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
-                FlushPendingSaveSafely();
-                ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
+                ExitToTitle();
                 return;
             }
 
-            // Handle navigation
             if (IsConfigNavigationCommandPressed(InputCommandType.MoveUp))
             {
-                _selectedIndex = (_selectedIndex - 1 + _configItems.Count + 1) % (_configItems.Count + 1); // +1 for Exit button
+                _currentCategoryIndex = (_currentCategoryIndex - 1 + _categories.Count) % _categories.Count;
             }
             else if (IsConfigNavigationCommandPressed(InputCommandType.MoveDown))
             {
-                _selectedIndex = (_selectedIndex + 1) % (_configItems.Count + 1); // +1 for Exit button
+                _currentCategoryIndex = (_currentCategoryIndex + 1) % _categories.Count;
             }
 
-            // Handle config item value editing (only for config items, not buttons)
-            if (_selectedIndex < _configItems.Count)
+            if (IsConfigNavigationCommandPressed(InputCommandType.Activate) ||
+                IsConfigNavigationCommandPressed(InputCommandType.MoveRight))
             {
-                var selectedItem = _configItems[_selectedIndex];
+                var category = _categories[_currentCategoryIndex];
+                if (category.HasItems)
+                    _focusOnMenu = false;
+                else
+                    ExitToTitle();
+            }
+        }
 
-                // Left/Right arrows for value editing
-                if (IsConfigNavigationCommandPressed(InputCommandType.MoveLeft))
-                {
-                    selectedItem.PreviousValue();
-                }
-                else if (IsConfigNavigationCommandPressed(InputCommandType.MoveRight))
-                {
-                    selectedItem.NextValue();
-                }
-                else if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
-                {
-                    selectedItem.ToggleValue();
-                }
-            }
-            else
+        private void HandleItemInput()
+        {
+            var category = _categories[_currentCategoryIndex];
+
+            if (IsConfigNavigationCommandPressed(InputCommandType.Back))
             {
-                // Handle button selection (the only button is Exit at buttonIndex 0)
-                if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
-                {
-                    int buttonIndex = _selectedIndex - _configItems.Count;
-                    if (buttonIndex == 0) // Exit button
-                    {
-                        OnExitButtonClicked(null, EventArgs.Empty);
-                    }
-                }
+                _focusOnMenu = true;
+                return;
             }
+
+            if (IsConfigNavigationCommandPressed(InputCommandType.MoveUp))
+            {
+                category.MoveSelectionUp();
+            }
+            else if (IsConfigNavigationCommandPressed(InputCommandType.MoveDown))
+            {
+                category.MoveSelectionDown();
+            }
+
+            var item = category.SelectedItem;
+            if (item == null)
+                return;
+
+            if (IsConfigNavigationCommandPressed(InputCommandType.MoveLeft))
+            {
+                item.PreviousValue();
+            }
+            else if (IsConfigNavigationCommandPressed(InputCommandType.MoveRight))
+            {
+                item.NextValue();
+            }
+            else if (IsConfigNavigationCommandPressed(InputCommandType.Activate))
+            {
+                item.ToggleValue();
+            }
+        }
+
+        private void ExitToTitle()
+        {
+            System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
+            FlushPendingSaveSafely();
+            ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
 
         private bool IsConfigNavigationCommandPressed(InputCommandType command)
@@ -545,8 +569,6 @@ namespace DTXMania.Game.Lib.Stage
             if (_game.InputManager?.IsCommandPressed(command) == true)
                 return true;
 
-            // Read the runtime system map (= Config truth; the runtime mirrors Config via the
-            // Phase 2 events). There is no separate navigation snapshot.
             var systemMap = _game.InputManager?.GetKeyMappingSnapshot();
             return systemMap != null && systemMap.Any(kvp =>
                 kvp.Value == command &&
@@ -567,22 +589,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Event Handlers
 
-        private void OnExitButtonClicked(object sender, EventArgs e)
-        {
-            // Edits are already live+dirty; Exit just flushes to disk and leaves.
-            System.Diagnostics.Debug.WriteLine("Exit button clicked - returning to Title stage");
-            FlushPendingSaveSafely();
-            ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
-        }
-
-        /// <summary>
-        /// Flushes the pending deferred save, swallowing disk failures so a save error can never
-        /// trap the user on the config screen. Under persist-on-edit (Decision A), a flush failure
-        /// is logged and the dirty flag is retained for retry on the next flush; the stage always
-        /// proceeds to leave. <see cref="ConfigManager.FlushPendingSave"/> already swallows
-        /// internally, but this guards against a custom <see cref="IConfigManager"/> whose
-        /// FlushPendingSave propagates.
-        /// </summary>
         private void FlushPendingSaveSafely()
         {
             try
@@ -597,107 +603,183 @@ namespace DTXMania.Game.Lib.Stage
 
         #endregion
 
-        #region Drawing (DTXMania Style)
+        #region Drawing (NX master-detail)
 
-        private void DrawBackground()
+        private void DrawConfigBackground()
         {
             var viewport = GetViewport();
             var full = new Rectangle(0, 0, viewport.Width, viewport.Height);
 
-            // Bright startup artwork, calmed by a translucent light scrim so the dark text reads;
-            // a light fill covers the case where the texture could not be loaded, keeping DarkText
-            // legible instead of going dark-on-dark.
             if (_backgroundTexture?.Texture != null)
-            {
                 _spriteBatch.Draw(_backgroundTexture.Texture, full, Color.White);
-                // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
-                // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
-                _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
-            }
             else
-            {
                 DrawFilledRectangle(full, FallbackBackgroundColor);
-            }
         }
 
-        private void DrawTitle()
+        private void DrawItemBar()
         {
-            const string titleText = "CONFIGURATION";
-            int x = MenuX;
-            int y = 50;
+            if (_itemBarTexture?.Texture != null)
+                _spriteBatch.Draw(_itemBarTexture.Texture, ConfigUILayout.ItemBarRect, Color.White);
+        }
 
-            if (_font != null)
+        private void DrawCategoryMenu()
+        {
+            if (_menuPanelTexture?.Texture != null)
+                _spriteBatch.Draw(_menuPanelTexture.Texture, ConfigUILayout.MenuPanelRect, Color.White);
+
+            var cursorRect = ConfigUILayout.MenuCursorRect(_currentCategoryIndex);
+            if (_menuCursorTexture?.Texture != null)
             {
-                // Center the title
-                var textSize = _font.MeasureString(titleText);
-                x = (1280 - (int)textSize.X) / 2; // Assume 1280 width for centering
-                _font.DrawString(_spriteBatch, titleText, new Vector2(x, y), DarkText);
+                var tint = _focusOnMenu ? Color.White : new Color(255, 255, 255, 128);
+                _spriteBatch.Draw(_menuCursorTexture.Texture, cursorRect, tint);
             }
             else
             {
-                // Fallback to rectangle
-                DrawTextRect(x, y, titleText.Length * 12, 20, DarkText);
+                DrawFilledRectangle(cursorRect, MenuCursorFallback);
+            }
+
+            if (_font == null || _boldFont == null)
+                return;
+
+            for (int i = 0; i < _categories.Count; i++)
+            {
+                bool selected = i == _currentCategoryIndex;
+                var font = selected ? _boldFont : _font;
+                var color = selected ? SelectedText : LightText;
+                var label = _categories[i].Name;
+                var size = font.MeasureString(label);
+                var pos = new Vector2(ConfigUILayout.MenuLabelCenterX - size.X / 2f, ConfigUILayout.MenuRowY(i));
+                font.DrawString(_spriteBatch, label, pos, color);
             }
         }
 
-        private void DrawConfigItems()
+        private void DrawItemList()
         {
-            int x = MenuX;
-            int y = MenuY;
+            if (_categories.Count == 0)
+                return;
 
-            for (int i = 0; i < _configItems.Count; i++)
+            var category = _categories[_currentCategoryIndex];
+            var items = category.Items;
+
+            for (int row = 0; row < items.Count; row++)
             {
-                var item = _configItems[i];
-                var displayText = item.GetDisplayText();
-                bool isSelected = (i == _selectedIndex);
+                var box = (items[row] is NavigationConfigItem || items[row] is ReadOnlyConfigItem)
+                    ? _itemBoxOtherTexture
+                    : _itemBoxTexture;
+                if (box?.Texture != null)
+                    _spriteBatch.Draw(box.Texture, ConfigUILayout.ItemRowRect(row), Color.White);
+            }
 
-                // Draw selection background
-                if (isSelected)
+            if (!_focusOnMenu && category.HasItems)
+            {
+                var cursorRect = ConfigUILayout.ItemCursorRect(category.SelectedIndex);
+                if (_itemBoxCursorTexture?.Texture != null)
+                    _spriteBatch.Draw(_itemBoxCursorTexture.Texture, cursorRect, Color.White);
+                else
+                    DrawFilledRectangle(cursorRect, ItemCursorFallback);
+            }
+
+            if (_font == null || _boldFont == null)
+                return;
+
+            for (int row = 0; row < items.Count; row++)
+            {
+                var item = items[row];
+                bool selected = !_focusOnMenu && row == category.SelectedIndex;
+                var font = selected ? _boldFont : _font;
+
+                font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(row),
+                    selected ? SelectedText : LightText);
+
+                var value = GetItemValueText(item);
+                if (!string.IsNullOrEmpty(value))
                 {
-                    DrawTextRect(x - 5, y - 2, MenuItemWidth + 10, MenuItemHeight, new Color(64, 64, 128, 150));
+                    font.DrawString(_spriteBatch, value, ConfigUILayout.ItemValuePos(row),
+                        selected ? SelectedText : ValueText);
                 }
+            }
+        }
 
-                // Draw text
-                if (_font != null)
+        private static string GetItemValueText(IConfigItem item)
+        {
+            if (item is NavigationConfigItem)
+                return ">";
+
+            var text = item.GetDisplayText();
+            var prefix = item.Name + ": ";
+            return text.StartsWith(prefix, StringComparison.Ordinal)
+                ? text.Substring(prefix.Length)
+                : string.Empty;
+        }
+
+        private void DrawDescriptionPanel()
+        {
+            if (_categories.Count == 0)
+                return;
+
+            var category = _categories[_currentCategoryIndex];
+            string text = _focusOnMenu
+                ? category.Description
+                : (category.SelectedItem?.Description ?? string.Empty);
+
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            if (_descriptionPanelTexture?.Texture != null)
+                _spriteBatch.Draw(_descriptionPanelTexture.Texture, ConfigUILayout.DescriptionPanelRect, Color.White);
+
+            if (_font == null)
+                return;
+
+            var pos = ConfigUILayout.DescriptionTextPos;
+            foreach (var line in WrapText(_font, text, ConfigUILayout.DescriptionWrapWidth))
+            {
+                _font.DrawString(_spriteBatch, line, pos, LightText);
+                pos.Y += ConfigUILayout.DescriptionLineHeight;
+            }
+        }
+
+        private static IEnumerable<string> WrapText(IFont font, string text, int maxWidth)
+        {
+            var line = new StringBuilder();
+            foreach (var word in text.Split(' '))
+            {
+                var candidate = line.Length == 0 ? word : line + " " + word;
+                if (line.Length > 0 && font.MeasureString(candidate).X > maxWidth)
                 {
-                    var textColor = isSelected ? Color.Yellow : DarkText;
-                    var font = isSelected ? _boldFont : _font;
-                    font.DrawString(_spriteBatch, displayText, new Vector2(x, y + 10), textColor);
+                    yield return line.ToString();
+                    line.Clear();
+                    line.Append(word);
                 }
                 else
                 {
-                    // Fallback to rectangle
-                    var color = isSelected ? Color.Yellow : DarkText;
-                    DrawTextRect(x, y + 10, displayText.Length * 8, 16, color);
+                    if (line.Length > 0)
+                        line.Append(' ');
+                    line.Append(word);
                 }
-
-                y += MenuItemHeight;
             }
+            if (line.Length > 0)
+                yield return line.ToString();
         }
 
-        private void DrawButtons()
+        private void DrawHeaderFooter()
         {
-            int x = MenuX;
-            int y = MenuY + (_configItems.Count * MenuItemHeight) + 20;
-
-            // Exit button (the sole action button; persist-on-edit removed the save/discard split)
-            bool exitSelected = (_selectedIndex == _configItems.Count);
-            if (exitSelected)
-            {
-                DrawTextRect(x - 5, y - 2, 120, 30, new Color(64, 96, 64, 150));
-            }
+            if (_headerPanelTexture?.Texture != null)
+                _spriteBatch.Draw(_headerPanelTexture.Texture, ConfigUILayout.HeaderRect, Color.White);
 
             if (_font != null)
             {
-                var textColor = exitSelected ? Color.Yellow : DarkText;
-                var font = exitSelected ? _boldFont : _font;
-                font.DrawString(_spriteBatch, "EXIT", new Vector2(x, y + 5), textColor);
+                const string title = "CONFIGURATION";
+                var size = _font.MeasureString(title);
+                var pos = new Vector2((ConfigUILayout.ScreenWidth - size.X) / 2f, ConfigUILayout.TitleY);
+                _font.DrawString(_spriteBatch, title, pos, LightText);
             }
-            else
-            {
-                var color = exitSelected ? Color.Yellow : Color.Green;
-                DrawTextRect(x, y + 5, 32, 16, color);
-            }
+
+            if (_footerPanelTexture?.Texture != null)
+                _spriteBatch.Draw(_footerPanelTexture.Texture, ConfigUILayout.FooterRect, Color.White);
+
+            if (_font != null)
+                _font.DrawString(_spriteBatch, ConfigUILayout.InstructionsText, ConfigUILayout.InstructionsPos, LightText);
         }
 
         private void DrawImportStatus()
@@ -705,37 +787,7 @@ namespace DTXMania.Game.Lib.Stage
             if (string.IsNullOrEmpty(_importStatus) || _font == null)
                 return;
 
-            int x = MenuX;
-            int y = MenuY + (_configItems.Count * MenuItemHeight) + 60;
-            _font.DrawString(_spriteBatch, _importStatus, new Vector2(x, y), new Color(18, 64, 132));
-        }
-
-        private void DrawInstructions()
-        {
-            // Persist-on-edit: changes are applied live and saved automatically, so ESC exits
-            // (flushing any pending save) rather than discarding edits. Saying "cancel" here would
-            // mislead users into expecting their changes to be reverted on exit.
-            const string instructions = "Use UP/DOWN to navigate, LEFT/RIGHT to change values, ENTER to select, ESC to exit (changes save automatically)";
-            int x = 10;
-            int y = 720 - 30; // Bottom of screen
-
-            if (_font != null)
-            {
-                _font.DrawString(_spriteBatch, instructions, new Vector2(x, y), DarkText);
-            }
-            else
-            {
-                // Fallback to rectangle
-                DrawTextRect(x, y, instructions.Length * 6, 12, DarkText);
-            }
-        }
-
-        private void DrawTextRect(int x, int y, int width, int height, Color color)
-        {
-            if (_whitePixel != null)
-            {
-                DrawFilledRectangle(new Rectangle(x, y, width, height), color);
-            }
+            _font.DrawString(_spriteBatch, _importStatus, ConfigUILayout.ImportStatusPos, ImportStatusColor);
         }
 
         [ExcludeFromCodeCoverage]
@@ -768,10 +820,8 @@ namespace DTXMania.Game.Lib.Stage
         #endregion
 
         /// <summary>
-        /// Synchronous <see cref="IProgress{T}"/> that invokes the callback inline
-        /// on the thread calling <see cref="Report"/>. Unlike <see cref="System.Progress{T}"/>,
-        /// this does not post asynchronously to the synchronization context, preventing
-        /// stale progress callbacks from overwriting the final import status.
+        /// Synchronous <see cref="IProgress{T}"/> that invokes the callback inline on the calling
+        /// thread, preventing stale queued progress from overwriting the final import status.
         /// </summary>
         private sealed class InlineProgress<T> : IProgress<T>
         {
