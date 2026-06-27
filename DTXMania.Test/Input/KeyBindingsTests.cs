@@ -326,6 +326,30 @@ namespace DTXMania.Test.Input
             Assert.Equal("MIDI.36", id);
         }
 
+        [Theory]
+        [InlineData("MIDI.0", 0)]
+        [InlineData("MIDI.36", 36)]
+        [InlineData("MIDI.127", 127)]
+        public void TryParseMidiButtonId_ValidId_ShouldReturnNoteNumber(string buttonId, int expected)
+        {
+            Assert.True(KeyBindings.TryParseMidiButtonId(buttonId, out var noteNumber));
+            Assert.Equal(expected, noteNumber);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("MIDI.")]
+        [InlineData("MIDI.bad")]
+        [InlineData("MIDI.-1")]
+        [InlineData("MIDI.128")]
+        [InlineData("Key.A")]
+        [InlineData("Pad.A")]
+        public void TryParseMidiButtonId_InvalidId_ShouldReturnFalse(string buttonId)
+        {
+            Assert.False(KeyBindings.TryParseMidiButtonId(buttonId, out var noteNumber));
+            Assert.Equal(0, noteNumber);
+        }
+
         [Fact]
         public void CreatePadButtonId_ShouldReturnPadPrefix()
         {
