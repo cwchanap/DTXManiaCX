@@ -19,6 +19,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -33,6 +35,12 @@ namespace DTXMania.Game.Lib.Stage
     public class ConfigStage : BaseStage
     {
         #region Private Fields
+
+        // NullLogger until OnActivate swaps in the game's factory. Lets reflection-based tests
+        // (which skip OnActivate) exercise the helpers without NullReferenceException, while real
+        // runtime gets structured logging that survives Release builds (Debug.WriteLine is
+        // [Conditional("DEBUG")] and compiles out in Release).
+        private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
 
         private IConfigManager _configManager;
         private List<ConfigCategory> _categories = new();
@@ -100,7 +108,8 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            System.Diagnostics.Debug.WriteLine("Activating Config Stage");
+            _logger = _game.LoggerFactory?.CreateLogger<ConfigStage>() ?? _logger;
+            _logger.LogDebug("Activating Config Stage");
 
             InitializeGraphics();
             SetupConfigItems();
@@ -108,6 +117,13 @@ namespace DTXMania.Game.Lib.Stage
 
             _currentCategoryIndex = 0;
             _focusOnMenu = true;
+
+            // Clear any import status left over from a previous visit. StageManager reuses this
+            // instance, so without this a stale "Imported N scores" / "cancelled" message would
+            // survive leaving and re-entering Config. (_importRunning is intentionally NOT reset
+            // here: the background task clears it in its finally, and the StartNxScoreImport guard
+            // correctly serializes a still-draining task.)
+            _importStatus = "";
 
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
@@ -153,7 +169,7 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
-            System.Diagnostics.Debug.WriteLine("Deactivating Config Stage");
+            _logger.LogDebug("Deactivating Config Stage");
 
             FlushPendingSaveSafely();
 
@@ -168,6 +184,15 @@ namespace DTXMania.Game.Lib.Stage
             _boldFont = null;
             ReleaseTextures();
 
+            // OnActivate allocates a fresh SpriteBatch/white-pixel each entry. Dispose them here
+            // (symmetric with InitializeGraphics and the DrumConfigStage sibling) so a
+            // Title→Config→Title round-trip doesn't leak one of each on every visit, since
+            // StageManager reuses this instance.
+            _spriteBatch?.Dispose();
+            _spriteBatch = null!;
+            _whitePixel?.Dispose();
+            _whitePixel = null!;
+
             _previousKeyboardState = default;
             _currentKeyboardState = default;
         }
@@ -176,7 +201,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (disposing)
             {
-                System.Diagnostics.Debug.WriteLine("Disposing Config Stage resources");
+                _logger.LogDebug("Disposing Config Stage resources");
 
                 _importCts?.Cancel();
                 _importCts?.Dispose();
@@ -244,16 +269,28 @@ namespace DTXMania.Game.Lib.Stage
             _descriptionPanelTexture = TryLoadTexture(TexturePath.ConfigDescriptionPanel);
         }
 
+        /// <summary>
+        /// Load an optional skin texture, returning null when the asset is absent. ResourceManager
+        /// never throws for a missing/invalid texture — it returns a 1x1 white fallback (see
+        /// <see cref="ResourceManager.CreateFallbackTexture"/>), which would stretch a single texel
+        /// over the panel and wash the screen white. A real asset is always larger than 1x1, so a
+        /// 1x1 result is treated as "not present": its reference is released and null is returned so
+        /// each draw method takes its documented fallback-fill branch.
+        /// </summary>
         private ITexture? TryLoadTexture(string path)
         {
-            try
+            ITexture? texture = null;
+            try { texture = _resourceManager.LoadTexture(path); }
+            catch (Exception ex) { _logger.LogDebug(ex, "optional texture unavailable: {Path}", path); return null; }
+
+            if (texture == null || texture.Width <= 1 || texture.Height <= 1)
             {
-                return _resourceManager.LoadTexture(path);
-            }
-            catch
-            {
+                _logger.LogDebug("optional texture unavailable (asset missing or 1x1 fallback): {Path}", path);
+                texture?.RemoveReference();
                 return null;
             }
+
+            return texture;
         }
 
         private void ReleaseTextures()
@@ -446,9 +483,10 @@ namespace DTXMania.Game.Lib.Stage
 
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
+                NxImportResult? result = null;
                 try
                 {
-                    var result = await SongManager.Instance.ImportNxScoresAsync(progress, token);
+                    result = await SongManager.Instance.ImportNxScoresAsync(progress, token);
                     _importStatus = result.DbUnavailable
                         ? "NX import unavailable (no database)"
                         : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
@@ -463,20 +501,30 @@ namespace DTXMania.Game.Lib.Stage
                         }
                         catch (System.Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"ConfigStage: NX import succeeded but song list refresh failed: {ex}");
+                            // Scores were written, but the live song list didn't refresh. Surface the
+                            // partial failure so the user isn't left looking at a stale list with no
+                            // explanation (a restart will pick up the imported scores).
+                            _importStatus = $"Imported {result.Imported} scores, but the song list didn't " +
+                                $"refresh (restart to see them). {ex.GetBaseException().Message}";
+                            _logger.LogWarning(ex, "ConfigStage: NX import succeeded but song list refresh failed");
                         }
                     }
                 }
                 catch (System.OperationCanceledException)
                 {
-                    _importStatus = "NX import cancelled";
+                    // If cancellation landed AFTER a successful import (between the write and the
+                    // song-list refresh, at the ThrowIfCancellationRequested above), scores ARE on
+                    // disk — report partial success instead of a bare "cancelled" that hides the
+                    // write. Mid-import cancellation (result null / nothing imported) is a real cancel.
+                    _importStatus = (result != null && result.Imported > 0)
+                        ? $"Imported {result.Imported} scores (cancelled before the song list could refresh)"
+                        : "NX import cancelled";
                 }
                 catch (System.Exception ex)
                 {
                     var detail = ex.GetBaseException().Message;
                     _importStatus = $"NX import failed: {detail}";
-                    System.Diagnostics.Debug.WriteLine($"ConfigStage: NX import failed: {ex}");
+                    _logger.LogError(ex, "ConfigStage: NX import failed");
                 }
                 finally
                 {
@@ -582,7 +630,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void ExitToTitle()
         {
-            System.Diagnostics.Debug.WriteLine("Config: Returning to Title stage");
+            _logger.LogDebug("Config: Returning to Title stage");
             FlushPendingSaveSafely();
             ChangeStage(StageType.Title, new CrossfadeTransition(0.3));
         }
@@ -620,7 +668,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ConfigStage: failed to flush pending save: {ex}");
+                _logger.LogWarning(ex, "ConfigStage: failed to flush pending save");
             }
         }
 

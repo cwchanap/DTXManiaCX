@@ -164,6 +164,27 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
+    public async Task StartNxScoreImport_WhenDatabaseUnavailable_ShouldSetUnavailableStatus()
+    {
+        // No InitializeDatabaseServiceAsync call: _databaseService stays null, so
+        // ImportNxScoresAsync returns DbUnavailable=true (no throw). The status must reflect this
+        // most common real-world path rather than reporting a misleading success/error.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+
+            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            Assert.True(completed, "Import did not complete within timeout");
+
+            Assert.Equal("NX import unavailable (no database)",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+        }
+    }
+
+    [Fact]
     public void DrawImportStatus_WhenStatusPresent_ShouldDrawString()
     {
         var (stage, _, inputManager) = CreateStage();
