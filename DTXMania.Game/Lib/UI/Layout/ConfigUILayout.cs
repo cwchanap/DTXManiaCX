@@ -60,9 +60,18 @@ namespace DTXMania.Game.Lib.UI.Layout
         // Right anchor for value text; the draw layer subtracts the measured string width so the
         // value's right edge sits here (inside the box, clear of the description panel).
         public static int ItemValueRightX => ItemListX + ItemBoxWidth - ItemValueRightInset;
-        // Maximum width a right-aligned value may occupy before its left edge would cross the
-        // item name (drawn at ItemNamePos). The draw layer ellipsizes values to this width so a
-        // long value (e.g. a deep macOS DTXPath) never overwrites the name it sits beside.
+        // Minimum horizontal gap kept between a measured item name and the right-aligned value
+        // drawn beside it. The draw layer subtracts the measured name width plus this gap from
+        // ItemValueRightX to derive the value's per-row max width before ellipsizing, so a long
+        // value (e.g. a deep macOS DTXPath) never touches or overwrites the name. This is required
+        // because the value is drawn after the name; reserving only the name's left edge (as
+        // ItemValueMaxWidth does below) lets the value's left edge sit exactly on that edge and
+        // still overlap the name's glyph run.
+        public const int ItemValueNameGap = 16;
+        // Theoretical maximum value width assuming a zero-width name: the full gap from the name
+        // column's left edge to the value's right anchor. Used only as an upper-bound ceiling
+        // (e.g. layout sanity assertions); the draw layer uses the per-row name-relative width
+        // derived via ItemValueNameGap instead, which is always <= this value for a real name.
         public static int ItemValueMaxWidth => ItemBoxWidth - ItemValueRightInset - ItemNameInsetX;
 
         // Description panel.

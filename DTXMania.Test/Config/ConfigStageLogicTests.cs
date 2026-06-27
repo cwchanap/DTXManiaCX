@@ -1328,6 +1328,19 @@ public class ConfigStageLogicTests
             Assert.EndsWith("...", pathDraw.Text);
             Assert.True(font.Object.MeasureString(pathDraw.Text).X <= ConfigUILayout.ItemValueMaxWidth + 0.01f,
                 $"ellipsized value width must fit ItemValueMaxWidth ({ConfigUILayout.ItemValueMaxWidth})");
+
+            // The value is drawn after the name, so its left edge must sit strictly right of the
+            // name's right edge plus the reserved gap. Reserving only the name's left edge (the
+            // static ItemValueMaxWidth) lets the value's left edge reach that same X and overwrite
+            // the name's glyphs (e.g. a deep macOS DTXPath overwriting the "DTX Folder" label).
+            // Per-character mock font: "DTX Folder" (10 chars) measures 80px -> right edge at 534.
+            var folderNameDraw = draws.Single(d => d.Text == "DTX Folder");
+            var folderNameRightEdge = folderNameDraw.Position.X
+                + font.Object.MeasureString("DTX Folder").X;
+            var expectedValueLeftFloor = folderNameRightEdge + ConfigUILayout.ItemValueNameGap;
+            Assert.True(pathDraw.Position.X >= expectedValueLeftFloor - 0.01f,
+                $"value drawn at x={pathDraw.Position.X} overlaps the name (right edge {folderNameRightEdge}) "
+                + $"+ gap ({ConfigUILayout.ItemValueNameGap}); expected >= {expectedValueLeftFloor}");
         }
     }
 

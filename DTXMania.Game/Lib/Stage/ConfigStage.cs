@@ -776,11 +776,17 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Right-align the value at the box's right inner edge (ItemValueRightX) so it
                     // never overflows the box and never runs under the description panel drawn next.
-                    // Clamp the value to ItemValueMaxWidth first: a value wider than the gap between
-                    // the name's left edge and the value's right anchor (e.g. a deep macOS DTXPath)
-                    // would otherwise push valuePos.X left of the name and, drawn after the name,
-                    // overwrite it. Ellipsizing keeps the right-aligned anchor meaningful.
-                    var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
+                    // Reserve the measured name width plus ItemValueNameGap when deriving the value's
+                    // max width: truncating only to the static ItemValueMaxWidth lets the value's left
+                    // edge reach the name's left edge (namePos.X), which still overlaps the name
+                    // because the value is drawn after it (e.g. a deep macOS DTXPath overwriting the
+                    // "DTX Folder" label). The name-relative max width keeps the value strictly right
+                    // of the name's right edge plus a visual gap before right-aligning.
+                    var namePos = ConfigUILayout.ItemNamePos(row);
+                    var nameWidth = font.MeasureString(item.Name).X;
+                    var valueMaxWidth = Math.Max(0f,
+                        ConfigUILayout.ItemValueRightX - (namePos.X + nameWidth + ConfigUILayout.ItemValueNameGap));
+                    var displayValue = TextHelper.TruncateToWidth(value, valueMaxWidth, font);
                     var valueWidth = font.MeasureString(displayValue).X;
                     var valuePos = new Vector2(ConfigUILayout.ItemValueRightX - valueWidth,
                         ConfigUILayout.ItemRowY(row) + ConfigUILayout.ItemTextInsetY);
