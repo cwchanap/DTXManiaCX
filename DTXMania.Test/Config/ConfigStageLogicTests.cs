@@ -1299,6 +1299,66 @@ public class ConfigStageLogicTests
         }
     }
 
+    [Fact]
+    public void DrawDescriptionPanel_WhenFocusOnMenu_ShouldDrawCategoryDescription()
+    {
+        // Spec requirement: while focus = Menu, the description panel shows the focused
+        // category's Description. The render spy nulls the font, so this injects a mock
+        // font to capture the DrawString text content — the one spec assertion the
+        // fallback-rect tests can't cover.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var mockFont = new Moq.Mock<IFont>();
+            mockFont.Setup(f => f.MeasureString(Moq.It.IsAny<string>())).Returns(new Vector2(1, 1));
+            ReflectionHelpers.SetPrivateField(stage, "_font", mockFont.Object);
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
+
+            var expected = categories![0].Description;
+            mockFont.Verify(
+                f => f.DrawString(Moq.It.IsAny<SpriteBatch>(), expected,
+                    Moq.It.IsAny<Vector2>(), Moq.It.IsAny<Color>()),
+                Moq.Times.Once);
+        }
+    }
+
+    [Fact]
+    public void DrawDescriptionPanel_WhenFocusOnItems_ShouldDrawSelectedItemDescription()
+    {
+        // Spec requirement: while focus = Items, the description panel shows the focused
+        // item's Description (not the category's). Paired with the Menu-focus test above
+        // to prove the focus-driven text switch.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            categories![0].SelectedIndex = 0; // Screen Resolution
+            var mockFont = new Moq.Mock<IFont>();
+            mockFont.Setup(f => f.MeasureString(Moq.It.IsAny<string>())).Returns(new Vector2(1, 1));
+            ReflectionHelpers.SetPrivateField(stage, "_font", mockFont.Object);
+
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
+
+            var expected = categories[0].SelectedItem!.Description;
+            mockFont.Verify(
+                f => f.DrawString(Moq.It.IsAny<SpriteBatch>(), expected,
+                    Moq.It.IsAny<Vector2>(), Moq.It.IsAny<Color>()),
+                Moq.Times.Once);
+        }
+    }
+
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();

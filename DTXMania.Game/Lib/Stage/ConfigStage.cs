@@ -628,7 +628,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Drawing (NX master-detail)
 
-        private void DrawConfigBackground()
+        protected virtual void DrawConfigBackground()
         {
             var viewport = GetViewport();
             var full = new Rectangle(0, 0, viewport.Width, viewport.Height);
@@ -639,7 +639,7 @@ namespace DTXMania.Game.Lib.Stage
                 DrawFilledRectangle(full, FallbackBackgroundColor);
         }
 
-        private void DrawItemBar()
+        protected virtual void DrawItemBar()
         {
             if (_itemBarTexture?.Texture != null)
                 _spriteBatch.Draw(_itemBarTexture.Texture, ConfigUILayout.ItemBarRect, Color.White);
@@ -647,7 +647,7 @@ namespace DTXMania.Game.Lib.Stage
                 DrawFilledRectangle(ConfigUILayout.ItemBarRect, PanelFallbackColor);
         }
 
-        private void DrawCategoryMenu()
+        protected virtual void DrawCategoryMenu()
         {
             if (_categories.Count == 0)
                 return;
@@ -683,7 +683,7 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void DrawItemList()
+        protected virtual void DrawItemList()
         {
             if (_categories.Count == 0)
                 return;
@@ -732,6 +732,14 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        // Extracts the value portion for the two-column item list by stripping the
+        // "{Name}: " prefix that GetDisplayText() prepends. This is coupled to every
+        // concrete item type's GetDisplayText() format (Dropdown/Toggle/Integer/
+        // ReadOnly all use "$"{Name}: {value}""); a future item type that omits the
+        // prefix would render an empty value here. Adding a GetValueText() to
+        // IConfigItem would decouple this, but that value-semantics change is an
+        // explicit non-goal of the NX layout revamp — so the coupling is documented
+        // here instead.
         private static string GetItemValueText(IConfigItem item)
         {
             if (item is NavigationConfigItem)
@@ -744,7 +752,7 @@ namespace DTXMania.Game.Lib.Stage
                 : string.Empty;
         }
 
-        private void DrawDescriptionPanel()
+        protected virtual void DrawDescriptionPanel()
         {
             if (_categories.Count == 0)
                 return;
@@ -797,7 +805,7 @@ namespace DTXMania.Game.Lib.Stage
                 yield return line.ToString();
         }
 
-        private void DrawHeaderFooter()
+        protected virtual void DrawHeaderFooter()
         {
             if (_headerPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_headerPanelTexture.Texture, ConfigUILayout.HeaderRect, Color.White);
