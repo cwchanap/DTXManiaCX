@@ -52,8 +52,16 @@ public class ConfigUILayoutTests
     public void ItemTextPositions_ShouldOffsetFromRow()
     {
         Assert.Equal(new Vector2(454, 164), ConfigUILayout.ItemNamePos(0));
-        Assert.Equal(new Vector2(760, 164), ConfigUILayout.ItemValuePos(0));
         Assert.Equal(new Vector2(454, 224), ConfigUILayout.ItemNamePos(1));
+    }
+
+    [Fact]
+    public void ItemValueRightX_ShouldSitInsideTheBoxClearOfTheDescriptionPanel()
+    {
+        // Value right anchor = box right edge (430 + 360 = 790) minus the symmetric inset (24).
+        // Values end at <= 790, so they never reach the description panel (x = 800).
+        Assert.Equal(766, ConfigUILayout.ItemValueRightX);
+        Assert.True(ConfigUILayout.ItemValueRightX < ConfigUILayout.DescriptionPanelRect.X);
     }
 
     [Fact]
