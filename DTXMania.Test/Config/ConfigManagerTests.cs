@@ -1018,4 +1018,86 @@ Key.Bad=abc
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void ConfigManager_SaveAndLoadConfig_MidiVelocityThresholds_ShouldPreserveNonzeroThresholds()
+    {
+        var manager = new ConfigManager();
+        manager.SetMidiVelocityThreshold(36, 20);
+        manager.SetMidiVelocityThreshold(38, 12);
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            manager.SaveConfig(tempFile);
+            var text = File.ReadAllText(tempFile);
+            Assert.Contains("[MidiVelocityThresholds]", text);
+            Assert.Contains("MidiVelocity.36=20", text);
+            Assert.Contains("MidiVelocity.38=12", text);
+
+            var reloaded = new ConfigManager();
+            reloaded.LoadConfig(tempFile);
+
+            Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
+            Assert.Equal(12, reloaded.GetMidiVelocityThreshold(38));
+            Assert.Equal(0, reloaded.GetMidiVelocityThreshold(40));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SetMidiVelocityThreshold_Zero_ShouldRemovePersistedThreshold()
+    {
+        var manager = new ConfigManager();
+        manager.SetMidiVelocityThreshold(36, 20);
+        manager.SetMidiVelocityThreshold(36, 0);
+
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
+        Assert.False(manager.Config.MidiVelocityThresholds.ContainsKey(36));
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            manager.SaveConfig(tempFile);
+            var text = File.ReadAllText(tempFile);
+            Assert.DoesNotContain("MidiVelocity.36=", text);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_InvalidMidiVelocityThresholds_ShouldIgnoreOrClamp()
+    {
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[MidiVelocityThresholds]",
+            "MidiVelocity.36=300",
+            "MidiVelocity.38=-4",
+            "MidiVelocity.200=50",
+            "MidiVelocity.bad=40",
+            "MidiVelocity.40=abc"
+        }));
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            Assert.Equal(127, manager.GetMidiVelocityThreshold(36));
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(38));
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(200));
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }

@@ -58,6 +58,33 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings);
 
+        /// <summary>Gets the MIDI minimum velocity threshold for a note. Missing notes default to 0.</summary>
+        int GetMidiVelocityThreshold(int noteNumber)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return 0;
+
+            return Config.MidiVelocityThresholds.TryGetValue(noteNumber, out var threshold)
+                ? Math.Clamp(threshold, 0, 127)
+                : 0;
+        }
+
+        /// <summary>Sets a MIDI minimum velocity threshold, clamped to 0..127, and marks config dirty.</summary>
+        void SetMidiVelocityThreshold(int noteNumber, int threshold)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return;
+
+            var clamped = Math.Clamp(threshold, 0, 127);
+            if (clamped == 0)
+            {
+                Config.MidiVelocityThresholds.Remove(noteNumber);
+                return;
+            }
+
+            Config.MidiVelocityThresholds[noteNumber] = clamped;
+        }
+
         /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
         void SetAutoPlay(bool value);
 

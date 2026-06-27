@@ -27,6 +27,8 @@ namespace DTXMania.Game.Lib.Config
             InputCommandType.Back,
         };
 
+        private const string MidiVelocityPrefix = "MidiVelocity.";
+
         private static bool IsRequiredSystemCommand(InputCommandType command)
         {
             return KeyConflictChecker.IsRequiredCommand(command);
@@ -366,7 +368,14 @@ namespace DTXMania.Game.Lib.Config
                     break;
                 // Handle key bindings from config file
                 default:
-                    if (key.StartsWith("Key.Unbound.") &&
+                    if (TryParseMidiVelocityThresholdKey(key, out var midiNoteNumber))
+                    {
+                        if (int.TryParse(value, out var midiThreshold))
+                        {
+                            SetMidiVelocityThresholdInMemory(midiNoteNumber, midiThreshold);
+                        }
+                    }
+                    else if (key.StartsWith("Key.Unbound.") &&
                         int.TryParse(key.Substring("Key.Unbound.".Length), out var unboundLane))
                     {
                         if (unboundLane >= 0 && unboundLane <= 9 &&
@@ -469,6 +478,20 @@ namespace DTXMania.Game.Lib.Config
                 }
             }
 
+            var savedMidiThresholds = Config.MidiVelocityThresholds
+                .Where(kvp => kvp.Key >= 0 && kvp.Key <= 127 && kvp.Value > 0)
+                .OrderBy(kvp => kvp.Key)
+                .ToList();
+            if (savedMidiThresholds.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("[MidiVelocityThresholds]");
+                foreach (var kvp in savedMidiThresholds)
+                {
+                    sb.AppendLine($"{MidiVelocityPrefix}{kvp.Key}={Math.Clamp(kvp.Value, 0, 127)}");
+                }
+            }
+
             // Write atomically via temp-file to avoid truncation on crash/disk-full.
             // Write to temp first — if it fails, original remains intact.
             var tempFile = filePath + ".tmp";
@@ -536,6 +559,55 @@ namespace DTXMania.Game.Lib.Config
             ApplySystemKeyBindings(workingBindings);
             MarkDirty();
             RaiseEvent(SystemKeyBindingsChanged, EventArgs.Empty);
+        }
+
+        public int GetMidiVelocityThreshold(int noteNumber)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return 0;
+
+            return Config.MidiVelocityThresholds.TryGetValue(noteNumber, out var threshold)
+                ? Math.Clamp(threshold, 0, 127)
+                : 0;
+        }
+
+        public void SetMidiVelocityThreshold(int noteNumber, int threshold)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return;
+
+            SetMidiVelocityThresholdInMemory(noteNumber, threshold);
+            MarkDirty();
+        }
+
+        private void SetMidiVelocityThresholdInMemory(int noteNumber, int threshold)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return;
+
+            var clamped = Math.Clamp(threshold, 0, 127);
+            if (clamped == 0)
+            {
+                Config.MidiVelocityThresholds.Remove(noteNumber);
+                return;
+            }
+
+            Config.MidiVelocityThresholds[noteNumber] = clamped;
+        }
+
+        private static bool TryParseMidiVelocityThresholdKey(string key, out int noteNumber)
+        {
+            noteNumber = default;
+            if (string.IsNullOrWhiteSpace(key) ||
+                !key.StartsWith(MidiVelocityPrefix, StringComparison.Ordinal) ||
+                key.Length <= MidiVelocityPrefix.Length)
+            {
+                return false;
+            }
+
+            return int.TryParse(key.Substring(MidiVelocityPrefix.Length), out noteNumber) &&
+                   noteNumber >= 0 &&
+                   noteNumber <= 127;
         }
 
         /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>

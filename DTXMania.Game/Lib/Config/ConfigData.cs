@@ -30,6 +30,7 @@ namespace DTXMania.Game.Lib.Config
         public HashSet<int> UnboundDrumLanes { get; set; } = new();
         public HashSet<string> UnboundDrumButtons { get; set; } = new();
         public Dictionary<string, string> SystemKeyBindings { get; set; } = new();
+        public Dictionary<int, int> MidiVelocityThresholds { get; set; } = new();
 
         // Game settings
         public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;
