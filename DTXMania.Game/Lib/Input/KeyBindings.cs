@@ -240,6 +240,28 @@ namespace DTXMania.Game.Lib.Input
             return $"MIDI.{noteNumber}";
         }
 
+        public static bool TryParseMidiButtonId(string buttonId, out int noteNumber)
+        {
+            noteNumber = default;
+            const string prefix = "MIDI.";
+            if (string.IsNullOrWhiteSpace(buttonId) ||
+                !buttonId.StartsWith(prefix, StringComparison.Ordinal) ||
+                buttonId.Length <= prefix.Length)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(buttonId.Substring(prefix.Length), out var parsedNoteNumber) ||
+                parsedNoteNumber < 0 ||
+                parsedNoteNumber > 127)
+            {
+                return false;
+            }
+
+            noteNumber = parsedNoteNumber;
+            return true;
+        }
+
         /// <summary>
         /// Creates a button ID from a gamepad button
         /// </summary>
