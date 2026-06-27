@@ -1253,6 +1253,38 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_ShouldRightAlignValuesWithinTheBox()
+    {
+        // Values anchor at the box's right inner edge (ItemValueRightX) so they never overflow the
+        // box and never run under the description panel drawn afterward at x=800. A fixed-width
+        // mock font lets us assert the exact right-aligned x position.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            const float measuredWidth = 80f;
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(measuredWidth, 14f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            // Value x = right anchor (766) minus measured width (80) = 686. Names are drawn at the
+            // fixed ItemNamePos (x=454), so only the right-aligned values land at 686.
+            var expectedValueX = ConfigUILayout.ItemValueRightX - measuredWidth;
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(),
+                It.Is<Vector2>(p => Math.Abs(p.X - expectedValueX) < 0.01f), It.IsAny<Color>()),
+                Times.AtLeastOnce,
+                "value text should be right-aligned within the item box");
+        }
+    }
+
+    [Fact]
     public void DrawHeaderFooter_WhenTexturesMissing_ShouldFallbackToPanelFills()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();

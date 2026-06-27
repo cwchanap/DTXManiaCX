@@ -774,7 +774,12 @@ namespace DTXMania.Game.Lib.Stage
                 var value = GetItemValueText(item);
                 if (!string.IsNullOrEmpty(value))
                 {
-                    font.DrawString(_spriteBatch, value, ConfigUILayout.ItemValuePos(row),
+                    // Right-align the value at the box's right inner edge (ItemValueRightX) so it
+                    // never overflows the box and never runs under the description panel drawn next.
+                    var valueWidth = font.MeasureString(value).X;
+                    var valuePos = new Vector2(ConfigUILayout.ItemValueRightX - valueWidth,
+                        ConfigUILayout.ItemRowY(row) + ConfigUILayout.ItemTextInsetY);
+                    font.DrawString(_spriteBatch, value, valuePos,
                         selected ? SelectedText : ValueText);
                 }
             }

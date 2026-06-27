@@ -45,7 +45,10 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ItemBoxWidth = 360;
         public const int ItemBoxHeight = 54;
         public const int ItemNameInsetX = 24;
-        public const int ItemValueInsetX = 330;
+        // Right-aligned value column: values anchor at the box's right inner edge so they never
+        // overflow the box and never run under the description panel (drawn afterward at x=800).
+        // A fixed left-aligned column left wide values stretching into the panel region.
+        public const int ItemValueRightInset = ItemNameInsetX; // symmetric with the name's left inset
         public const int ItemTextInsetY = 14;
         public static int ItemRowY(int row) => ItemFirstRowY + row * ItemRowStride;
         public static Rectangle ItemRowRect(int row) =>
@@ -54,8 +57,9 @@ namespace DTXMania.Game.Lib.UI.Layout
             new(ItemListX - 4, ItemRowY(row) - 3, ItemBoxWidth + 8, ItemRowStride);
         public static Vector2 ItemNamePos(int row) =>
             new(ItemListX + ItemNameInsetX, ItemRowY(row) + ItemTextInsetY);
-        public static Vector2 ItemValuePos(int row) =>
-            new(ItemListX + ItemValueInsetX, ItemRowY(row) + ItemTextInsetY);
+        // Right anchor for value text; the draw layer subtracts the measured string width so the
+        // value's right edge sits here (inside the box, clear of the description panel).
+        public static int ItemValueRightX => ItemListX + ItemBoxWidth - ItemValueRightInset;
 
         // Description panel.
         public static Rectangle DescriptionPanelRect => new(800, 270, 280, 360);
