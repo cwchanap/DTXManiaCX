@@ -961,6 +961,10 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings) { }
 
+            public int GetMidiVelocityThreshold(int noteNumber) => 0;
+
+            public void SetMidiVelocityThreshold(int noteNumber, int threshold) { }
+
             public void SetAutoPlay(bool value) { }
 
             public void SetNoFail(bool value) { }

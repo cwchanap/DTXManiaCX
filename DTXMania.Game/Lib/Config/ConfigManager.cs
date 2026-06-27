@@ -58,6 +58,7 @@ namespace DTXMania.Game.Lib.Config
         {
             _loadedConfigPath = filePath;
             EnsureConfigDirectory(filePath);
+            Config.MidiVelocityThresholds.Clear();
             if (!File.Exists(filePath))
             {
                 NormalizeConfigPaths();
