@@ -18,6 +18,20 @@ namespace DTXMania.Game.Lib.Stage.Config
         public IReadOnlyList<IConfigItem> Items { get; }
         public int SelectedIndex { get; set; }
 
+        /// <summary>
+        /// Creates a category. <paramref name="name"/> is the category's identity and must be
+        /// non-null (it is shown in the menu and never blank), so a null name throws. A null
+        /// <paramref name="description"/> is coerced to <see cref="string.Empty"/> instead — the
+        /// description is optional help text, and an empty string degrades gracefully (the panel
+        /// still renders) rather than crashing the caller.
+        /// </summary>
+        /// <param name="name">Category label (required, non-null).</param>
+        /// <param name="description">Help text shown when the category is selected (optional;
+        /// null becomes empty).</param>
+        /// <param name="items">The config items in this category (required, non-null; may be
+        /// empty for an action-only category such as Exit).</param>
+        /// <exception cref="ArgumentNullException"><paramref name="name"/> or
+        /// <paramref name="items"/> is null.</exception>
         public ConfigCategory(string name, string description, IReadOnlyList<IConfigItem> items)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));

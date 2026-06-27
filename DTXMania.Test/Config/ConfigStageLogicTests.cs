@@ -1179,6 +1179,126 @@ public class ConfigStageLogicTests
         }
     }
 
+    // ---- Integration flow + defensive-guard tests (code review follow-up) ----
+
+    [Fact]
+    public void HandleInput_FullMenuItemsEditBackExitFlow_ShouldTransitionThroughAllFocusStates()
+    {
+        // Integration-style: drives the complete focus-state machine end-to-end through HandleInput
+        // (Menu -> enter Items -> edit a toggle -> Back to Menu -> navigate to Exit -> activate Exit).
+        // Each step asserts the state carried over from the previous one, catching interaction
+        // bugs that the per-transition unit tests above can miss in isolation.
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            var stageManager = new Moq.Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var fullscreenBefore = configManager.Config.FullScreen;
+
+            // Start: System category, focus on menu.
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+
+            // 1. Menu: Activate -> enter System items (SelectedIndex starts at 0).
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+
+            // 2. Items: MoveDown -> select Fullscreen (index 1).
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.Equal(1, categories![0].SelectedIndex);
+
+            // 3. Items: Activate -> toggle Fullscreen via the typed setter.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.NotEqual(fullscreenBefore, configManager.Config.FullScreen);
+
+            // 4. Items: Back -> return focus to menu WITHOUT leaving the stage.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Escape), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+            stageManager.Verify(m => m.ChangeStage(
+                Moq.It.IsAny<StageType>(), Moq.It.IsAny<IStageTransition>()), Moq.Times.Never);
+
+            // 5. Menu: MoveDown -> Drums.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
+
+            // 6. Menu: MoveDown -> Exit.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
+
+            // 7. Menu: Activate on Exit (no items) -> flush + transition to Title.
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+            stageManager.Verify(m => m.ChangeStage(
+                StageType.Title, Moq.It.Is<IStageTransition>(t => t is CrossfadeTransition)), Moq.Times.Once);
+        }
+    }
+
+    [Fact]
+    public void HandleInput_WithEmptyCategories_ShouldNotThrowInEitherFocusState()
+    {
+        // Defensive guard: SetupConfigItems always populates _categories, but if that invariant
+        // ever breaks the modular-arithmetic (% Count) and index access in the handlers would
+        // throw DivideByZero/ArgumentOutOfRange. The HandleInput guard must swallow both.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SetupRuntimeSystemBindings(inputManager, new Dictionary<Keys, InputCommandType>
+            {
+                [Keys.Down] = InputCommandType.MoveDown,
+                [Keys.Enter] = InputCommandType.Activate,
+                [Keys.Escape] = InputCommandType.Back
+            });
+            ReflectionHelpers.SetPrivateField(stage, "_categories", new List<ConfigCategory>());
+
+            // Menu focus: would hit % _categories.Count == 0 (DivideByZero) without the guard.
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Down), new KeyboardState());
+            Assert.Null(Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput")));
+
+            // Item focus: would hit _categories[_currentCategoryIndex] (ArgumentOutOfRange).
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+            Assert.Null(Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput")));
+        }
+    }
+
+    [Fact]
+    public void DrawDescriptionPanel_WithEmptyDescription_ShouldStillRenderPanelBackground()
+    {
+        // The description panel is a fixed UI region; its background must render even when the
+        // selected item's description is empty, so the layout never shows a surprise blank gap.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            var emptyDescItem = new ReadOnlyConfigItem("X", () => "v") { Description = "" };
+            var category = new ConfigCategory("Cat", "category desc",
+                new List<IConfigItem> { emptyDescItem });
+            category.SelectedIndex = 0;
+            ReflectionHelpers.SetPrivateField(stage, "_categories",
+                new List<ConfigCategory> { category });
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false); // item desc path (empty)
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
+
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.DescriptionPanelRect && c.Color == new Color(28, 32, 54, 220));
+        }
+    }
+
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();

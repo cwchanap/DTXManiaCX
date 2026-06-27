@@ -491,6 +491,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleInput()
         {
+            // Defensive: SetupConfigItems (called from OnActivate) always populates _categories,
+            // so this is never empty during normal play. Guard mirrors the draw methods and keeps
+            // the modular-arithmetic / index access below safe if the invariant ever breaks.
+            if (_categories.Count == 0)
+                return;
+
             if (_focusOnMenu)
                 HandleMenuInput();
             else
@@ -743,20 +749,21 @@ namespace DTXMania.Game.Lib.Stage
             if (_categories.Count == 0)
                 return;
 
-            var category = _categories[_currentCategoryIndex];
-            string text = _focusOnMenu
-                ? category.Description
-                : (category.SelectedItem?.Description ?? string.Empty);
-
-            if (string.IsNullOrEmpty(text))
-                return;
-
+            // The panel is a fixed UI region; always render its background (texture or fallback
+            // fill) so the layout stays consistent. Only the wrapped text is gated on content —
+            // every category/item has a description today (enforced by test), but decoupling the
+            // panel from the text avoids a surprise blank gap if that invariant ever changes.
             if (_descriptionPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_descriptionPanelTexture.Texture, ConfigUILayout.DescriptionPanelRect, Color.White);
             else
                 DrawFilledRectangle(ConfigUILayout.DescriptionPanelRect, PanelFallbackColor);
 
-            if (_font == null)
+            var category = _categories[_currentCategoryIndex];
+            string text = _focusOnMenu
+                ? category.Description
+                : (category.SelectedItem?.Description ?? string.Empty);
+
+            if (string.IsNullOrEmpty(text) || _font == null)
                 return;
 
             var pos = ConfigUILayout.DescriptionTextPos;
