@@ -60,6 +60,10 @@ namespace DTXMania.Game.Lib.UI.Layout
         // Right anchor for value text; the draw layer subtracts the measured string width so the
         // value's right edge sits here (inside the box, clear of the description panel).
         public static int ItemValueRightX => ItemListX + ItemBoxWidth - ItemValueRightInset;
+        // Maximum width a right-aligned value may occupy before its left edge would cross the
+        // item name (drawn at ItemNamePos). The draw layer ellipsizes values to this width so a
+        // long value (e.g. a deep macOS DTXPath) never overwrites the name it sits beside.
+        public static int ItemValueMaxWidth => ItemBoxWidth - ItemValueRightInset - ItemNameInsetX;
 
         // Description panel.
         public static Rectangle DescriptionPanelRect => new(800, 270, 280, 360);

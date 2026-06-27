@@ -776,10 +776,15 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Right-align the value at the box's right inner edge (ItemValueRightX) so it
                     // never overflows the box and never runs under the description panel drawn next.
-                    var valueWidth = font.MeasureString(value).X;
+                    // Clamp the value to ItemValueMaxWidth first: a value wider than the gap between
+                    // the name's left edge and the value's right anchor (e.g. a deep macOS DTXPath)
+                    // would otherwise push valuePos.X left of the name and, drawn after the name,
+                    // overwrite it. Ellipsizing keeps the right-aligned anchor meaningful.
+                    var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
+                    var valueWidth = font.MeasureString(displayValue).X;
                     var valuePos = new Vector2(ConfigUILayout.ItemValueRightX - valueWidth,
                         ConfigUILayout.ItemRowY(row) + ConfigUILayout.ItemTextInsetY);
-                    font.DrawString(_spriteBatch, value, valuePos,
+                    font.DrawString(_spriteBatch, displayValue, valuePos,
                         selected ? SelectedText : ValueText);
                 }
             }

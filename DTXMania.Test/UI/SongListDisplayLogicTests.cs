@@ -48,12 +48,11 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_ShouldReturnOriginalOrTruncated()
     {
-        var display = new SongListDisplay();
         var font = new Mock<IFont>();
         font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string s) => new Vector2(s.Length * 10, 10));
 
-        var original = InvokePrivate<string>(display, "TruncateTextToWidth", "ABC", 100f, font.Object);
-        var truncated = InvokePrivate<string>(display, "TruncateTextToWidth", "ABCDEFGHIJ", 40f, font.Object);
+        var original = TextHelper.TruncateToWidth("ABC", 100f, font.Object);
+        var truncated = TextHelper.TruncateToWidth("ABCDEFGHIJ", 40f, font.Object);
 
         Assert.Equal("ABC", original);
         Assert.EndsWith("...", truncated);
@@ -63,11 +62,10 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenSpriteFontTextIsTooLong_ShouldReturnFittingEllipsis()
     {
-        var display = new SongListDisplay();
         var font = CreateSpriteFont(
             [(' ', 4), ('.', 4), ('A', 10), ('B', 10), ('C', 10), ('D', 10), ('E', 10), ('F', 10), ('G', 10), ('H', 10)]);
 
-        var truncated = InvokePrivate<string>(display, "TruncateTextToWidth", "ABCDEFGH", 44f, font);
+        var truncated = TextHelper.TruncateToWidth("ABCDEFGH", 44f, font);
 
         Assert.EndsWith("...", truncated);
         Assert.True(font.MeasureString(truncated).X <= 44f);
@@ -1090,10 +1088,9 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenTextIsNull_ShouldReturnNull()
     {
-        var display = new SongListDisplay();
         var font = new Mock<IFont>();
 
-        var result = InvokePrivate<string>(display, "TruncateTextToWidth", null, 100f, font.Object);
+        var result = TextHelper.TruncateToWidth(null, 100f, font.Object);
 
         Assert.Null(result);
     }
@@ -1101,10 +1098,9 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenTextIsEmpty_ShouldReturnEmpty()
     {
-        var display = new SongListDisplay();
         var font = new Mock<IFont>();
 
-        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "", 100f, font.Object);
+        var result = TextHelper.TruncateToWidth("", 100f, font.Object);
 
         Assert.Equal("", result);
     }
@@ -1112,9 +1108,7 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenFontIsNull_ShouldReturnOriginalText()
     {
-        var display = new SongListDisplay();
-
-        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "test", 100f, (IFont)null);
+        var result = TextHelper.TruncateToWidth("test", 100f, (IFont)null);
 
         Assert.Equal("test", result);
     }
@@ -1122,11 +1116,10 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenTextFitsExactly_ShouldReturnOriginal()
     {
-        var display = new SongListDisplay();
         var font = new Mock<IFont>();
         font.Setup(x => x.MeasureString("exact")).Returns(new Vector2(100f, 10f));
 
-        var result = InvokePrivate<string>(display, "TruncateTextToWidth", "exact", 100f, font.Object);
+        var result = TextHelper.TruncateToWidth("exact", 100f, font.Object);
 
         Assert.Equal("exact", result);
     }
@@ -1134,12 +1127,11 @@ public class SongListDisplayLogicTests
     [Fact]
     public void TruncateTextToWidth_WhenVeryLongText_ShouldTruncateWithEllipsis()
     {
-        var display = new SongListDisplay();
         var font = new Mock<IFont>();
         font.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string s) => new Vector2(s.Length * 10, 10));
 
         var longText = new string('A', 100);
-        var result = InvokePrivate<string>(display, "TruncateTextToWidth", longText, 50f, font.Object);
+        var result = TextHelper.TruncateToWidth(longText, 50f, font.Object);
 
         Assert.EndsWith("...", result);
         Assert.True(result.Length < longText.Length);

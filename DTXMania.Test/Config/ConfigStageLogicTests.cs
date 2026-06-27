@@ -1285,6 +1285,53 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_WhenValueExceedsAvailableWidth_ShouldEllipsizeBeforeRightAligning()
+    {
+        // A value wider than the gap between the name's left edge and the value's right anchor
+        // (ItemValueMaxWidth) must be ellipsized before the right-aligned position is computed.
+        // Otherwise valuePos.X = ItemValueRightX - fullWidth moves left of the name and, since the
+        // value is drawn after the name, overwrites it (e.g. the default macOS DTXPath under
+        // ~/Library/Application Support/...). The per-character mock font makes the overflow
+        // deterministic: 8px/char means a 56-char path measures 448px > 312px available.
+        var longPath = "/Users/testuser/Library/Application Support/DTXManiaCX/DTXFiles";
+        var configManager = new ConfigManager { Config = { DTXPath = longPath } };
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice(configManager);
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            const float charWidth = 8f;
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * charWidth, 14f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            var draws = new List<(string Text, Vector2 Position)>();
+            font.Setup(f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(),
+                    It.IsAny<Vector2>(), It.IsAny<Color>()))
+                .Callback<SpriteBatch, string, Vector2, Color>((_, text, pos, _) => draws.Add((text, pos)));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            // No text may start left of the name column: names sit at ItemNamePos.X (454) and
+            // right-aligned values must not cross that boundary.
+            var nameLeftX = ConfigUILayout.ItemNamePos(0).X;
+            Assert.All(draws, d => Assert.True(d.Position.X >= nameLeftX - 0.01f,
+                $"text \"{d.Text}\" drawn at x={d.Position.X} crosses left of the name column at x={nameLeftX}"));
+
+            // The long DTX path value must be ellipsized (ends with "...") and fit the available width.
+            var pathDraw = draws.Single(d => d.Text.StartsWith("/Users/", StringComparison.Ordinal));
+            Assert.EndsWith("...", pathDraw.Text);
+            Assert.True(font.Object.MeasureString(pathDraw.Text).X <= ConfigUILayout.ItemValueMaxWidth + 0.01f,
+                $"ellipsized value width must fit ItemValueMaxWidth ({ConfigUILayout.ItemValueMaxWidth})");
+        }
+    }
+
+    [Fact]
     public void DrawHeaderFooter_WhenTexturesMissing_ShouldFallbackToPanelFills()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
