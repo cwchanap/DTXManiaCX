@@ -74,6 +74,11 @@ namespace DTXMania.Game.Lib.Stage
         // legible (light-on-light was the failure mode to avoid).
         private static readonly Color FallbackBackgroundColor = new(18, 20, 34);
 
+        // Semi-transparent panel stand-ins drawn when the NX skin art is missing, so each panel
+        // region stays visually delimited and text remains legible without the texture.
+        private static readonly Color PanelFallbackColor = new(28, 32, 54, 220);
+        private static readonly Color ItemBoxFallbackColor = new(34, 40, 68, 200);
+
         private volatile string _importStatus = "";
         private volatile bool _importRunning;
         private CancellationTokenSource? _importCts;
@@ -632,12 +637,19 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_itemBarTexture?.Texture != null)
                 _spriteBatch.Draw(_itemBarTexture.Texture, ConfigUILayout.ItemBarRect, Color.White);
+            else
+                DrawFilledRectangle(ConfigUILayout.ItemBarRect, PanelFallbackColor);
         }
 
         private void DrawCategoryMenu()
         {
+            if (_categories.Count == 0)
+                return;
+
             if (_menuPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_menuPanelTexture.Texture, ConfigUILayout.MenuPanelRect, Color.White);
+            else
+                DrawFilledRectangle(ConfigUILayout.MenuPanelRect, PanelFallbackColor);
 
             var cursorRect = ConfigUILayout.MenuCursorRect(_currentCategoryIndex);
             if (_menuCursorTexture?.Texture != null)
@@ -680,6 +692,8 @@ namespace DTXMania.Game.Lib.Stage
                     : _itemBoxTexture;
                 if (box?.Texture != null)
                     _spriteBatch.Draw(box.Texture, ConfigUILayout.ItemRowRect(row), Color.White);
+                else
+                    DrawFilledRectangle(ConfigUILayout.ItemRowRect(row), ItemBoxFallbackColor);
             }
 
             if (!_focusOnMenu && category.HasItems)
@@ -739,6 +753,8 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_descriptionPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_descriptionPanelTexture.Texture, ConfigUILayout.DescriptionPanelRect, Color.White);
+            else
+                DrawFilledRectangle(ConfigUILayout.DescriptionPanelRect, PanelFallbackColor);
 
             if (_font == null)
                 return;
@@ -778,6 +794,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_headerPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_headerPanelTexture.Texture, ConfigUILayout.HeaderRect, Color.White);
+            else
+                DrawFilledRectangle(ConfigUILayout.HeaderRect, PanelFallbackColor);
 
             if (_font != null)
             {
@@ -789,6 +807,8 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_footerPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_footerPanelTexture.Texture, ConfigUILayout.FooterRect, Color.White);
+            else
+                DrawFilledRectangle(ConfigUILayout.FooterRect, PanelFallbackColor);
 
             if (_font != null)
                 _font.DrawString(_spriteBatch, ConfigUILayout.InstructionsText, ConfigUILayout.InstructionsPos, LightText);
