@@ -1023,6 +1023,162 @@ public class ConfigStageLogicTests
 
     // ---- End of new NX master-detail behavior tests ----
 
+    // ---- Coverage gaps flagged in code review ----
+
+    [Fact]
+    public void SelectedIndex_ShouldBeRememberedAcrossCategorySwitches()
+    {
+        // Spec-required: the item selection within each category must persist when the player
+        // navigates away and returns. Each ConfigCategory owns its own SelectedIndex which is
+        // never reset on focus/category changes.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+
+            // Enter System items, move selection down twice (index 0 -> 2).
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+            categories![0].MoveSelectionDown();
+            categories[0].MoveSelectionDown();
+            Assert.Equal(2, categories[0].SelectedIndex);
+
+            // Switch focus back to menu, move to Drums category.
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 1);
+
+            // Navigate back to System category.
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+
+            // The System category must still remember index 2.
+            Assert.Equal(2, categories[0].SelectedIndex);
+        }
+    }
+
+    [Fact]
+    public void MenuMoveRightOnSettingsCategory_ShouldMoveFocusToItems()
+    {
+        // HandleMenuInput accepts both Activate and MoveRight to enter the item list.
+        // Activate is covered above; this verifies the MoveRight path.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+        }
+    }
+
+    [Fact]
+    public void MenuMoveUp_ShouldWrapAcrossCategories()
+    {
+        // MoveDown wrap is covered above; this verifies MoveUp wraps from first to last.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System (first)
+            SetKeyboardStates(stage, new KeyboardState(Keys.Up), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
+        }
+    }
+
+    [Fact]
+    public void DrawItemBar_WhenTextureMissing_ShouldFallbackToPanelFill()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemBar");
+
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.ItemBarRect && c.Color == new Color(28, 32, 54, 220));
+        }
+    }
+
+    [Fact]
+    public void DrawHeaderFooter_WhenTexturesMissing_ShouldFallbackToPanelFills()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawHeaderFooter");
+
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.HeaderRect && c.Color == new Color(28, 32, 54, 220));
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.FooterRect && c.Color == new Color(28, 32, 54, 220));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WhenItemBoxTexturesMissing_ShouldFallbackToItemBoxFill()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System has 7 items
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            // Every item row should get a fallback fill when its box texture is unavailable.
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.ItemRowRect(0) && c.Color == new Color(34, 40, 68, 200));
+        }
+    }
+
+    [Fact]
+    public void DrawCategoryMenu_WhenPanelTextureMissing_ShouldFallbackToPanelFill()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 1);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawCategoryMenu");
+
+            // Menu panel fallback fill plus the cursor fallback fill.
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.MenuPanelRect && c.Color == new Color(28, 32, 54, 220));
+        }
+    }
+
+    [Fact]
+    public void DrawDescriptionPanel_WhenTextureMissing_ShouldFallbackToPanelFill()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
+
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.DescriptionPanelRect && c.Color == new Color(28, 32, 54, 220));
+        }
+    }
+
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
