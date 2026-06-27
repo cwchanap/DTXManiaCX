@@ -16,11 +16,11 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         // Background + vertical divider.
         public static Rectangle BackgroundRect => new(0, 0, ScreenWidth, ScreenHeight);
-        public static Rectangle ItemBarRect => new(400, 0, 18, 720);
+        public static Rectangle ItemBarRect => new(400, 0, 18, ScreenHeight);
 
         // Header / footer / title / instructions / import status.
-        public static Rectangle HeaderRect => new(0, 0, 1280, 105);
-        public static Rectangle FooterRect => new(0, 690, 1280, 30);
+        public static Rectangle HeaderRect => new(0, 0, ScreenWidth, 105);
+        public static Rectangle FooterRect => new(0, 690, ScreenWidth, 30);
         public const int TitleY = 40;
         public const string InstructionsText =
             "UP/DOWN select   LEFT/RIGHT change   ENTER choose   ESC back (saves automatically)";

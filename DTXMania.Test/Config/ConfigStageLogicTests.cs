@@ -16,6 +16,7 @@ using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 
 namespace DTXMania.Test.Config;
 
@@ -295,6 +296,23 @@ public class ConfigStageLogicTests
 
             // The resolution item reflects Config (truth).
             Assert.Equal("Screen Resolution: 1920x1080", categories[0].Items[0].GetDisplayText());
+        }
+    }
+
+    [Fact]
+    public void OnActivate_ShouldClearStaleImportStatus()
+    {
+        // StageManager reuses this instance, so an import status left by a previous visit must be
+        // cleared on re-entry (otherwise a stale "Imported N scores" survives leaving/re-entering).
+        var configManager = new ConfigManager();
+        var (stage, inputManager) = CreateLifecycleStage(configManager);
+        using (inputManager)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_importStatus", "Imported 5 scores");
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+
+            Assert.Equal("", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
         }
     }
 
@@ -819,6 +837,12 @@ public class ConfigStageLogicTests
                 configManager.SetAutoPlay(true);
                 Assert.False(ReadAutoPlayFromDisk(configPath));
 
+                // Graphics fields are uninitialized stand-ins (no real GraphicsDevice in headless
+                // tests); null them so OnDeactivate's dispose path is a no-op, mirroring the
+                // DrumConfigStage lifecycle test.
+                ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+                ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
+
                 // OnDeactivate must flush the dirty edit to disk.
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
             }
@@ -1106,6 +1130,126 @@ public class ConfigStageLogicTests
             Assert.Contains(stage.RectangleDrawCalls,
                 c => c.Rectangle == ConfigUILayout.ItemBarRect && c.Color == new Color(28, 32, 54, 220));
         }
+    }
+
+    // ---- TryLoadTexture regression: the 1×1 white-fallback must be treated as "missing" ----
+    // ResourceManager.LoadTexture never throws for an absent file — it returns a 1×1 white
+    // fallback (see ResourceManager.CreateFallbackTexture). The old TryLoadTexture only caught
+    // exceptions, so it returned that 1×1 texture, every draw took its texture branch, and a
+    // single white texel was stretched across every panel (white-box rendering). The fix rejects
+    // Width/Height <= 1, releases the throwaway fallback's reference, and returns null so the
+    // documented fallback fills engage.
+
+    [Fact]
+    public void TryLoadTexture_WhenResourceManagerReturns1x1Fallback_ShouldReturnNullAndReleaseReference()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            var fallbackTexture = new Mock<ITexture>();
+            fallbackTexture.SetupGet(t => t.Width).Returns(1);
+            fallbackTexture.SetupGet(t => t.Height).Returns(1);
+
+            var mockResources = new Mock<IResourceManager>();
+            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(fallbackTexture.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
+
+            Assert.Null(result);
+            // The 1×1 fallback's reference must be released so it isn't leaked.
+            fallbackTexture.Verify(t => t.RemoveReference(), Times.Once);
+        }
+    }
+
+    [Fact]
+    public void TryLoadTexture_WhenAssetIsValid_ShouldReturnTextureWithoutReleasing()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            var realTexture = new Mock<ITexture>();
+            realTexture.SetupGet(t => t.Width).Returns(256);
+            realTexture.SetupGet(t => t.Height).Returns(128);
+
+            var mockResources = new Mock<IResourceManager>();
+            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(realTexture.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
+
+            Assert.Same(realTexture.Object, result);
+            realTexture.Verify(t => t.RemoveReference(), Times.Never);
+        }
+    }
+
+    [Fact]
+    public void TryLoadTexture_WhenLoadTextureThrows_ShouldReturnNull()
+    {
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            var mockResources = new Mock<IResourceManager>();
+            mockResources.Setup(r => r.LoadTexture(It.IsAny<string>()))
+                .Throws(new InvalidOperationException("boom"));
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", mockResources.Object);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
+
+            Assert.Null(result);
+        }
+    }
+
+    // ---- GetItemValueText: value-column extraction (private static, reached via reflection) ----
+
+    [Fact]
+    public void GetItemValueText_ForValueItem_ShouldStripNamePrefix()
+    {
+        var item = new DropdownConfigItem("Volume", () => "75", new[] { "75", "100" }, _ => { });
+
+        Assert.Equal("75", InvokeGetItemValueText(item));
+    }
+
+    [Fact]
+    public void GetItemValueText_ForReadOnlyItem_ShouldStripNamePrefix()
+    {
+        var item = new ReadOnlyConfigItem("DTX Folder", () => "/songs");
+
+        Assert.Equal("/songs", InvokeGetItemValueText(item));
+    }
+
+    [Fact]
+    public void GetItemValueText_ForNavigationItem_ShouldReturnArrowIndicator()
+    {
+        var item = new NavigationConfigItem("Drum Mapping", () => { });
+
+        Assert.Equal(">", InvokeGetItemValueText(item));
+    }
+
+    [Fact]
+    public void GetItemValueText_WhenDisplayTextDoesNotStartWithPrefix_ShouldReturnEmpty()
+    {
+        // Defensive: a future item type whose GetDisplayText omits the "{Name}: " prefix renders
+        // an empty value column rather than echoing the whole display string into the value slot.
+        var item = new Mock<IConfigItem>();
+        item.SetupGet(i => i.Name).Returns("X");
+        item.Setup(i => i.GetDisplayText()).Returns("no prefix here");
+
+        Assert.Equal(string.Empty, InvokeGetItemValueText(item.Object));
+    }
+
+    private static string InvokeGetItemValueText(IConfigItem item)
+    {
+        var method = typeof(ConfigStage).GetMethod("GetItemValueText",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string)method!.Invoke(null, new object[] { item })!;
     }
 
     [Fact]

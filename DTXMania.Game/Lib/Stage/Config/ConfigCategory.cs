@@ -16,7 +16,20 @@ namespace DTXMania.Game.Lib.Stage.Config
         public string Name { get; }
         public string Description { get; }
         public IReadOnlyList<IConfigItem> Items { get; }
-        public int SelectedIndex { get; set; }
+
+        private int _selectedIndex;
+
+        /// <summary>
+        /// Index of the focused item within <see cref="Items"/>. Clamped on assignment so an
+        /// out-of-range value can never produce a phantom cursor row (the draw layer maps this
+        /// straight to a screen rectangle). Empty categories clamp to 0. <see cref="SelectedItem"/>
+        /// still bounds-checks defensively at read time.
+        /// </summary>
+        public int SelectedIndex
+        {
+            get => _selectedIndex;
+            set => _selectedIndex = Items.Count == 0 ? 0 : Math.Clamp(value, 0, Items.Count - 1);
+        }
 
         /// <summary>
         /// Creates a category. <paramref name="name"/> is the category's identity and must be
