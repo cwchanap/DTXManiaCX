@@ -240,6 +240,12 @@ namespace DTXMania.Game.Lib.Input
             return $"MIDI.{noteNumber}";
         }
 
+        /// <summary>
+        /// Attempts to parse a button ID in the exact "MIDI.&lt;note&gt;" format.
+        /// </summary>
+        /// <param name="buttonId">Button ID to parse.</param>
+        /// <param name="noteNumber">Parsed MIDI note number when valid; otherwise 0.</param>
+        /// <returns>true if the ID has the exact MIDI prefix and a note number from 0 to 127; otherwise false.</returns>
         public static bool TryParseMidiButtonId(string buttonId, out int noteNumber)
         {
             noteNumber = default;
@@ -251,7 +257,9 @@ namespace DTXMania.Game.Lib.Input
                 return false;
             }
 
-            if (!int.TryParse(buttonId.Substring(prefix.Length), out var parsedNoteNumber) ||
+            var noteText = buttonId.Substring(prefix.Length);
+            if (noteText.Any(ch => ch < '0' || ch > '9') ||
+                !int.TryParse(noteText, out var parsedNoteNumber) ||
                 parsedNoteNumber < 0 ||
                 parsedNoteNumber > 127)
             {
