@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -28,14 +29,17 @@ namespace DTXMania.Game.Lib.Utilities
             if (font.MeasureString(text).X <= maxWidth)
                 return text;
 
+            int[] elementStarts = StringInfo.ParseCombiningCharacters(text);
+            int elementCount = elementStarts.Length;
             int left = 0;
-            int right = text.Length;
+            int right = elementCount;
             string bestFit = string.Empty;
 
             while (left <= right)
             {
                 int mid = left + (right - left) / 2;
-                string candidate = text.Substring(0, mid) + "...";
+                int charIndex = mid < elementCount ? elementStarts[mid] : text.Length;
+                string candidate = text.Substring(0, charIndex) + "...";
 
                 if (font.MeasureString(candidate).X <= maxWidth)
                 {
@@ -68,14 +72,17 @@ namespace DTXMania.Game.Lib.Utilities
             if (font.MeasureString(text).X <= maxWidth)
                 return text;
 
+            int[] elementStarts = StringInfo.ParseCombiningCharacters(text);
+            int elementCount = elementStarts.Length;
             int left = 0;
-            int right = text.Length;
+            int right = elementCount;
             string bestFit = string.Empty;
 
             while (left <= right)
             {
                 int mid = left + (right - left) / 2;
-                string candidate = text.Substring(0, mid) + "...";
+                int charIndex = mid < elementCount ? elementStarts[mid] : text.Length;
+                string candidate = text.Substring(0, charIndex) + "...";
 
                 if (font.MeasureString(candidate).X <= maxWidth)
                 {

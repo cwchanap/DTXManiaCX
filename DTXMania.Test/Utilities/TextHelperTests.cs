@@ -109,5 +109,43 @@ namespace DTXMania.Test.Utilities
             Assert.Equal("abcde...", result);
             Assert.True(font.Object.MeasureString(result).X <= 40f + 0.01f);
         }
+
+        [Fact]
+        public void TruncateToWidth_WhenTextContainsSurrogatePair_ShouldNotSplitSurrogate()
+        {
+            // "abc" + U+1F600 (grinning face, a surrogate pair) + "XYZZZ" => 10 raw chars, 9 text elements.
+            // Per-char mock font: 10px/char. Full text = 100px (does not fit maxWidth=75).
+            // The naive raw-index cut at char 4 splits the surrogate pair: "abc\uD83D..." = 7 chars =
+            // 70px (fits). The grapheme-aligned cut at the emoji boundary is "abc😀..." = 8 chars = 80px
+            // (does not fit). The previous implementation returned "abc\uD83D..." (a malformed string
+            // with an unpaired high surrogate). The grapheme-aware cut must back off to "abc...".
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * 10f, 14f));
+
+            var text = "abc\uD83D\uDE00XYZZZ";
+            var result = TextHelper.TruncateToWidth(text, 75f, font.Object);
+
+            Assert.Equal("abc...", result);
+        }
+
+        [Fact]
+        public void TruncateToWidth_WhenTextContainsCombiningMark_ShouldNotDetachFromBaseChar()
+        {
+            // "e" + U+0301 (combining acute) + "xyz" => 5 raw chars, 4 text elements ("é", "x", "y", "z").
+            // Per-char mock font: 10px/char. maxWidth=45 makes the naive raw-index cut at index 1
+            // ("e" + "..." = 4 chars = 40px) fit, while the grapheme-aligned cut ("é" + "..." = 5 chars
+            // = 50px) does not. The previous implementation returned "e..." which silently drops the
+            // combining mark and displays a different character ("e" instead of "é"). The grapheme-aware
+            // cut must back off to the ellipsis only, never detaching a combining mark from its base.
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * 10f, 14f));
+
+            var text = "e\u0301xyz";
+            var result = TextHelper.TruncateToWidth(text, 45f, font.Object);
+
+            Assert.Equal("...", result);
+        }
     }
 }
