@@ -1100,4 +1100,58 @@ Key.Bad=abc
             File.Delete(tempFile);
         }
     }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_WithoutMidiVelocityThresholds_ShouldClearPreviouslyLoadedThresholds()
+    {
+        var firstFile = Path.GetTempFileName();
+        var secondFile = Path.GetTempFileName();
+        File.WriteAllText(firstFile, string.Join(Environment.NewLine, new[]
+        {
+            "[MidiVelocityThresholds]",
+            "MidiVelocity.36=20"
+        }));
+        File.WriteAllText(secondFile, "[System]");
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(firstFile);
+            Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
+
+            manager.LoadConfig(secondFile);
+
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
+        }
+        finally
+        {
+            File.Delete(firstFile);
+            File.Delete(secondFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SetMidiVelocityThreshold_AfterLoadAndFlush_ShouldPersistThreshold()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            manager.SetMidiVelocityThreshold(36, 20);
+            manager.FlushPendingSave();
+
+            var text = File.ReadAllText(tempFile);
+            Assert.Contains("MidiVelocity.36=20", text);
+
+            var reloaded = new ConfigManager();
+            reloaded.LoadConfig(tempFile);
+            Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }
