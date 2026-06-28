@@ -553,5 +553,51 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.Null(ex);
         }
+
+        [Fact]
+        public void Draw_WithMidiBinding_RendersThresholdAdjustmentGlyphs()
+        {
+            _drum["MIDI.36"] = 4;
+            _thresholds[36] = 20;
+            var popup = NewPopup();
+            popup.Open(4);
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            // The "-" (decrement) and "+" (increment) threshold glyphs must be drawn.
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "-", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "+", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+        }
+
+        [Fact]
+        public void Draw_WithNullSpriteBatch_ReturnsImmediately()
+        {
+            _drum["Key.S"] = 4;
+            var popup = NewPopup();
+            popup.Open(4);
+
+            var ex = Record.Exception(() =>
+                popup.Draw(null!, CreateMockFont(), null, 1280, 720));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void Draw_WithKeyboardBinding_DoesNotRenderThresholdGlyphs()
+        {
+            _drum["Key.S"] = 4;
+            var popup = NewPopup();
+            popup.Open(4);
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            // Keyboard bindings should not have threshold adjustment glyphs.
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "-", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
+            font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "+", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
+        }
     }
 }

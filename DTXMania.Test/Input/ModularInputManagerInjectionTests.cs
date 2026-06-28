@@ -1,6 +1,7 @@
 using System;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 using Xunit;
 
 namespace DTXMania.Test.Input;
@@ -133,5 +134,66 @@ public class ModularInputManagerInjectionTests : IDisposable
 
         Assert.Contains(first, b => b.Id == "Key.Q");
         Assert.Empty(second);
+    }
+
+    [Fact]
+    public void InjectMidiNote_WithNonInjectorBackend_ReturnsFalse()
+    {
+        // The default FakeMidiDeviceBackend does not implement IMidiNoteInjector.
+        Assert.False(_manager.InjectMidiNote(36, 100, isPressed: true));
+    }
+
+    [Fact]
+    public void InjectMidiNote_WithSimulatedBackend_ReturnsTrue()
+    {
+        // Recreate the manager with a SimulatedMidiDeviceBackend (which implements IMidiNoteInjector).
+        _manager.Dispose();
+        var simulatedBackend = new SimulatedMidiDeviceBackend();
+        var manager = new ModularInputManager(_configManager, simulatedBackend);
+
+        var result = manager.InjectMidiNote(36, 100, isPressed: true);
+
+        Assert.True(result);
+        manager.Dispose();
+    }
+
+    [Fact]
+    public void InjectMidiNote_AfterDispose_ReturnsFalse()
+    {
+        _manager.Dispose();
+
+        Assert.False(_manager.InjectMidiNote(36, 100, isPressed: true));
+    }
+
+    [Fact]
+    public void InjectButton_WithVelocityAboveOne_ClampsToOne()
+    {
+        _manager.InjectButton("Key.Up", isPressed: true, velocity: 5.0f);
+        _manager.Update(0.016);
+
+        var pressed = _manager.ConsumePressedButtons();
+        var button = Assert.Single(pressed);
+        Assert.Equal(1.0f, button.Velocity);
+    }
+
+    [Fact]
+    public void InjectButton_WithNegativeVelocity_ClampsToZero()
+    {
+        _manager.InjectButton("Key.Up", isPressed: true, velocity: -1.0f);
+        _manager.Update(0.016);
+
+        var pressed = _manager.ConsumePressedButtons();
+        var button = Assert.Single(pressed);
+        Assert.Equal(0.0f, button.Velocity);
+    }
+
+    [Fact]
+    public void InjectButton_Release_DoesNotAddToPressedThisFrame()
+    {
+        _manager.InjectButton("Key.Up", isPressed: false);
+        _manager.Update(0.016);
+
+        // A release event should not appear in ConsumePressedButtons (only presses).
+        Assert.Empty(_manager.ConsumePressedButtons());
     }
 }

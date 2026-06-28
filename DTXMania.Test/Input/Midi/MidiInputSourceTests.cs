@@ -254,6 +254,221 @@ public sealed class MidiInputSourceTests
         Assert.Equal(1, second.DisposeCount);
     }
 
+    // ---- Edge cases: backend enumeration failures ----
+
+    [Fact]
+    public void Initialize_BackendThrowsOnEnumeration_ContinuesWithNoDevices()
+    {
+        var backend = new FakeMidiDeviceBackend { ThrowOnGetDevices = true };
+        using var source = new MidiInputSource(backend, _ => 0);
+
+        source.Initialize();
+
+        Assert.False(source.IsAvailable);
+        Assert.Empty(source.DeviceNames);
+    }
+
+    [Fact]
+    public void RefreshDevices_BackendThrowsOnEnumeration_RemovesAllDevices()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var backend = new FakeMidiDeviceBackend(device);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+        Assert.True(source.IsAvailable);
+
+        backend.ThrowOnGetDevices = true;
+        source.RefreshDevices();
+
+        // When enumeration fails, the discovered list is empty, so all existing devices
+        // are removed. This is by design — a failed enumeration is treated as "no devices."
+        Assert.False(source.IsAvailable);
+        Assert.Empty(source.DeviceNames);
+    }
+
+    // ---- Edge cases: device lifecycle failures ----
+
+    [Fact]
+    public void RefreshDevices_RemovedDeviceStopThrows_StillDisposesAndContinues()
+    {
+        var removed = new FakeMidiInputDevice("Old Kit", "old") { ThrowOnStop = true };
+        var added = new FakeMidiInputDevice("New Kit", "new");
+        var backend = new FakeMidiDeviceBackend(removed);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+
+        backend.SetDevices(added);
+        source.RefreshDevices();
+
+        Assert.Equal(new[] { "New Kit" }, source.DeviceNames);
+        Assert.Equal(1, removed.StopCount);
+        Assert.Equal(1, removed.DisposeCount);
+    }
+
+    [Fact]
+    public void RefreshDevices_RemovedDeviceDisposeThrows_ContinuesWithoutThrowing()
+    {
+        var removed = new FakeMidiInputDevice("Old Kit", "old") { ThrowOnDispose = true };
+        var added = new FakeMidiInputDevice("New Kit", "new");
+        var backend = new FakeMidiDeviceBackend(removed);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+
+        backend.SetDevices(added);
+        source.RefreshDevices();
+
+        Assert.Equal(new[] { "New Kit" }, source.DeviceNames);
+        Assert.Equal(1, removed.DisposeCount);
+    }
+
+    // ---- Edge cases: empty/whitespace StableId ----
+
+    [Fact]
+    public void Initialize_DeviceWithEmptyStableId_IsDisposedAndNotTracked()
+    {
+        var device = new FakeMidiInputDevice("NoId", "  ");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+
+        source.Initialize();
+
+        Assert.False(source.IsAvailable);
+        Assert.Equal(1, device.DisposeCount);
+    }
+
+    // ---- Edge cases: disposed source ----
+
+    [Fact]
+    public void Update_AfterDispose_ReturnsEmpty()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        source.Dispose();
+
+        Assert.Empty(source.Update());
+    }
+
+    [Fact]
+    public void GetPressedButtons_AfterDispose_ReturnsEmpty()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        device.Emit(36, 85, isPressed: true);
+        source.Update().ToList(); // Process the note so it's in _acceptedPressedNotes.
+        source.Dispose();
+
+        Assert.Empty(source.GetPressedButtons());
+    }
+
+    [Fact]
+    public void RefreshDevices_AfterDispose_IsNoOp()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        source.Dispose();
+
+        source.RefreshDevices();
+
+        // Device was already disposed by Dispose(); RefreshDevices should not re-access it.
+        Assert.Equal(1, device.DisposeCount);
+    }
+
+    [Fact]
+    public void Initialize_AfterDispose_IsNoOp()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        source.Dispose();
+
+        source.Initialize();
+
+        Assert.False(source.IsAvailable);
+    }
+
+    // ---- Edge cases: OnNoteReceived ----
+
+    [Fact]
+    public void OnNoteReceived_FromNonDeviceSender_NoteIsDropped()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+
+        // Simulate a callback where sender is not an IMidiInputDevice (should be ignored).
+        device.EmitFromWrongSender(36, 85, isPressed: true);
+
+        Assert.Empty(source.Update());
+    }
+
+    [Fact]
+    public void OnNoteReceived_AfterDispose_NoteIsDropped()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        source.Dispose();
+
+        // Emit after dispose — OnNoteReceived should bail early.
+        device.Emit(36, 85, isPressed: true);
+
+        // Re-create a new source to verify nothing leaked (the disposed source's queue is drained).
+        // The disposed source's Update() returns empty.
+        Assert.Empty(source.Update());
+    }
+
+    // ---- Edge cases: ProcessNote device mismatch ----
+    // (Already covered by RefreshDevices_ReplacingDeviceWithSameStableIdDropsOldQueuedPress above,
+    // which verifies that queued notes from a replaced device are dropped during Update.)
+
+    // ---- GetPressedButtons returns accepted pressed notes ----
+
+    [Fact]
+    public void GetPressedButtons_AfterAcceptedPress_ReturnsPressedNote()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        device.Emit(36, 85, isPressed: true);
+        source.Update().ToList(); // Force enumeration to process the queued note.
+
+        var pressed = source.GetPressedButtons().ToList();
+
+        var state = Assert.Single(pressed);
+        Assert.Equal("MIDI.36", state.Id);
+        Assert.True(state.IsPressed);
+    }
+
+    [Fact]
+    public void GetPressedButtons_AfterPressAndRelease_ReturnsEmpty()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        device.Emit(36, 85, isPressed: true);
+        source.Update().ToList();
+        device.Emit(36, 0, isPressed: false);
+        source.Update().ToList();
+
+        Assert.Empty(source.GetPressedButtons());
+    }
+
+    // ---- Constructor null-argument guards ----
+
+    [Fact]
+    public void Constructor_NullBackend_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new MidiInputSource(null!, _ => 0));
+    }
+
+    [Fact]
+    public void Constructor_NullThresholdProvider_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new MidiInputSource(new FakeMidiDeviceBackend(), null!));
+    }
+
     private sealed class FakeMidiDeviceBackend : IMidiDeviceBackend
     {
         private IReadOnlyList<IMidiInputDevice> _devices;
@@ -263,8 +478,12 @@ public sealed class MidiInputSourceTests
             _devices = devices;
         }
 
+        public bool ThrowOnGetDevices { get; set; }
+
         public IReadOnlyList<IMidiInputDevice> GetInputDevices()
         {
+            if (ThrowOnGetDevices)
+                throw new InvalidOperationException("Enumeration failed.");
             return _devices;
         }
 
@@ -287,6 +506,8 @@ public sealed class MidiInputSourceTests
         public string Name { get; }
         public string StableId { get; }
         public bool ThrowOnStart { get; init; }
+        public bool ThrowOnStop { get; init; }
+        public bool ThrowOnDispose { get; init; }
         public int StartCount { get; private set; }
         public int StopCount { get; private set; }
         public int DisposeCount { get; private set; }
@@ -301,6 +522,8 @@ public sealed class MidiInputSourceTests
         public void Stop()
         {
             StopCount++;
+            if (ThrowOnStop)
+                throw new InvalidOperationException("Stop failed.");
         }
 
         public void Emit(int noteNumber, int velocity, bool isPressed)
@@ -308,9 +531,16 @@ public sealed class MidiInputSourceTests
             NoteReceived?.Invoke(this, new MidiNoteEventArgs(StableId, noteNumber, velocity, isPressed));
         }
 
+        public void EmitFromWrongSender(int noteNumber, int velocity, bool isPressed)
+        {
+            NoteReceived?.Invoke("not-a-device", new MidiNoteEventArgs(StableId, noteNumber, velocity, isPressed));
+        }
+
         public void Dispose()
         {
             DisposeCount++;
+            if (ThrowOnDispose)
+                throw new InvalidOperationException("Dispose failed.");
         }
     }
 }

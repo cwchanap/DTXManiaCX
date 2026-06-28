@@ -97,6 +97,15 @@ namespace DTXMania.Test.JsonRpc
         [InlineData("SendInput_KeyPress_WithArrayData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":[\"Enter\"]}}", "-32002", "Invalid key data format")]
         [InlineData("SendInput_KeyRelease_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":null}}", "-32002", "Key input requires key data")]
         [InlineData("SendInput_KeyRelease_WithWhitespaceStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"\\t\\n\"}}", "-32002", "Invalid key data format")]
+        [InlineData("SendInput_MidiNoteOn_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":null}}", "-32002", "MIDI input requires note data")]
+        [InlineData("SendInput_MidiNoteOn_WithNonObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":\"not-an-object\"}}", "-32002", "MIDI input data must be an object")]
+        [InlineData("SendInput_MidiNoteOn_WithMissingNoteNumber", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"velocity\":100}}}", "-32002", "Invalid MIDI note data format")]
+        [InlineData("SendInput_MidiNoteOn_WithMissingVelocity", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36}}}", "-32002", "Invalid MIDI note data format")]
+        [InlineData("SendInput_MidiNoteOn_WithNoteNumberOutOfRange", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":128,\"velocity\":100}}}", "-32002", "Invalid MIDI note data format")]
+        [InlineData("SendInput_MidiNoteOn_WithVelocityOutOfRange", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":128}}}", "-32002", "Invalid MIDI note data format")]
+        [InlineData("SendInput_MidiNoteOff_WithNullData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":null}}", "-32002", "MIDI input requires note data")]
+        [InlineData("SendInput_MidiNoteOff_WithNonObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":42}}", "-32002", "MIDI input data must be an object")]
+        [InlineData("SendInput_MidiNoteOff_WithInvalidNoteData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":36}}}", "-32002", "Invalid MIDI note data format")]
         public Task SendInput_InvalidPayloads_ShouldReturnExpectedError(
             string caseName,
             string requestJson,
@@ -115,6 +124,7 @@ namespace DTXMania.Test.JsonRpc
         [InlineData("SendInput_KeyPress_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"Enter\"}}")]
         [InlineData("SendInput_KeyRelease_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"Escape\"}}")]
         [InlineData("SendInput_MidiNoteOn_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":100}}}")]
+        [InlineData("SendInput_MidiNoteOff_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":36,\"velocity\":0}}}")]
         [InlineData("SendInput_KeyPress_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"Down\",\"holdDurationMs\":50,\"clientId\":\"default\"}}}")]
         public Task SendInput_ValidPayloads_ShouldSucceed(string caseName, string requestJson)
         {
