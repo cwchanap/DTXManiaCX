@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Input.Midi;
 
 namespace DTXMania.Game.Lib.Input
 {
@@ -26,6 +27,7 @@ namespace DTXMania.Game.Lib.Input
         private readonly KeyBindings _keyBindings;
         private readonly InputRouter _inputRouter;
         private readonly List<IInputSource> _inputSources;
+        private MidiInputSource? _midiInputSource;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
@@ -90,8 +92,15 @@ namespace DTXMania.Game.Lib.Input
         #region Constructor
 
         public ModularInputManager(ConfigManager configManager)
+            : this(configManager, new DryWetMidiDeviceBackend())
+        {
+        }
+
+        internal ModularInputManager(ConfigManager configManager, IMidiDeviceBackend midiDeviceBackend)
         {
             _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
+            if (midiDeviceBackend is null) throw new ArgumentNullException(nameof(midiDeviceBackend));
+
             _keyBindings = new KeyBindings();
             _inputRouter = new InputRouter(_keyBindings);
             _inputSources = new List<IInputSource>();
@@ -110,7 +119,7 @@ namespace DTXMania.Game.Lib.Input
             _inputRouter.OnButtonPressed += OnInputRouterButtonPressed;
 
             // Initialize input sources
-            InitializeInputSources();
+            InitializeInputSources(midiDeviceBackend);
         }
 
         #endregion
@@ -118,18 +127,29 @@ namespace DTXMania.Game.Lib.Input
         #region Initialization
 
         /// <summary>
-        /// Initializes all input sources (Phase 1: Keyboard only)
+        /// Initializes all input sources.
         /// </summary>
-        private void InitializeInputSources()
+        private void InitializeInputSources(IMidiDeviceBackend midiDeviceBackend)
         {
-            // Phase 1: Add keyboard input source
             var keyboardSource = new KeyboardInputSource();
-            AddInputSource(keyboardSource);
+            RegisterInputSource(keyboardSource);
 
-            // TODO: Phase 2: Add MIDI input source
+            _midiInputSource = new MidiInputSource(
+                midiDeviceBackend,
+                noteNumber => _configManager.GetMidiVelocityThreshold(noteNumber));
+            RegisterInputSource(_midiInputSource);
+
             // TODO: Phase 3: Add gamepad input source
 
             _inputRouter.Initialize();
+        }
+
+        private void RegisterInputSource(IInputSource source)
+        {
+            if (source is null) throw new ArgumentNullException(nameof(source));
+
+            _inputSources.Add(source);
+            _inputRouter.AddInputSource(source);
         }
 
         /// <summary>
@@ -138,8 +158,7 @@ namespace DTXMania.Game.Lib.Input
         /// <param name="source">Input source to add</param>
         public void AddInputSource(IInputSource source)
         {
-            _inputSources.Add(source);
-            _inputRouter.AddInputSource(source);
+            RegisterInputSource(source);
             source.Initialize();
         }
 
@@ -242,7 +261,7 @@ namespace DTXMania.Game.Lib.Input
         /// </summary>
         private void ScanForNewDevices()
         {
-            // TODO: Phase 2 - Scan for MIDI devices
+            _midiInputSource?.RefreshDevices();
             // TODO: Phase 3 - Scan for gamepad devices
         }
 
@@ -488,6 +507,17 @@ namespace DTXMania.Game.Lib.Input
                 info += $"  Source '{source.Name}': {(source.IsAvailable ? "Available" : "Unavailable")}\n";
             }
 
+            if (_midiInputSource != null)
+            {
+                var deviceNames = _midiInputSource.DeviceNames;
+                info += $"  MIDI Devices: {deviceNames.Count}\n";
+
+                foreach (var deviceName in deviceNames)
+                {
+                    info += $"    - {deviceName}\n";
+                }
+            }
+
             return info;
         }
 
@@ -575,18 +605,14 @@ namespace DTXMania.Game.Lib.Input
                     _inputRouter.OnLaneHit -= OnInputRouterLaneHit;
                     _inputRouter.OnButtonPressed -= OnInputRouterButtonPressed;
 
-                    // Dispose input router and sources
+                    // InputRouter owns disposal of registered input sources.
                     _inputRouter?.Dispose();
-                    
-                    foreach (var source in _inputSources)
-                    {
-                        source?.Dispose();
-                    }
                     _inputSources.Clear();
 
                     // Clear collections
                     _keyStates?.Clear();
                     _previousKeyStates?.Clear();
+                    _midiInputSource = null;
                 }
                 _disposed = true;
             }
