@@ -160,8 +160,11 @@ namespace DTXMania.Game.Lib.Input
         /// <param name="source">Input source to add</param>
         public void AddInputSource(IInputSource source)
         {
-            RegisterInputSource(source);
+            // Initialize BEFORE registering so a thrown Initialize() cannot leave _inputSources
+            // and _inputRouter in a half-registered state. Registration only happens once init
+            // has succeeded.
             source.Initialize();
+            RegisterInputSource(source);
         }
 
         #endregion
@@ -476,14 +479,19 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
-        /// Clears all pending injected state: the button queue, injected key states, and press events.
-        /// Call this when switching stages to prevent stale injected inputs from leaking in.
+        /// Clears all pending injected state: the button queue, injected key states, press events,
+        /// and any pending/accepted injected MIDI notes. Call this when switching stages to prevent
+        /// stale injected inputs from leaking into the next stage.
         /// </summary>
         public void ClearInjectedState()
         {
             while (_injectedButtonQueue.TryDequeue(out _)) { }
             _injectedKeyStates.Clear();
             while (_injectedPressEvents.TryDequeue(out _)) { }
+            // Injected MIDI notes flow through MidiInputSource's own pending/accepted-press state,
+            // which is separate from the button queue above. Reset it here so all injected input
+            // types are cleared from the same centralized cleanup path.
+            _midiInputSource?.ClearInjectedNotes();
         }
 
         /// <summary>

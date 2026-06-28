@@ -10,7 +10,11 @@ namespace DTXMania.Test.Config;
 // AppPaths.GetConfigFilePath(). The "AppPaths" collection disables parallelization so no other
 // test class touches AppPaths while these overrides are active (prevents flaky cross-class
 // config writes under xUnit class parallelization).
+// [Trait("Category", "Unit")] is applied at class level so every method (including the MIDI
+// velocity-threshold cases) participates in category-filtered runs, matching the convention used
+// across the other DTXMania.Test suites.
 [Collection("AppPaths")]
+[Trait("Category", "Unit")]
 public class ConfigManagerTests
 {
     [Fact]

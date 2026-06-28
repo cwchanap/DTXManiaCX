@@ -81,25 +81,7 @@ public sealed class InputManagerCompatTests : IDisposable
         Assert.False(_manager.GetNextCommand().HasValue);
     }
 
-    [Fact]
-    public void Constructor_WhenSimulatedMidiEnvEnabled_ShouldUseInjectableMidiBackend()
-    {
-        var previous = Environment.GetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable);
-        try
-        {
-            Environment.SetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable, "1");
-            using var manager = new InputManagerCompat(new ConfigManager());
-
-            Assert.True(manager.ModularInputManager.InjectMidiNote(36, 100, isPressed: true));
-            manager.ModularInputManager.Update();
-
-            var pressed = manager.ModularInputManager.ConsumePressedButtons();
-            var button = Assert.Single(pressed, state => state.Id == "MIDI.36");
-            Assert.Equal(100f / 127f, button.Velocity, precision: 4);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable, previous);
-        }
-    }
+    // NOTE: Constructor_WhenSimulatedMidiEnvEnabled_ShouldUseInjectableMidiBackend now lives in
+    // InputManagerCompatSimulatedMidiEnvTests, isolated in the non-parallel "SimulatedMidiEnv"
+    // collection because it mutates the process-wide DTXMANIA_ENABLE_SIMULATED_MIDI env var.
 }

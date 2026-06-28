@@ -1110,6 +1110,46 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnLaneHitForPadFeedback_SongNotPlaying_ShouldNotRecordTelemetry()
+    {
+        // Telemetry (_lastLaneHit*) must only be recorded while the chart is actively playing.
+        // A hit during loading/countdown/after-stop must not populate the last-hit fields, which
+        // would otherwise leak into GameApi state for the next consumer.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        // No _songTimer set -> IsPlaying is false.
+
+        var args = new LaneHitEventArgs(4, new ButtonState("Key.Z", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<int?>(stage, "_lastLaneHitLane"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<string?>(stage, "_lastLaneHitButtonId"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(stage, "_lastLaneHitSongTimeMs"));
+    }
+
+    [Fact]
+    public void CleanupComponents_ShouldClearLastLaneHitTelemetry()
+    {
+        // On reactivation, a stage must not inherit the previous song's last-hit telemetry.
+        // CleanupComponents resets the cached fields so PopulateTelemetry only reports fresh hits.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitLane", (int?)5);
+        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitButtonId", (string?)"MIDI.36");
+        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitSongTimeMs", (double?)1234.0);
+        // CreateStage() uses GetUninitializedObject, so the field-initialized collections that
+        // CleanupComponents iterates must be provided explicitly. All other cleanup paths are
+        // null-conditional and tolerate the uninitialized state.
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<int?>(stage, "_lastLaneHitLane"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<string?>(stage, "_lastLaneHitButtonId"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(stage, "_lastLaneHitSongTimeMs"));
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();

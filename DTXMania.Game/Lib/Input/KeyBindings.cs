@@ -258,7 +258,12 @@ namespace DTXMania.Game.Lib.Input
             }
 
             var noteText = buttonId.Substring(prefix.Length);
-            if (noteText.Any(ch => ch < '0' || ch > '9') ||
+            // Reject anything that isn't canonical decimal form (no leading zeros except for "0"
+            // itself) so only IDs produced by CreateMidiButtonId round-trip. This keeps saved
+            // bindings stable and prevents "MIDI.036"/"MIDI.00" from colliding with "MIDI.36"/"MIDI.0".
+            if (noteText.Length == 0 ||
+                noteText.Any(ch => ch < '0' || ch > '9') ||
+                (noteText.Length > 1 && noteText[0] == '0') ||
                 !int.TryParse(noteText, out var parsedNoteNumber) ||
                 parsedNoteNumber < 0 ||
                 parsedNoteNumber > 127)

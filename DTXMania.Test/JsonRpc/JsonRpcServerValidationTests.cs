@@ -126,6 +126,15 @@ namespace DTXMania.Test.JsonRpc
         [InlineData("SendInput_MidiNoteOn_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":100}}}")]
         [InlineData("SendInput_MidiNoteOff_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":36,\"velocity\":0}}}")]
         [InlineData("SendInput_KeyPress_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"Down\",\"holdDurationMs\":50,\"clientId\":\"default\"}}}")]
+        // Boundary cases for MIDI note/velocity validation (both On and Off): the inclusive 0/127
+        // edges must be accepted so the full MIDI range round-trips through the JSON-RPC contract.
+        [InlineData("SendInput_MidiNoteOn_BoundaryNoteNumberZero", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":0,\"velocity\":100}}}")]
+        [InlineData("SendInput_MidiNoteOn_BoundaryNoteNumber127", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":127,\"velocity\":100}}}")]
+        [InlineData("SendInput_MidiNoteOn_BoundaryVelocityZero", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":0}}}")]
+        [InlineData("SendInput_MidiNoteOn_BoundaryVelocity127", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":127}}}")]
+        [InlineData("SendInput_MidiNoteOff_BoundaryNoteNumberZero", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":0,\"velocity\":0}}}")]
+        [InlineData("SendInput_MidiNoteOff_BoundaryNoteNumber127", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":127,\"velocity\":0}}}")]
+        [InlineData("SendInput_MidiNoteOff_BoundaryVelocity127", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":5,\"data\":{\"noteNumber\":36,\"velocity\":127}}}")]
         public Task SendInput_ValidPayloads_ShouldSucceed(string caseName, string requestJson)
         {
             _ = caseName;

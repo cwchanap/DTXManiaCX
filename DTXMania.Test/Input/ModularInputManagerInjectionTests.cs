@@ -17,7 +17,7 @@ public class ModularInputManagerInjectionTests : IDisposable
         _configManager = new ConfigManager();
         _manager = new ModularInputManager(
             _configManager,
-            new ModularInputManagerTests.FakeMidiDeviceBackend());
+            new TestMidiDeviceBackend());
     }
 
     public void Dispose()
@@ -139,7 +139,7 @@ public class ModularInputManagerInjectionTests : IDisposable
     [Fact]
     public void InjectMidiNote_WithNonInjectorBackend_ReturnsFalse()
     {
-        // The default FakeMidiDeviceBackend does not implement IMidiNoteInjector.
+        // The default TestMidiDeviceBackend does not implement IMidiNoteInjector.
         Assert.False(_manager.InjectMidiNote(36, 100, isPressed: true));
     }
 
@@ -195,5 +195,30 @@ public class ModularInputManagerInjectionTests : IDisposable
 
         // A release event should not appear in ConsumePressedButtons (only presses).
         Assert.Empty(_manager.ConsumePressedButtons());
+    }
+
+    [Fact]
+    public void ClearInjectedState_AfterMidiInjection_DropsPendingNote()
+    {
+        // Injected MIDI notes flow through MidiInputSource's pending/accepted-press state, which is
+        // separate from the injected-button queue. ClearInjectedState must reset it too so injected
+        // notes cannot leak across stage transitions.
+        _manager.Dispose();
+        var simulatedBackend = new SimulatedMidiDeviceBackend();
+        var manager = new ModularInputManager(_configManager, simulatedBackend);
+        try
+        {
+            Assert.True(manager.InjectMidiNote(36, 100, isPressed: true));
+            // Note is now queued in the MIDI source; do NOT Update yet.
+
+            manager.ClearInjectedState();
+            manager.Update(0.016);
+
+            Assert.Empty(manager.ConsumePressedButtons());
+        }
+        finally
+        {
+            manager.Dispose();
+        }
     }
 }

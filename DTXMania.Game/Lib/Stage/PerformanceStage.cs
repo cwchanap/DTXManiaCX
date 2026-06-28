@@ -410,6 +410,11 @@ namespace DTXMania.Game.Lib.Stage
             _stageElapsedTime = 0.0; // Reset elapsed time for miss detection
             _readyCountdown = 1.0; // Reset ready countdown
             _autoPlayNoteIndex = 0; // Reset autoplay note index
+            // Clear cached last-hit telemetry so a reactivated stage does not inherit the previous
+            // song's hit data; PopulateTelemetry only reports fresh values once new hits land.
+            _lastLaneHitLane = null;
+            _lastLaneHitButtonId = null;
+            _lastLaneHitSongTimeMs = null;
 
             // Cleanup background renderer
             _backgroundRenderer?.Dispose();
@@ -1191,20 +1196,20 @@ namespace DTXMania.Game.Lib.Stage
             // Suppress player feedback entirely when autoplay is driving hits
             if (_autoPlayEnabled) return;
 
-            _lastLaneHitLane = e.Lane;
-            _lastLaneHitButtonId = e.Button.Id;
-            _lastLaneHitSongTimeMs = _songTimer != null && _currentGameTime != null && _songTimer.IsPlaying
-                ? _songTimer.GetCurrentMs(_currentGameTime)
-                : 0.0;
-
-            // Trigger immediate pad press effect on input (regardless of judgement)
+            // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
+            // feedback is intentionally allowed during loading/countdown so the player sees their
+            // input registered, even before the song clock starts.
             _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
 
-            // Only play chip sounds when the song is actively playing — during the
-            // ready/load phase the timer returns 0.0, which would incorrectly match
-            // notes near time zero.
+            // Only record gameplay telemetry and chip sounds while the chart is actively playing.
+            // During loading, the ready countdown, or after stop, the song clock is not advancing,
+            // so telemetry must not capture these non-gameplay hits.
             if (_songTimer?.IsPlaying != true)
                 return;
+
+            _lastLaneHitLane = e.Lane;
+            _lastLaneHitButtonId = e.Button.Id;
+            _lastLaneHitSongTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
 
             // Use the same compensated clock that JudgementManager.Update receives
             // so chip sound lookup mirrors the judgement window. Without this, a hit

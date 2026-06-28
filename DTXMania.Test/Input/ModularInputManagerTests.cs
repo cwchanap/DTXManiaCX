@@ -16,13 +16,13 @@ namespace DTXMania.Test.Input
     public class ModularInputManagerTests : IDisposable
     {
         private readonly ConfigManager _configManager;
-        private readonly FakeMidiDeviceBackend _midiBackend;
+        private readonly TestMidiDeviceBackend _midiBackend;
         private readonly ModularInputManager _inputManager;
 
         public ModularInputManagerTests()
         {
             _configManager = new ConfigManager();
-            _midiBackend = new FakeMidiDeviceBackend();
+            _midiBackend = new TestMidiDeviceBackend();
             _inputManager = new ModularInputManager(_configManager, _midiBackend);
         }
 
@@ -53,7 +53,7 @@ namespace DTXMania.Test.Input
         public void Constructor_NullConfigManager_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new ModularInputManager(null, new FakeMidiDeviceBackend()));
+            Assert.Throws<ArgumentNullException>(() => new ModularInputManager(null, new TestMidiDeviceBackend()));
         }
 
         [Fact]
@@ -96,7 +96,7 @@ namespace DTXMania.Test.Input
             keyBindings.UnbindLane(4);
             configManager.SaveKeyBindings(keyBindings);
 
-            using var configuredInputManager = new ModularInputManager(configManager, new FakeMidiDeviceBackend());
+            using var configuredInputManager = new ModularInputManager(configManager, new TestMidiDeviceBackend());
 
             // Assert
             Assert.Equal(-1, configuredInputManager.KeyBindings.GetLane("Key.S"));
@@ -212,15 +212,31 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void AddInputSource_WhenInitializeThrows_ShouldNotRegisterSource()
+        {
+            // AddInputSource must initialize BEFORE registering (or roll back), so a thrown
+            // Initialize() cannot leave the source half-registered in _inputSources/_inputRouter.
+            var sourceBeforeCount = _inputManager.InputRouter.GetSourceCount();
+            var throwingSource = new ThrowingInputSource("ThrowsOnInit");
+
+            Assert.Throws<InvalidOperationException>(() => _inputManager.AddInputSource(throwingSource));
+
+            // The source count must be unchanged — the failed source was never registered.
+            Assert.Equal(sourceBeforeCount, _inputManager.InputRouter.GetSourceCount());
+            // Initialize WAS attempted (and is what threw).
+            Assert.Equal(1, throwingSource.InitializeCount);
+        }
+
+        [Fact]
         public void Update_WhenMidiDevicesChangePastScanInterval_ShouldRefreshDiagnostics()
         {
             // Arrange
-            var midiBackend = new FakeMidiDeviceBackend(new FakeMidiInputDevice("legacy", "Legacy Module"));
+            var midiBackend = new TestMidiDeviceBackend(new TestMidiInputDevice("legacy", "Legacy Module"));
             using var inputManager = new ModularInputManager(new ConfigManager(), midiBackend);
 
             midiBackend.SetDevices(
-                new FakeMidiInputDevice("nitro", "Alesis Nitro"),
-                new FakeMidiInputDevice("dtx", "Yamaha DTX"));
+                new TestMidiInputDevice("nitro", "Alesis Nitro"),
+                new TestMidiInputDevice("dtx", "Yamaha DTX"));
 
             // Act
             inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
@@ -457,7 +473,7 @@ namespace DTXMania.Test.Input
         {
             var configManager = new ConfigManager();
             configure(configManager.Config);
-            return new ModularInputManager(configManager, new FakeMidiDeviceBackend());
+            return new ModularInputManager(configManager, new TestMidiDeviceBackend());
         }
 
         private sealed class CountingInputSource : IInputSource
@@ -496,55 +512,36 @@ namespace DTXMania.Test.Input
             }
         }
 
-        internal sealed class FakeMidiDeviceBackend : IMidiDeviceBackend
+        private sealed class ThrowingInputSource : IInputSource
         {
-            private IReadOnlyList<IMidiInputDevice> _devices;
-
-            public FakeMidiDeviceBackend(params IMidiInputDevice[] devices)
+            public ThrowingInputSource(string name)
             {
-                _devices = devices;
-            }
-
-            public IReadOnlyList<IMidiInputDevice> GetInputDevices()
-            {
-                GetInputDevicesCallCount++;
-                return _devices;
-            }
-
-            public int GetInputDevicesCallCount { get; private set; }
-
-            public void SetDevices(params IMidiInputDevice[] devices)
-            {
-                _devices = devices;
-            }
-        }
-
-        private sealed class FakeMidiInputDevice : IMidiInputDevice
-        {
-            public FakeMidiInputDevice(string stableId, string name)
-            {
-                StableId = stableId;
                 Name = name;
             }
 
             public string Name { get; }
 
-            public string StableId { get; }
+            public bool IsAvailable => true;
 
-            public event EventHandler<MidiNoteEventArgs>? NoteReceived;
+            public int InitializeCount { get; private set; }
 
-            public void Start()
+            public void Initialize()
             {
+                InitializeCount++;
+                throw new InvalidOperationException("Initialize failed.");
             }
 
-            public void Stop()
-            {
-            }
+            public IEnumerable<DTXMania.Game.Lib.Input.ButtonState> Update()
+                => Array.Empty<DTXMania.Game.Lib.Input.ButtonState>();
 
-            public void Dispose()
-            {
-            }
+            public IEnumerable<DTXMania.Game.Lib.Input.ButtonState> GetPressedButtons()
+                => Array.Empty<DTXMania.Game.Lib.Input.ButtonState>();
+
+            public void Dispose() { }
         }
+
+        // The shared TestMidiDeviceBackend / TestMidiInputDevice helpers (TestMidiDeviceBackend.cs)
+        // are used instead of per-class duplicates so backend fake behavior stays in one place.
     }
 
     /// <summary>
@@ -554,13 +551,13 @@ namespace DTXMania.Test.Input
     public class InputSystemIntegrationTests : IDisposable
     {
         private readonly ConfigManager _configManager;
-        private readonly ModularInputManagerTests.FakeMidiDeviceBackend _midiBackend;
+        private readonly TestMidiDeviceBackend _midiBackend;
         private readonly ModularInputManager _inputManager;
 
         public InputSystemIntegrationTests()
         {
             _configManager = new ConfigManager();
-            _midiBackend = new ModularInputManagerTests.FakeMidiDeviceBackend();
+            _midiBackend = new TestMidiDeviceBackend();
             _inputManager = new ModularInputManager(_configManager, _midiBackend);
         }
 
@@ -576,7 +573,7 @@ namespace DTXMania.Test.Input
             _configManager.SaveKeyBindings(_inputManager.KeyBindings);
 
             // Create new manager to test persistence
-            using var newManager = new ModularInputManager(_configManager, new ModularInputManagerTests.FakeMidiDeviceBackend());
+            using var newManager = new ModularInputManager(_configManager, new TestMidiDeviceBackend());
 
             // Assert
             Assert.Equal(targetLane, newManager.KeyBindings.GetLane(customButtonId));

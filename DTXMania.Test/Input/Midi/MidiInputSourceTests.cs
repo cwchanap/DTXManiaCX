@@ -53,6 +53,59 @@ public sealed class MidiInputSourceTests
         Assert.Equal(85f / 127f, state.Velocity);
     }
 
+    [Fact]
+    public void Update_NoteOnWithOutOfRangeVelocity_ClampsToUnitRange()
+    {
+        // A misbehaving/injected backend could supply velocity above the MIDI max (127). The source
+        // must clamp before normalizing so ButtonState.Velocity never exceeds 1.0f.
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+
+        device.Emit(36, 200, isPressed: true);
+        var states = source.Update().ToList();
+
+        var state = Assert.Single(states);
+        Assert.Equal("MIDI.36", state.Id);
+        Assert.True(state.IsPressed);
+        Assert.Equal(1.0f, state.Velocity);
+    }
+
+    [Fact]
+    public void ClearInjectedNotes_DropsPendingAndAcceptedState()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+
+        // Queue a press but do NOT Update yet, so it sits in the pending queue.
+        device.Emit(36, 85, isPressed: true);
+
+        source.ClearInjectedNotes();
+
+        // Pending note is gone -> Update produces nothing.
+        Assert.Empty(source.Update().ToList());
+        // Accepted-press set is also cleared -> GetPressedButtons is empty.
+        Assert.Empty(source.GetPressedButtons());
+    }
+
+    [Fact]
+    public void ClearInjectedNotes_AfterAcceptedPress_AllowsRePress()
+    {
+        var device = new FakeMidiInputDevice("Kit", "kit");
+        using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
+        source.Initialize();
+        device.Emit(36, 85, isPressed: true);
+        Assert.Single(source.Update()); // accept the press
+
+        // After clearing, a release for the same note should produce nothing (no accepted state),
+        // confirming ClearInjectedNotes reset the accepted-press tracking.
+        source.ClearInjectedNotes();
+        device.Emit(36, 0, isPressed: false);
+
+        Assert.Empty(source.Update().ToList());
+    }
+
     [Theory]
     [InlineData(85)]
     [InlineData(84)]

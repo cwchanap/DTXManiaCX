@@ -70,27 +70,28 @@ public class GameInput
 }
 
 /// <summary>
-/// Types of input that can be sent to the game
+/// Types of input that can be sent to the game. Explicit numeric values are assigned so the
+/// JSON-RPC integer wire values stay stable even if new members are inserted or reordered later.
 /// </summary>
 public enum InputType
 {
-    MouseClick,
-    MouseMove,
-    KeyPress,
-    KeyRelease,
+    MouseClick = 0,
+    MouseMove = 1,
+    KeyPress = 2,
+    KeyRelease = 3,
     /// <summary>
     /// Inject a MIDI note-on event. Only honored when the active MIDI device backend
     /// implements <c>IMidiNoteInjector</c>; the production <c>DryWetMidiDeviceBackend</c>
     /// does not, so injection is a no-op (returns <c>false</c>) unless the simulated
     /// backend is enabled via <c>DTXMANIA_ENABLE_SIMULATED_MIDI=1</c>.
     /// </summary>
-    MidiNoteOn,
+    MidiNoteOn = 4,
     /// <summary>
     /// Inject a MIDI note-off event. Subject to the same backend requirement as
     /// <see cref="MidiNoteOn"/>; a no-op (returns <c>false</c>) on the production
     /// <c>DryWetMidiDeviceBackend</c>.
     /// </summary>
-    MidiNoteOff
+    MidiNoteOff = 5
 }
 
 /// <summary>
