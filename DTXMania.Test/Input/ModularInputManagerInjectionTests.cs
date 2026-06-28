@@ -14,7 +14,9 @@ public class ModularInputManagerInjectionTests : IDisposable
     public ModularInputManagerInjectionTests()
     {
         _configManager = new ConfigManager();
-        _manager = new ModularInputManager(_configManager);
+        _manager = new ModularInputManager(
+            _configManager,
+            new ModularInputManagerTests.FakeMidiDeviceBackend());
     }
 
     public void Dispose()
