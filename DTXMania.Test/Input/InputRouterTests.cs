@@ -153,6 +153,27 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void Update_WithPressedBoundMidiButton_ShouldRaiseLaneHitEvent()
+        {
+            _keyBindings.ClearAllBindings();
+            _keyBindings.BindButton("MIDI.36", 6);
+
+            var source = new Mock<IInputSource>();
+            source.Setup(s => s.Update()).Returns(new[] { new ButtonState("MIDI.36", true, 85f / 127f) });
+            _router.AddInputSource(source.Object);
+
+            LaneHitEventArgs? captured = null;
+            _router.OnLaneHit += (_, args) => captured = args;
+
+            _router.Update();
+
+            Assert.NotNull(captured);
+            Assert.Equal(6, captured!.Lane);
+            Assert.Equal("MIDI.36", captured.Button.Id);
+            Assert.Equal(85f / 127f, captured.Button.Velocity, precision: 4);
+        }
+
+        [Fact]
         public void Update_WithReleasedButton_ShouldNotRaiseLaneHitEvent()
         {
             // Arrange
