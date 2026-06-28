@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input.Midi;
+using Xunit;
 
 namespace DTXMania.Test.Input;
 
@@ -65,6 +66,19 @@ public sealed class InputManagerCompatTests : IDisposable
         _manager.Update(0.016);
 
         Assert.False(_manager.IsCommandPressed(InputCommandType.Activate));
+    }
+
+    [Fact]
+    public void ClearPendingCommands_AfterInjection_PreventsCommandsFromAppearing()
+    {
+        _manager.ModularInputManager.InjectButton("Key.Up", isPressed: true);
+        // Do NOT call Update — the button is still in the injected queue.
+
+        _manager.ClearPendingCommands();
+        _manager.Update(0.016);
+
+        Assert.False(_manager.IsCommandPressed(InputCommandType.MoveUp));
+        Assert.False(_manager.GetNextCommand().HasValue);
     }
 
     [Fact]

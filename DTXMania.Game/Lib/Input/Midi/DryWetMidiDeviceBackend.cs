@@ -104,28 +104,39 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
 
         private void OnEventReceived(object? sender, MidiEventReceivedEventArgs e)
         {
-            switch (e.Event)
-            {
-                case NoteOnEvent noteOn:
-                    var noteOnVelocity = (int)noteOn.Velocity;
-                    NoteReceived?.Invoke(
-                        this,
-                        new MidiNoteEventArgs(
-                            StableId,
-                            (int)noteOn.NoteNumber,
-                            noteOnVelocity,
-                            noteOnVelocity > 0));
-                    break;
-                case NoteOffEvent noteOff:
-                    NoteReceived?.Invoke(
-                        this,
-                        new MidiNoteEventArgs(
-                            StableId,
-                            (int)noteOff.NoteNumber,
-                            (int)noteOff.Velocity,
-                            isPressed: false));
-                    break;
-            }
+            if (TryConvertEvent(e.Event, StableId, out var args))
+                NoteReceived?.Invoke(this, args);
+        }
+    }
+
+    /// <summary>
+    /// Converts a DryWetMidi <see cref="MidiEvent"/> into a <see cref="MidiNoteEventArgs"/>
+    /// for the given stable device id. NoteOn with velocity &gt; 0 reports a press; NoteOn with
+    /// velocity 0 and NoteOff both report a release. Non-note events are ignored.
+    /// Extracted from <see cref="DryWetMidiInputDevice.OnEventReceived"/> for unit testing.
+    /// </summary>
+    internal static bool TryConvertEvent(MidiEvent e, string stableId, out MidiNoteEventArgs args)
+    {
+        switch (e)
+        {
+            case NoteOnEvent noteOn:
+                var noteOnVelocity = (int)noteOn.Velocity;
+                args = new MidiNoteEventArgs(
+                    stableId,
+                    (int)noteOn.NoteNumber,
+                    noteOnVelocity,
+                    noteOnVelocity > 0);
+                return true;
+            case NoteOffEvent noteOff:
+                args = new MidiNoteEventArgs(
+                    stableId,
+                    (int)noteOff.NoteNumber,
+                    (int)noteOff.Velocity,
+                    isPressed: false);
+                return true;
+            default:
+                args = default;
+                return false;
         }
     }
 }

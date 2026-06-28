@@ -219,5 +219,126 @@ namespace DTXMania.Test.GameApi
 
             Assert.False(result);
         }
+
+        [Fact]
+        public async Task SendInputAsync_WithMidiNoteOffPayload_RoutesThroughSimulatedMidiSource()
+        {
+            var configManager = new ConfigManager();
+            configManager.Config.KeyBindings["MIDI.36"] = 5;
+            var midiBackend = new SimulatedMidiDeviceBackend();
+            using var inputManager = new InputManagerCompat(configManager, midiBackend);
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
+            var api = new GameApiImplementation(gameContext.Object);
+
+            // First press the note so a subsequent release has state to clear.
+            var pressResult = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn,
+                Data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 100 })
+            });
+            Assert.True(pressResult);
+            inputManager.ModularInputManager.Update();
+
+            // Now send the note-off — should also return true (simulated backend accepts it).
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOff,
+                Data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 0 })
+            });
+
+            Assert.True(result);
+        }
+
+        [Theory]
+        [InlineData("{\"noteNumber\":128,\"velocity\":100}", "noteNumber out of range")]
+        [InlineData("{\"noteNumber\":-1,\"velocity\":100}", "noteNumber negative")]
+        [InlineData("{\"noteNumber\":36,\"velocity\":128}", "velocity out of range")]
+        [InlineData("{\"noteNumber\":36,\"velocity\":-1}", "velocity negative")]
+        [InlineData("{\"velocity\":100}", "missing noteNumber")]
+        [InlineData("{\"noteNumber\":36}", "missing velocity")]
+        [InlineData("{}", "empty object")]
+        public async Task SendInputAsync_WithInvalidMidiData_ReturnsFalse(string json, string scenario)
+        {
+            var (api, _) = CreateSut();
+
+            var data = JsonDocument.Parse(json).RootElement.Clone();
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn,
+                Data = data
+            });
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WithMidiNoteDataNotObject_ReturnsFalse()
+        {
+            var (api, _) = CreateSut();
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn,
+                Data = JsonSerializer.SerializeToElement("not-an-object")
+            });
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WithMidiNoteMissingData_ReturnsFalse()
+        {
+            var (api, _) = CreateSut();
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn
+            });
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WithNullInput_ReturnsFalse()
+        {
+            var (api, _) = CreateSut();
+
+            var result = await api.SendInputAsync(null!);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WithUnknownInputType_ReturnsFalse()
+        {
+            var (api, _) = CreateSut();
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = (InputType)999,
+                Data = JsonSerializer.SerializeToElement(new { })
+            });
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WhenModularInputManagerIsNull_ReturnsFalse()
+        {
+            // Simulate a game context where InputManager is null.
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns((InputManagerCompat?)null);
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.KeyPress,
+                Data = JsonSerializer.SerializeToElement("Down")
+            });
+
+            Assert.False(result);
+        }
     }
 }

@@ -320,5 +320,120 @@ namespace DTXMania.Test.GameApi
         }
 
         #endregion
+
+        #region ValidateGameInput – MidiNoteOff
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOff_ValidObjectData_ShouldReturnTrue()
+        {
+            var data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 0 });
+            var input = MidiInput(InputType.MidiNoteOff, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOff_NullData_ShouldReturnFalse()
+        {
+            var input = MidiInput(InputType.MidiNoteOff, null);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.False(isValid);
+            Assert.Equal("MIDI input requires note data", msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOff_NonObjectData_ShouldReturnFalse()
+        {
+            var data = JsonSerializer.SerializeToElement("not-an-object");
+            var input = MidiInput(InputType.MidiNoteOff, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.False(isValid);
+            Assert.Equal("MIDI input data must be an object", msg);
+        }
+
+        #endregion
+
+        #region ValidateGameInput – MidiNoteOn edge cases
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOn_NullData_ShouldReturnFalse()
+        {
+            var input = MidiInput(InputType.MidiNoteOn, null);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.False(isValid);
+            Assert.Equal("MIDI input requires note data", msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOn_NonObjectData_ShouldReturnFalse()
+        {
+            var data = JsonSerializer.SerializeToElement("not-an-object");
+            var input = MidiInput(InputType.MidiNoteOn, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.False(isValid);
+            Assert.Equal("MIDI input data must be an object", msg);
+        }
+
+        [Theory]
+        [InlineData("{\"noteNumber\":128,\"velocity\":100}")]
+        [InlineData("{\"noteNumber\":-1,\"velocity\":100}")]
+        [InlineData("{\"noteNumber\":36,\"velocity\":128}")]
+        [InlineData("{\"noteNumber\":36,\"velocity\":-1}")]
+        [InlineData("{\"velocity\":100}")]
+        [InlineData("{\"noteNumber\":36}")]
+        [InlineData("{}")]
+        [InlineData("{\"noteNumber\":\"36\",\"velocity\":100}")]
+        [InlineData("{\"noteNumber\":36,\"velocity\":\"100\"}")]
+        public void ValidateGameInput_MidiNoteOn_InvalidNoteData_ShouldReturnFalse(string json)
+        {
+            var data = JsonDocument.Parse(json).RootElement.Clone();
+            var input = MidiInput(InputType.MidiNoteOn, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.False(isValid);
+            Assert.Equal("Invalid MIDI note data format", msg);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(127)]
+        public void ValidateGameInput_MidiNoteOn_BoundaryNoteNumbers_ShouldReturnTrue(int noteNumber)
+        {
+            var data = JsonSerializer.SerializeToElement(new { noteNumber, velocity = 100 });
+            var input = MidiInput(InputType.MidiNoteOn, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(127)]
+        public void ValidateGameInput_MidiNoteOn_BoundaryVelocities_ShouldReturnTrue(int velocity)
+        {
+            var data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity });
+            var input = MidiInput(InputType.MidiNoteOn, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
+        }
+
+        #endregion
     }
 }

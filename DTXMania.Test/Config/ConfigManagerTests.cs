@@ -1154,4 +1154,61 @@ Key.Bad=abc
             File.Delete(tempFile);
         }
     }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(128)]
+    public void ConfigManager_GetMidiVelocityThreshold_OutOfRangeNoteNumber_ReturnsZero(int noteNumber)
+    {
+        var manager = new ConfigManager();
+        manager.SetMidiVelocityThreshold(36, 20);
+
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(noteNumber));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(128)]
+    public void ConfigManager_SetMidiVelocityThreshold_OutOfRangeNoteNumber_IsNoOp(int noteNumber)
+    {
+        var manager = new ConfigManager();
+
+        manager.SetMidiVelocityThreshold(noteNumber, 50);
+
+        Assert.False(manager.Config.MidiVelocityThresholds.ContainsKey(noteNumber));
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(noteNumber));
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(-10)]
+    public void ConfigManager_SetMidiVelocityThreshold_OutOfRangeVelocity_ClampsToValidRange(int velocity)
+    {
+        var manager = new ConfigManager();
+
+        manager.SetMidiVelocityThreshold(36, velocity);
+
+        // Velocity > 127 clamps to 127; velocity < 0 clamps to 0 (which removes the entry).
+        if (velocity > 127)
+        {
+            Assert.Equal(127, manager.GetMidiVelocityThreshold(36));
+        }
+        else
+        {
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
+            Assert.False(manager.Config.MidiVelocityThresholds.ContainsKey(36));
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SetMidiVelocityThreshold_AtBoundaryNoteNumbers_ShouldSucceed()
+    {
+        var manager = new ConfigManager();
+
+        manager.SetMidiVelocityThreshold(0, 10);
+        manager.SetMidiVelocityThreshold(127, 20);
+
+        Assert.Equal(10, manager.GetMidiVelocityThreshold(0));
+        Assert.Equal(20, manager.GetMidiVelocityThreshold(127));
+    }
 }
