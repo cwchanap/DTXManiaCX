@@ -201,7 +201,11 @@ public sealed class MidiGameplaySmokeTests
         double targetSongTimeMs,
         CancellationToken cancellationToken)
     {
-        const double leadMs = 45.0;
+        // Lead time must account for JSON-RPC round-trip latency, poll granularity (up to 50 ms),
+        // and CI scheduling jitter. 100 ms keeps the note comfortably inside the ±150 ms Poor
+        // window even under load: worst case (50 ms poll + ~195 ms round trip) lands at ~+145 ms,
+        // while the fast path lands at ~−95 ms — both non-Miss.
+        const double leadMs = 100.0;
         var sendAtMs = targetSongTimeMs - leadMs;
 
         while (true)
