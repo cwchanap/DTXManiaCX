@@ -12,6 +12,13 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
 {
     public IReadOnlyList<IMidiInputDevice> GetInputDevices()
     {
+        // NOTE: StableId is derived from the enumeration index of InputDevice.GetAll().
+        // DryWetMidi's public InputDevice API does not expose a persistent identity
+        // (manufacturer/product/serial), so a replug or device reorder produces a new
+        // StableId for the same physical device. MidiInputSource.RefreshDevicesCore then
+        // treats it as removed+added, briefly interrupting input and clearing any held
+        // note state for that StableId. This is a known hot-plug UX limitation tracked
+        // as a follow-up; acceptable for the first real-MIDI slice.
         return InputDevice.GetAll()
             .Select((device, index) => new DryWetMidiInputDevice(device, $"{device.Name}#{index}"))
             .ToArray();

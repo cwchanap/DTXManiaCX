@@ -119,6 +119,43 @@ namespace DTXMania.Test.GameApi
             Assert.Equal("MIDI.36", capturedLaneHit.Button.Id);
         }
 
+        [Fact]
+        public async Task SendInputAsync_WithMidiNoteOnPayload_NonInjectorBackend_ReturnsFalseAndDoesNotLogSuccess()
+        {
+            // Documents production behavior: the DryWetMidi backend does not implement
+            // IMidiNoteInjector, so MIDI injection via the API is a no-op that returns false.
+            // A warning is logged (verified here by capturing the ILogger).
+            var configManager = new ConfigManager();
+            var midiBackend = new Mock<IMidiDeviceBackend>();
+            midiBackend.Setup(b => b.GetInputDevices())
+                .Returns(System.Array.Empty<IMidiInputDevice>());
+            using var inputManager = new InputManagerCompat(configManager, midiBackend.Object);
+
+            // Direct manager-level assertion: no injector configured.
+            Assert.False(inputManager.ModularInputManager.InjectMidiNote(36, 100, true));
+
+            var logger = new Mock<Microsoft.Extensions.Logging.ILogger<GameApiImplementation>>();
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
+            var api = new GameApiImplementation(gameContext.Object, logger.Object);
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn,
+                Data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 100 })
+            });
+
+            Assert.False(result);
+            logger.Verify(
+                l => l.Log(
+                    Microsoft.Extensions.Logging.LogLevel.Warning,
+                    It.IsAny<Microsoft.Extensions.Logging.EventId>(),
+                    It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("MIDI note injection rejected")),
+                    It.IsAny<System.Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, System.Exception?, string>>()),
+                Times.Once);
+        }
+
         [Theory]
         [InlineData("\"\"")]
         [InlineData("\"   \"")]

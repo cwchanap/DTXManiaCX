@@ -78,7 +78,18 @@ public enum InputType
     MouseMove,
     KeyPress,
     KeyRelease,
+    /// <summary>
+    /// Inject a MIDI note-on event. Only honored when the active MIDI device backend
+    /// implements <c>IMidiNoteInjector</c>; the production <c>DryWetMidiDeviceBackend</c>
+    /// does not, so injection is a no-op (returns <c>false</c>) unless the simulated
+    /// backend is enabled via <c>DTXMANIA_ENABLE_SIMULATED_MIDI=1</c>.
+    /// </summary>
     MidiNoteOn,
+    /// <summary>
+    /// Inject a MIDI note-off event. Subject to the same backend requirement as
+    /// <see cref="MidiNoteOn"/>; a no-op (returns <c>false</c>) on the production
+    /// <c>DryWetMidiDeviceBackend</c>.
+    /// </summary>
     MidiNoteOff
 }
 
