@@ -107,7 +107,8 @@ namespace DTXMania.Game.Lib.Stage
             // reloads). Config is truth, so there is no working copy to clone or hand off.
             _popup = new DrumCapturePopup(
                 () => _input!.ModularInputManager.KeyBindings.ButtonToLane,  // drum map (= Config)
-                () => _input!.GetKeyMappingSnapshot());                       // system map (= Config)
+                () => _input!.GetKeyMappingSnapshot(),                        // system map (= Config)
+                note => _configManager.GetMidiVelocityThreshold(note));        // MIDI thresholds (= Config)
 
             _focusIndex = 0;
             _keyboardFocusActive = false;
@@ -150,6 +151,16 @@ namespace DTXMania.Game.Lib.Stage
             {
                 foreach (var chip in _popup.GetBindingChips(vp.Width, vp.Height))
                 {
+                    if (chip.IsMidi && chip.DecrementVelocityThreshold.Contains(mouse.X, mouse.Y))
+                    {
+                        AdjustMidiVelocityThreshold(chip.MidiNoteNumber, -1);
+                        return;
+                    }
+                    if (chip.IsMidi && chip.IncrementVelocityThreshold.Contains(mouse.X, mouse.Y))
+                    {
+                        AdjustMidiVelocityThreshold(chip.MidiNoteNumber, 1);
+                        return;
+                    }
                     if (chip.Remove.Contains(mouse.X, mouse.Y))
                     {
                         // Popup is intent-only (no RemoveBinding): the stage unbinds via Config.
@@ -449,6 +460,16 @@ namespace DTXMania.Game.Lib.Stage
             kb.UnbindButton(buttonId);
             _configManager.SetKeyBindings(kb);
             // No system-key restore (Decision 3): eviction was permanent.
+        }
+
+        private void AdjustMidiVelocityThreshold(int noteNumber, int delta)
+        {
+            if (noteNumber < 0 || noteNumber > 127)
+                return;
+
+            var current = _configManager.GetMidiVelocityThreshold(noteNumber);
+            var next = Math.Clamp(current + delta, 0, 127);
+            _configManager.SetMidiVelocityThreshold(noteNumber, next);
         }
 
         private void ClearLaneInConfig(int lane)
