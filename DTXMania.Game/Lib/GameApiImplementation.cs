@@ -267,7 +267,17 @@ public class GameApiImplementation : IGameApi
                     }
 
                     var pressed = input.Type == InputType.MidiNoteOn;
-                    return modularInput.InjectMidiNote(midi.Value.NoteNumber, midi.Value.Velocity, pressed);
+                    var injected = modularInput.InjectMidiNote(midi.Value.NoteNumber, midi.Value.Velocity, pressed);
+                    if (!injected)
+                    {
+                        _logger?.LogWarning(
+                            "Game API: MIDI note injection rejected for note {NoteNumber} velocity {Velocity} pressed {Pressed}. " +
+                            "This usually means the active MIDI backend is not an IMidiNoteInjector " +
+                            "(production DryWetMidi backend does not support injection; set {EnvVar}=1 to enable the simulated backend).",
+                            midi.Value.NoteNumber, midi.Value.Velocity, pressed,
+                            "DTXMANIA_ENABLE_SIMULATED_MIDI");
+                    }
+                    return injected;
                 }
 
                 case InputType.MouseClick:
