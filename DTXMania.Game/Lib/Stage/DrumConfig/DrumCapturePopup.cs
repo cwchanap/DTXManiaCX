@@ -32,6 +32,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         private readonly Func<IReadOnlyDictionary<string, int>> _drumBindingsProvider;
         private readonly Func<IReadOnlyDictionary<Keys, InputCommandType>> _systemMappingProvider;
+        private readonly Func<int, int> _midiVelocityThresholdProvider;
         private double _conflictTimer;
 
         public DrumCaptureState State { get; private set; } = DrumCaptureState.Closed;
@@ -41,10 +42,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
         public DrumCapturePopup(
             Func<IReadOnlyDictionary<string, int>> drumBindingsProvider,
-            Func<IReadOnlyDictionary<Keys, InputCommandType>> systemMappingProvider)
+            Func<IReadOnlyDictionary<Keys, InputCommandType>> systemMappingProvider,
+            Func<int, int>? midiVelocityThresholdProvider = null)
         {
             _drumBindingsProvider = drumBindingsProvider ?? throw new ArgumentNullException(nameof(drumBindingsProvider));
             _systemMappingProvider = systemMappingProvider ?? throw new ArgumentNullException(nameof(systemMappingProvider));
+            _midiVelocityThresholdProvider = midiVelocityThresholdProvider ?? (_ => 0);
         }
 
         public void Open(int lane)
@@ -155,12 +158,36 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             public string Label { get; }
             public Rectangle Bounds { get; }
             public Rectangle Remove { get; }
+            public bool IsMidi { get; }
+            public int MidiNoteNumber { get; }
+            public int MidiVelocityThreshold { get; }
+            public Rectangle DecrementVelocityThreshold { get; }
+            public Rectangle IncrementVelocityThreshold { get; }
             public DrumBindingChip(string buttonId, string label, Rectangle bounds, Rectangle remove)
+                : this(buttonId, label, bounds, remove, false, -1, 0, Rectangle.Empty, Rectangle.Empty)
+            {
+            }
+
+            public DrumBindingChip(
+                string buttonId,
+                string label,
+                Rectangle bounds,
+                Rectangle remove,
+                bool isMidi,
+                int midiNoteNumber,
+                int midiVelocityThreshold,
+                Rectangle decrementVelocityThreshold,
+                Rectangle incrementVelocityThreshold)
             {
                 ButtonId = buttonId;
                 Label = label;
                 Bounds = bounds;
                 Remove = remove;
+                IsMidi = isMidi;
+                MidiNoteNumber = midiNoteNumber;
+                MidiVelocityThreshold = midiVelocityThreshold;
+                DecrementVelocityThreshold = decrementVelocityThreshold;
+                IncrementVelocityThreshold = incrementVelocityThreshold;
             }
         }
 
@@ -171,6 +198,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private const int ChipMinWidth = 64;
         private const int RemoveBoxSize = 18;
         private const int RemoveMargin = 9;     // inset of the ✕ box from the chip's top-right corner
+        private const int ThresholdButtonSize = 18;
+        private const int ThresholdButtonGap = 4;
 
         /// <summary>Y of the binding-chips row, just under the "Configure:" header.</summary>
         private int GetChipsRowTop(int viewportWidth, int viewportHeight) =>
@@ -198,10 +227,19 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 // "MIDI 36") rather than the raw id, so chips match the per-zone labels rendered
                 // by DrumKitRenderer (which uses GetLaneDescription / FormatButtonId). Reserve room
                 // on the right for the corner ✕ so it never sits on top of the label.
-                var label = KeyBindings.FormatButtonId(id);
+                var isMidi = KeyBindings.TryParseMidiButtonId(id, out var midiNoteNumber);
+                var midiVelocityThreshold = isMidi
+                    ? Math.Clamp(_midiVelocityThresholdProvider(midiNoteNumber), 0, 127)
+                    : 0;
+                var label = isMidi
+                    ? $"{KeyBindings.FormatButtonId(id)} v>{midiVelocityThreshold}"
+                    : KeyBindings.FormatButtonId(id);
                 int textWidth = label.Length * ChipCharWidth;
+                int thresholdControlsWidth = isMidi
+                    ? (ThresholdButtonSize * 2) + (ThresholdButtonGap * 2)
+                    : 0;
                 int chipWidth = Math.Max(ChipMinWidth,
-                    ChipPadX + textWidth + RemoveMargin + RemoveBoxSize + RemoveMargin);
+                    ChipPadX + textWidth + RemoveMargin + thresholdControlsWidth + RemoveBoxSize + RemoveMargin);
                 if (x + chipWidth > maxRight && x > left)
                 {
                     x = left;
@@ -212,7 +250,31 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     bounds.Right - RemoveMargin - RemoveBoxSize,
                     bounds.Y + RemoveMargin,
                     RemoveBoxSize, RemoveBoxSize);
-                chips.Add(new DrumBindingChip(id, label, bounds, remove));
+                var incrementThreshold = Rectangle.Empty;
+                var decrementThreshold = Rectangle.Empty;
+                if (isMidi)
+                {
+                    incrementThreshold = new Rectangle(
+                        remove.Left - ThresholdButtonGap - ThresholdButtonSize,
+                        remove.Y,
+                        ThresholdButtonSize,
+                        ThresholdButtonSize);
+                    decrementThreshold = new Rectangle(
+                        incrementThreshold.Left - ThresholdButtonGap - ThresholdButtonSize,
+                        remove.Y,
+                        ThresholdButtonSize,
+                        ThresholdButtonSize);
+                }
+                chips.Add(new DrumBindingChip(
+                    id,
+                    label,
+                    bounds,
+                    remove,
+                    isMidi,
+                    isMidi ? midiNoteNumber : -1,
+                    midiVelocityThreshold,
+                    decrementThreshold,
+                    incrementThreshold));
                 x += chipWidth + ChipGap;
             }
             return chips;
@@ -244,6 +306,11 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 foreach (var chip in chips)
                 {
                     spriteBatch.Draw(whitePixel, chip.Bounds, new Color(66, 74, 92));
+                    if (chip.IsMidi)
+                    {
+                        spriteBatch.Draw(whitePixel, chip.DecrementVelocityThreshold, new Color(88, 98, 120));
+                        spriteBatch.Draw(whitePixel, chip.IncrementVelocityThreshold, new Color(88, 98, 120));
+                    }
                     spriteBatch.Draw(whitePixel, chip.Remove, new Color(176, 72, 78));
                 }
             }
@@ -277,12 +344,14 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     font.DrawString(spriteBatch, chip.Label,
                         new Vector2(chip.Bounds.X + ChipPadX, labelY), Color.White);
 
+                    if (chip.IsMidi)
+                    {
+                        DrawCenteredGlyph("-", chip.DecrementVelocityThreshold);
+                        DrawCenteredGlyph("+", chip.IncrementVelocityThreshold);
+                    }
+
                     const string mark = "X";
-                    var ms = font.MeasureString(mark);
-                    font.DrawString(spriteBatch, mark,
-                        new Vector2(chip.Remove.X + ((RemoveBoxSize - ms.X) / 2f),
-                                    chip.Remove.Y + ((RemoveBoxSize - ms.Y) / 2f)),
-                        Color.White);
+                    DrawCenteredGlyph(mark, chip.Remove);
                 }
                 promptY = chips[^1].Bounds.Bottom + 12;
             }
@@ -297,6 +366,15 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             var doneRect = GetDoneRect(viewportWidth, viewportHeight);
             font.DrawString(spriteBatch, "Clear", new Vector2(clearRect.X + 38, clearRect.Y + 14), Color.White);
             font.DrawString(spriteBatch, "Done", new Vector2(doneRect.X + 42, doneRect.Y + 14), Color.White);
+
+            void DrawCenteredGlyph(string glyph, Rectangle rect)
+            {
+                var ms = font.MeasureString(glyph);
+                font.DrawString(spriteBatch, glyph,
+                    new Vector2(rect.X + ((rect.Width - ms.X) / 2f),
+                                rect.Y + ((rect.Height - ms.Y) / 2f)),
+                    Color.White);
+            }
         }
     }
 }
