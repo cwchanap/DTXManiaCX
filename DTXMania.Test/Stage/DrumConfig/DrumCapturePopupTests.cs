@@ -221,7 +221,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.True(chip.IsMidi);
             Assert.Equal(36, chip.MidiNoteNumber);
             Assert.Equal(20, chip.MidiVelocityThreshold);
-            Assert.Contains("v>20", chip.Label);
+            Assert.Contains("vel>20", chip.Label);
             Assert.NotEqual(Rectangle.Empty, chip.DecrementVelocityThreshold);
             Assert.NotEqual(Rectangle.Empty, chip.IncrementVelocityThreshold);
             Assert.True(chip.Bounds.Contains(chip.DecrementVelocityThreshold));
@@ -501,7 +501,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             font.Verify(f => f.DrawString(
                 It.IsAny<SpriteBatch>(),
-                It.Is<string>(s => s.Contains("MIDI 36") && s.Contains("v>20")),
+                It.Is<string>(s => s.Contains("MIDI 36") && s.Contains("vel>20")),
                 It.IsAny<Vector2>(),
                 It.IsAny<Color>()),
                 Times.AtLeastOnce);

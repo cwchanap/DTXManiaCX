@@ -1215,4 +1215,118 @@ Key.Bad=abc
         Assert.Equal(10, manager.GetMidiVelocityThreshold(0));
         Assert.Equal(20, manager.GetMidiVelocityThreshold(127));
     }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_CanonicalMidiButtonId_ShouldBeAccepted()
+    {
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[KeyBindings]",
+            "MIDI.36=5"
+        }));
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
+            Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData("MIDI.036", "leading zero in note number")]
+    [InlineData("MIDI.128", "note number out of range")]
+    [InlineData("MIDI.abc", "non-numeric note number")]
+    [InlineData("MIDI.",   "missing note number")]
+    [InlineData("MIDI.-1", "negative note number")]
+    public void ConfigManager_LoadConfig_MalformedMidiButtonId_ShouldBeRejected(
+        string malformedKey, string description)
+    {
+        // Hand-edited configs with malformed MIDI IDs must not silently load as bindings
+        // that can never be matched at lookup time (TryParseMidiButtonId is strict about
+        // canonical decimal form). The parser should reject them outright.
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[KeyBindings]",
+            $"{malformedKey}=5"
+        }));
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            Assert.False(
+                manager.Config.KeyBindings.ContainsKey(malformedKey),
+                $"Malformed key '{malformedKey}' ({description}) should have been rejected.");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_MalformedMidiButtonId_ShouldNotBlockCanonicalKeys()
+    {
+        // A single malformed key must not prevent other (valid) keys in the same
+        // config file from loading correctly.
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[KeyBindings]",
+            "MIDI.036=3",
+            "MIDI.36=5",
+            "MIDI.38=7"
+        }));
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            Assert.False(manager.Config.KeyBindings.ContainsKey("MIDI.036"));
+            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
+            Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
+            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.38"));
+            Assert.Equal(7, manager.Config.KeyBindings["MIDI.38"]);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_MalformedMidiUnboundButton_ShouldBeRejected()
+    {
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[KeyBindings]",
+            "Key.UnboundButton.MIDI.036=True",
+            "Key.UnboundButton.MIDI.36=True"
+        }));
+
+        try
+        {
+            var manager = new ConfigManager();
+            manager.LoadConfig(tempFile);
+
+            Assert.False(manager.Config.UnboundDrumButtons.Contains("MIDI.036"));
+            Assert.True(manager.Config.UnboundDrumButtons.Contains("MIDI.36"));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }

@@ -389,14 +389,14 @@ namespace DTXMania.Game.Lib.Config
                     else if (key.StartsWith("Key.UnboundButton.", StringComparison.Ordinal))
                     {
                         var buttonId = key.Substring("Key.UnboundButton.".Length);
-                        if (IsSupportedButtonBindingKey(buttonId) &&
+                        if (IsSupportedBindingKeyOrLog(buttonId) &&
                             TryParseBool(value, out var isUnboundButton) &&
                             isUnboundButton)
                         {
                             Config.UnboundDrumButtons.Add(buttonId);
                         }
                     }
-                    else if (IsSupportedButtonBindingKey(key) && int.TryParse(value, out var lane))
+                    else if (IsSupportedBindingKeyOrLog(key) && int.TryParse(value, out var lane))
                     {
                         if (lane >= 0 && lane <= 9)
                         {
@@ -758,10 +758,41 @@ namespace DTXMania.Game.Lib.Config
 
         private static bool IsSupportedButtonBindingKey(string key)
         {
-            return !string.IsNullOrWhiteSpace(key)
-                && (key.StartsWith("Key.", StringComparison.Ordinal)
-                    || key.StartsWith("MIDI.", StringComparison.Ordinal)
-                    || key.StartsWith("Pad.", StringComparison.Ordinal));
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            if (key.StartsWith("MIDI.", StringComparison.Ordinal))
+            {
+                // Reject malformed MIDI note IDs (e.g. "MIDI.036", "MIDI.abc", "MIDI.128")
+                // so they don't silently load as bindings that can never be matched at
+                // lookup time — TryParseMidiButtonId enforces canonical decimal form (no
+                // leading zeros) and a 0–127 note range.
+                return KeyBindings.TryParseMidiButtonId(key, out _);
+            }
+
+            return key.StartsWith("Key.", StringComparison.Ordinal)
+                || key.StartsWith("Pad.", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Validates a config binding key, logging a warning when a MIDI-prefixed key is
+        /// rejected due to a malformed note number (e.g. leading zeros, out-of-range).
+        /// This helps users diagnose hand-edited configs that would otherwise be silently ignored.
+        /// </summary>
+        private bool IsSupportedBindingKeyOrLog(string key)
+        {
+            if (IsSupportedButtonBindingKey(key))
+                return true;
+
+            if (key.StartsWith("MIDI.", StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "Ignoring malformed MIDI button binding '{Key}': note IDs must be canonical decimal "
+                    + "(e.g. 'MIDI.36', not 'MIDI.036') within the 0–127 range.",
+                    key);
+            }
+
+            return false;
         }
 
         private static IEnumerable<string> GetExplicitlyUnboundDefaultDrumButtons(KeyBindings keyBindings)

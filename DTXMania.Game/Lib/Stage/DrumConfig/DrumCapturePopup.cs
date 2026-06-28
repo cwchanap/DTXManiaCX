@@ -232,7 +232,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                     ? Math.Clamp(_midiVelocityThresholdProvider(midiNoteNumber), 0, 127)
                     : 0;
                 var label = isMidi
-                    ? $"{KeyBindings.FormatButtonId(id)} v>{midiVelocityThreshold}"
+                    ? $"{KeyBindings.FormatButtonId(id)}  vel>{midiVelocityThreshold}"
                     : KeyBindings.FormatButtonId(id);
                 int textWidth = label.Length * ChipCharWidth;
                 int thresholdControlsWidth = isMidi
