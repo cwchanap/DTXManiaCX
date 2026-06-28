@@ -12,11 +12,12 @@ namespace DTXMania.Game.Lib.Input.Midi;
 public sealed class MidiInputSource : IInputSource
 {
     private readonly object _sync = new();
+    private readonly object _refreshSync = new();
     private readonly IMidiDeviceBackend _backend;
     private readonly MidiVelocityFilter _velocityFilter;
     private readonly ILogger<MidiInputSource> _logger;
     private readonly Dictionary<string, IMidiInputDevice> _devices = new(StringComparer.Ordinal);
-    private readonly ConcurrentQueue<MidiNoteEventArgs> _pendingNotes = new();
+    private readonly ConcurrentQueue<QueuedMidiNote> _pendingNotes = new();
     private readonly HashSet<AcceptedNoteKey> _acceptedPressedNotes = new();
     private bool _disposed;
 
@@ -70,7 +71,7 @@ public sealed class MidiInputSource : IInputSource
         if (_disposed)
             yield break;
 
-        while (_pendingNotes.TryDequeue(out var note))
+        while (_pendingNotes.TryDequeue(out var queuedNote))
         {
             ButtonState? state;
             lock (_sync)
@@ -78,7 +79,7 @@ public sealed class MidiInputSource : IInputSource
                 if (_disposed)
                     yield break;
 
-                state = ProcessNote(note);
+                state = ProcessNote(queuedNote);
             }
 
             if (state != null)
@@ -106,6 +107,14 @@ public sealed class MidiInputSource : IInputSource
     }
 
     public void RefreshDevices()
+    {
+        lock (_refreshSync)
+        {
+            RefreshDevicesCore();
+        }
+    }
+
+    private void RefreshDevicesCore()
     {
         if (_disposed)
             return;
@@ -268,10 +277,14 @@ public sealed class MidiInputSource : IInputSource
         }
     }
 
-    private ButtonState? ProcessNote(MidiNoteEventArgs note)
+    private ButtonState? ProcessNote(QueuedMidiNote queuedNote)
     {
-        if (!_devices.ContainsKey(note.DeviceStableId))
+        var note = queuedNote.Note;
+        if (!_devices.TryGetValue(note.DeviceStableId, out var activeDevice) ||
+            !ReferenceEquals(activeDevice, queuedNote.SourceDevice))
+        {
             return null;
+        }
 
         var key = new AcceptedNoteKey(note.DeviceStableId, note.NoteNumber);
 
@@ -298,8 +311,13 @@ public sealed class MidiInputSource : IInputSource
         if (_disposed)
             return;
 
-        _pendingNotes.Enqueue(e);
+        if (sender is not IMidiInputDevice sourceDevice)
+            return;
+
+        _pendingNotes.Enqueue(new QueuedMidiNote(sourceDevice, e));
     }
+
+    private readonly record struct QueuedMidiNote(IMidiInputDevice SourceDevice, MidiNoteEventArgs Note);
 
     private readonly record struct AcceptedNoteKey(string DeviceStableId, int NoteNumber);
 }

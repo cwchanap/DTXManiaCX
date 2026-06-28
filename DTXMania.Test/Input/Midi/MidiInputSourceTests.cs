@@ -220,6 +220,25 @@ public sealed class MidiInputSourceTests
     }
 
     [Fact]
+    public void RefreshDevices_ReplacingDeviceWithSameStableIdDropsOldQueuedPress()
+    {
+        var removed = new FakeMidiInputDevice("Old Kit", "same");
+        var replacement = new FakeMidiInputDevice("New Kit", "same");
+        var backend = new FakeMidiDeviceBackend(removed);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+        removed.Emit(36, 85, isPressed: true);
+
+        backend.SetDevices();
+        source.RefreshDevices();
+        backend.SetDevices(replacement);
+        source.RefreshDevices();
+
+        Assert.Empty(source.Update());
+        Assert.Empty(source.GetPressedButtons());
+    }
+
+    [Fact]
     public void Dispose_StopsAndDisposesAllDevices()
     {
         var first = new FakeMidiInputDevice("Kit A", "kit-a");
