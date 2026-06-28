@@ -21,11 +21,12 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
     {
         private readonly InputDevice _device;
         private readonly string _stableId;
+        private bool _listening;
         private bool _disposed;
 
         public DryWetMidiInputDevice(InputDevice device, string stableId)
         {
-            _device = device;
+            _device = device ?? throw new ArgumentNullException(nameof(device));
             _stableId = stableId;
         }
 
@@ -37,20 +38,36 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
 
         public void Start()
         {
-            if (_disposed)
+            if (_disposed || _listening)
                 return;
 
             _device.EventReceived += OnEventReceived;
-            _device.StartEventsListening();
+            try
+            {
+                _device.StartEventsListening();
+                _listening = true;
+            }
+            catch
+            {
+                _device.EventReceived -= OnEventReceived;
+                throw;
+            }
         }
 
         public void Stop()
         {
-            if (_disposed)
+            if (_disposed || !_listening)
                 return;
 
             _device.EventReceived -= OnEventReceived;
-            _device.StopEventsListening();
+            try
+            {
+                _device.StopEventsListening();
+            }
+            finally
+            {
+                _listening = false;
+            }
         }
 
         public void Dispose()
@@ -67,8 +84,15 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
                 // Dispose still owns releasing the native MIDI device.
             }
 
-            _device.Dispose();
-            _disposed = true;
+            try
+            {
+                _device.Dispose();
+            }
+            finally
+            {
+                _listening = false;
+                _disposed = true;
+            }
         }
 
         private void OnEventReceived(object? sender, MidiEventReceivedEventArgs e)
