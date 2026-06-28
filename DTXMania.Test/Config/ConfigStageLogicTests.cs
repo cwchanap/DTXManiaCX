@@ -936,7 +936,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MenuActivateOnExitCategory_ShouldFlushAndTransitionToTitle()
     {
-        using var inputManager = new InputManagerCompat(new ConfigManager());
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
         var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
         InitializeStageMenu(stage, includePanels: false);
         var stageManager = new Moq.Mock<IStageManager>();
@@ -1598,7 +1598,7 @@ public class ConfigStageLogicTests
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
+        var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
@@ -1611,7 +1611,7 @@ public class ConfigStageLogicTests
     private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStage(Viewport viewport, ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
+        var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
@@ -1621,7 +1621,7 @@ public class ConfigStageLogicTests
     private static (ConfigStage Stage, InputManagerCompat InputManager) CreateLifecycleStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
+        var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);

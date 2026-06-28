@@ -10,7 +10,7 @@ public sealed class InputManagerCompatTests : IDisposable
 
     public InputManagerCompatTests()
     {
-        _manager = new InputManagerCompat(new ConfigManager());
+        _manager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
     }
 
     public void Dispose()

@@ -11,7 +11,7 @@ public sealed class InputManagerCompatLiveApplyTests
     public void KeyBindingsChanged_ShouldReloadRuntimeDrumBindingsFromConfig()
     {
         var cm = new ConfigManager();
-        var input = new InputManagerCompat(cm);
+        var input = new InputManagerCompat(cm, new TestMidiDeviceBackend());
 
         try
         {
@@ -45,7 +45,7 @@ public sealed class InputManagerCompatLiveApplyTests
     public void SystemKeyBindingsChanged_ShouldRebuildSystemMapFromConfig()
     {
         var cm = new ConfigManager();
-        var input = new InputManagerCompat(cm);
+        var input = new InputManagerCompat(cm, new TestMidiDeviceBackend());
 
         try
         {
@@ -68,7 +68,7 @@ public sealed class InputManagerCompatLiveApplyTests
         // auto-save in ModularInputManager.OnKeyBindingsChanged is gone). Config is written
         // only through ConfigManager.SetKeyBindings / explicit SaveKeyBindings calls.
         var cm = new ConfigManager();
-        var input = new InputManagerCompat(cm);
+        var input = new InputManagerCompat(cm, new TestMidiDeviceBackend());
 
         try
         {

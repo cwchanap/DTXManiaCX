@@ -204,7 +204,7 @@ public class ConfigStageTests
     public void ConfigStage_RemappedWorkingBack_ShouldShowUpdatedCancelLabelInSystemPanel()
     {
         var configManager = new ConfigManager();
-        using var inputManager = new InputManagerCompat(configManager);
+        using var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var stage = CreateConfigStage(inputManager, configManager);
 
         // Remap Back to Q in the runtime system map (= Config truth, mirrored via Phase 2 events).
@@ -240,7 +240,7 @@ public class ConfigStageTests
     public void ConfigStage_SystemPanel_ShouldNavigateAndSaveFromInjectedCommandsWithoutKeyboardStateChange()
     {
         var configManager = new ConfigManager();
-        using var inputManager = new InputManagerCompat(configManager);
+        using var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var stage = CreateConfigStage(inputManager, configManager);
 
         InvokePrivateMethod(stage, "InitializePanels");
@@ -270,7 +270,7 @@ public class ConfigStageTests
     public void ConfigStage_SystemPanel_RemappedWorkingBack_ShouldIgnoreInjectedOldBackKeyFromLiveMapping()
     {
         var configManager = new ConfigManager();
-        using var inputManager = new InputManagerCompat(configManager);
+        using var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var stage = CreateConfigStage(inputManager, configManager);
 
         // Remap Back to Q in the runtime system map; Escape is no longer a navigation key.

@@ -253,7 +253,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             int vw = 1280, int vh = 720)
         {
             var cm = new ConfigManager();
-            var input = new InputManagerCompat(cm);
+            var input = new InputManagerCompat(cm, new TestMidiDeviceBackend());
             var game = ReflectionHelpers.CreateGame();
             var device = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
             ReflectionHelpers.SetPrivateField(device, "_viewport", new Viewport(0, 0, vw, vh));

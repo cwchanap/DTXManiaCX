@@ -20,7 +20,7 @@ public class ConfigStageInputCoverageTests
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
-        var inputManager = new InputManagerCompat(configManager);
+        var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = CreateGame();
         SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         SetProperty(game, nameof(BaseGame.InputManager), inputManager);

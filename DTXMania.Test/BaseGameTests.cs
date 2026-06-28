@@ -89,7 +89,7 @@ namespace DTXMania.Test
         public void GameContextAccessors_ShouldExposeAssignedManagers()
         {
             var configManager = CreateConfigManager(new ConfigData());
-            var inputManager = new InputManagerCompat(new ConfigManager());
+            var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
             var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
             var game = ReflectionHelpers.CreateGame();
             var context = (IGameContext)game;
@@ -334,7 +334,7 @@ namespace DTXMania.Test
         {
             var configManager = new ConfigManager();
             configManager.Config.SystemKeyBindings["SystemKey.Activate"] = Keys.F1.ToString();
-            var inputManager = new InputManagerCompat(configManager);
+            var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
             var game = ReflectionHelpers.CreateGame();
             using var loggerFactory = LoggerFactory.Create(builder => { });
 
@@ -952,7 +952,7 @@ namespace DTXMania.Test
         private sealed class TrackingInputManager : InputManagerCompat
         {
             public TrackingInputManager()
-                : base(new ConfigManager())
+                : base(new ConfigManager(), new TestMidiDeviceBackend())
             {
             }
 

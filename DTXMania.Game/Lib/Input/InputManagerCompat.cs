@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Game.Lib.Input
@@ -20,11 +21,19 @@ namespace DTXMania.Game.Lib.Input
         private bool _disposed = false;
 
         public InputManagerCompat(IConfigManager configManager)
+            : this(configManager, new DryWetMidiDeviceBackend())
         {
+        }
+
+        internal InputManagerCompat(IConfigManager configManager, IMidiDeviceBackend midiDeviceBackend)
+        {
+            if (midiDeviceBackend is null)
+                throw new ArgumentNullException(nameof(midiDeviceBackend));
+
             if (configManager is ConfigManager cm)
             {
                 _configManager = cm;
-                _modularInputManager = new ModularInputManager(cm);
+                _modularInputManager = new ModularInputManager(cm, midiDeviceBackend);
                 
                 // Wire up debugging for lane hits
                 _modularInputManager.OnLaneHit += OnModularLaneHit;
