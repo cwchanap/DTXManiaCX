@@ -1708,7 +1708,7 @@ public class ConfigStageLogicTests
         private readonly InputCommandType _pressedCommand;
 
         public ForcedCommandInputManager(ConfigManager configManager, InputCommandType pressedCommand)
-            : base(configManager)
+            : base(configManager, new TestMidiDeviceBackend())
         {
             _pressedCommand = pressedCommand;
         }
