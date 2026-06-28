@@ -353,11 +353,37 @@ public class GameApiServer : IDisposable, IAsyncDisposable
                 }
                 break;
 
+            case InputType.MidiNoteOn:
+            case InputType.MidiNoteOff:
+                if (input.Data is null || input.Data.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                    return (false, "MIDI input requires note data");
+
+                if (input.Data.Value.ValueKind != JsonValueKind.Object)
+                    return (false, "MIDI input data must be an object");
+
+                if (!TryValidateMidiNoteData(input.Data.Value))
+                    return (false, "Invalid MIDI note data format");
+                break;
+
             default:
                 return (false, "Unsupported input type");
         }
 
         return (true, string.Empty);
+    }
+
+    private static bool TryValidateMidiNoteData(JsonElement data)
+    {
+        return data.TryGetProperty("noteNumber", out var noteNumberProp) &&
+            noteNumberProp.ValueKind == JsonValueKind.Number &&
+            noteNumberProp.TryGetInt32(out var noteNumber) &&
+            noteNumber >= 0 &&
+            noteNumber <= 127 &&
+            data.TryGetProperty("velocity", out var velocityProp) &&
+            velocityProp.ValueKind == JsonValueKind.Number &&
+            velocityProp.TryGetInt32(out var velocity) &&
+            velocity >= 0 &&
+            velocity <= 127;
     }
 
     /// <summary>

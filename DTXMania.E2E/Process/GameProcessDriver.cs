@@ -40,6 +40,7 @@ public sealed class GameProcessDriver : IAsyncDisposable
         startInfo.ArgumentList.Add(gameProjectPath);
         startInfo.Environment["DTXMANIA_APPDATA_ROOT"] = fixture.AppDataRoot;
         startInfo.Environment["DTXMANIA_LAUNCH_TOKEN"] = Guid.NewGuid().ToString("N");
+        startInfo.Environment["DTXMANIA_ENABLE_SIMULATED_MIDI"] = "1";
 
         _process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start game process.");

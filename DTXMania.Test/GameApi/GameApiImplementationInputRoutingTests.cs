@@ -1,9 +1,12 @@
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Moq;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
@@ -82,6 +85,38 @@ namespace DTXMania.Test.GameApi
             var buttonState = AssertSingleInjectedButton(inputManager);
             Assert.Equal(expectedButtonId, buttonState.Id);
             Assert.Equal(expectedPressed, buttonState.IsPressed);
+        }
+
+        [Fact]
+        public async Task SendInputAsync_WithMidiNoteOnPayload_RoutesThroughSimulatedMidiSource()
+        {
+            var configManager = new ConfigManager();
+            configManager.SetMidiVelocityThreshold(36, 20);
+            configManager.Config.KeyBindings["MIDI.36"] = 5;
+            var midiBackend = new SimulatedMidiDeviceBackend();
+            using var inputManager = new InputManagerCompat(configManager, midiBackend);
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
+            var api = new GameApiImplementation(gameContext.Object);
+            LaneHitEventArgs? capturedLaneHit = null;
+            inputManager.ModularInputManager.OnLaneHit += (_, args) => capturedLaneHit = args;
+
+            var result = await api.SendInputAsync(new GameInput
+            {
+                Type = InputType.MidiNoteOn,
+                Data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 100 })
+            });
+
+            Assert.True(result);
+            inputManager.ModularInputManager.Update();
+
+            var pressed = inputManager.ModularInputManager.ConsumePressedButtons();
+            var button = Assert.Single(pressed.Where(state => state.Id == "MIDI.36"));
+            Assert.True(button.IsPressed);
+            Assert.Equal(100f / 127f, button.Velocity, precision: 4);
+            Assert.NotNull(capturedLaneHit);
+            Assert.Equal(5, capturedLaneHit!.Lane);
+            Assert.Equal("MIDI.36", capturedLaneHit.Button.Id);
         }
 
         [Theory]

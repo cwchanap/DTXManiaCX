@@ -77,7 +77,9 @@ public enum InputType
     MouseClick,
     MouseMove,
     KeyPress,
-    KeyRelease
+    KeyRelease,
+    MidiNoteOn,
+    MidiNoteOff
 }
 
 /// <summary>

@@ -123,6 +123,9 @@ namespace DTXMania.Game.Lib.Stage
         private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
+        private int? _lastLaneHitLane;
+        private string? _lastLaneHitButtonId;
+        private double? _lastLaneHitSongTimeMs;
         private Texture2D _fallbackWhiteTexture = null!;
         private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
@@ -1188,6 +1191,12 @@ namespace DTXMania.Game.Lib.Stage
             // Suppress player feedback entirely when autoplay is driving hits
             if (_autoPlayEnabled) return;
 
+            _lastLaneHitLane = e.Lane;
+            _lastLaneHitButtonId = e.Button.Id;
+            _lastLaneHitSongTimeMs = _songTimer != null && _currentGameTime != null && _songTimer.IsPlaying
+                ? _songTimer.GetCurrentMs(_currentGameTime)
+                : 0.0;
+
             // Trigger immediate pad press effect on input (regardless of judgement)
             _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
 
@@ -1901,6 +1910,9 @@ namespace DTXMania.Game.Lib.Stage
                 && (_isReady || _songTimer?.IsPlaying == true);
             telemetry.AutoPlayEnabled = _autoPlayEnabled;
             telemetry.StageCompleted = _stageCompleted;
+            telemetry.CurrentSongTimeMs = _songTimer != null && _currentGameTime != null && _songTimer.IsPlaying
+                ? _songTimer.GetCurrentMs(_currentGameTime)
+                : 0.0;
             telemetry.Score = _scoreManager?.CurrentScore ?? 0;
             telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
             telemetry.MaxCombo = _comboManager?.MaxCombo ?? 0;
@@ -1912,6 +1924,9 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
             telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
             telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
+            telemetry.LastLaneHitLane = _lastLaneHitLane;
+            telemetry.LastLaneHitButtonId = _lastLaneHitButtonId;
+            telemetry.LastLaneHitSongTimeMs = _lastLaneHitSongTimeMs;
         }
 
         #endregion
