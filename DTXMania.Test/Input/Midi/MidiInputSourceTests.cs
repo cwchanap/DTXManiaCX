@@ -53,14 +53,16 @@ public sealed class MidiInputSourceTests
         Assert.Equal(85f / 127f, state.Velocity);
     }
 
-    [Fact]
-    public void Update_NoteOnBelowThreshold_ReturnsNoButtonState()
+    [Theory]
+    [InlineData(85)]
+    [InlineData(84)]
+    public void Update_NoteOnEqualOrBelowThreshold_ReturnsNoButtonState(int velocity)
     {
         var device = new FakeMidiInputDevice("Kit", "kit");
         using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 85);
         source.Initialize();
 
-        device.Emit(36, 85, isPressed: true);
+        device.Emit(36, velocity, isPressed: true);
         var states = source.Update().ToList();
 
         Assert.Empty(states);
@@ -155,6 +157,50 @@ public sealed class MidiInputSourceTests
         Assert.Equal(1, removed.DisposeCount);
         Assert.Equal(1, added.StartCount);
         Assert.Equal(0, added.DisposeCount);
+    }
+
+    [Fact]
+    public void RefreshDevices_SameStableIdKeepsActiveDeviceAndDisposesNewUnusedDevice()
+    {
+        var active = new FakeMidiInputDevice("Active Kit", "d1");
+        var unusedReplacement = new FakeMidiInputDevice("Replacement Kit", "d1");
+        var backend = new FakeMidiDeviceBackend(active);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+
+        backend.SetDevices(unusedReplacement);
+        source.RefreshDevices();
+
+        Assert.Equal(new[] { "Active Kit" }, source.DeviceNames);
+        Assert.Equal(1, active.StartCount);
+        Assert.Equal(0, active.StopCount);
+        Assert.Equal(0, active.DisposeCount);
+        Assert.Equal(0, unusedReplacement.StartCount);
+        Assert.Equal(1, unusedReplacement.DisposeCount);
+    }
+
+    [Fact]
+    public void RefreshDevices_RemovingPressedDeviceClearsAcceptedState()
+    {
+        var removed = new FakeMidiInputDevice("Removed Kit", "removed");
+        var remaining = new FakeMidiInputDevice("Remaining Kit", "remaining");
+        var backend = new FakeMidiDeviceBackend(removed, remaining);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+        removed.Emit(36, 85, isPressed: true);
+        remaining.Emit(36, 100, isPressed: true);
+        Assert.Equal(2, source.Update().Count());
+
+        backend.SetDevices(remaining);
+        source.RefreshDevices();
+
+        remaining.Emit(36, 0, isPressed: false);
+        var states = source.Update().ToList();
+
+        var state = Assert.Single(states);
+        Assert.Equal("MIDI.36", state.Id);
+        Assert.False(state.IsPressed);
+        Assert.Equal(0f, state.Velocity);
     }
 
     [Fact]
