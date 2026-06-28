@@ -27,8 +27,13 @@ namespace DTXMania.Game.Lib.Input
         private readonly KeyBindings _keyBindings;
         private readonly InputRouter _inputRouter;
         private readonly List<IInputSource> _inputSources;
+#nullable enable annotations
+        // These fields are genuinely nullable: _midiInputSource is null until
+        // InitializeInputSources() runs; _midiNoteInjector is null when the MIDI
+        // backend does not implement IMidiNoteInjector (e.g. production DryWetMIDI).
         private MidiInputSource? _midiInputSource;
         private readonly IMidiNoteInjector? _midiNoteInjector;
+#nullable restore annotations
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
