@@ -885,7 +885,7 @@ namespace DTXMania.Test.Stage
             private readonly HashSet<InputCommandType> _pressedCommands = new();
             private bool _backTriggered;
 
-            public StubInputManagerCompat() : base(new ConfigManager())
+            public StubInputManagerCompat() : base(new ConfigManager(), new TestMidiDeviceBackend())
             {
             }
 

@@ -146,7 +146,7 @@ namespace DTXMania.Test.Helpers
 
         public event EventHandler<LaneHitEventArgs>? OnLaneHit;
         
-        public MockInputManagerCompat() : base(new ConfigManager())
+        public MockInputManagerCompat() : base(new ConfigManager(), new TestMidiDeviceBackend())
         {
         }
 
