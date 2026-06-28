@@ -121,8 +121,9 @@ public sealed class MidiInputSource : IInputSource
             discoveredDevices = Array.Empty<IMidiInputDevice>();
         }
 
-        var candidates = SelectDeviceCandidates(discoveredDevices);
+        var discoveredDeviceGroups = GroupDevicesByStableId(discoveredDevices);
         List<IMidiInputDevice> devicesToRemove;
+        var devicesToDispose = new List<IMidiInputDevice>();
         var devicesToStart = new List<(string StableId, IMidiInputDevice Device)>();
 
         lock (_sync)
@@ -130,26 +131,38 @@ public sealed class MidiInputSource : IInputSource
             if (_disposed)
                 return;
 
-            devicesToRemove = _devices
-                .Where(pair => !candidates.TryGetValue(pair.Key, out var candidate) || !ReferenceEquals(pair.Value, candidate))
-                .Select(pair => pair.Value)
+            var discoveredStableIds = discoveredDeviceGroups.Keys.ToHashSet(StringComparer.Ordinal);
+            var removedStableIds = _devices.Keys
+                .Where(stableId => !discoveredStableIds.Contains(stableId))
                 .ToList();
 
-            foreach (var device in devicesToRemove)
+            devicesToRemove = removedStableIds
+                .Select(stableId => _devices[stableId])
+                .ToList();
+
+            foreach (var stableId in removedStableIds)
             {
-                var stableId = FindStableId(device);
-                if (stableId != null)
-                    _devices.Remove(stableId);
+                _devices.Remove(stableId);
+                _acceptedPressedNotes.RemoveWhere(key => key.DeviceStableId == stableId);
             }
 
-            foreach (var (stableId, device) in candidates)
+            foreach (var (stableId, devices) in discoveredDeviceGroups)
             {
-                if (!_devices.ContainsKey(stableId))
-                    devicesToStart.Add((stableId, device));
+                if (_devices.TryGetValue(stableId, out var activeDevice))
+                {
+                    devicesToDispose.AddRange(devices.Where(device => !ReferenceEquals(device, activeDevice)));
+                    continue;
+                }
+
+                devicesToStart.Add((stableId, devices[0]));
+                devicesToDispose.AddRange(devices.Skip(1));
             }
         }
 
         foreach (var device in devicesToRemove)
+            StopAndDisposeDevice(device);
+
+        foreach (var device in devicesToDispose)
             StopAndDisposeDevice(device);
 
         foreach (var (stableId, device) in devicesToStart)
@@ -180,9 +193,9 @@ public sealed class MidiInputSource : IInputSource
         GC.SuppressFinalize(this);
     }
 
-    private Dictionary<string, IMidiInputDevice> SelectDeviceCandidates(IReadOnlyList<IMidiInputDevice> devices)
+    private Dictionary<string, List<IMidiInputDevice>> GroupDevicesByStableId(IReadOnlyList<IMidiInputDevice> devices)
     {
-        var candidates = new Dictionary<string, IMidiInputDevice>(StringComparer.Ordinal);
+        var groups = new Dictionary<string, List<IMidiInputDevice>>(StringComparer.Ordinal);
 
         foreach (var device in devices)
         {
@@ -192,13 +205,16 @@ public sealed class MidiInputSource : IInputSource
                 continue;
             }
 
-            if (candidates.TryAdd(device.StableId, device))
-                continue;
+            if (!groups.TryGetValue(device.StableId, out var deviceGroup))
+            {
+                deviceGroup = new List<IMidiInputDevice>();
+                groups.Add(device.StableId, deviceGroup);
+            }
 
-            StopAndDisposeDevice(device);
+            deviceGroup.Add(device);
         }
 
-        return candidates;
+        return groups;
     }
 
     private void TryStartAndTrackDevice(string stableId, IMidiInputDevice device)
@@ -280,17 +296,6 @@ public sealed class MidiInputSource : IInputSource
             return;
 
         _pendingNotes.Enqueue(e);
-    }
-
-    private string? FindStableId(IMidiInputDevice device)
-    {
-        foreach (var (stableId, currentDevice) in _devices)
-        {
-            if (ReferenceEquals(currentDevice, device))
-                return stableId;
-        }
-
-        return null;
     }
 
     private readonly record struct AcceptedNoteKey(string DeviceStableId, int NoteNumber);
