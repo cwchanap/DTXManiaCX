@@ -484,6 +484,12 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Whether the MIDI input source currently has at least one listening device.
+        /// False when no MIDI source is configured or no devices are attached.
+        /// </summary>
+        public bool MidiAvailable => _midiInputSource?.IsAvailable ?? false;
+
+        /// <summary>
         /// Clears all pending injected state: the button queue, injected key states, press events,
         /// and any pending/accepted injected MIDI notes. Call this when switching stages to prevent
         /// stale injected inputs from leaking into the next stage.
