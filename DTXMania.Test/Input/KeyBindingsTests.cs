@@ -347,10 +347,29 @@ namespace DTXMania.Test.Input
         [InlineData("MIDI.128")]
         [InlineData("Key.A")]
         [InlineData("Pad.A")]
+        // Zero-padded forms must be rejected so only canonical CreateMidiButtonId output round-trips.
+        // "MIDI.00" would otherwise collide with the canonical "MIDI.0", and "MIDI.036" with "MIDI.36".
+        [InlineData("MIDI.00")]
+        [InlineData("MIDI.01")]
+        [InlineData("MIDI.036")]
+        [InlineData("MIDI.0127")]
         public void TryParseMidiButtonId_InvalidId_ShouldReturnFalse(string buttonId)
         {
             Assert.False(KeyBindings.TryParseMidiButtonId(buttonId, out var noteNumber));
             Assert.Equal(0, noteNumber);
+        }
+
+        [Fact]
+        public void TryParseMidiButtonId_ShouldRoundTripCreateMidiButtonIdForFullRange()
+        {
+            // Every canonical ID produced by CreateMidiButtonId(0..127) must parse back to the same
+            // note number — this is the round-trip invariant the zero-padding rejection protects.
+            for (var note = 0; note <= 127; note++)
+            {
+                var id = KeyBindings.CreateMidiButtonId(note);
+                Assert.True(KeyBindings.TryParseMidiButtonId(id, out var parsed), $"Failed to round-trip {id}");
+                Assert.Equal(note, parsed);
+            }
         }
 
         [Fact]

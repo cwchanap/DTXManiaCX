@@ -42,6 +42,20 @@ namespace DTXMania.Test.GameApi
 
         #region Constructor Tests
 
+        [Theory]
+        [InlineData(InputType.MouseClick, 0)]
+        [InlineData(InputType.MouseMove, 1)]
+        [InlineData(InputType.KeyPress, 2)]
+        [InlineData(InputType.KeyRelease, 3)]
+        [InlineData(InputType.MidiNoteOn, 4)]
+        [InlineData(InputType.MidiNoteOff, 5)]
+        public void InputType_ExplicitWireValues_AreStable(InputType type, int expectedWireValue)
+        {
+            // The JSON-RPC integer wire values are part of the protocol contract (clients send
+            // {"type":4} for MidiNoteOn, etc.). Explicit enum values must never silently shift.
+            Assert.Equal(expectedWireValue, (int)type);
+        }
+
         [Fact]
         public void Constructor_WithNullGameApi_ShouldThrowArgumentNullException()
         {
@@ -270,6 +284,44 @@ namespace DTXMania.Test.GameApi
         public void ValidateGameInput_KeyPress_BooleanData_ShouldReturnFalse()
         {
             var data = JsonSerializer.SerializeToElement(true);
+            var input = KeyInput(InputType.KeyPress, data);
+            var (isValid, msg) = Validate(input);
+            Assert.False(isValid);
+            Assert.Equal("Invalid key data format", msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_KeyPress_ObjectWithKeyProperty_ShouldReturnTrue()
+        {
+            // Object format from the MCP bridge: {"key":"Down","holdDurationMs":50,"clientId":"default"}.
+            // GameApiServer must accept the same payload shape as JsonRpcServer (regression guard for
+            // the divergence where /game/input rejected object-shaped key inputs that /jsonrpc accepted).
+            var data = JsonSerializer.SerializeToElement(new { key = "Down", holdDurationMs = 50 });
+            var input = KeyInput(InputType.KeyPress, data);
+            var (isValid, msg) = Validate(input);
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_KeyRelease_ObjectWithKeyProperty_ShouldReturnTrue()
+        {
+            var data = JsonSerializer.SerializeToElement(new { key = "Escape" });
+            var input = KeyInput(InputType.KeyRelease, data);
+            var (isValid, msg) = Validate(input);
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
+        }
+
+        [Theory]
+        [InlineData("{\"holdDurationMs\":50}", "missing key property")]
+        [InlineData("{\"key\":123}", "key not a string")]
+        [InlineData("{\"key\":\"   \"}", "key whitespace")]
+        [InlineData("{\"key\":\"\"}", "key empty")]
+        public void ValidateGameInput_KeyPress_InvalidObjectKey_ShouldReturnFalse(string json, string scenario)
+        {
+            _ = scenario;
+            var data = JsonDocument.Parse(json).RootElement.Clone();
             var input = KeyInput(InputType.KeyPress, data);
             var (isValid, msg) = Validate(input);
             Assert.False(isValid);

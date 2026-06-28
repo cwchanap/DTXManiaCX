@@ -88,7 +88,7 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
-        public async Task SendInputAsync_WithMidiNoteOnPayload_RoutesThroughSimulatedMidiSource()
+        public async Task WithMidiNoteOnPayload_ShouldRouteThroughSimulatedMidiSource()
         {
             var configManager = new ConfigManager();
             configManager.SetMidiVelocityThreshold(36, 20);
@@ -221,7 +221,7 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
-        public async Task SendInputAsync_WithMidiNoteOffPayload_RoutesThroughSimulatedMidiSource()
+        public async Task WithMidiNoteOffPayload_ShouldRouteThroughSimulatedMidiSource()
         {
             var configManager = new ConfigManager();
             configManager.Config.KeyBindings["MIDI.36"] = 5;

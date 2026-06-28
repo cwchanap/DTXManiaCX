@@ -106,6 +106,21 @@ public sealed class MidiInputSource : IInputSource
             yield return new ButtonState(KeyBindings.CreateMidiButtonId(note), true, 1.0f);
     }
 
+    /// <summary>
+    /// Clears any pending injected note events and accepted-press state so they cannot leak
+    /// across stage transitions (e.g. a note injected near the end of one song replaying in the
+    /// next). Called from <see cref="ModularInputManager.ClearInjectedState"/> alongside the
+    /// keyboard/injected-button cleanup so all injected input types are reset consistently.
+    /// </summary>
+    public void ClearInjectedNotes()
+    {
+        while (_pendingNotes.TryDequeue(out _)) { }
+        lock (_sync)
+        {
+            _acceptedPressedNotes.Clear();
+        }
+    }
+
     public void RefreshDevices()
     {
         lock (_refreshSync)
@@ -294,7 +309,10 @@ public sealed class MidiInputSource : IInputSource
                 return null;
 
             _acceptedPressedNotes.Add(key);
-            return new ButtonState(KeyBindings.CreateMidiButtonId(note.NoteNumber), true, note.Velocity / 127f);
+            // Clamp the raw velocity to the valid MIDI range [0,127] before normalizing so a
+            // misbehaving/injected backend cannot produce a ButtonState.Velocity above 1.0f.
+            var clampedVelocity = Math.Max(0, Math.Min(127, note.Velocity));
+            return new ButtonState(KeyBindings.CreateMidiButtonId(note.NoteNumber), true, clampedVelocity / 127f);
         }
 
         if (!_acceptedPressedNotes.Remove(key))

@@ -18,6 +18,17 @@ public sealed class GameProcessDriver : IAsyncDisposable
     public int? ExitCode => _process?.HasExited == true ? _process.ExitCode : null;
 
     public void Start(string repoRoot, string gameProjectPath, E2EFixture fixture)
+        => Start(repoRoot, gameProjectPath, fixture, enableSimulatedMidi: false);
+
+    /// <summary>
+    /// Starts the game process.
+    /// </summary>
+    /// <param name="enableSimulatedMidi">
+    /// When true, sets <c>DTXMANIA_ENABLE_SIMULATED_MIDI=1</c> so the game uses the injectable
+    /// simulated MIDI backend (required for MIDI-driven E2E scenarios). When false, the env var is
+    /// not set and the game uses its default production MIDI backend.
+    /// </param>
+    public void Start(string repoRoot, string gameProjectPath, E2EFixture fixture, bool enableSimulatedMidi)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(gameProjectPath);
@@ -40,7 +51,8 @@ public sealed class GameProcessDriver : IAsyncDisposable
         startInfo.ArgumentList.Add(gameProjectPath);
         startInfo.Environment["DTXMANIA_APPDATA_ROOT"] = fixture.AppDataRoot;
         startInfo.Environment["DTXMANIA_LAUNCH_TOKEN"] = Guid.NewGuid().ToString("N");
-        startInfo.Environment["DTXMANIA_ENABLE_SIMULATED_MIDI"] = "1";
+        if (enableSimulatedMidi)
+            startInfo.Environment["DTXMANIA_ENABLE_SIMULATED_MIDI"] = "1";
 
         _process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start game process.");

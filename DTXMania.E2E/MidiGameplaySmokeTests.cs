@@ -14,6 +14,7 @@ public sealed class MidiGameplaySmokeTests
 {
     private const int MidiNote = 36;
     private const int MidiLane = 5;
+    private const int MidiVelocityThreshold = 20;
     private const double TargetNoteTimeMs = 10_000.0;
 
     [Fact(Timeout = 180_000)]
@@ -41,7 +42,7 @@ public sealed class MidiGameplaySmokeTests
                     ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
                     : "DTXMania.Game/DTXMania.Game.Mac.csproj");
 
-            process.Start(repoRoot, projectPath, fixture);
+            process.Start(repoRoot, projectPath, fixture, enableSimulatedMidi: true);
 
             await Eventually.UntilAsync(
                 _ => client.IsHealthyAsync(cancellation.Token),
@@ -122,10 +123,10 @@ public sealed class MidiGameplaySmokeTests
         {
             string.Empty,
             "[KeyBindings]",
-            "MIDI.36=5",
+            $"MIDI.{MidiNote}={MidiLane}",
             string.Empty,
             "[MidiVelocityThresholds]",
-            "MidiVelocity.36=20",
+            $"MidiVelocity.{MidiNote}={MidiVelocityThreshold}",
             string.Empty
         });
 
@@ -222,8 +223,15 @@ public sealed class MidiGameplaySmokeTests
     private static int GetPortFromEnvironmentOrDefault()
     {
         var raw = Environment.GetEnvironmentVariable("DTXMANIA_E2E_API_PORT");
-        if (int.TryParse(raw, out var port))
+        // Only honor the override when it parses to a valid TCP port (1-65535); otherwise fall
+        // through to an ephemeral OS-assigned port so a misconfigured value can't break the run.
+        const int minValidTcpPort = 1;
+        const int maxValidTcpPort = 65535;
+        if (int.TryParse(raw, out var port) &&
+            port >= minValidTcpPort && port <= maxValidTcpPort)
+        {
             return port;
+        }
 
         const int maxAttempts = 5;
         for (int attempt = 0; attempt < maxAttempts; attempt++)
