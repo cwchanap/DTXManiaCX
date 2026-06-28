@@ -931,7 +931,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             public bool BackTriggered;
             public InputCommandType? ActiveCommand;
             public int? PressedKey;
-            public FakeInput(ConfigManager config) : base(config) { }
+            public FakeInput(ConfigManager config) : base(config, new TestMidiDeviceBackend()) { }
             public override bool IsBackActionTriggered() => BackTriggered;
             public override bool IsCommandPressed(InputCommandType command) => command == ActiveCommand;
             public override bool IsKeyPressed(int keyCode) => keyCode == PressedKey;
