@@ -11,18 +11,13 @@ namespace DTXMania.Test.Input.Midi;
 [Trait("Category", "Input")]
 public sealed class DryWetMidiDeviceBackendTests
 {
-    [Fact]
-    public void GetInputDevices_WhenNoHardwareDevices_ReturnsEmptyList()
-    {
-        // CI environments have no MIDI hardware; InputDevice.GetAll() returns empty.
-        var backend = new DryWetMidiDeviceBackend();
-
-        var devices = backend.GetInputDevices();
-
-        // On CI this is empty; on a dev machine with real devices it may be non-empty.
-        // We only assert it doesn't throw and returns a valid list.
-        Assert.NotNull(devices);
-    }
+    // GetInputDevices() is a thin wrapper around DryWetMIDI's InputDevice.GetAll() and
+    // is intentionally not unit-tested here: it probes real host MIDI hardware (CoreMIDI
+    // on macOS, WinMM on Windows), which can throw on headless/sandboxed CI runners where
+    // the MIDI subsystem is unavailable. The design doc's testing strategy explicitly
+    // requires tests to avoid probing host hardware. Coverage of device enumeration lives
+    // in the manual/integration verification path (see design doc "Integration/Manual
+    // Verification"). The pure conversion logic below is the unit-testable surface.
 
     [Fact]
     public void TryConvertEvent_NoteOnWithPositiveVelocity_ReturnsPressedNote()

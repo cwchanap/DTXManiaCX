@@ -105,7 +105,7 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
         private void OnEventReceived(object? sender, MidiEventReceivedEventArgs e)
         {
             if (TryConvertEvent(e.Event, StableId, out var args))
-                NoteReceived?.Invoke(this, args);
+                NoteReceived?.Invoke(this, args!);
         }
     }
 
@@ -115,7 +115,7 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
     /// velocity 0 and NoteOff both report a release. Non-note events are ignored.
     /// Extracted from <see cref="DryWetMidiInputDevice.OnEventReceived"/> for unit testing.
     /// </summary>
-    internal static bool TryConvertEvent(MidiEvent e, string stableId, out MidiNoteEventArgs args)
+    internal static bool TryConvertEvent(MidiEvent e, string stableId, out MidiNoteEventArgs? args)
     {
         switch (e)
         {

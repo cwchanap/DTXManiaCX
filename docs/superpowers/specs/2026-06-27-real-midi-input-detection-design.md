@@ -335,11 +335,37 @@ Manual run with a MIDI drum kit or virtual MIDI source:
 7. Confirm hits at or below threshold do not trigger the lane.
 8. Hot-plug a MIDI device and confirm keyboard input remains usable.
 
+### Testability Seam (Implementation Addition)
+
+Beyond the original plan, a testability seam was added so the E2E harness and MCP can drive MIDI-style note events through the real input pipeline without physical hardware. This stays within the design's non-goals (it is not SMF parsing or a new MIDI setup screen) and reuses the existing Game API auth/validation infrastructure.
+
+**`IMidiNoteInjector`** (`Lib/Input/Midi/IMidiNoteInjector.cs`):
+- A single-method interface: `bool TryInjectNote(int noteNumber, int velocity, bool isPressed)`.
+- `SimulatedMidiDeviceBackend` implements both `IMidiDeviceBackend` and `IMidiNoteInjector`. Injected notes traverse the same `OnNoteReceived` → queue → `ProcessNote` path as real hardware events — there is no parallel code path.
+- The production `DryWetMidiDeviceBackend` does **not** implement `IMidiNoteInjector`, so injection is a logged no-op in production unless `DTXMANIA_ENABLE_SIMULATED_MIDI=1` selects the simulated backend.
+
+**Game API integration:**
+- MIDI injection reuses the existing `sendInput` JSON-RPC method with new `InputType` enum values (`MidiNoteOn` = 4, `MidiNoteOff` = 5) rather than adding a separate method. This automatically inherits the existing constant-time API-key auth and request-size limits.
+- `GameInputValidator.TryValidateMidiNoteData` enforces `noteNumber` and `velocity` are integers in `0..127`. No arbitrary button IDs are accepted — only notes routed through `KeyBindings`.
+- `GameInputValidator` also consolidates input validation that was previously duplicated between the REST and JSON-RPC endpoints (a DRY fix).
+
+**Telemetry additions:**
+- `GameTelemetrySnapshot` exposes `MidiAvailable` (whether the MIDI source has at least one listening device) and `LastLaneHit*` / `CurrentSongTimeMs` fields used by the E2E smoke test to assert real gameplay judgements with `AutoPlay=False`.
+
+**E2E test:**
+- `DTXMania.E2E/MidiGameplaySmokeTests.cs` launches the game out-of-process with the simulated MIDI backend, injects note-on/off events via `sendInput`, and asserts a cleared run through the Result stage — verifying the full pipeline (API → simulated backend → queue → filter → router → judgement → score → result) without hardware.
+
 ## Touch List
 
 - `DTXMania.Game/DTXMania.Game.Mac.csproj` - add DryWetMIDI package reference.
 - `DTXMania.Game/DTXMania.Game.Windows.csproj` - add DryWetMIDI package reference.
 - `DTXMania.Game/Lib/Input/Midi/` - new backend adapter, event args, velocity filter, and MIDI input source.
+- `DTXMania.Game/Lib/Input/Midi/IMidiNoteInjector.cs` - testability seam for API/E2E MIDI note injection.
+- `DTXMania.Game/Lib/Input/Midi/SimulatedMidiDeviceBackend.cs` - fake backend that also implements `IMidiNoteInjector` for hardware-free testing.
+- `DTXMania.Game/Lib/GameInputValidator.cs` - shared input validation for REST and JSON-RPC endpoints (DRY fix + MIDI note validation).
+- `DTXMania.Game/Lib/GameApiImplementation.cs` - `sendInput` routing for `MidiNoteOn`/`MidiNoteOff` input types.
+- `DTXMania.Game/Lib/GameTelemetrySnapshot.cs` - `MidiAvailable` and `LastLaneHit*`/`CurrentSongTimeMs` fields for E2E assertions.
+- `DTXMania.E2E/MidiGameplaySmokeTests.cs` - out-of-process E2E smoke test driving MIDI input via the Game API.
 - `DTXMania.Game/Lib/Input/ModularInputManager.cs` - add MIDI source, avoid double initialization, refresh MIDI devices during scan, include diagnostics.
 - `DTXMania.Game/Lib/Input/KeyBindings.cs` - keep `MIDI.<note>` formatting; add parsing helpers if useful for UI/config.
 - `DTXMania.Game/Lib/Config/ConfigData.cs` - add `MidiVelocityThresholds`.
