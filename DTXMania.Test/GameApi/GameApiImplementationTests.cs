@@ -140,6 +140,53 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
+        public async Task GetGameStateAsync_WithMidiDeviceAttached_ShouldReportMidiAvailableTrue()
+        {
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Title);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+
+            using var inputManager = new InputManagerCompat(
+                new ConfigManager(),
+                new TestMidiDeviceBackend(new TestMidiInputDevice("stable-1", "Test Device")));
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+            gameContext.SetupGet(g => g.InputManager).Returns(inputManager);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.True(telemetry.MidiAvailable);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_WithoutInputManager_ShouldReportMidiAvailableNull()
+        {
+            var stage = new Mock<IStage>();
+            stage.SetupGet(s => s.Type).Returns(StageType.Title);
+            stage.SetupGet(s => s.CurrentPhase).Returns(StagePhase.Normal);
+
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(sm => sm.CurrentStage).Returns(stage.Object);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.StageManager).Returns(stageManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Null(telemetry.MidiAvailable);
+        }
+
+        [Fact]
         public async Task GetGameStateAsync_WhenStageTelemetryProviderThrows_ShouldReturnBaseTelemetry()
         {
             var telemetryException = new InvalidOperationException("provider failure");

@@ -26,6 +26,7 @@ public sealed class GameTelemetrySnapshot
     public int? MaxCombo { get; set; }
     public float? Gauge { get; set; }
     public bool? HasFailed { get; set; }
+    public bool? MidiAvailable { get; set; }
 
     public int? PerfectCount { get; set; }
     public int? GreatCount { get; set; }

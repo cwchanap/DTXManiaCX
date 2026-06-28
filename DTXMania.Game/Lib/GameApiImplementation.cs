@@ -110,12 +110,15 @@ public class GameApiImplementation : IGameApi
         var stageManager = _game.StageManager;
         var currentStage = stageManager?.CurrentStage;
 
+        var inputManager = _game.InputManager?.ModularInputManager;
+
         var baseTelemetry = new GameTelemetrySnapshot
         {
             StageName = currentStage?.GetType().Name ?? "Unknown",
             StageType = currentStage?.Type.ToString() ?? "Unknown",
             StagePhase = currentStage?.CurrentPhase.ToString() ?? "Unknown",
-            IsTransitioning = stageManager?.IsTransitioning ?? false
+            IsTransitioning = stageManager?.IsTransitioning ?? false,
+            MidiAvailable = inputManager?.MidiAvailable
         };
 
         if (currentStage is IStageTelemetryProvider provider)
@@ -127,7 +130,8 @@ public class GameApiImplementation : IGameApi
                     StageName = baseTelemetry.StageName,
                     StageType = baseTelemetry.StageType,
                     StagePhase = baseTelemetry.StagePhase,
-                    IsTransitioning = baseTelemetry.IsTransitioning
+                    IsTransitioning = baseTelemetry.IsTransitioning,
+                    MidiAvailable = baseTelemetry.MidiAvailable
                 };
 
                 provider.PopulateTelemetry(providerTelemetry);
