@@ -104,6 +104,47 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void AdjustMidiVelocityThreshold_IncrementsAndClampsInConfig()
+        {
+            var (stage, cm, _) = CreateWiredStage();
+            cm.SetMidiVelocityThreshold(36, 126);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
+
+            Assert.Equal(127, cm.GetMidiVelocityThreshold(36));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
+
+            Assert.Equal(127, cm.GetMidiVelocityThreshold(36));
+        }
+
+        [Fact]
+        public void AdjustMidiVelocityThreshold_DecrementsAndRemovesAtZero()
+        {
+            var (stage, cm, _) = CreateWiredStage();
+            cm.SetMidiVelocityThreshold(36, 1);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, -1);
+
+            Assert.Equal(0, cm.GetMidiVelocityThreshold(36));
+            Assert.False(cm.Config.MidiVelocityThresholds.ContainsKey(36));
+        }
+
+        [Fact]
+        public void RemoveBindingFromConfig_DoesNotRemoveMidiVelocityThreshold()
+        {
+            var (stage, cm, input) = CreateWiredStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
+            cm.SetMidiVelocityThreshold(36, 20);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "RemoveBindingFromConfig", "MIDI.36");
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
+            Assert.Equal(-1, input.ModularInputManager.KeyBindings.GetLane("MIDI.36"));
+            Assert.Equal(20, cm.GetMidiVelocityThreshold(36));
+        }
+
+        [Fact]
         public void ClearLaneInConfig_ClearsAllButtonsForLane()
         {
             var (stage, cm, input) = CreateWiredStage();
@@ -265,7 +306,8 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
             var popup = new DrumCapturePopup(
                 () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
+                () => input.GetKeyMappingSnapshot(),
+                note => cm.GetMidiVelocityThreshold(note));
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", default(MouseState));
             return (stage, cm, input);
@@ -599,6 +641,52 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
             Assert.True(cm.Config.KeyBindings.ContainsKey("Key.Q"));
             Assert.Equal(4, cm.Config.KeyBindings["Key.Q"]);
+        }
+
+        [Fact]
+        public void UpdatePopup_LeftClickOnMidiChipIncrement_IncrementsVelocityThresholdInConfig()
+        {
+            var (stage, cm, input) = CreateWiredStage(1280, 720);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
+            cm.SetMidiVelocityThreshold(36, 20);
+            var popup = new DrumCapturePopup(
+                () => input.ModularInputManager.KeyBindings.ButtonToLane,
+                () => input.GetKeyMappingSnapshot(),
+                note => cm.GetMidiVelocityThreshold(note));
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            popup.Open(4);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
+
+            var incrementRect = popup.GetBindingChips(1280, 720)
+                .Single(c => c.ButtonId == "MIDI.36").IncrementVelocityThreshold;
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
+                0.0, MouseAt(incrementRect.Center.X, incrementRect.Center.Y, true), true, false);
+
+            Assert.Equal(21, cm.GetMidiVelocityThreshold(36));
+            Assert.True(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
+        }
+
+        [Fact]
+        public void UpdatePopup_LeftClickOnMidiChipDecrement_DecrementsVelocityThresholdInConfig()
+        {
+            var (stage, cm, input) = CreateWiredStage(1280, 720);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
+            cm.SetMidiVelocityThreshold(36, 20);
+            var popup = new DrumCapturePopup(
+                () => input.ModularInputManager.KeyBindings.ButtonToLane,
+                () => input.GetKeyMappingSnapshot(),
+                note => cm.GetMidiVelocityThreshold(note));
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            popup.Open(4);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
+
+            var decrementRect = popup.GetBindingChips(1280, 720)
+                .Single(c => c.ButtonId == "MIDI.36").DecrementVelocityThreshold;
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
+                0.0, MouseAt(decrementRect.Center.X, decrementRect.Center.Y, true), true, false);
+
+            Assert.Equal(19, cm.GetMidiVelocityThreshold(36));
+            Assert.True(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
         }
 
         [Fact]
