@@ -24,6 +24,24 @@ public sealed class JsonRpcGameClientTests
     }
 
     [Fact]
+    public async Task SendMidiNoteAsync_ShouldSendNoteOnAndNoteOffRequests()
+    {
+        using var handler = new RecordingHandler();
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:18080/") };
+        var client = new JsonRpcGameClient(httpClient, "secret");
+
+        await client.SendMidiNoteAsync(36, 100, TimeSpan.Zero, CancellationToken.None);
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains("\"method\":\"sendInput\"", handler.RequestBodies[0]);
+        Assert.Contains("\"type\":4", handler.RequestBodies[0]);
+        Assert.Contains("\"noteNumber\":36", handler.RequestBodies[0]);
+        Assert.Contains("\"velocity\":100", handler.RequestBodies[0]);
+        Assert.Contains("\"type\":5", handler.RequestBodies[1]);
+        Assert.All(handler.ApiKeys, apiKey => Assert.Equal("secret", apiKey));
+    }
+
+    [Fact]
     public async Task GetGameStateAsync_ShouldDeserializeTelemetry()
     {
         using var handler = new RecordingHandler(

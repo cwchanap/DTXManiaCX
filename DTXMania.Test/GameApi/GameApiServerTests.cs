@@ -37,6 +37,9 @@ namespace DTXMania.Test.GameApi
         private static GameInput KeyInput(InputType type, JsonElement? data)
             => new GameInput { Type = type, Data = data };
 
+        private static GameInput MidiInput(InputType type, JsonElement? data)
+            => new GameInput { Type = type, Data = data };
+
         #region Constructor Tests
 
         [Fact]
@@ -182,6 +185,18 @@ namespace DTXMania.Test.GameApi
             var (isValid, msg) = Validate(input);
             Assert.False(isValid);
             Assert.Equal("Key input requires key data", msg);
+        }
+
+        [Fact]
+        public void ValidateGameInput_MidiNoteOn_ValidObjectData_ShouldReturnTrue()
+        {
+            var data = JsonSerializer.SerializeToElement(new { noteNumber = 36, velocity = 100 });
+            var input = MidiInput(InputType.MidiNoteOn, data);
+
+            var (isValid, msg) = Validate(input);
+
+            Assert.True(isValid);
+            Assert.Equal(string.Empty, msg);
         }
 
         [Fact]

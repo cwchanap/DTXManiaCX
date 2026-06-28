@@ -20,6 +20,7 @@ public sealed class GameTelemetrySnapshot
     public bool? PerformanceReady { get; set; }
     public bool? AutoPlayEnabled { get; set; }
     public bool? StageCompleted { get; set; }
+    public double? CurrentSongTimeMs { get; set; }
     public int? Score { get; set; }
     public int? CurrentCombo { get; set; }
     public int? MaxCombo { get; set; }
@@ -32,6 +33,9 @@ public sealed class GameTelemetrySnapshot
     public int? PoorCount { get; set; }
     public int? MissCount { get; set; }
     public int? TotalNotes { get; set; }
+    public int? LastLaneHitLane { get; set; }
+    public string? LastLaneHitButtonId { get; set; }
+    public double? LastLaneHitSongTimeMs { get; set; }
     public bool? ClearFlag { get; set; }
     public string? CompletionReason { get; set; }
 

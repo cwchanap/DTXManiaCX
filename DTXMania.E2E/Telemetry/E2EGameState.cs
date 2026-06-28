@@ -36,6 +36,22 @@ public sealed class E2EGameState
 
     public int Score => GetTelemetryInt("score") ?? 0;
 
+    public int MaxCombo => GetTelemetryInt("maxCombo") ?? 0;
+
+    public int MissCount => GetTelemetryInt("missCount") ?? 0;
+
+    public bool PerformanceReady => GetTelemetryBool("performanceReady") ?? false;
+
+    public bool AutoPlayEnabled => GetTelemetryBool("autoPlayEnabled") ?? false;
+
+    public double CurrentSongTimeMs => GetTelemetryDouble("currentSongTimeMs") ?? 0.0;
+
+    public int? LastLaneHitLane => GetTelemetryInt("lastLaneHitLane");
+
+    public string? LastLaneHitButtonId => GetTelemetryString("lastLaneHitButtonId");
+
+    public double? LastLaneHitSongTimeMs => GetTelemetryDouble("lastLaneHitSongTimeMs");
+
     public bool ClearFlag => GetTelemetryBool("clearFlag") ?? false;
 
     public bool StageCompleted => GetTelemetryBool("stageCompleted") ?? false;
@@ -47,6 +63,11 @@ public sealed class E2EGameState
 
     private int? GetTelemetryInt(string propertyName) =>
         Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)
+            ? number
+            : null;
+
+    private double? GetTelemetryDouble(string propertyName) =>
+        Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
             ? number
             : null;
 

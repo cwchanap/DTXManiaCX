@@ -28,6 +28,7 @@ namespace DTXMania.Game.Lib.Input
         private readonly InputRouter _inputRouter;
         private readonly List<IInputSource> _inputSources;
         private MidiInputSource? _midiInputSource;
+        private readonly IMidiNoteInjector? _midiNoteInjector;
         private readonly ConcurrentQueue<ButtonState> _injectedButtonQueue;
         private readonly Dictionary<int, bool> _injectedKeyStates;
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
@@ -92,7 +93,7 @@ namespace DTXMania.Game.Lib.Input
         #region Constructor
 
         public ModularInputManager(ConfigManager configManager)
-            : this(configManager, new DryWetMidiDeviceBackend())
+            : this(configManager, MidiDeviceBackendFactory.CreateDefault())
         {
         }
 
@@ -110,6 +111,7 @@ namespace DTXMania.Game.Lib.Input
             _keyStates = new Dictionary<int, bool>();
             _previousKeyStates = new Dictionary<int, bool>();
             _updateStopwatch = new Stopwatch();
+            _midiNoteInjector = midiDeviceBackend as IMidiNoteInjector;
 
             _configManager.LoadKeyBindings(_keyBindings);
 
@@ -463,6 +465,14 @@ namespace DTXMania.Game.Lib.Input
             var state = new ButtonState(buttonId, isPressed, velocity);
             _injectedButtonQueue.Enqueue(state);
             return true;
+        }
+
+        public bool InjectMidiNote(int noteNumber, int velocity, bool isPressed)
+        {
+            if (_disposed)
+                return false;
+
+            return _midiNoteInjector?.TryInjectNote(noteNumber, velocity, isPressed) == true;
         }
 
         /// <summary>

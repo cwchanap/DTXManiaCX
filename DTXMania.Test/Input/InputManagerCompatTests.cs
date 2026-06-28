@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 
 namespace DTXMania.Test.Input;
 
@@ -64,5 +65,27 @@ public sealed class InputManagerCompatTests : IDisposable
         _manager.Update(0.016);
 
         Assert.False(_manager.IsCommandPressed(InputCommandType.Activate));
+    }
+
+    [Fact]
+    public void Constructor_WhenSimulatedMidiEnvEnabled_ShouldUseInjectableMidiBackend()
+    {
+        var previous = Environment.GetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable, "1");
+            using var manager = new InputManagerCompat(new ConfigManager());
+
+            Assert.True(manager.ModularInputManager.InjectMidiNote(36, 100, isPressed: true));
+            manager.ModularInputManager.Update();
+
+            var pressed = manager.ModularInputManager.ConsumePressedButtons();
+            var button = Assert.Single(pressed, state => state.Id == "MIDI.36");
+            Assert.Equal(100f / 127f, button.Velocity, precision: 4);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(MidiDeviceBackendFactory.EnableSimulatedMidiEnvironmentVariable, previous);
+        }
     }
 }

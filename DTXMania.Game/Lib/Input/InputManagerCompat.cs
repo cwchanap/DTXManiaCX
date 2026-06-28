@@ -21,7 +21,7 @@ namespace DTXMania.Game.Lib.Input
         private bool _disposed = false;
 
         public InputManagerCompat(IConfigManager configManager)
-            : this(configManager, new DryWetMidiDeviceBackend())
+            : this(configManager, MidiDeviceBackendFactory.CreateDefault())
         {
         }
 

@@ -189,6 +189,31 @@ public class GameApiImplementation : IGameApi
         }
     }
 
+    private static MidiNoteInput? ParseMidiNoteInput(JsonElement? data)
+    {
+        if (!data.HasValue || data.Value.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var element = data.Value;
+        if (!element.TryGetProperty("noteNumber", out var noteNumberProp) ||
+            !noteNumberProp.TryGetInt32(out var noteNumber) ||
+            noteNumber < 0 ||
+            noteNumber > 127)
+        {
+            return null;
+        }
+
+        if (!element.TryGetProperty("velocity", out var velocityProp) ||
+            !velocityProp.TryGetInt32(out var velocity) ||
+            velocity < 0 ||
+            velocity > 127)
+        {
+            return null;
+        }
+
+        return new MidiNoteInput(noteNumber, velocity);
+    }
+
     /// <summary>
     /// Sends input to the game.
     /// </summary>
@@ -231,6 +256,20 @@ public class GameApiImplementation : IGameApi
                     return modularInput.InjectButton(buttonId, pressed);
                 }
 
+                case InputType.MidiNoteOn:
+                case InputType.MidiNoteOff:
+                {
+                    var midi = ParseMidiNoteInput(input.Data);
+                    if (midi == null)
+                    {
+                        _logger?.LogWarning("Game API: Missing or invalid MIDI note data for MCP input");
+                        return false;
+                    }
+
+                    var pressed = input.Type == InputType.MidiNoteOn;
+                    return modularInput.InjectMidiNote(midi.Value.NoteNumber, midi.Value.Velocity, pressed);
+                }
+
                 case InputType.MouseClick:
                 case InputType.MouseMove:
                     // TODO: When mouse routing is added, translate to UI input. For now, report unsupported.
@@ -248,6 +287,8 @@ public class GameApiImplementation : IGameApi
             return false;
         }
     }
+
+    private readonly record struct MidiNoteInput(int NoteNumber, int Velocity);
 
     public async Task<GameWindowInfo> GetWindowInfoAsync()
     {

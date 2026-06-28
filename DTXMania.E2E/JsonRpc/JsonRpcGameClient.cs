@@ -58,6 +58,21 @@ public sealed class JsonRpcGameClient
         await SendInputAsync((int)InputType.KeyRelease, key, cancellationToken);
     }
 
+    public async Task SendMidiNoteAsync(int noteNumber, int velocity, TimeSpan holdDuration, CancellationToken cancellationToken)
+    {
+        if (noteNumber < 0 || noteNumber > 127)
+            throw new ArgumentOutOfRangeException(nameof(noteNumber));
+
+        if (velocity < 0 || velocity > 127)
+            throw new ArgumentOutOfRangeException(nameof(velocity));
+
+        var data = new { noteNumber, velocity };
+        await SendInputAsync((int)InputType.MidiNoteOn, data, cancellationToken);
+        if (holdDuration > TimeSpan.Zero)
+            await Task.Delay(holdDuration, cancellationToken);
+        await SendInputAsync((int)InputType.MidiNoteOff, data, cancellationToken);
+    }
+
     public async Task ChangeStageAsync(string stageName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stageName);
@@ -72,9 +87,14 @@ public sealed class JsonRpcGameClient
             : null;
     }
 
-    private Task<JsonElement> SendInputAsync(int type, string key, CancellationToken cancellationToken)
+    private async Task SendInputAsync(int type, object data, CancellationToken cancellationToken)
     {
-        return SendAsync("sendInput", new { type, data = key }, cancellationToken);
+        var result = await SendAsync("sendInput", new { type, data }, cancellationToken);
+        if (!result.TryGetProperty("success", out var success) ||
+            success.ValueKind is not JsonValueKind.True)
+        {
+            throw new InvalidOperationException($"sendInput type {type} was not accepted by the game.");
+        }
     }
 
     private async Task<JsonElement> SendAsync(string method, object? parameters, CancellationToken cancellationToken)

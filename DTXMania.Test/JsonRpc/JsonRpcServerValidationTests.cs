@@ -114,6 +114,7 @@ namespace DTXMania.Test.JsonRpc
         [InlineData("SendInput_MouseMove_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":1,\"data\":{\"x\":150,\"y\":250}}}")]
         [InlineData("SendInput_KeyPress_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":\"Enter\"}}")]
         [InlineData("SendInput_KeyRelease_WithValidStringData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":3,\"data\":\"Escape\"}}")]
+        [InlineData("SendInput_MidiNoteOn_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":4,\"data\":{\"noteNumber\":36,\"velocity\":100}}}")]
         [InlineData("SendInput_KeyPress_WithValidObjectData", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"sendInput\",\"params\":{\"type\":2,\"data\":{\"key\":\"Down\",\"holdDurationMs\":50,\"clientId\":\"default\"}}}")]
         public Task SendInput_ValidPayloads_ShouldSucceed(string caseName, string requestJson)
         {
