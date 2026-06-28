@@ -21,13 +21,17 @@ namespace DTXMania.Test.Stage.DrumConfig
         // stage's working copy. The popup is intent-only — TryCapture never touches this dict; the
         // stage would. Tests that need pre-existing lane bindings populate _drum directly.
         private readonly Dictionary<string, int> _drum = new();
+        private readonly Dictionary<int, int> _thresholds = new();
         private readonly Dictionary<Keys, InputCommandType> _system = new()
         {
             [Keys.Enter] = InputCommandType.Activate,           // required
             [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed, // non-required
         };
 
-        private DrumCapturePopup NewPopup() => new(() => _drum, () => _system);
+        private DrumCapturePopup NewPopup() => new(
+            () => _drum,
+            () => _system,
+            note => _thresholds.TryGetValue(note, out var threshold) ? threshold : 0);
 
         [Fact]
         public void Constructor_WithNullDrumBindingsProvider_ShouldThrowArgumentNullException()
@@ -202,6 +206,42 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.Equal("S", byId["Key.S"]);
             Assert.Equal("Space", byId["Key.Space"]);
+        }
+
+        [Fact]
+        public void GetBindingChips_MidiBinding_IncludesThresholdAndAdjustmentRects()
+        {
+            _drum["MIDI.36"] = 4;
+            _thresholds[36] = 20;
+            var popup = NewPopup();
+            popup.Open(4);
+
+            var chip = popup.GetBindingChips(1280, 720).Single();
+
+            Assert.True(chip.IsMidi);
+            Assert.Equal(36, chip.MidiNoteNumber);
+            Assert.Equal(20, chip.MidiVelocityThreshold);
+            Assert.Contains("v>20", chip.Label);
+            Assert.NotEqual(Rectangle.Empty, chip.DecrementVelocityThreshold);
+            Assert.NotEqual(Rectangle.Empty, chip.IncrementVelocityThreshold);
+            Assert.True(chip.Bounds.Contains(chip.DecrementVelocityThreshold));
+            Assert.True(chip.Bounds.Contains(chip.IncrementVelocityThreshold));
+        }
+
+        [Fact]
+        public void GetBindingChips_KeyboardBinding_HasNoThresholdControls()
+        {
+            _drum["Key.S"] = 4;
+            var popup = NewPopup();
+            popup.Open(4);
+
+            var chip = popup.GetBindingChips(1280, 720).Single();
+
+            Assert.False(chip.IsMidi);
+            Assert.Equal(-1, chip.MidiNoteNumber);
+            Assert.Equal(0, chip.MidiVelocityThreshold);
+            Assert.Equal(Rectangle.Empty, chip.DecrementVelocityThreshold);
+            Assert.Equal(Rectangle.Empty, chip.IncrementVelocityThreshold);
         }
 
         [Fact]
@@ -445,6 +485,26 @@ namespace DTXMania.Test.Stage.DrumConfig
             font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), It.Is<string>(s => s.Contains("Listening")), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
             font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "Clear", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
             font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), "Done", It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeastOnce);
+        }
+
+        [Fact]
+        public void Draw_WhenOpenWithMidiBinding_RendersThresholdLabel()
+        {
+            _drum["MIDI.36"] = 4;
+            _thresholds[36] = 20;
+            var popup = NewPopup();
+            popup.Open(4);
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(10, 10));
+
+            popup.Draw(CreateFakeSpriteBatch(), font.Object, whitePixel: null, 1280, 720);
+
+            font.Verify(f => f.DrawString(
+                It.IsAny<SpriteBatch>(),
+                It.Is<string>(s => s.Contains("MIDI 36") && s.Contains("v>20")),
+                It.IsAny<Vector2>(),
+                It.IsAny<Color>()),
+                Times.AtLeastOnce);
         }
 
         [Fact]
