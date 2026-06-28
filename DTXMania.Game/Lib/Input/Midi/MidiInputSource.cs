@@ -270,6 +270,9 @@ public sealed class MidiInputSource : IInputSource
 
     private ButtonState? ProcessNote(MidiNoteEventArgs note)
     {
+        if (!_devices.ContainsKey(note.DeviceStableId))
+            return null;
+
         var key = new AcceptedNoteKey(note.DeviceStableId, note.NoteNumber);
 
         if (note.IsPressed)

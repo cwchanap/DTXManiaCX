@@ -204,6 +204,22 @@ public sealed class MidiInputSourceTests
     }
 
     [Fact]
+    public void RefreshDevices_RemovingDeviceBeforeUpdateDropsQueuedPress()
+    {
+        var removed = new FakeMidiInputDevice("Removed Kit", "removed");
+        var backend = new FakeMidiDeviceBackend(removed);
+        using var source = new MidiInputSource(backend, _ => 0);
+        source.Initialize();
+        removed.Emit(36, 85, isPressed: true);
+
+        backend.SetDevices();
+        source.RefreshDevices();
+
+        Assert.Empty(source.Update());
+        Assert.Empty(source.GetPressedButtons());
+    }
+
+    [Fact]
     public void Dispose_StopsAndDisposesAllDevices()
     {
         var first = new FakeMidiInputDevice("Kit A", "kit-a");
