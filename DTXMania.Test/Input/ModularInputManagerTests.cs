@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
 
@@ -15,12 +16,14 @@ namespace DTXMania.Test.Input
     public class ModularInputManagerTests : IDisposable
     {
         private readonly ConfigManager _configManager;
+        private readonly FakeMidiDeviceBackend _midiBackend;
         private readonly ModularInputManager _inputManager;
 
         public ModularInputManagerTests()
         {
             _configManager = new ConfigManager();
-            _inputManager = new ModularInputManager(_configManager);
+            _midiBackend = new FakeMidiDeviceBackend();
+            _inputManager = new ModularInputManager(_configManager, _midiBackend);
         }
 
         [Fact]
@@ -33,10 +36,24 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void Constructor_ShouldRegisterKeyboardAndMidiSources()
+        {
+            // Act
+            var diagnostics = _inputManager.GetDiagnosticsInfo();
+
+            // Assert
+            Assert.Equal(2, _inputManager.InputRouter.GetSourceCount());
+            Assert.Contains("Input Sources: 2", diagnostics);
+            Assert.Contains("Keyboard", diagnostics);
+            Assert.Contains("MIDI", diagnostics);
+            Assert.Equal(1, _midiBackend.GetInputDevicesCallCount);
+        }
+
+        [Fact]
         public void Constructor_NullConfigManager_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new ModularInputManager(null));
+            Assert.Throws<ArgumentNullException>(() => new ModularInputManager(null, new FakeMidiDeviceBackend()));
         }
 
         [Fact]
@@ -79,7 +96,7 @@ namespace DTXMania.Test.Input
             keyBindings.UnbindLane(4);
             configManager.SaveKeyBindings(keyBindings);
 
-            using var configuredInputManager = new ModularInputManager(configManager);
+            using var configuredInputManager = new ModularInputManager(configManager, new FakeMidiDeviceBackend());
 
             // Assert
             Assert.Equal(-1, configuredInputManager.KeyBindings.GetLane("Key.S"));
@@ -165,6 +182,56 @@ namespace DTXMania.Test.Input
             Assert.Contains("Input Sources:", diagnostics);
             Assert.Contains("Key Bindings:", diagnostics);
             Assert.Contains("Keyboard", diagnostics);
+        }
+
+        [Fact]
+        public void AddInputSource_ShouldInitializeSourceExactlyOnce()
+        {
+            // Arrange
+            var source = new CountingInputSource("Counting");
+
+            // Act
+            _inputManager.AddInputSource(source);
+
+            // Assert
+            Assert.Equal(1, source.InitializeCount);
+        }
+
+        [Fact]
+        public void Dispose_WithAddedInputSource_ShouldDisposeSourceExactlyOnce()
+        {
+            // Arrange
+            var source = new CountingInputSource("Counting");
+            _inputManager.AddInputSource(source);
+
+            // Act
+            _inputManager.Dispose();
+
+            // Assert
+            Assert.Equal(1, source.DisposeCount);
+        }
+
+        [Fact]
+        public void Update_WhenMidiDevicesChangePastScanInterval_ShouldRefreshDiagnostics()
+        {
+            // Arrange
+            var midiBackend = new FakeMidiDeviceBackend(new FakeMidiInputDevice("legacy", "Legacy Module"));
+            using var inputManager = new ModularInputManager(new ConfigManager(), midiBackend);
+
+            midiBackend.SetDevices(
+                new FakeMidiInputDevice("nitro", "Alesis Nitro"),
+                new FakeMidiInputDevice("dtx", "Yamaha DTX"));
+
+            // Act
+            inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
+            var diagnostics = inputManager.GetDiagnosticsInfo();
+
+            // Assert
+            Assert.Contains("MIDI Devices: 2", diagnostics);
+            Assert.Contains("Alesis Nitro", diagnostics);
+            Assert.Contains("Yamaha DTX", diagnostics);
+            Assert.DoesNotContain("Legacy Module", diagnostics);
+            Assert.Equal(2, midiBackend.GetInputDevicesCallCount);
         }
 
         [Fact]
@@ -390,7 +457,93 @@ namespace DTXMania.Test.Input
         {
             var configManager = new ConfigManager();
             configure(configManager.Config);
-            return new ModularInputManager(configManager);
+            return new ModularInputManager(configManager, new FakeMidiDeviceBackend());
+        }
+
+        private sealed class CountingInputSource : IInputSource
+        {
+            public CountingInputSource(string name)
+            {
+                Name = name;
+            }
+
+            public string Name { get; }
+
+            public bool IsAvailable => true;
+
+            public int InitializeCount { get; private set; }
+
+            public int DisposeCount { get; private set; }
+
+            public void Initialize()
+            {
+                InitializeCount++;
+            }
+
+            public IEnumerable<DTXMania.Game.Lib.Input.ButtonState> Update()
+            {
+                return Array.Empty<DTXMania.Game.Lib.Input.ButtonState>();
+            }
+
+            public IEnumerable<DTXMania.Game.Lib.Input.ButtonState> GetPressedButtons()
+            {
+                return Array.Empty<DTXMania.Game.Lib.Input.ButtonState>();
+            }
+
+            public void Dispose()
+            {
+                DisposeCount++;
+            }
+        }
+
+        internal sealed class FakeMidiDeviceBackend : IMidiDeviceBackend
+        {
+            private IReadOnlyList<IMidiInputDevice> _devices;
+
+            public FakeMidiDeviceBackend(params IMidiInputDevice[] devices)
+            {
+                _devices = devices;
+            }
+
+            public IReadOnlyList<IMidiInputDevice> GetInputDevices()
+            {
+                GetInputDevicesCallCount++;
+                return _devices;
+            }
+
+            public int GetInputDevicesCallCount { get; private set; }
+
+            public void SetDevices(params IMidiInputDevice[] devices)
+            {
+                _devices = devices;
+            }
+        }
+
+        private sealed class FakeMidiInputDevice : IMidiInputDevice
+        {
+            public FakeMidiInputDevice(string stableId, string name)
+            {
+                StableId = stableId;
+                Name = name;
+            }
+
+            public string Name { get; }
+
+            public string StableId { get; }
+
+            public event EventHandler<MidiNoteEventArgs>? NoteReceived;
+
+            public void Start()
+            {
+            }
+
+            public void Stop()
+            {
+            }
+
+            public void Dispose()
+            {
+            }
         }
     }
 
@@ -401,12 +554,14 @@ namespace DTXMania.Test.Input
     public class InputSystemIntegrationTests : IDisposable
     {
         private readonly ConfigManager _configManager;
+        private readonly ModularInputManagerTests.FakeMidiDeviceBackend _midiBackend;
         private readonly ModularInputManager _inputManager;
 
         public InputSystemIntegrationTests()
         {
             _configManager = new ConfigManager();
-            _inputManager = new ModularInputManager(_configManager);
+            _midiBackend = new ModularInputManagerTests.FakeMidiDeviceBackend();
+            _inputManager = new ModularInputManager(_configManager, _midiBackend);
         }
 
         [Fact]
@@ -421,7 +576,7 @@ namespace DTXMania.Test.Input
             _configManager.SaveKeyBindings(_inputManager.KeyBindings);
 
             // Create new manager to test persistence
-            using var newManager = new ModularInputManager(_configManager);
+            using var newManager = new ModularInputManager(_configManager, new ModularInputManagerTests.FakeMidiDeviceBackend());
 
             // Assert
             Assert.Equal(targetLane, newManager.KeyBindings.GetLane(customButtonId));
