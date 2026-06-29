@@ -178,6 +178,31 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Manager_PublicConstructor_WhenUnderlyingTextureDisposed_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new MutableTexture();
+        texture.SetUnderlyingDisposed(true);
+        Assert.False(texture.IsDisposed);
+        Assert.True(texture.Texture.IsDisposed);
+        Assert.Equal(448, texture.Width);
+        Assert.Equal(256, texture.Height);
+        var resourceManager = CreateResourceManager(texture);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        Assert.Equal(1, texture.RemoveReferenceCount);
+
+        manager.Dispose();
+
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
     public void Manager_PublicConstructor_WhenTextureValidationThrows_ShouldUseFontFallbackAndReleaseTexture()
     {
         var texture = new Mock<ITexture>();
@@ -400,6 +425,11 @@ public class SpriteJudgementTextPopupTests
             IsDisposed = true;
         }
 
+        public void SetUnderlyingDisposed(bool isDisposed)
+        {
+            SetDisposedFlag(Texture, isDisposed);
+        }
+
         private static Texture2D CreateTexture2DStub()
         {
             var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
@@ -412,6 +442,7 @@ public class SpriteJudgementTextPopupTests
             for (var type = texture.GetType(); type != null; type = type.BaseType)
             {
                 var field = type.GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? type.GetField("disposed", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? type.GetField("<IsDisposed>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
                 if (field?.FieldType == typeof(bool))
                 {
@@ -419,6 +450,8 @@ public class SpriteJudgementTextPopupTests
                     return;
                 }
             }
+
+            throw new InvalidOperationException("Texture2D disposed flag field not found.");
         }
     }
 }
