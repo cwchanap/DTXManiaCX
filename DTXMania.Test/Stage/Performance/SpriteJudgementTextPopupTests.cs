@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -81,6 +82,108 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Manager_PublicConstructor_WhenSpriteMissing_ShouldUseFontFallback()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(false);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenSpriteUndersized_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(241);
+        texture.SetupGet(x => x.Height).Returns(169);
+        var resourceManager = CreateResourceManager(texture.Object);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenUnderlyingTextureNull_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(448);
+        texture.SetupGet(x => x.Height).Returns(256);
+        texture.SetupGet(x => x.Texture).Returns((Texture2D)null!);
+        var resourceManager = CreateResourceManager(texture.Object);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenTextureValidationThrows_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Throws(new InvalidOperationException("invalid texture"));
+        var resourceManager = CreateResourceManager(texture.Object);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenTextureLoadThrows_ShouldUseFontFallback()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.JudgeStringsXg)).Throws(new InvalidOperationException("load failed"));
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+    }
+
+    [Fact]
+    public void Manager_SpawnPopup_WhenLaneInvalid_ShouldUseFontFallback()
+    {
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = CreateManager(
+            spriteTextureAvailable: true,
+            fontFallback: e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, PerformanceUILayout.LaneCount, 0.0, JudgementType.Good);
+
+        var exception = Record.Exception(() => manager.SpawnPopup(judgement));
+
+        Assert.Null(exception);
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+    }
+
+    [Fact]
     public void Manager_Update_ShouldRemoveExpiredPopups()
     {
         var manager = CreateManager(spriteTextureAvailable: true);
@@ -129,5 +232,13 @@ public class SpriteJudgementTextPopupTests
         texture.SetupGet(x => x.Width).Returns(448);
         texture.SetupGet(x => x.Height).Returns(256);
         return SpriteJudgementTextPopupManager.CreateForTesting(texture.Object, fontFallback);
+    }
+
+    private static Mock<IResourceManager> CreateResourceManager(ITexture texture)
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.JudgeStringsXg)).Returns(texture);
+        return resourceManager;
     }
 }

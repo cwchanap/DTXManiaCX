@@ -119,14 +119,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             try
             {
                 source = PerformanceUILayout.SpriteJudgementTextAssets.GetJudgementSource(judgementEvent.Type);
+                var position = PerformanceUILayout.SpriteJudgementTextAssets.GetLaneTextPosition(judgementEvent.Lane, source);
+                _activePopups.Add(new SpriteJudgementTextPopup(judgementEvent.Type, source, position));
             }
             catch (ArgumentOutOfRangeException)
             {
+                _fontFallback?.Invoke(judgementEvent);
                 return;
             }
-
-            var position = PerformanceUILayout.SpriteJudgementTextAssets.GetLaneTextPosition(judgementEvent.Lane, source);
-            _activePopups.Add(new SpriteJudgementTextPopup(judgementEvent.Type, source, position));
         }
 
         public void Update(double deltaTime)
@@ -194,15 +194,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             ArgumentNullException.ThrowIfNull(resourceManager);
 
+            ITexture? texture = null;
             try
             {
                 if (!resourceManager.ResourceExists(TexturePath.JudgeStringsXg))
                     return null;
 
-                var texture = resourceManager.LoadTexture(TexturePath.JudgeStringsXg);
-                if (texture.Width < 242 || texture.Height < 169)
+                texture = resourceManager.LoadTexture(TexturePath.JudgeStringsXg);
+                if (texture.Width < 242 || texture.Height < 169 || texture.Texture == null)
                 {
-                    texture.RemoveReference();
+                    var invalidTexture = texture;
+                    texture = null;
+                    invalidTexture.RemoveReference();
                     return null;
                 }
 
@@ -210,6 +213,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
+                texture?.RemoveReference();
                 System.Diagnostics.Debug.WriteLine(
                     $"SpriteJudgementTextPopupManager: {ex.GetType().Name} loading {TexturePath.JudgeStringsXg}: {ex.Message}");
                 return null;
