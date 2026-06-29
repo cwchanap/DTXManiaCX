@@ -88,6 +88,52 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
+    public void OnJudgementMade_WithHit_ShouldSpawnNxAttackAndSpriteJudgementText()
+    {
+        var stage = CreateStage();
+        var attackManager = NxAttackEffectManagerTestFactory.CreateEmpty();
+        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
+
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
+        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, new ComboManager()));
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", null);
+        ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
+            new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+
+        Assert.Equal(1, attackManager.SpawnCallCountForTesting);
+        Assert.Equal(1, spriteTextManager.ActivePopupCount);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WithMiss_ShouldSkipNxAttackAndShowSpriteJudgementText()
+    {
+        var stage = CreateStage();
+        var attackManager = NxAttackEffectManagerTestFactory.CreateEmpty();
+        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
+
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
+        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, new ComboManager()));
+        ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", null);
+        ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", spriteTextManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
+            new JudgementEvent(0, 0, 200.0, JudgementType.Miss));
+
+        Assert.Equal(0, attackManager.SpawnCallCountForTesting);
+        Assert.Equal(1, spriteTextManager.ActivePopupCount);
+    }
+
+    [Fact]
     public void OnPlayerFailed_NoFailDisabled_ShouldFinalizePerformance()
     {
         var configData = new ConfigData { NoFail = false };
@@ -649,6 +695,17 @@ public class PerformanceStageAdditionalCoverageTests
         return (SkillMeterDisplay)FormatterServices.GetUninitializedObject(typeof(SkillMeterDisplay));
     }
 
+    private static Mock<ITexture> CreateTexture(int width, int height)
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Texture)
+            .Returns((Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D)));
+        texture.SetupGet(x => x.Width).Returns(width);
+        texture.SetupGet(x => x.Height).Returns(height);
+        texture.SetupGet(x => x.IsDisposed).Returns(false);
+        return texture;
+    }
+
     private static NoteRenderer CreateNoteRenderer()
     {
         var renderer = (NoteRenderer)FormatterServices.GetUninitializedObject(typeof(NoteRenderer));
@@ -667,6 +724,29 @@ public class PerformanceStageAdditionalCoverageTests
         ReflectionHelpers.SetPrivateField(renderer, "<EffectiveLookAheadMs>k__BackingField", 1200.0);
         ReflectionHelpers.SetPrivateField(renderer, "_disposed", false);
         return renderer;
+    }
+
+    private sealed class CountingNxAttackEffectManager : NxAttackEffectManager
+    {
+        public CountingNxAttackEffectManager()
+            : base(new Mock<IResourceManager>().Object)
+        {
+        }
+
+        public int SpawnCallCountForTesting { get; private set; }
+
+        public override void Spawn(int lane, JudgementType judgementType)
+        {
+            SpawnCallCountForTesting++;
+        }
+    }
+
+    private static class NxAttackEffectManagerTestFactory
+    {
+        public static CountingNxAttackEffectManager CreateEmpty()
+        {
+            return new CountingNxAttackEffectManager();
+        }
     }
 
     private sealed class ScrollSpeedInputCompat : MockInputManagerCompat

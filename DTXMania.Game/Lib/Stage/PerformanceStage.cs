@@ -76,8 +76,9 @@ namespace DTXMania.Game.Lib.Stage
         private SkillManager? _skillManager;
         private SkillPanelDisplay? _skillPanelDisplay;
         private SkillMeterDisplay? _skillMeterDisplay;
-        private EffectsManager _effectsManager = null!;
-        private JudgementTextPopupManager _judgementTextPopupManager = null!;
+        private NxAttackEffectManager _nxAttackEffectManager = null!;
+        private JudgementTextPopupManager _fontJudgementTextPopupManager = null!;
+        private SpriteJudgementTextPopupManager _spriteJudgementTextPopupManager = null!;
         private PadRenderer _padRenderer = null!;
 
         // BGM management
@@ -391,8 +392,11 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
             _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
-            _effectsManager = new EffectsManager(graphicsDevice, _resourceManager);
-            _judgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
+            _nxAttackEffectManager = new NxAttackEffectManager(_resourceManager);
+            _fontJudgementTextPopupManager = new JudgementTextPopupManager(graphicsDevice, _resourceManager);
+            _spriteJudgementTextPopupManager = new SpriteJudgementTextPopupManager(
+                _resourceManager,
+                judgementEvent => _fontJudgementTextPopupManager?.SpawnPopup(judgementEvent));
             _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
             // Initialize UX components
@@ -450,10 +454,12 @@ namespace DTXMania.Game.Lib.Stage
             _audioLoader = null;
             _noteRenderer?.Dispose();
             _noteRenderer = null;
-            _effectsManager?.Dispose();
-            _effectsManager = null;
-            _judgementTextPopupManager?.Dispose();
-            _judgementTextPopupManager = null;
+            _nxAttackEffectManager?.Dispose();
+            _nxAttackEffectManager = null;
+            _spriteJudgementTextPopupManager?.Dispose();
+            _spriteJudgementTextPopupManager = null;
+            _fontJudgementTextPopupManager?.Dispose();
+            _fontJudgementTextPopupManager = null;
             _padRenderer?.Dispose();
             _padRenderer = null;
 
@@ -699,11 +705,12 @@ namespace DTXMania.Game.Lib.Stage
             // Update note renderer
             _noteRenderer?.Update(deltaTime);
 
-            // Update effects manager
-            _effectsManager?.Update(deltaTime);
+            // Update NX attack effects
+            _nxAttackEffectManager?.Update(deltaTime);
 
-            // Update judgement text popup manager
-            _judgementTextPopupManager?.Update(deltaTime);
+            // Update judgement text popup managers
+            _spriteJudgementTextPopupManager?.Update(deltaTime);
+            _fontJudgementTextPopupManager?.Update(deltaTime);
 
             // Update pad renderer
             _padRenderer?.Update(deltaTime);
@@ -1241,16 +1248,16 @@ namespace DTXMania.Game.Lib.Stage
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
-            if (e.IsHit())
+            if (e.Type != JudgementType.Miss)
             {
-                _effectsManager?.SpawnHitEffect(e.Lane);
+                _nxAttackEffectManager?.Spawn(e.Lane, e.Type);
 
                 // Trigger pad press effect
                 _padRenderer?.TriggerPadPress(e.Lane, true);
             }
 
             // Spawn judgement text popup for all judgements
-            _judgementTextPopupManager?.SpawnPopup(e);
+            _spriteJudgementTextPopupManager?.SpawnPopup(e);
         }
 
         /// <summary>
@@ -1632,15 +1639,16 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private void DrawHitEffects()
         {
-            // Draw hit effects using EffectsManager
-            _effectsManager?.Draw(_spriteBatch);
+            // Draw hit effects using NxAttackEffectManager
+            _nxAttackEffectManager?.Draw(_spriteBatch);
         }
 
         [ExcludeFromCodeCoverage]
         private void DrawJudgementTexts()
         {
-            // Draw judgement text popups using JudgementTextPopupManager
-            _judgementTextPopupManager?.Draw(_spriteBatch);
+            // Draw judgement text popups using sprite sheets with font fallback
+            _spriteJudgementTextPopupManager?.Draw(_spriteBatch);
+            _fontJudgementTextPopupManager?.Draw(_spriteBatch);
         }
 
         [ExcludeFromCodeCoverage]
