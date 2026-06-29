@@ -245,11 +245,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     direction * NextFloat(90f, 130f),
                     NextFloat(-150f, -95f));
 
+                var source = GetChipFragmentSource(lane, i, _chipTexture.Width);
+                if (source == Rectangle.Empty)
+                    continue;
+
                 _particles.Add(ParticleInstance.CreateChip(
                     lane,
                     origin,
                     velocity,
-                    GetChipFragmentSource(lane, i),
+                    source,
                     _settings.ChipFragmentLifetimeSeconds));
             }
         }
@@ -367,7 +371,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
-        private static Rectangle GetChipFragmentSource(int lane, int side)
+        private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth)
         {
             if (lane < 0 || lane >= LaneToDrumChipColumn.Length)
                 return Rectangle.Empty;
@@ -379,6 +383,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var fragmentX = side % 2 == 0
                 ? columnX
                 : columnX + columnWidth - fragmentWidth;
+
+            if (sheetWidth < fragmentWidth)
+                return Rectangle.Empty;
+
+            fragmentX = Math.Clamp(fragmentX, 0, sheetWidth - fragmentWidth);
 
             return new Rectangle(
                 fragmentX,

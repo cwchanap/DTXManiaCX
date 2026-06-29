@@ -27,19 +27,21 @@ public class NxAttackEffectManagerTests
     }
 
     [Theory]
-    [InlineData(5, 0, 0, 35)]
-    [InlineData(0, 0, 540, 37)]
-    [InlineData(0, 1, 577, 37)]
-    [InlineData(3, 0, 128, 32)]
-    [InlineData(8, 0, 70, 29)]
-    [InlineData(9, 0, 360, 37)]
+    [InlineData(5, 0, 720, 0, 35)]
+    [InlineData(0, 0, 720, 540, 37)]
+    [InlineData(0, 1, 720, 577, 37)]
+    [InlineData(3, 0, 720, 128, 32)]
+    [InlineData(8, 0, 720, 70, 29)]
+    [InlineData(9, 0, 720, 360, 37)]
+    [InlineData(2, 1, 718, 689, 29)]
     public void GetChipFragmentSource_ShouldUseDrumChipSpriteSheetColumns(
         int lane,
         int side,
+        int sheetWidth,
         int expectedX,
         int expectedWidth)
     {
-        var source = GetChipFragmentSource(lane, side);
+        var source = GetChipFragmentSource(lane, side, sheetWidth);
 
         Assert.Equal(new Rectangle(expectedX, 640, expectedWidth, 64), source);
     }
@@ -82,6 +84,23 @@ public class NxAttackEffectManagerTests
 
         Assert.Equal(1, manager.ActivePrimarySparkCountForTesting);
         Assert.True(manager.ActiveParticleCountForTesting > 0);
+    }
+
+    [Fact]
+    public void Spawn_WhenChipTextureTooNarrowForFragment_ShouldSkipChipFragments()
+    {
+        var manager = CreateManager(
+            combinedAvailable: false,
+            chipTextureAvailable: true,
+            chipTextureWidth: 7,
+            settings: new NxAttackEffectSettings
+            {
+                ChipFragmentCount = 2
+            });
+
+        manager.Spawn(2, JudgementType.Perfect);
+
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
     }
 
     [Fact]
@@ -221,7 +240,9 @@ public class NxAttackEffectManagerTests
         bool perLaneFallbackAvailable = false,
         bool starsAvailable = false,
         bool chipTextureAvailable = false,
-        bool waveAvailable = false)
+        bool waveAvailable = false,
+        int chipTextureWidth = 718,
+        NxAttackEffectSettings? settings = null)
     {
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
@@ -256,7 +277,7 @@ public class NxAttackEffectManagerTests
         if (chipTextureAvailable)
         {
             resourceManager.Setup(x => x.ResourceExists(TexturePath.DrumChips)).Returns(true);
-            resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(CreateTexture(width: 718, height: 776).Object);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(CreateTexture(width: chipTextureWidth, height: 776).Object);
         }
 
         if (waveAvailable)
@@ -265,7 +286,7 @@ public class NxAttackEffectManagerTests
             resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipWave)).Returns(CreateTexture(width: 64, height: 64).Object);
         }
 
-        return new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+        return new NxAttackEffectManager(resourceManager.Object, settings, random: new Random(0));
     }
 
     private static Mock<ITexture> CreateTexture(int width, int height)
@@ -276,13 +297,16 @@ public class NxAttackEffectManagerTests
         return texture;
     }
 
-    private static Rectangle GetChipFragmentSource(int lane, int side)
+    private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth = 720)
     {
         var method = typeof(NxAttackEffectManager).GetMethod(
             "GetChipFragmentSource",
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(int), typeof(int), typeof(int) },
+            null);
 
         Assert.NotNull(method);
-        return (Rectangle)method!.Invoke(null, new object[] { lane, side })!;
+        return (Rectangle)method!.Invoke(null, new object[] { lane, side, sheetWidth })!;
     }
 }
