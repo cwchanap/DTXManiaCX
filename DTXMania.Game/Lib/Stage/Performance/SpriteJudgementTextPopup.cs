@@ -109,7 +109,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || judgementEvent == null)
                 return;
 
-            if (_spriteTexture == null)
+            if (!TryEnsureSpriteTextureAvailable())
             {
                 _fontFallback?.Invoke(judgementEvent);
                 return;
@@ -145,7 +145,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public void Draw(SpriteBatch spriteBatch)
         {
-            if (_disposed || spriteBatch == null || _spriteTexture?.Texture == null)
+            if (_disposed)
+                return;
+
+            if (!TryEnsureSpriteTextureAvailable())
+                return;
+
+            if (spriteBatch == null)
+                return;
+
+            var spriteTexture = _spriteTexture;
+            if (spriteTexture == null)
                 return;
 
             foreach (var popup in _activePopups)
@@ -162,7 +172,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     width,
                     height);
 
-                _spriteTexture.Draw(
+                spriteTexture.Draw(
                     spriteBatch,
                     dest,
                     source,
@@ -185,8 +195,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             _activePopups.Clear();
-            _spriteTexture?.RemoveReference();
-            _spriteTexture = null;
+            ReleaseHeldSpriteTexture();
             _disposed = true;
         }
 
@@ -217,6 +226,45 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 System.Diagnostics.Debug.WriteLine(
                     $"SpriteJudgementTextPopupManager: {ex.GetType().Name} loading {TexturePath.JudgeStringsXg}: {ex.Message}");
                 return null;
+            }
+        }
+
+        private bool TryEnsureSpriteTextureAvailable()
+        {
+            var spriteTexture = _spriteTexture;
+            if (spriteTexture == null)
+                return false;
+
+            try
+            {
+                if (!IsInvalidSpriteTexture(spriteTexture))
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SpriteJudgementTextPopupManager: {ex.GetType().Name} validating held {TexturePath.JudgeStringsXg}: {ex.Message}");
+            }
+
+            ReleaseHeldSpriteTexture();
+            return false;
+        }
+
+        private void ReleaseHeldSpriteTexture()
+        {
+            var spriteTexture = _spriteTexture;
+            if (spriteTexture == null)
+                return;
+
+            _spriteTexture = null;
+            try
+            {
+                spriteTexture.RemoveReference();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SpriteJudgementTextPopupManager: {ex.GetType().Name} releasing {TexturePath.JudgeStringsXg}: {ex.Message}");
             }
         }
 
