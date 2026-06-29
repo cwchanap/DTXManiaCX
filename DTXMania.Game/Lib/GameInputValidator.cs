@@ -95,17 +95,56 @@ public static class GameInputValidator
     /// raises <see cref="InvalidOperationException"/> when the element is not a JSON object.
     /// </summary>
     public static bool TryValidateMidiNoteData(JsonElement data)
+        => TryParseMidiNoteData(data, out _, out _);
+
+    /// <summary>
+    /// Parses and validates a MIDI note payload in one pass, returning the parsed
+    /// <paramref name="noteNumber"/> and <paramref name="velocity"/> on success. This is
+    /// the single source of truth for MIDI note parsing: both the validator
+    /// (<see cref="TryValidateMidiNoteData"/>) and the API input parser
+    /// (<c>GameApiImplementation.ParseMidiNoteInput</c>) delegate here so the two
+    /// endpoints cannot drift on what counts as a valid note.
+    /// </summary>
+    /// <remarks>
+    /// The explicit <see cref="JsonValueKind.Number"/> guard before each
+    /// <see cref="JsonElement.TryGetInt32"/> call is load-bearing:
+    /// <see cref="JsonElement.TryGetInt32"/> throws <see cref="InvalidOperationException"/>
+    /// for non-Number kinds (e.g. a JSON string <c>"36"</c>), so without this guard a
+    /// caller that skips upstream validation would observe a throw instead of
+    /// <c>false</c>.
+    /// </remarks>
+    public static bool TryParseMidiNoteData(JsonElement data, out int noteNumber, out int velocity)
     {
-        return data.ValueKind == JsonValueKind.Object &&
-            data.TryGetProperty("noteNumber", out var noteNumberProp) &&
-            noteNumberProp.ValueKind == JsonValueKind.Number &&
-            noteNumberProp.TryGetInt32(out var noteNumber) &&
-            noteNumber >= 0 &&
-            noteNumber <= 127 &&
-            data.TryGetProperty("velocity", out var velocityProp) &&
-            velocityProp.ValueKind == JsonValueKind.Number &&
-            velocityProp.TryGetInt32(out var velocity) &&
-            velocity >= 0 &&
-            velocity <= 127;
+        // Out params default to 0 and are only assigned on full success, matching the
+        // standard TryX convention (callers must never observe partial data on failure).
+        noteNumber = 0;
+        velocity = 0;
+
+        if (data.ValueKind != JsonValueKind.Object)
+            return false;
+
+        // ValueKind == Number guard is load-bearing: TryGetInt32 throws
+        // InvalidOperationException for non-Number kinds (e.g. a JSON string "36").
+        if (!data.TryGetProperty("noteNumber", out var noteNumberProp) ||
+            noteNumberProp.ValueKind != JsonValueKind.Number ||
+            !noteNumberProp.TryGetInt32(out var parsedNoteNumber) ||
+            parsedNoteNumber < 0 ||
+            parsedNoteNumber > 127)
+        {
+            return false;
+        }
+
+        if (!data.TryGetProperty("velocity", out var velocityProp) ||
+            velocityProp.ValueKind != JsonValueKind.Number ||
+            !velocityProp.TryGetInt32(out var parsedVelocity) ||
+            parsedVelocity < 0 ||
+            parsedVelocity > 127)
+        {
+            return false;
+        }
+
+        noteNumber = parsedNoteNumber;
+        velocity = parsedVelocity;
+        return true;
     }
 }

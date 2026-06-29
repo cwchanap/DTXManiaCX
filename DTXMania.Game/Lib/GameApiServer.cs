@@ -306,13 +306,13 @@ public class GameApiServer : IDisposable, IAsyncDisposable
         return _port;
     }
 
-        /// <summary>
-        /// Validate game input for security and correctness.
-        /// Delegates to the shared <see cref="GameInputValidator"/> so the REST and JSON-RPC
-        /// endpoints enforce identical rules.
-        /// </summary>
-        private static (bool IsValid, string ErrorMessage) ValidateGameInput(GameInput input)
-            => GameInputValidator.ValidateGameInput(input);
+    /// <summary>
+    /// Validate game input for security and correctness.
+    /// Delegates to the shared <see cref="GameInputValidator"/> so the REST and JSON-RPC
+    /// endpoints enforce identical rules.
+    /// </summary>
+    private static (bool IsValid, string ErrorMessage) ValidateGameInput(GameInput input)
+        => GameInputValidator.ValidateGameInput(input);
 
     /// <summary>
     /// Dispose of resources asynchronously

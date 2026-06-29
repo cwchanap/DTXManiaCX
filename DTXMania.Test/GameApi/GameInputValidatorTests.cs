@@ -231,4 +231,66 @@ public class GameInputValidatorTests
     }
 
     #endregion
+
+    #region TryParseMidiNoteData
+
+    [Fact]
+    public void TryParseMidiNoteData_ValidPayload_ShouldReturnParsedValues()
+    {
+        var ok = GameInputValidator.TryParseMidiNoteData(
+            Data(new { noteNumber = 60, velocity = 80 }),
+            out var noteNumber, out var velocity);
+
+        Assert.True(ok);
+        Assert.Equal(60, noteNumber);
+        Assert.Equal(80, velocity);
+    }
+
+    [Fact]
+    public void TryParseMidiNoteData_ValidBoundaryValues_ShouldReturnParsedValues()
+    {
+        var ok = GameInputValidator.TryParseMidiNoteData(
+            Data(new { noteNumber = 0, velocity = 127 }),
+            out var noteNumber, out var velocity);
+
+        Assert.True(ok);
+        Assert.Equal(0, noteNumber);
+        Assert.Equal(127, velocity);
+    }
+
+    [Theory]
+    // The ValueKind == Number guard is load-bearing: JsonElement.TryGetInt32 throws
+    // InvalidOperationException for non-Number kinds. These cases must return false,
+    // not throw. Previously GameApiImplementation.ParseMidiNoteInput inlined the parse
+    // without the guard, so a JSON string like "36" would have thrown — masked only
+    // because ValidateGameInput ran first at both call sites.
+    [InlineData("{\"noteNumber\":\"36\",\"velocity\":100}", "string-valued noteNumber")]
+    [InlineData("{\"noteNumber\":36,\"velocity\":\"100\"}", "string-valued velocity")]
+    public void TryParseMidiNoteData_StringValuedField_ShouldReturnFalseNotThrow(string json, string reason)
+    {
+        var ok = GameInputValidator.TryParseMidiNoteData(ParseData(json), out var noteNumber, out var velocity);
+
+        Assert.False(ok);
+        // Out params must be zeroed on failure so callers can't observe stale data.
+        Assert.Equal(0, noteNumber);
+        Assert.Equal(0, velocity);
+    }
+
+    [Theory]
+    [InlineData("{\"noteNumber\":128,\"velocity\":100}")]
+    [InlineData("{\"noteNumber\":-1,\"velocity\":100}")]
+    [InlineData("{\"noteNumber\":36,\"velocity\":128}")]
+    [InlineData("{\"noteNumber\":36,\"velocity\":-1}")]
+    [InlineData("{\"velocity\":100}")]
+    [InlineData("{\"noteNumber\":36}")]
+    public void TryParseMidiNoteData_InvalidPayload_ShouldReturnFalseAndZeroOutParams(string json)
+    {
+        var ok = GameInputValidator.TryParseMidiNoteData(ParseData(json), out var noteNumber, out var velocity);
+
+        Assert.False(ok);
+        Assert.Equal(0, noteNumber);
+        Assert.Equal(0, velocity);
+    }
+
+    #endregion
 }

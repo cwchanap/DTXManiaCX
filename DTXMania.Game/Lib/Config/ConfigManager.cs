@@ -375,6 +375,17 @@ namespace DTXMania.Game.Lib.Config
                         {
                             SetMidiVelocityThresholdInMemory(midiNoteNumber, midiThreshold);
                         }
+                        else
+                        {
+                            // Mirror IsSupportedBindingKeyOrLog: a hand-edited
+                            // "MidiVelocity.36=abc" should not silently vanish — the
+                            // user's sensitivity setting otherwise disappears with no
+                            // clue why their kit feels wrong after reload.
+                            _logger.LogWarning(
+                                "Ignoring malformed MIDI velocity threshold '{Key}={Value}': " +
+                                "value must be an integer in the 0–127 range.",
+                                key, value);
+                        }
                     }
                     else if (key.StartsWith("Key.Unbound.") &&
                         int.TryParse(key.Substring("Key.Unbound.".Length), out var unboundLane))
