@@ -313,7 +313,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var color = Color.White * particle.Alpha;
             if (particle.Kind == ParticleKind.Star)
             {
-                _laneStarTextures[particle.Lane]?.Draw(
+                var starTexture = _laneStarTextures[particle.Lane];
+                starTexture?.Draw(
                     spriteBatch,
                     CenteredRotationDestination(
                         particle.Position,
@@ -322,7 +323,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     null,
                     color,
                     particle.Rotation,
-                    PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f,
+                    new Vector2(starTexture.Width / 2f, starTexture.Height / 2f),
                     SpriteEffects.None,
                     0f);
             }
@@ -344,7 +345,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             else if (particle.Kind == ParticleKind.Wave)
             {
-                _waveTexture?.Draw(
+                var waveTexture = _waveTexture;
+                waveTexture?.Draw(
                     spriteBatch,
                     CenteredRotationDestination(
                         particle.Position,
@@ -353,7 +355,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     null,
                     color,
                     particle.Rotation,
-                    PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f,
+                    new Vector2(waveTexture.Width / 2f, waveTexture.Height / 2f),
                     SpriteEffects.None,
                     0f);
             }
@@ -402,7 +404,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (sheetWidth < fragmentWidth)
                 return Rectangle.Empty;
 
-            fragmentX = Math.Clamp(fragmentX, 0, sheetWidth - fragmentWidth);
+            if (columnX >= sheetWidth || fragmentX >= sheetWidth)
+                return Rectangle.Empty;
+
+            var maxFragmentX = sheetWidth - fragmentWidth;
+            if (maxFragmentX < columnX)
+                return Rectangle.Empty;
+
+            fragmentX = Math.Min(fragmentX, maxFragmentX);
 
             return new Rectangle(
                 fragmentX,
