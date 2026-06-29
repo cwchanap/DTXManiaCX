@@ -1122,9 +1122,7 @@ public class PerformanceStageDeterministicTests
         var args = new LaneHitEventArgs(4, new ButtonState("Key.Z", true, 1.0f));
         ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
 
-        Assert.Null(ReflectionHelpers.GetPrivateField<int?>(stage, "_lastLaneHitLane"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<string?>(stage, "_lastLaneHitButtonId"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(stage, "_lastLaneHitSongTimeMs"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<PerformanceStage.LastLaneHit?>(stage, "_lastLaneHit"));
     }
 
     [Fact]
@@ -1133,9 +1131,7 @@ public class PerformanceStageDeterministicTests
         // On reactivation, a stage must not inherit the previous song's last-hit telemetry.
         // CleanupComponents resets the cached fields so PopulateTelemetry only reports fresh hits.
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitLane", (int?)5);
-        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitButtonId", (string?)"MIDI.36");
-        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHitSongTimeMs", (double?)1234.0);
+        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHit", new PerformanceStage.LastLaneHit(5, "MIDI.36", 1234.0));
         // CreateStage() uses GetUninitializedObject, so the field-initialized collections that
         // CleanupComponents iterates must be provided explicitly. All other cleanup paths are
         // null-conditional and tolerate the uninitialized state.
@@ -1144,9 +1140,38 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
-        Assert.Null(ReflectionHelpers.GetPrivateField<int?>(stage, "_lastLaneHitLane"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<string?>(stage, "_lastLaneHitButtonId"));
-        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(stage, "_lastLaneHitSongTimeMs"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<PerformanceStage.LastLaneHit?>(stage, "_lastLaneHit"));
+    }
+
+    [Fact]
+    public void PopulateTelemetry_LastHitRecorded_ShouldDeconstructConsistently()
+    {
+        // Guards the torn-read fix: the three LastLaneHit* telemetry values must all come
+        // from the same immutable record snapshot, never a mix of two different hits.
+        // A single record reference is read once (atomic) and then deconstructed.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_lastLaneHit", new PerformanceStage.LastLaneHit(7, "MIDI.42", 5678.5));
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(7, telemetry.LastLaneHitLane);
+        Assert.Equal("MIDI.42", telemetry.LastLaneHitButtonId);
+        Assert.Equal(5678.5, telemetry.LastLaneHitSongTimeMs);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_NoHitRecorded_ShouldReportNullLastHit()
+    {
+        var stage = CreateStage();
+        // _lastLaneHit is null by default (no hit recorded).
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Null(telemetry.LastLaneHitLane);
+        Assert.Null(telemetry.LastLaneHitButtonId);
+        Assert.Null(telemetry.LastLaneHitSongTimeMs);
     }
 
     [Fact]
