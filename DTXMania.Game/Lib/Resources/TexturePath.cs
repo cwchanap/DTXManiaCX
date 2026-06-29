@@ -1,3 +1,5 @@
+using System;
+
 namespace DTXMania.Game.Lib.Resources
 {
     /// <summary>
@@ -477,6 +479,50 @@ namespace DTXMania.Game.Lib.Resources
         /// Hit spark effects - Yellow
         /// </summary>
         public const string HitSparkYellow = "Graphics/ScreenPlayDrums chip fire_yellow.png";
+
+        /// <summary>
+        /// Bundled XG-style judgement text sprite sheet for performance-stage judgement words.
+        /// </summary>
+        public const string JudgeStringsXg = "Graphics/7_JudgeStrings_XG.png";
+
+        /// <summary>
+        /// Combined NX-style drum chip fire sheet. Columns are animation frames; rows are lane colors.
+        /// </summary>
+        public const string ChipFireCombined = "Graphics/ScreenPlayDrums chip fire.png";
+
+        private static readonly string[] DrumNxAssetLaneCodes =
+        {
+            "LC", "HH", "LP", "SD", "HT", "BD", "LT", "FT", "CY", "RD"
+        };
+
+        /// <summary>
+        /// Gets the bundled per-lane chip fire asset path for a gameplay lane index.
+        /// Gameplay lane SN maps to NX asset code SD; gameplay lane DB maps to NX asset code BD.
+        /// </summary>
+        public static string GetDrumChipFireLanePath(int laneIndex)
+        {
+            return $"Graphics/ScreenPlayDrums chip fire_{GetDrumNxAssetLaneCode(laneIndex)}.png";
+        }
+
+        /// <summary>
+        /// Gets the bundled per-lane chip star asset path for a gameplay lane index.
+        /// Gameplay lane SN maps to NX asset code SD; gameplay lane DB maps to NX asset code BD.
+        /// </summary>
+        public static string GetDrumChipStarLanePath(int laneIndex)
+        {
+            return $"Graphics/ScreenPlayDrums chip star_{GetDrumNxAssetLaneCode(laneIndex)}.png";
+        }
+
+        private static string GetDrumNxAssetLaneCode(int laneIndex)
+        {
+            if (laneIndex < 0 || laneIndex >= DrumNxAssetLaneCodes.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(laneIndex),
+                    $"Lane index must be between 0 and {DrumNxAssetLaneCodes.Length - 1}.");
+            }
+
+            return DrumNxAssetLaneCodes[laneIndex];
+        }
         
         /// <summary>
         /// Lane flush effects path prefix
@@ -609,6 +655,8 @@ namespace DTXMania.Game.Lib.Resources
                 RateNumbersSmall,
                 LagNumbers,
                 JudgeStrings,
+                JudgeStringsXg,
+                ChipFireCombined,
                 LagIndicator,
                 PauseOverlay,
                 HitSparkRed,

@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.Song.Entities;
 using System;
 
 namespace DTXMania.Game.Lib.UI.Layout
@@ -777,6 +778,52 @@ namespace DTXMania.Game.Lib.UI.Layout
                 return new Vector2(LaneCenterX[laneIndex], JudgelineY);
             }
         }
+
+        /// <summary>
+        /// NX-style note collision effect constants for bundled System skin assets.
+        /// </summary>
+        public static class NxAttackEffectAssets
+        {
+            public const int CombinedSparkFrameWidth = 150;
+            public const int CombinedSparkFrameHeight = 150;
+            public const int CombinedSparkFrameCount = 12;
+            public const int CombinedSparkLaneRows = 10;
+            public const double PrimarySparkFrameDurationSeconds = 0.03;
+            public static readonly Vector2 PrimarySparkDrawSize = new Vector2(128, 128);
+            public static readonly Vector2 StarDrawSize = new Vector2(32, 32);
+            public static readonly Vector2 WaveDrawSize = new Vector2(64, 64);
+            public const int StarParticleCount = 16;
+            public const int ChipFragmentCount = 2;
+            public const int WaveParticleCount = 2;
+            public const double StarLifetimeSeconds = 0.34;
+            public const double ChipFragmentLifetimeSeconds = 0.44;
+            public const double WaveLifetimeSeconds = 0.42;
+
+            public static Rectangle GetCombinedSparkSource(int laneIndex, int frameIndex)
+            {
+                if (laneIndex < 0 || laneIndex >= CombinedSparkLaneRows)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(laneIndex),
+                        $"Lane index must be between 0 and {CombinedSparkLaneRows - 1}.");
+                }
+                if (frameIndex < 0 || frameIndex >= CombinedSparkFrameCount)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(frameIndex),
+                        $"Frame index must be between 0 and {CombinedSparkFrameCount - 1}.");
+                }
+
+                return new Rectangle(
+                    frameIndex * CombinedSparkFrameWidth,
+                    laneIndex * CombinedSparkFrameHeight,
+                    CombinedSparkFrameWidth,
+                    CombinedSparkFrameHeight);
+            }
+
+            public static Vector2 GetEffectOrigin(int laneIndex)
+            {
+                return new Vector2(GetLaneX(laneIndex), JudgementLineY);
+            }
+        }
         
         /// <summary>
         /// Lane flush effects configuration
@@ -848,6 +895,44 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int GoodFrame = 2;
             public const int PoorFrame = 3;
             public const int MissFrame = 4;
+        }
+
+        public static class SpriteJudgementTextAssets
+        {
+            public const double PopDurationSeconds = 0.12;
+            public const double TotalDurationSeconds = 0.45;
+            public const float InitialScale = 1.25f;
+            public const float SettledScale = 1.0f;
+            public const int JudgementLineOffsetY = 72;
+
+            public static readonly Rectangle PerfectSource = new Rectangle(3, 6, 82, 22);
+            public static readonly Rectangle GreatSource = new Rectangle(95, 6, 75, 22);
+            public static readonly Rectangle GoodSource = new Rectangle(4, 44, 80, 22);
+            public static readonly Rectangle PoorSource = new Rectangle(114, 44, 38, 22);
+            public static readonly Rectangle MissSource = new Rectangle(17, 82, 52, 22);
+            public static readonly Rectangle YellowAccentBar = new Rectangle(17, 111, 176, 18);
+            public static readonly Rectangle GreenAccentBar = new Rectangle(17, 131, 176, 18);
+            public static readonly Rectangle BlueAccentBar = new Rectangle(18, 151, 176, 18);
+
+            public static Rectangle GetJudgementSource(JudgementType judgementType)
+            {
+                return judgementType switch
+                {
+                    JudgementType.Perfect => PerfectSource,
+                    JudgementType.Great => GreatSource,
+                    JudgementType.Good => GoodSource,
+                    JudgementType.Poor => PoorSource,
+                    JudgementType.Miss => MissSource,
+                    _ => throw new ArgumentOutOfRangeException(nameof(judgementType), judgementType, "Unknown judgement type.")
+                };
+            }
+
+            public static Vector2 GetLaneTextPosition(int laneIndex, Rectangle source)
+            {
+                var x = GetLaneX(laneIndex) - source.Width / 2f;
+                var y = JudgementLineY - JudgementLineOffsetY;
+                return new Vector2(x, y);
+            }
         }
         
         public static class TimingIndicatorAssets
