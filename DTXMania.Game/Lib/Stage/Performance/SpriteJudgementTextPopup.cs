@@ -14,11 +14,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private double _elapsedSeconds;
 
-        public SpriteJudgementTextPopup(JudgementType judgementType, Rectangle sourceRectangle, Vector2 position)
+        public SpriteJudgementTextPopup(
+            JudgementType judgementType,
+            Rectangle sourceRectangle,
+            Vector2 position,
+            JudgementEvent? sourceJudgementEvent = null)
         {
             JudgementType = judgementType;
             SourceRectangle = sourceRectangle;
             Position = position;
+            SourceJudgementEvent = sourceJudgementEvent;
             Alpha = 1f;
             Scale = PerformanceUILayout.SpriteJudgementTextAssets.InitialScale;
             IsActive = true;
@@ -27,6 +32,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public JudgementType JudgementType { get; }
         public Rectangle SourceRectangle { get; }
         public Vector2 Position { get; }
+        internal JudgementEvent? SourceJudgementEvent { get; }
         public float Alpha { get; private set; }
         public float Scale { get; private set; }
         public bool IsActive { get; private set; }
@@ -120,7 +126,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 source = PerformanceUILayout.SpriteJudgementTextAssets.GetJudgementSource(judgementEvent.Type);
                 var position = PerformanceUILayout.SpriteJudgementTextAssets.GetLaneTextPosition(judgementEvent.Lane, source);
-                _activePopups.Add(new SpriteJudgementTextPopup(judgementEvent.Type, source, position));
+                _activePopups.Add(new SpriteJudgementTextPopup(judgementEvent.Type, source, position, judgementEvent));
             }
             catch (ArgumentOutOfRangeException)
             {
@@ -149,19 +155,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             if (!TryEnsureSpriteTextureAvailable())
+            {
+                MigrateActivePopupsToFontFallback();
                 return;
+            }
 
             if (spriteBatch == null)
-                return;
-
-            var spriteTexture = _spriteTexture;
-            if (spriteTexture == null)
                 return;
 
             foreach (var popup in _activePopups)
             {
                 if (!popup.IsActive || popup.Alpha <= 0f)
                     continue;
+
+                if (!TryEnsureSpriteTextureAvailable())
+                {
+                    MigrateActivePopupsToFontFallback();
+                    return;
+                }
+
+                var spriteTexture = _spriteTexture;
+                if (spriteTexture == null)
+                    return;
 
                 var source = popup.SourceRectangle;
                 var width = Math.Max(1, (int)MathF.Round(source.Width * popup.Scale));
@@ -172,15 +187,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     width,
                     height);
 
-                spriteTexture.Draw(
-                    spriteBatch,
-                    dest,
-                    source,
-                    Color.White * popup.Alpha,
-                    0f,
-                    Vector2.Zero,
-                    SpriteEffects.None,
-                    0.5f);
+                try
+                {
+                    spriteTexture.Draw(
+                        spriteBatch,
+                        dest,
+                        source,
+                        Color.White * popup.Alpha,
+                        0f,
+                        Vector2.Zero,
+                        SpriteEffects.None,
+                        0.5f);
+                }
+                catch (Exception ex)
+                {
+                    if (!HandleSpriteDrawFailure(spriteTexture, ex))
+                        throw;
+
+                    return;
+                }
             }
         }
 
@@ -266,6 +291,41 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 System.Diagnostics.Debug.WriteLine(
                     $"SpriteJudgementTextPopupManager: {ex.GetType().Name} releasing {TexturePath.JudgeStringsXg}: {ex.Message}");
             }
+        }
+
+        private void MigrateActivePopupsToFontFallback()
+        {
+            if (_activePopups.Count == 0)
+                return;
+
+            foreach (var popup in _activePopups)
+            {
+                if (popup.IsActive && popup.SourceJudgementEvent != null)
+                    _fontFallback?.Invoke(popup.SourceJudgementEvent);
+            }
+
+            _activePopups.Clear();
+        }
+
+        private bool HandleSpriteDrawFailure(ITexture spriteTexture, Exception exception)
+        {
+            var invalid = true;
+            try
+            {
+                invalid = IsInvalidSpriteTexture(spriteTexture);
+            }
+            catch
+            {
+            }
+
+            if (!invalid)
+                return false;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"SpriteJudgementTextPopupManager: {exception.GetType().Name} drawing {TexturePath.JudgeStringsXg}: {exception.Message}");
+            ReleaseHeldSpriteTexture();
+            MigrateActivePopupsToFontFallback();
+            return true;
         }
 
         private static bool IsInvalidSpriteTexture(ITexture texture)
