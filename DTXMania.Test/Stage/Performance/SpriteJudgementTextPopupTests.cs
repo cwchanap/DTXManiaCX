@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -225,6 +227,48 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Manager_SpawnPopup_WhenHeldSpriteTextureBecomesDisposed_ShouldFallbackAndReleaseReferenceOnce()
+    {
+        var texture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        manager.SpawnPopup(new JudgementEvent(10, 4, 0.0, JudgementType.Good));
+
+        texture.IsDisposed = true;
+        var fallbackJudgement = new JudgementEvent(11, 4, 0.0, JudgementType.Great);
+        manager.SpawnPopup(fallbackJudgement);
+        manager.SpawnPopup(new JudgementEvent(12, 4, 0.0, JudgementType.Perfect));
+
+        Assert.Single(manager.ActivePopupsForTesting);
+        Assert.Same(fallbackJudgement, fallbackEvents[0]);
+        Assert.Equal(2, fallbackEvents.Count);
+        Assert.Equal(1, texture.RemoveReferenceCount);
+
+        manager.Dispose();
+
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Manager_Draw_WhenHeldSpriteTextureBecomesDisposed_ShouldReleaseReferenceAndFutureSpawnFallsBack()
+    {
+        var texture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        manager.SpawnPopup(new JudgementEvent(10, 4, 0.0, JudgementType.Good));
+
+        texture.IsDisposed = true;
+        var exception = Record.Exception(() => manager.Draw(null!));
+        var fallbackJudgement = new JudgementEvent(11, 4, 0.0, JudgementType.Great);
+        manager.SpawnPopup(fallbackJudgement);
+
+        Assert.Null(exception);
+        Assert.Equal(1, texture.RemoveReferenceCount);
+        Assert.Same(fallbackJudgement, Assert.Single(fallbackEvents));
+        Assert.Single(manager.ActivePopupsForTesting);
+    }
+
+    [Fact]
     public void Manager_Update_ShouldRemoveExpiredPopups()
     {
         var manager = CreateManager(spriteTextureAvailable: true);
@@ -269,10 +313,7 @@ public class SpriteJudgementTextPopupTests
             return SpriteJudgementTextPopupManager.CreateForTesting(null, fontFallback);
         }
 
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Width).Returns(448);
-        texture.SetupGet(x => x.Height).Returns(256);
-        return SpriteJudgementTextPopupManager.CreateForTesting(texture.Object, fontFallback);
+        return SpriteJudgementTextPopupManager.CreateForTesting(new MutableTexture(), fontFallback);
     }
 
     private static Mock<IResourceManager> CreateResourceManager(ITexture texture)
@@ -281,5 +322,99 @@ public class SpriteJudgementTextPopupTests
         resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(true);
         resourceManager.Setup(x => x.LoadTexture(TexturePath.JudgeStringsXg)).Returns(texture);
         return resourceManager;
+    }
+
+    private sealed class MutableTexture : ITexture
+    {
+        public Texture2D Texture { get; set; } = CreateTexture2DStub();
+        public string SourcePath => TexturePath.JudgeStringsXg;
+        public int Width { get; set; } = 448;
+        public int Height { get; set; } = 256;
+        public Vector2 Size => new Vector2(Width, Height);
+        public bool IsDisposed { get; set; }
+        public int ReferenceCount => 1;
+        public long MemoryUsage => Width * Height * 4L;
+        public int Transparency { get; set; } = 255;
+        public Vector3 ScaleRatio { get; set; } = Vector3.One;
+        public float ZAxisRotation { get; set; }
+        public bool AdditiveBlending { get; set; }
+        public int RemoveReferenceCount { get; private set; }
+
+        public void AddReference()
+        {
+        }
+
+        public void RemoveReference()
+        {
+            RemoveReferenceCount++;
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
+        {
+        }
+
+        public void Draw(
+            SpriteBatch spriteBatch,
+            Rectangle destinationRectangle,
+            Rectangle? sourceRectangle,
+            Color color,
+            float rotation,
+            Vector2 origin,
+            SpriteEffects effects,
+            float layerDepth)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position, Vector2 scale, float rotation, Vector2 origin)
+        {
+        }
+
+        public ITexture Clone()
+        {
+            return this;
+        }
+
+        public Color[] GetColorData()
+        {
+            return [];
+        }
+
+        public void SetColorData(Color[] colorData)
+        {
+        }
+
+        public void SaveToFile(string filePath)
+        {
+        }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+        }
+
+        private static Texture2D CreateTexture2DStub()
+        {
+            var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            SetDisposedFlag(texture, false);
+            return texture;
+        }
+
+        private static void SetDisposedFlag(Texture2D texture, bool isDisposed)
+        {
+            for (var type = texture.GetType(); type != null; type = type.BaseType)
+            {
+                var field = type.GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? type.GetField("<IsDisposed>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field?.FieldType == typeof(bool))
+                {
+                    field.SetValue(texture, isDisposed);
+                    return;
+                }
+            }
+        }
     }
 }
