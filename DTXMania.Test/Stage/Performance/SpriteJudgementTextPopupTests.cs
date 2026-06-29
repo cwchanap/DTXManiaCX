@@ -116,6 +116,27 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Manager_PublicConstructor_WhenTextureWrapperDisposed_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.IsDisposed).Returns(true);
+        texture.SetupGet(x => x.Width).Returns(448);
+        texture.SetupGet(x => x.Height).Returns(256);
+        texture.SetupGet(x => x.Texture).Throws(new InvalidOperationException("disposed texture should not be dereferenced"));
+        var resourceManager = CreateResourceManager(texture.Object);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        texture.VerifyGet(x => x.Texture, Times.Never);
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void Manager_PublicConstructor_WhenUnderlyingTextureNull_ShouldUseFontFallbackAndReleaseTexture()
     {
         var texture = new Mock<ITexture>();

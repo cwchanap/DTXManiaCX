@@ -201,7 +201,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     return null;
 
                 texture = resourceManager.LoadTexture(TexturePath.JudgeStringsXg);
-                if (texture.Width < 242 || texture.Height < 169 || texture.Texture == null)
+                if (IsInvalidSpriteTexture(texture))
                 {
                     var invalidTexture = texture;
                     texture = null;
@@ -218,6 +218,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     $"SpriteJudgementTextPopupManager: {ex.GetType().Name} loading {TexturePath.JudgeStringsXg}: {ex.Message}");
                 return null;
             }
+        }
+
+        private static bool IsInvalidSpriteTexture(ITexture texture)
+        {
+            if (texture.IsDisposed)
+                return true;
+
+            if (texture.Width < 242 || texture.Height < 169)
+                return true;
+
+            var spriteTexture = texture.Texture;
+            return spriteTexture == null || spriteTexture.IsDisposed;
         }
     }
 }
