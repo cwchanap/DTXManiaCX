@@ -30,6 +30,26 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Popup_Update_DuringFade_ShouldRemainActiveWithSettledScaleAndPartialAlpha()
+    {
+        var popup = new SpriteJudgementTextPopup(
+            JudgementType.Perfect,
+            new Rectangle(3, 6, 82, 22),
+            new Vector2(100, 200));
+        var fadeTime = PerformanceUILayout.SpriteJudgementTextAssets.PopDurationSeconds
+            + (PerformanceUILayout.SpriteJudgementTextAssets.TotalDurationSeconds
+                - PerformanceUILayout.SpriteJudgementTextAssets.PopDurationSeconds) / 2.0;
+
+        var active = popup.Update(fadeTime);
+
+        Assert.True(active);
+        Assert.True(popup.IsActive);
+        Assert.Equal(PerformanceUILayout.SpriteJudgementTextAssets.SettledScale, popup.Scale);
+        Assert.True(popup.Alpha < 1f);
+        Assert.True(popup.Alpha > 0f);
+    }
+
+    [Fact]
     public void Popup_Update_AfterTotalDuration_ShouldExpire()
     {
         var popup = new SpriteJudgementTextPopup(
