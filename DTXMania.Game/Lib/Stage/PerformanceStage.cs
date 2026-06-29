@@ -123,9 +123,17 @@ namespace DTXMania.Game.Lib.Stage
         private GameTime _currentGameTime = null!;
         private double _totalTime = 0.0;
         private double _stageElapsedTime = 0.0; // Track elapsed time since stage activation for miss detection
-        private int? _lastLaneHitLane;
-        private string? _lastLaneHitButtonId;
-        private double? _lastLaneHitSongTimeMs;
+        // Last-hit telemetry, published on the Update thread (OnLaneHitForPadFeedback) and
+        // read on the Kestrel API thread (PopulateTelemetry). Collapsed into a single
+        // immutable reference so the API thread can never observe a torn combination
+        // (e.g. a stale lane paired with a fresh song time): reference assignment is
+        // atomic on .NET, and the record's init-only fields are fully constructed before
+        // the reference is published. "No hit yet" is represented by a null reference.
+        // Matches the existing non-volatile cross-thread read pattern used by the other
+        // PopulateTelemetry fields (_stageCompleted, _isLoading, ...); freshness is not a
+        // goal here — only internal consistency of the three values.
+        internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
+        private LastLaneHit? _lastLaneHit;
         private Texture2D _fallbackWhiteTexture = null!;
         private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
@@ -412,9 +420,7 @@ namespace DTXMania.Game.Lib.Stage
             _autoPlayNoteIndex = 0; // Reset autoplay note index
             // Clear cached last-hit telemetry so a reactivated stage does not inherit the previous
             // song's hit data; PopulateTelemetry only reports fresh values once new hits land.
-            _lastLaneHitLane = null;
-            _lastLaneHitButtonId = null;
-            _lastLaneHitSongTimeMs = null;
+            _lastLaneHit = null;
 
             // Cleanup background renderer
             _backgroundRenderer?.Dispose();
@@ -1207,9 +1213,9 @@ namespace DTXMania.Game.Lib.Stage
             if (_songTimer?.IsPlaying != true)
                 return;
 
-            _lastLaneHitLane = e.Lane;
-            _lastLaneHitButtonId = e.Button.Id;
-            _lastLaneHitSongTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            // Publish all three values as one immutable reference so the API thread reads
+            // a consistent snapshot (lane + button + time from the same hit).
+            _lastLaneHit = new LastLaneHit(e.Lane, e.Button.Id, _songTimer.GetCurrentMs(_currentGameTime));
 
             // Use the same compensated clock that JudgementManager.Update receives
             // so chip sound lookup mirrors the judgement window. Without this, a hit
@@ -1929,9 +1935,12 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
             telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
             telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
-            telemetry.LastLaneHitLane = _lastLaneHitLane;
-            telemetry.LastLaneHitButtonId = _lastLaneHitButtonId;
-            telemetry.LastLaneHitSongTimeMs = _lastLaneHitSongTimeMs;
+            // Snapshot the reference once (atomic read) then read its immutable fields, so
+            // the API thread can never observe a torn combination across two different hits.
+            var lastHit = _lastLaneHit;
+            telemetry.LastLaneHitLane = lastHit?.Lane;
+            telemetry.LastLaneHitButtonId = lastHit?.ButtonId;
+            telemetry.LastLaneHitSongTimeMs = lastHit?.SongTimeMs;
         }
 
         #endregion
