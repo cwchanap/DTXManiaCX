@@ -38,9 +38,30 @@ namespace DTXMania.Test.Resources
                 "back to a synthesized texture when it is missing, but the default skin " +
                 "should provide the real hit-effect visual.");
 
-            var header = File.ReadAllBytes(hitFxPath);
+            AssertPngSignature(hitFxPath, TexturePath.HitFx);
+        }
+
+        [Theory]
+        [InlineData(TexturePath.JudgeStringsXg)]
+        [InlineData(TexturePath.ChipFireCombined)]
+        [InlineData(TexturePath.ChipWave)]
+        [InlineData("Graphics/ScreenPlayDrums chip fire_LC.png")]
+        [InlineData("Graphics/ScreenPlayDrums chip fire_SD.png")]
+        [InlineData("Graphics/ScreenPlayDrums chip star_LC.png")]
+        public void DefaultSkin_ShouldShipBundledNxJudgementCollisionAssets(string relativePath)
+        {
+            var repoRoot = FindRepoRoot();
+            var assetPath = Path.Combine(repoRoot, "System", relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+            Assert.True(File.Exists(assetPath), $"Bundled default skin must ship {relativePath}.");
+            AssertPngSignature(assetPath, relativePath);
+        }
+
+        private static void AssertPngSignature(string filePath, string relativePath)
+        {
+            var header = File.ReadAllBytes(filePath);
             Assert.True(header.Length >= PngSignature.Length,
-                $"Bundled {TexturePath.HitFx} is not a valid PNG (too short).");
+                $"Bundled {relativePath} is not a valid PNG (too short).");
             for (int i = 0; i < PngSignature.Length; i++)
             {
                 Assert.Equal(PngSignature[i], header[i]);

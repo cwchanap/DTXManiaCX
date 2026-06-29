@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Resources;
+using System;
 using System.Linq;
 using System.Reflection;
 using Xunit;
@@ -98,6 +99,62 @@ namespace DTXMania.Test.Resources
         public void JudgeStrings_ShouldBeCorrectPath()
         {
             Assert.Equal("Graphics/7_judge.png", TexturePath.JudgeStrings);
+        }
+
+        [Fact]
+        public void JudgeStringsXg_ShouldBeCorrectPath()
+        {
+            Assert.Equal("Graphics/7_JudgeStrings_XG.png", TexturePath.JudgeStringsXg);
+        }
+
+        [Fact]
+        public void ChipFireCombined_ShouldBeCorrectPath()
+        {
+            Assert.Equal("Graphics/ScreenPlayDrums chip fire.png", TexturePath.ChipFireCombined);
+        }
+
+        [Theory]
+        [InlineData(0, "Graphics/ScreenPlayDrums chip fire_LC.png")]
+        [InlineData(1, "Graphics/ScreenPlayDrums chip fire_HH.png")]
+        [InlineData(2, "Graphics/ScreenPlayDrums chip fire_LP.png")]
+        [InlineData(3, "Graphics/ScreenPlayDrums chip fire_SD.png")]
+        [InlineData(4, "Graphics/ScreenPlayDrums chip fire_HT.png")]
+        [InlineData(5, "Graphics/ScreenPlayDrums chip fire_BD.png")]
+        [InlineData(6, "Graphics/ScreenPlayDrums chip fire_LT.png")]
+        [InlineData(7, "Graphics/ScreenPlayDrums chip fire_FT.png")]
+        [InlineData(8, "Graphics/ScreenPlayDrums chip fire_CY.png")]
+        [InlineData(9, "Graphics/ScreenPlayDrums chip fire_RD.png")]
+        public void GetDrumChipFireLanePath_ShouldMapGameplayLaneToNxAssetName(int lane, string expected)
+        {
+            Assert.Equal(expected, TexturePath.GetDrumChipFireLanePath(lane));
+        }
+
+        [Theory]
+        [InlineData(0, "Graphics/ScreenPlayDrums chip star_LC.png")]
+        [InlineData(3, "Graphics/ScreenPlayDrums chip star_SD.png")]
+        [InlineData(5, "Graphics/ScreenPlayDrums chip star_BD.png")]
+        [InlineData(9, "Graphics/ScreenPlayDrums chip star_RD.png")]
+        public void GetDrumChipStarLanePath_ShouldMapGameplayLaneToNxAssetName(int lane, string expected)
+        {
+            Assert.Equal(expected, TexturePath.GetDrumChipStarLanePath(lane));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(10)]
+        public void GetDrumChipFireLanePath_WithInvalidLane_ShouldThrow(int lane)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => TexturePath.GetDrumChipFireLanePath(lane));
+        }
+
+        [Fact]
+        public void GetAllTexturePaths_ShouldContainRequiredNxJudgementCollisionTextures()
+        {
+            var paths = TexturePath.GetAllTexturePaths();
+
+            Assert.Contains(TexturePath.JudgeStringsXg, paths);
+            Assert.Contains(TexturePath.ChipFireCombined, paths);
+            Assert.Contains(TexturePath.ChipWave, paths);
         }
 
         [Fact]

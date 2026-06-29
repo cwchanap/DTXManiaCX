@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 
 namespace DTXMania.Test.UI
@@ -44,6 +45,50 @@ namespace DTXMania.Test.UI
             var pos = PerformanceUILayout.HitSparks.GetSparkPosition(laneIndex);
             Assert.Equal(PerformanceUILayout.LaneCenterX[laneIndex], pos.X);
             Assert.Equal(PerformanceUILayout.JudgelineY, pos.Y);
+        }
+
+        [Fact]
+        public void NxAttackEffectAssets_CombinedSparkSheetConstants_ShouldMatchBundledAsset()
+        {
+            Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth);
+            Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameHeight);
+            Assert.Equal(12, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameCount);
+            Assert.Equal(10, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkLaneRows);
+            Assert.Equal(new Vector2(128, 128), PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize);
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0, 0, 150)]
+        [InlineData(3, 4, 600, 450, 150)]
+        [InlineData(9, 11, 1650, 1350, 150)]
+        public void NxAttackEffectAssets_GetCombinedSparkSource_ShouldReturnLaneRowAndFrameColumn(
+            int lane, int frame, int x, int y, int size)
+        {
+            var source = PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame);
+
+            Assert.Equal(new Rectangle(x, y, size, size), source);
+        }
+
+        [Theory]
+        [InlineData(JudgementType.Perfect, 3, 6, 82, 22)]
+        [InlineData(JudgementType.Great, 95, 6, 75, 22)]
+        [InlineData(JudgementType.Good, 4, 44, 80, 22)]
+        [InlineData(JudgementType.Poor, 114, 44, 38, 22)]
+        [InlineData(JudgementType.Miss, 17, 82, 52, 22)]
+        public void SpriteJudgementTextAssets_GetJudgementSource_ShouldReturnBundledWordBounds(
+            JudgementType judgementType, int x, int y, int width, int height)
+        {
+            var source = PerformanceUILayout.SpriteJudgementTextAssets.GetJudgementSource(judgementType);
+
+            Assert.Equal(new Rectangle(x, y, width, height), source);
+        }
+
+        [Fact]
+        public void SpriteJudgementTextAssets_AccentBars_ShouldUseBundledBarBounds()
+        {
+            Assert.Equal(new Rectangle(17, 111, 176, 18), PerformanceUILayout.SpriteJudgementTextAssets.YellowAccentBar);
+            Assert.Equal(new Rectangle(17, 131, 176, 18), PerformanceUILayout.SpriteJudgementTextAssets.GreenAccentBar);
+            Assert.Equal(new Rectangle(18, 151, 176, 18), PerformanceUILayout.SpriteJudgementTextAssets.BlueAccentBar);
         }
 
         #endregion
