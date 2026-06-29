@@ -1,9 +1,11 @@
 using System;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -99,6 +101,100 @@ public class NxAttackEffectManagerTests
         manager.Dispose();
 
         texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Constructor_WhenCombinedSheetInvalid_ShouldReleaseItOnceAndUseFallback()
+    {
+        var invalidCombinedTexture = CreateTexture(width: 1799, height: 1499);
+        var fallbackTexture = CreateTexture(width: 128, height: 128);
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(invalidCombinedTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(fallbackTexture.Object);
+
+        var manager = new NxAttackEffectManager(resourceManager.Object);
+
+        invalidCombinedTexture.Verify(x => x.RemoveReference(), Times.Once);
+
+        manager.Spawn(0, JudgementType.Perfect);
+        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
+        Assert.False(spark.UsesCombinedSheet);
+
+        manager.Dispose();
+
+        invalidCombinedTexture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Dispose_WhenCalledTwice_ShouldReleaseLoadedTexturesOnce()
+    {
+        var texture = CreateTexture(width: 1800, height: 1650);
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(texture.Object);
+
+        var manager = new NxAttackEffectManager(resourceManager.Object);
+
+        manager.Dispose();
+        manager.Dispose();
+
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Draw_Particles_ShouldUseCenteredRotationOrigins()
+    {
+        var combinedTexture = CreateTexture(width: 1800, height: 1650);
+        var starTexture = CreateTexture(width: 32, height: 32);
+        var chipTexture = CreateTexture(width: 718, height: 776);
+        var waveTexture = CreateTexture(width: 64, height: 64);
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(combinedTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipStarLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipStarLanePath(0))).Returns(starTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.DrumChips)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(chipTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipWave)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipWave)).Returns(waveTexture.Object);
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+        manager.Spawn(0, JudgementType.Perfect);
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        manager.Draw(spriteBatch);
+
+        starTexture.Verify(x => x.Draw(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<Rectangle>(),
+            It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(),
+            It.IsAny<float>(),
+            It.Is<Vector2>(origin => origin == PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f),
+            It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.AtLeastOnce);
+        chipTexture.Verify(x => x.Draw(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<Rectangle>(),
+            It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(),
+            It.IsAny<float>(),
+            It.Is<Vector2>(origin => origin == new Vector2(18f, 32f)),
+            It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.AtLeastOnce);
+        waveTexture.Verify(x => x.Draw(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<Rectangle>(),
+            It.IsAny<Rectangle?>(),
+            It.IsAny<Color>(),
+            It.IsAny<float>(),
+            It.Is<Vector2>(origin => origin == PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f),
+            It.IsAny<SpriteEffects>(),
+            It.IsAny<float>()), Times.AtLeastOnce);
     }
 
     private static NxAttackEffectManager CreateManager(
