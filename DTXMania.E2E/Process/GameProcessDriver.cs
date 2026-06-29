@@ -53,6 +53,12 @@ public sealed class GameProcessDriver : IAsyncDisposable
         startInfo.Environment["DTXMANIA_LAUNCH_TOKEN"] = Guid.NewGuid().ToString("N");
         if (enableSimulatedMidi)
             startInfo.Environment["DTXMANIA_ENABLE_SIMULATED_MIDI"] = "1";
+        else
+            // Explicitly remove the variable so the child does NOT inherit a value from the
+            // parent/test-runner environment. ProcessStartInfo.Environment is seeded from the
+            // current process environment, so without this a parent-side DTXMANIA_ENABLE_SIMULATED_MIDI=1
+            // would silently switch the non-simulated path onto the simulated backend.
+            startInfo.Environment.Remove("DTXMANIA_ENABLE_SIMULATED_MIDI");
 
         _process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start game process.");
