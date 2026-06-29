@@ -82,14 +82,15 @@ public sealed class DryWetMidiDeviceBackend : IMidiDeviceBackend
             if (_disposed)
                 return;
 
-            try
-            {
-                Stop();
-            }
-            catch
-            {
-                // Dispose still owns releasing the native MIDI device.
-            }
+            // MidiInputSource.StopAndDisposeDevice is the sole production disposer and
+            // always calls Stop() first, logging any failure via its ILogger. We do not
+            // re-Stop() here: (1) it would be a no-op on the production path (Stop()
+            // early-returns once _listening is false), and (2) wrapping it in a bare
+            // catch would silently swallow any native MidiDeviceException, making a
+            // teardown failure indistinguishable from clean shutdown. Instead the
+            // idempotent -= below detaches the handler for the direct-Dispose() case,
+            // and DryWetMidi's InputDevice.Dispose() releases the native listener.
+            _device.EventReceived -= OnEventReceived;
 
             try
             {

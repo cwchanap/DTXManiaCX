@@ -30,7 +30,11 @@ namespace DTXMania.Game.Lib.Config
         public HashSet<int> UnboundDrumLanes { get; set; } = new();
         public HashSet<string> UnboundDrumButtons { get; set; } = new();
         public Dictionary<string, string> SystemKeyBindings { get; set; } = new();
-        public Dictionary<int, int> MidiVelocityThresholds { get; set; } = new();
+        // Get-only by design: ConfigManager only ever .Clear()s / indexes / .Remove()s
+        // this dictionary (verified across the codebase). A public setter would allow
+        // `config.MidiVelocityThresholds = null`, NRE-ing the hot read path in
+        // GetMidiVelocityThreshold. Other config fields retain setters for compat.
+        public Dictionary<int, int> MidiVelocityThresholds { get; } = new();
 
         // Game settings
         public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;

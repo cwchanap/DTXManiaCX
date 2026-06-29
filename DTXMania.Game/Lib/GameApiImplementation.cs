@@ -195,22 +195,13 @@ public class GameApiImplementation : IGameApi
 
     private static MidiNoteInput? ParseMidiNoteInput(JsonElement? data)
     {
-        if (!data.HasValue || data.Value.ValueKind != JsonValueKind.Object)
-            return null;
-
-        var element = data.Value;
-        if (!element.TryGetProperty("noteNumber", out var noteNumberProp) ||
-            !noteNumberProp.TryGetInt32(out var noteNumber) ||
-            noteNumber < 0 ||
-            noteNumber > 127)
-        {
-            return null;
-        }
-
-        if (!element.TryGetProperty("velocity", out var velocityProp) ||
-            !velocityProp.TryGetInt32(out var velocity) ||
-            velocity < 0 ||
-            velocity > 127)
+        // Delegate to GameInputValidator.TryParseMidiNoteData so this path and the
+        // upstream ValidateGameInput check share one definition of a valid MIDI note.
+        // Previously this inlined the parse with no ValueKind == Number guard, so a
+        // JSON string like "36" would have thrown InvalidOperationException — masked
+        // only because the validator runs first at both call sites.
+        if (!data.HasValue ||
+            !GameInputValidator.TryParseMidiNoteData(data.Value, out var noteNumber, out var velocity))
         {
             return null;
         }

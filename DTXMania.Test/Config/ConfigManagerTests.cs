@@ -1,7 +1,9 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 using System.Text;
 
 namespace DTXMania.Test.Config;
@@ -1098,6 +1100,48 @@ Key.Bad=abc
             Assert.Equal(0, manager.GetMidiVelocityThreshold(38));
             Assert.Equal(0, manager.GetMidiVelocityThreshold(200));
             Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_LoadConfig_MalformedMidiVelocityValue_ShouldLogWarning()
+    {
+        // A hand-edited "MidiVelocity.40=abc" must not silently vanish — the user's
+        // sensitivity setting otherwise disappears with no clue why their kit feels
+        // wrong after reload. Mirrors IsSupportedBindingKeyOrLog for MIDI.* binding keys.
+        // Only a non-integer VALUE on a well-formed key triggers the warning; out-of-range
+        // notes (MidiVelocity.200) and non-numeric notes (MidiVelocity.bad) are rejected
+        // earlier by TryParseMidiVelocityThresholdKey and take a different (silent) path.
+        var tempFile = Path.GetTempFileName();
+        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        {
+            "[MidiVelocityThresholds]",
+            "MidiVelocity.36=20",    // valid integer value — loads, no warning
+            "MidiVelocity.40=abc"    // malformed value — ignored AND warned
+        }));
+
+        try
+        {
+            var logger = new Mock<ILogger<ConfigManager>>();
+            var manager = new ConfigManager(logger.Object);
+            manager.LoadConfig(tempFile);
+
+            // Valid entry still loads.
+            Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
+            // Malformed entry is ignored (no threshold set).
+            Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
+
+            logger.Verify(l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("MidiVelocity.40") && v.ToString()!.Contains("abc")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
         finally
         {
