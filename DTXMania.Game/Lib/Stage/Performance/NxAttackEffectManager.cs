@@ -315,7 +315,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _laneStarTextures[particle.Lane]?.Draw(
                     spriteBatch,
-                    CenteredDestination(
+                    CenteredRotationDestination(
                         particle.Position,
                         PerformanceUILayout.NxAttackEffectAssets.StarDrawSize,
                         particle.Scale),
@@ -331,7 +331,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var source = particle.SourceRectangle;
                 _chipTexture?.Draw(
                     spriteBatch,
-                    CenteredDestination(
+                    CenteredRotationDestination(
                         particle.Position,
                         new Vector2(source.Width, source.Height),
                         particle.Scale),
@@ -346,7 +346,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _waveTexture?.Draw(
                     spriteBatch,
-                    CenteredDestination(
+                    CenteredRotationDestination(
                         particle.Position,
                         PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize,
                         particle.Scale),
@@ -367,6 +367,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return new Rectangle(
                 (int)MathF.Round(center.X - width / 2f),
                 (int)MathF.Round(center.Y - height / 2f),
+                width,
+                height);
+        }
+
+        private static Rectangle CenteredRotationDestination(Vector2 center, Vector2 size, float scale)
+        {
+            var width = Math.Max(1, (int)MathF.Round(size.X * scale));
+            var height = Math.Max(1, (int)MathF.Round(size.Y * scale));
+
+            return new Rectangle(
+                (int)MathF.Round(center.X),
+                (int)MathF.Round(center.Y),
                 width,
                 height);
         }

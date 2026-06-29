@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
@@ -218,6 +219,51 @@ public class NxAttackEffectManagerTests
         var starTexture = CreateTexture(width: 32, height: 32);
         var chipTexture = CreateTexture(width: 718, height: 776);
         var waveTexture = CreateTexture(width: 64, height: 64);
+        var starDraws = new List<(Rectangle Destination, Vector2 Origin)>();
+        var chipDraws = new List<(Rectangle Destination, Rectangle? Source, Vector2 Origin)>();
+        var waveDraws = new List<(Rectangle Destination, Vector2 Origin)>();
+        var originPosition = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0);
+        var expectedDestinationOrigin = new Point(
+            (int)MathF.Round(originPosition.X),
+            (int)MathF.Round(originPosition.Y));
+
+        starTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    starDraws.Add((destination, origin)));
+        chipTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    chipDraws.Add((destination, source, origin)));
+        waveTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    waveDraws.Add((destination, origin)));
+
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
         resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
@@ -234,33 +280,33 @@ public class NxAttackEffectManagerTests
 
         manager.Draw(spriteBatch);
 
-        starTexture.Verify(x => x.Draw(
-            It.IsAny<SpriteBatch>(),
-            It.IsAny<Rectangle>(),
-            It.IsAny<Rectangle?>(),
-            It.IsAny<Color>(),
-            It.IsAny<float>(),
-            It.Is<Vector2>(origin => origin == PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f),
-            It.IsAny<SpriteEffects>(),
-            It.IsAny<float>()), Times.AtLeastOnce);
-        chipTexture.Verify(x => x.Draw(
-            It.IsAny<SpriteBatch>(),
-            It.IsAny<Rectangle>(),
-            It.IsAny<Rectangle?>(),
-            It.IsAny<Color>(),
-            It.IsAny<float>(),
-            It.Is<Vector2>(origin => origin == new Vector2(18.5f, 32f)),
-            It.IsAny<SpriteEffects>(),
-            It.IsAny<float>()), Times.AtLeastOnce);
-        waveTexture.Verify(x => x.Draw(
-            It.IsAny<SpriteBatch>(),
-            It.IsAny<Rectangle>(),
-            It.IsAny<Rectangle?>(),
-            It.IsAny<Color>(),
-            It.IsAny<float>(),
-            It.Is<Vector2>(origin => origin == PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f),
-            It.IsAny<SpriteEffects>(),
-            It.IsAny<float>()), Times.AtLeastOnce);
+        Assert.NotEmpty(starDraws);
+        Assert.NotEmpty(chipDraws);
+        Assert.NotEmpty(waveDraws);
+
+        foreach (var draw in starDraws)
+        {
+            Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
+            Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
+            Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f, draw.Origin);
+        }
+
+        foreach (var draw in chipDraws)
+        {
+            Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
+            Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
+            Assert.NotNull(draw.Source);
+            Assert.Equal(
+                new Vector2(draw.Source.Value.Width / 2f, draw.Source.Value.Height / 2f),
+                draw.Origin);
+        }
+
+        foreach (var draw in waveDraws)
+        {
+            Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
+            Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
+            Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f, draw.Origin);
+        }
     }
 
     private static NxAttackEffectManager CreateManager(
