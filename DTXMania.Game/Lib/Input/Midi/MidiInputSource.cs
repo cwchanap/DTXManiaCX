@@ -112,11 +112,17 @@ public sealed class MidiInputSource : IInputSource
     /// next). Called from <see cref="ModularInputManager.ClearInjectedState"/> alongside the
     /// keyboard/injected-button cleanup so all injected input types are reset consistently.
     /// </summary>
+    /// <remarks>
+    /// Both the pending-note drain and the accepted-press reset run under <see cref="_sync"/>,
+    /// and <see cref="OnNoteReceived"/> also enqueues under <see cref="_sync"/>. This closes the
+    /// TOCTOU window where a note arriving on the MIDI device thread between the drain and the
+    /// accepted-state clear could survive the reset and leak into the next stage.
+    /// </remarks>
     public void ClearInjectedNotes()
     {
-        while (_pendingNotes.TryDequeue(out _)) { }
         lock (_sync)
         {
+            while (_pendingNotes.TryDequeue(out _)) { }
             _acceptedPressedNotes.Clear();
         }
     }
@@ -332,7 +338,16 @@ public sealed class MidiInputSource : IInputSource
         if (sender is not IMidiInputDevice sourceDevice)
             return;
 
-        _pendingNotes.Enqueue(new QueuedMidiNote(sourceDevice, e));
+        // Enqueue under _sync so the drain in ClearInjectedNotes() is atomic w.r.t. note arrival.
+        // The double-checked _disposed guard handles the dispose race: if Dispose() set the flag
+        // after the unlocked check above, the in-lock recheck drops the note.
+        lock (_sync)
+        {
+            if (_disposed)
+                return;
+
+            _pendingNotes.Enqueue(new QueuedMidiNote(sourceDevice, e));
+        }
     }
 
     private readonly record struct QueuedMidiNote(IMidiInputDevice SourceDevice, MidiNoteEventArgs Note);

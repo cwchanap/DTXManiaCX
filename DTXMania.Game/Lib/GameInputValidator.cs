@@ -89,12 +89,15 @@ public static class GameInputValidator
     }
 
     /// <summary>
-    /// Validates that the given JSON object contains a well-formed MIDI note payload:
+    /// Validates that the given JSON value contains a well-formed MIDI note payload:
     /// an integer <c>noteNumber</c> (0–127) and an integer <c>velocity</c> (0–127).
+    /// Returns <c>false</c> (never throws) for non-object input, since <see cref="JsonElement.TryGetProperty"/>
+    /// raises <see cref="InvalidOperationException"/> when the element is not a JSON object.
     /// </summary>
     public static bool TryValidateMidiNoteData(JsonElement data)
     {
-        return data.TryGetProperty("noteNumber", out var noteNumberProp) &&
+        return data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty("noteNumber", out var noteNumberProp) &&
             noteNumberProp.ValueKind == JsonValueKind.Number &&
             noteNumberProp.TryGetInt32(out var noteNumber) &&
             noteNumber >= 0 &&

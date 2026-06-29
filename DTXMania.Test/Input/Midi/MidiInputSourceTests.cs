@@ -56,8 +56,14 @@ public sealed class MidiInputSourceTests
     [Fact]
     public void Update_NoteOnWithOutOfRangeVelocity_ClampsToUnitRange()
     {
-        // A misbehaving/injected backend could supply velocity above the MIDI max (127). The source
-        // must clamp before normalizing so ButtonState.Velocity never exceeds 1.0f.
+        // A misbehaving/injected backend could supply a velocity above the MIDI max (127). The
+        // end-to-end guarantee is that ButtonState.Velocity never exceeds 1.0f. This invariant is
+        // enforced at the MidiNoteEventArgs boundary (its constructor clamps velocity to [0,127]),
+        // with ProcessNote applying an additional defensive clamp before normalizing. This test
+        // verifies the invariant holds at the source's public Update() surface regardless of which
+        // layer performs the clamp; note that because MidiNoteEventArgs is sealed and clamps in its
+        // constructor, the ProcessNote clamp is provably unreachable for out-of-range values and
+        // exists purely as defense-in-depth.
         var device = new FakeMidiInputDevice("Kit", "kit");
         using var source = new MidiInputSource(new FakeMidiDeviceBackend(device), _ => 0);
         source.Initialize();

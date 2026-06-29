@@ -14,8 +14,11 @@ public class GameInputValidatorTests
 {
     private static JsonElement Data(object obj) => JsonSerializer.SerializeToElement(obj);
 
-    private static JsonElement ParseData(string json) =>
-        JsonDocument.Parse(json).RootElement.Clone();
+    private static JsonElement ParseData(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
 
     #region Invalid input type
 
@@ -214,6 +217,17 @@ public class GameInputValidatorTests
     {
         Assert.False(GameInputValidator.TryValidateMidiNoteData(
             Data(new { noteNumber = 60 })));
+    }
+
+    [Theory]
+    // Non-object payloads must return false rather than throwing. TryGetProperty raises
+    // InvalidOperationException when the element is not a JSON object, so the guard must short-circuit.
+    [InlineData("\"not-an-object\"")]
+    [InlineData("42")]
+    [InlineData("null")]
+    public void TryValidateMidiNoteData_NonObjectPayload_ShouldReturnFalseNotThrow(string json)
+    {
+        Assert.False(GameInputValidator.TryValidateMidiNoteData(ParseData(json)));
     }
 
     #endregion
