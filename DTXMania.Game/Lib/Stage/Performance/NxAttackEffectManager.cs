@@ -43,6 +43,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private const int ChipFragmentSourceY = 640;
         private const int ChipFragmentSourceHeight = 64;
+        private static readonly int[] DrumChipColumnWidths =
+        {
+            70, 58, 64, 56, 56, 56, 74, 48, 58, 74, 48, 58
+        };
+
+        private static readonly int[] LaneToDrumChipColumn =
+        {
+            9, 10, 11, 2, 3, 0, 4, 5, 1, 6
+        };
 
         private readonly NxAttackEffectSettings _settings;
         private readonly Random _random;
@@ -360,16 +369,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private static Rectangle GetChipFragmentSource(int lane, int side)
         {
-            var laneWidth = Math.Max(1, PerformanceUILayout.GetLaneWidth(lane));
-            var laneOffsetX = PerformanceUILayout.GetLaneLeftX(lane) - PerformanceUILayout.GetLaneLeftX(0);
-            var fragmentWidth = Math.Max(8, Math.Min(40, laneWidth / 2));
-            var sideOffset = side % 2 == 0 ? 0 : fragmentWidth;
+            if (lane < 0 || lane >= LaneToDrumChipColumn.Length)
+                return Rectangle.Empty;
+
+            var column = LaneToDrumChipColumn[lane];
+            var columnX = GetDrumChipColumnX(column);
+            var columnWidth = DrumChipColumnWidths[column];
+            var fragmentWidth = Math.Max(8, columnWidth / 2);
+            var fragmentX = side % 2 == 0
+                ? columnX
+                : columnX + columnWidth - fragmentWidth;
 
             return new Rectangle(
-                Math.Max(0, laneOffsetX + sideOffset),
+                fragmentX,
                 ChipFragmentSourceY,
                 fragmentWidth,
                 ChipFragmentSourceHeight);
+        }
+
+        private static int GetDrumChipColumnX(int column)
+        {
+            var x = 0;
+            for (var i = 0; i < column; i++)
+            {
+                x += DrumChipColumnWidths[i];
+            }
+
+            return x;
         }
 
         private static ITexture? LoadOptionalTexture(IResourceManager resourceManager, string path)
