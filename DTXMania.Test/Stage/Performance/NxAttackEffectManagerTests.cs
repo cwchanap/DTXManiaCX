@@ -47,6 +47,22 @@ public class NxAttackEffectManagerTests
         Assert.Equal(new Rectangle(expectedX, 640, expectedWidth, 64), source);
     }
 
+    [Fact]
+    public void GetChipFragmentSource_WhenMappedColumnStartsBeyondSheetWidth_ShouldReturnEmpty()
+    {
+        var source = GetChipFragmentSource(lane: 0, side: 0, sheetWidth: 500);
+
+        Assert.Equal(Rectangle.Empty, source);
+    }
+
+    [Fact]
+    public void GetChipFragmentSource_WhenSideSpecificFragmentStartsBeyondSheetWidth_ShouldReturnEmpty()
+    {
+        var source = GetChipFragmentSource(lane: 0, side: 1, sheetWidth: 560);
+
+        Assert.Equal(Rectangle.Empty, source);
+    }
+
     [Theory]
     [InlineData(703, true)]
     [InlineData(704, false)]
@@ -216,9 +232,9 @@ public class NxAttackEffectManagerTests
     public void Draw_Particles_ShouldUseCenteredRotationOrigins()
     {
         var combinedTexture = CreateTexture(width: 1800, height: 1650);
-        var starTexture = CreateTexture(width: 32, height: 32);
+        var starTexture = CreateTexture(width: 40, height: 20);
         var chipTexture = CreateTexture(width: 718, height: 776);
-        var waveTexture = CreateTexture(width: 64, height: 64);
+        var waveTexture = CreateTexture(width: 80, height: 40);
         var starDraws = new List<(Rectangle Destination, Vector2 Origin)>();
         var chipDraws = new List<(Rectangle Destination, Rectangle? Source, Vector2 Origin)>();
         var waveDraws = new List<(Rectangle Destination, Vector2 Origin)>();
@@ -288,7 +304,7 @@ public class NxAttackEffectManagerTests
         {
             Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
             Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
-            Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f, draw.Origin);
+            Assert.Equal(new Vector2(20f, 10f), draw.Origin);
         }
 
         foreach (var draw in chipDraws)
@@ -305,7 +321,7 @@ public class NxAttackEffectManagerTests
         {
             Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
             Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
-            Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f, draw.Origin);
+            Assert.Equal(new Vector2(40f, 20f), draw.Origin);
         }
     }
 
