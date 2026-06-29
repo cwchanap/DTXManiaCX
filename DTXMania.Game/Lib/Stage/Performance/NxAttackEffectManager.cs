@@ -245,7 +245,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     direction * NextFloat(90f, 130f),
                     NextFloat(-150f, -95f));
 
-                var source = GetChipFragmentSource(lane, i, _chipTexture.Width);
+                var source = GetChipFragmentSource(lane, i, _chipTexture.Width, _chipTexture.Height);
                 if (source == Rectangle.Empty)
                     continue;
 
@@ -371,9 +371,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
-        private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth)
+        private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth, int sheetHeight)
         {
             if (lane < 0 || lane >= LaneToDrumChipColumn.Length)
+                return Rectangle.Empty;
+
+            if (sheetHeight < ChipFragmentSourceY + ChipFragmentSourceHeight)
                 return Rectangle.Empty;
 
             var column = LaneToDrumChipColumn[lane];

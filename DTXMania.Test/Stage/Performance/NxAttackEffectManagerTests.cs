@@ -47,6 +47,16 @@ public class NxAttackEffectManagerTests
     }
 
     [Theory]
+    [InlineData(703, true)]
+    [InlineData(704, false)]
+    public void GetChipFragmentSource_ShouldValidateSheetHeight(int sheetHeight, bool shouldBeEmpty)
+    {
+        var source = GetChipFragmentSource(lane: 2, side: 1, sheetWidth: 718, sheetHeight);
+
+        Assert.Equal(shouldBeEmpty, source == Rectangle.Empty);
+    }
+
+    [Theory]
     [InlineData(JudgementType.Perfect, true)]
     [InlineData(JudgementType.Great, true)]
     [InlineData(JudgementType.Good, true)]
@@ -93,6 +103,24 @@ public class NxAttackEffectManagerTests
             combinedAvailable: false,
             chipTextureAvailable: true,
             chipTextureWidth: 7,
+            settings: new NxAttackEffectSettings
+            {
+                ChipFragmentCount = 2
+            });
+
+        manager.Spawn(2, JudgementType.Perfect);
+
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
+    }
+
+    [Fact]
+    public void Spawn_WhenChipTextureTooShortForFragment_ShouldSkipChipFragments()
+    {
+        var manager = CreateManager(
+            combinedAvailable: false,
+            chipTextureAvailable: true,
+            chipTextureWidth: 718,
+            chipTextureHeight: 703,
             settings: new NxAttackEffectSettings
             {
                 ChipFragmentCount = 2
@@ -242,6 +270,7 @@ public class NxAttackEffectManagerTests
         bool chipTextureAvailable = false,
         bool waveAvailable = false,
         int chipTextureWidth = 718,
+        int chipTextureHeight = 776,
         NxAttackEffectSettings? settings = null)
     {
         var resourceManager = new Mock<IResourceManager>();
@@ -277,7 +306,7 @@ public class NxAttackEffectManagerTests
         if (chipTextureAvailable)
         {
             resourceManager.Setup(x => x.ResourceExists(TexturePath.DrumChips)).Returns(true);
-            resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(CreateTexture(width: chipTextureWidth, height: 776).Object);
+            resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(CreateTexture(width: chipTextureWidth, height: chipTextureHeight).Object);
         }
 
         if (waveAvailable)
@@ -297,16 +326,16 @@ public class NxAttackEffectManagerTests
         return texture;
     }
 
-    private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth = 720)
+    private static Rectangle GetChipFragmentSource(int lane, int side, int sheetWidth = 720, int sheetHeight = 704)
     {
         var method = typeof(NxAttackEffectManager).GetMethod(
             "GetChipFragmentSource",
             BindingFlags.Static | BindingFlags.NonPublic,
             null,
-            new[] { typeof(int), typeof(int), typeof(int) },
+            new[] { typeof(int), typeof(int), typeof(int), typeof(int) },
             null);
 
         Assert.NotNull(method);
-        return (Rectangle)method!.Invoke(null, new object[] { lane, side, sheetWidth })!;
+        return (Rectangle)method!.Invoke(null, new object[] { lane, side, sheetWidth, sheetHeight })!;
     }
 }
