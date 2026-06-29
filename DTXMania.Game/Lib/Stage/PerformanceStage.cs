@@ -1914,15 +1914,24 @@ namespace DTXMania.Game.Lib.Stage
 
             telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
             telemetry.SelectedDifficulty = _selectedDifficulty;
+            // Snapshot _songTimer and _currentGameTime into locals before checking/calling.
+            // PopulateTelemetry runs on the Kestrel API thread while the game thread can null
+            // these fields during stage cleanup (line 448). Reading the field multiple times
+            // (null check, then IsPlaying, then GetCurrentMs) opens a window where the game
+            // thread nulls it between reads and throws NullReferenceException. A single local
+            // read collapses that window. Matches the _lastLaneHit snapshot pattern below.
+            var songTimer = _songTimer;
+            var currentGameTime = _currentGameTime;
+            var songTimerPlaying = songTimer != null && songTimer.IsPlaying;
             telemetry.PerformanceReady = !_isLoading
                 && _chartManager != null
-                && _songTimer != null
+                && songTimer != null
                 && !_stageCompleted
-                && (_isReady || _songTimer?.IsPlaying == true);
+                && (_isReady || songTimerPlaying);
             telemetry.AutoPlayEnabled = _autoPlayEnabled;
             telemetry.StageCompleted = _stageCompleted;
-            telemetry.CurrentSongTimeMs = _songTimer != null && _currentGameTime != null && _songTimer.IsPlaying
-                ? _songTimer.GetCurrentMs(_currentGameTime)
+            telemetry.CurrentSongTimeMs = songTimerPlaying && currentGameTime != null
+                ? songTimer!.GetCurrentMs(currentGameTime)
                 : 0.0;
             telemetry.Score = _scoreManager?.CurrentScore ?? 0;
             telemetry.CurrentCombo = _comboManager?.CurrentCombo ?? 0;
