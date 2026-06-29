@@ -48,6 +48,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly Random _random;
         private readonly Dictionary<int, PrimarySparkInstance> _primarySparks = new Dictionary<int, PrimarySparkInstance>();
         private readonly List<ParticleInstance> _particles = new List<ParticleInstance>();
+        private readonly List<int> _expiredSparkLanes = new List<int>();
         private readonly ITexture?[] _laneSparkTextures = new ITexture?[PerformanceUILayout.LaneCount];
         private readonly ITexture?[] _laneStarTextures = new ITexture?[PerformanceUILayout.LaneCount];
         private ITexture? _combinedSparkTexture;
@@ -129,7 +130,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             var safeDelta = Math.Max(0.0, deltaTime);
-            var expiredLanes = new List<int>();
+            _expiredSparkLanes.Clear();
             foreach (var spark in _primarySparks)
             {
                 spark.Value.Update(
@@ -138,13 +139,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _settings.PrimaryFrameCount);
 
                 if (spark.Value.IsExpired)
-                    expiredLanes.Add(spark.Key);
+                    _expiredSparkLanes.Add(spark.Key);
             }
 
-            foreach (var lane in expiredLanes)
+            foreach (var lane in _expiredSparkLanes)
             {
                 _primarySparks.Remove(lane);
             }
+            _expiredSparkLanes.Clear();
 
             for (var i = _particles.Count - 1; i >= 0; i--)
             {
@@ -307,22 +309,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     null,
                     color,
                     particle.Rotation,
-                    Vector2.Zero,
+                    PerformanceUILayout.NxAttackEffectAssets.StarDrawSize / 2f,
                     SpriteEffects.None,
                     0f);
             }
             else if (particle.Kind == ParticleKind.Chip)
             {
+                var source = particle.SourceRectangle;
                 _chipTexture?.Draw(
                     spriteBatch,
                     CenteredDestination(
                         particle.Position,
-                        new Vector2(particle.SourceRectangle.Width, particle.SourceRectangle.Height),
+                        new Vector2(source.Width, source.Height),
                         particle.Scale),
-                    particle.SourceRectangle,
+                    source,
                     color,
                     particle.Rotation,
-                    Vector2.Zero,
+                    new Vector2(source.Width / 2f, source.Height / 2f),
                     SpriteEffects.None,
                     0f);
             }
@@ -337,7 +340,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     null,
                     color,
                     particle.Rotation,
-                    Vector2.Zero,
+                    PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize / 2f,
                     SpriteEffects.None,
                     0f);
             }
