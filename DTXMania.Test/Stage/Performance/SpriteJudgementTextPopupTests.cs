@@ -250,22 +250,26 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
-    public void Manager_Draw_WhenHeldSpriteTextureBecomesDisposed_ShouldReleaseReferenceAndFutureSpawnFallsBack()
+    public void Manager_Draw_WhenHeldSpriteTextureBecomesDisposed_ShouldFallbackActivePopupsAndReleaseReferenceOnce()
     {
         var texture = new MutableTexture();
         var fallbackEvents = new List<JudgementEvent>();
         var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
-        manager.SpawnPopup(new JudgementEvent(10, 4, 0.0, JudgementType.Good));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+        manager.SpawnPopup(judgement);
+        Assert.Single(manager.ActivePopupsForTesting);
 
         texture.IsDisposed = true;
         var exception = Record.Exception(() => manager.Draw(null!));
-        var fallbackJudgement = new JudgementEvent(11, 4, 0.0, JudgementType.Great);
-        manager.SpawnPopup(fallbackJudgement);
 
         Assert.Null(exception);
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
         Assert.Equal(1, texture.RemoveReferenceCount);
-        Assert.Same(fallbackJudgement, Assert.Single(fallbackEvents));
-        Assert.Single(manager.ActivePopupsForTesting);
+
+        manager.Dispose();
+
+        Assert.Equal(1, texture.RemoveReferenceCount);
     }
 
     [Fact]
