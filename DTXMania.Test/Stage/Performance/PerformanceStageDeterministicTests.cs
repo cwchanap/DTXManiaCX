@@ -2537,17 +2537,17 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(10);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
-        var effectsManager = CreateEffectsManager();
+        var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
-        var popupManager = CreateJudgementTextPopupManager();
+        var popupManager = CreateSpriteJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
         var skillPanelDisplay = CreateSkillPanelDisplayState();
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_effectsManager", effectsManager);
+        ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_judgementTextPopupManager", popupManager);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", popupManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelDisplay", skillPanelDisplay);
 
@@ -2558,9 +2558,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
         Assert.Equal(1, comboManager.CurrentCombo);
         Assert.Equal(51.5f, gaugeManager.CurrentLife);
+        Assert.Equal(1, attackManager.SpawnCallCountForTesting);
+        Assert.Equal(2, attackManager.LastLaneForTesting);
+        Assert.Equal(JudgementType.Great, attackManager.LastJudgementTypeForTesting);
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
-        Assert.Single(ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(popupManager, "_activePopups"));
+        Assert.Equal(1, popupManager.ActivePopupCount);
         Assert.Equal(1, skillPanelDisplay.GreatCount);
         Assert.Equal(1, skillPanelDisplay.ProcessedJudgementCount);
         Assert.Equal(1, skillPanelDisplay.MaxCombo);
@@ -2573,14 +2576,16 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(10);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
+        var attackManager = CreateNxAttackEffectManager();
         var noteRenderer = CreateNoteRenderer();
-        var popupManager = CreateJudgementTextPopupManager();
+        var popupManager = CreateSpriteJudgementTextPopupManager();
         var padRenderer = CreatePadRenderer();
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(stage, "_nxAttackEffectManager", attackManager);
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_judgementTextPopupManager", popupManager);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteJudgementTextPopupManager", popupManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
 
         var judgement = new JudgementEvent(noteRef: 1, lane: 4, deltaMs: 75.0, type: JudgementType.Miss);
@@ -2590,9 +2595,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, scoreManager.CurrentScore);
         Assert.Equal(0, comboManager.CurrentCombo);
         Assert.Equal(47.0f, gaugeManager.CurrentLife);
+        Assert.Equal(0, attackManager.SpawnCallCountForTesting);
+        Assert.Null(attackManager.LastLaneForTesting);
+        Assert.Null(attackManager.LastJudgementTypeForTesting);
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[4]);
         Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[4].State);
-        Assert.Single(ReflectionHelpers.GetPrivateField<List<JudgementTextPopup>>(popupManager, "_activePopups"));
+        Assert.Equal(1, popupManager.ActivePopupCount);
     }
 
     [Fact]
@@ -3196,13 +3204,6 @@ public class PerformanceStageDeterministicTests
         return renderer;
     }
 
-    private static EffectsManager CreateEffectsManager()
-    {
-#pragma warning disable SYSLIB0050
-        return (EffectsManager)FormatterServices.GetUninitializedObject(typeof(EffectsManager));
-#pragma warning restore SYSLIB0050
-    }
-
     private static NoteRenderer CreateNoteRenderer()
     {
 #pragma warning disable SYSLIB0050
@@ -3225,13 +3226,48 @@ public class PerformanceStageDeterministicTests
         return renderer;
     }
 
-    private static JudgementTextPopupManager CreateJudgementTextPopupManager()
+    private static SpriteJudgementTextPopupManager CreateSpriteJudgementTextPopupManager()
+    {
+        return SpriteJudgementTextPopupManager.CreateForTesting(CreateSpriteJudgementTexture());
+    }
+
+    private static CountingNxAttackEffectManager CreateNxAttackEffectManager()
+    {
+        return new CountingNxAttackEffectManager();
+    }
+
+    private sealed class CountingNxAttackEffectManager : NxAttackEffectManager
+    {
+        public CountingNxAttackEffectManager()
+            : base(new Mock<IResourceManager>().Object)
+        {
+        }
+
+        public int SpawnCallCountForTesting { get; private set; }
+        public int? LastLaneForTesting { get; private set; }
+        public JudgementType? LastJudgementTypeForTesting { get; private set; }
+
+        public override void Spawn(int lane, JudgementType judgementType)
+        {
+            SpawnCallCountForTesting++;
+            LastLaneForTesting = lane;
+            LastJudgementTypeForTesting = judgementType;
+        }
+    }
+
+    private static ITexture CreateSpriteJudgementTexture()
     {
 #pragma warning disable SYSLIB0050
-        var manager = (JudgementTextPopupManager)FormatterServices.GetUninitializedObject(typeof(JudgementTextPopupManager));
+        var texture2D = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
 #pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(manager, "_activePopups", new List<JudgementTextPopup>());
-        return manager;
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Texture).Returns(texture2D);
+        texture.SetupGet(x => x.SourcePath).Returns(TexturePath.JudgeStringsXg);
+        texture.SetupGet(x => x.Width).Returns(448);
+        texture.SetupGet(x => x.Height).Returns(256);
+        texture.SetupGet(x => x.Size).Returns(new Vector2(448, 256));
+        texture.SetupGet(x => x.IsDisposed).Returns(false);
+        return texture.Object;
     }
 
     private static string GetGeneratedTestArtifactPath(string fileName)
