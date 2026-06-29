@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
@@ -23,6 +24,24 @@ public class NxAttackEffectManagerTests
         var source = NxAttackEffectManager.GetCombinedSparkSource(lane, frame);
 
         Assert.Equal(new Rectangle(x, y, 150, 150), source);
+    }
+
+    [Theory]
+    [InlineData(5, 0, 0, 35)]
+    [InlineData(0, 0, 540, 37)]
+    [InlineData(0, 1, 577, 37)]
+    [InlineData(3, 0, 128, 32)]
+    [InlineData(8, 0, 70, 29)]
+    [InlineData(9, 0, 360, 37)]
+    public void GetChipFragmentSource_ShouldUseDrumChipSpriteSheetColumns(
+        int lane,
+        int side,
+        int expectedX,
+        int expectedWidth)
+    {
+        var source = GetChipFragmentSource(lane, side);
+
+        Assert.Equal(new Rectangle(expectedX, 640, expectedWidth, 64), source);
     }
 
     [Theory]
@@ -183,7 +202,7 @@ public class NxAttackEffectManagerTests
             It.IsAny<Rectangle?>(),
             It.IsAny<Color>(),
             It.IsAny<float>(),
-            It.Is<Vector2>(origin => origin == new Vector2(18f, 32f)),
+            It.Is<Vector2>(origin => origin == new Vector2(18.5f, 32f)),
             It.IsAny<SpriteEffects>(),
             It.IsAny<float>()), Times.AtLeastOnce);
         waveTexture.Verify(x => x.Draw(
@@ -255,5 +274,15 @@ public class NxAttackEffectManagerTests
         texture.SetupGet(x => x.Width).Returns(width);
         texture.SetupGet(x => x.Height).Returns(height);
         return texture;
+    }
+
+    private static Rectangle GetChipFragmentSource(int lane, int side)
+    {
+        var method = typeof(NxAttackEffectManager).GetMethod(
+            "GetChipFragmentSource",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        return (Rectangle)method!.Invoke(null, new object[] { lane, side })!;
     }
 }
