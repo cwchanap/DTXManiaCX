@@ -448,4 +448,274 @@ public class NxAttackEffectManagerTests
         Assert.NotNull(method);
         return (Rectangle)method!.Invoke(null, new object[] { lane, side, sheetWidth, sheetHeight })!;
     }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    [InlineData(99)]
+    public void Spawn_WhenLaneOutOfRange_ShouldNotSpawnAnything(int lane)
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+
+        manager.Spawn(lane, JudgementType.Perfect);
+
+        Assert.Equal(0, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
+    }
+
+    [Fact]
+    public void Spawn_WhenDisposed_ShouldNotSpawnAnything()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Dispose();
+
+        manager.Spawn(0, JudgementType.Perfect);
+
+        Assert.Equal(0, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
+    }
+
+    [Fact]
+    public void Update_WhenDisposed_ShouldNotThrow()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+        manager.Dispose();
+
+        var exception = Record.Exception(() => manager.Update(0.1));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_WhenDisposed_ShouldNotThrow()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+        manager.Dispose();
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        var exception = Record.Exception(() => manager.Draw(spriteBatch));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_WithNullSpriteBatch_ShouldNotThrow()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+
+        var exception = Record.Exception(() => manager.Draw(null));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void ClearAll_ShouldRemoveAllSparksAndParticles()
+    {
+        var manager = CreateManager(
+            combinedAvailable: false,
+            perLaneFallbackAvailable: true,
+            starsAvailable: true,
+            chipTextureAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+        manager.Spawn(3, JudgementType.Great);
+        Assert.True(manager.ActivePrimarySparkCountForTesting > 0);
+        Assert.True(manager.ActiveParticleCountForTesting > 0);
+
+        manager.ClearAll();
+
+        Assert.Equal(0, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
+    }
+
+    [Fact]
+    public void Draw_WaveParticle_ShouldDrawWaveTextureWithCenteredRotation()
+    {
+        // Wave particles are never spawned by Spawn() — they can only be injected
+        // via reflection. This covers the DrawParticle Wave branch.
+        var waveTexture = CreateTexture(width: 80, height: 40);
+        var waveDraws = new List<(Rectangle Destination, Vector2 Origin)>();
+        waveTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    waveDraws.Add((destination, origin)));
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipWave)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipWave)).Returns(waveTexture.Object);
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+
+        // Inject a wave particle with zero delay so it draws immediately.
+        var particlesField = typeof(NxAttackEffectManager).GetField(
+            "_particles", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(particlesField);
+        var particles = (System.Collections.IList)particlesField!.GetValue(manager)!;
+        var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0);
+        var waveParticle = NxAttackEffectManager.ParticleInstance.CreateWave(
+            0, origin, delaySeconds: 0.0, durationSeconds: 0.42);
+        particles.Add(waveParticle);
+
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+        manager.Draw(spriteBatch);
+
+        Assert.NotEmpty(waveDraws);
+        var draw = waveDraws[0];
+        Assert.Equal(new Vector2(40f, 20f), draw.Origin);
+    }
+
+    [Fact]
+    public void Draw_WaveParticle_WithDelay_ShouldSkipDrawing()
+    {
+        // Particles with DelaySeconds > 0 should not be drawn.
+        var waveTexture = CreateTexture(width: 80, height: 40);
+        var waveDraws = new List<Rectangle>();
+        waveTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    waveDraws.Add(destination));
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipWave)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipWave)).Returns(waveTexture.Object);
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+
+        var particlesField = typeof(NxAttackEffectManager).GetField(
+            "_particles", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(particlesField);
+        var particles = (System.Collections.IList)particlesField!.GetValue(manager)!;
+        var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0);
+        var waveParticle = NxAttackEffectManager.ParticleInstance.CreateWave(
+            0, origin, delaySeconds: 0.5, durationSeconds: 0.42);
+        particles.Add(waveParticle);
+
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+        manager.Draw(spriteBatch);
+
+        Assert.Empty(waveDraws);
+    }
+
+    [Fact]
+    public void Update_WaveParticle_WithDelay_ShouldDecrementDelayBeforeActivating()
+    {
+        // Wave particles start with a delay; Update should decrement the delay
+        // until it reaches 0, then begin the normal lifecycle.
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+
+        var particlesField = typeof(NxAttackEffectManager).GetField(
+            "_particles", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(particlesField);
+        var particles = (System.Collections.IList)particlesField!.GetValue(manager)!;
+        var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0);
+        var waveParticle = NxAttackEffectManager.ParticleInstance.CreateWave(
+            0, origin, delaySeconds: 0.3, durationSeconds: 0.42);
+        particles.Add(waveParticle);
+
+        // First update: delay decreases from 0.3 to 0.2, particle not expired.
+        manager.Update(0.1);
+        Assert.Equal(1, manager.ActiveParticleCountForTesting);
+
+        // Second update: delay decreases from 0.2 to 0 (returns early), particle not expired.
+        manager.Update(0.5);
+        Assert.Equal(1, manager.ActiveParticleCountForTesting);
+
+        // Third update: delay is now 0, so the normal lifecycle begins.
+        // 0.5s elapsed >= 0.42s duration, particle expires.
+        manager.Update(0.5);
+        Assert.Equal(0, manager.ActiveParticleCountForTesting);
+    }
+
+    [Fact]
+    public void Constructor_WhenTextureLoadThrows_ShouldNotPropagateException()
+    {
+        // LoadOptionalTexture catches exceptions and returns null.
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0)))
+            .Throws(new InvalidOperationException("load error"));
+
+        var exception = Record.Exception(() => new NxAttackEffectManager(resourceManager.Object));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Update_WithNegativeDeltaTime_ShouldClampToZero()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+        var initialCount = manager.ActivePrimarySparkCountForTesting;
+
+        manager.Update(-0.5);
+
+        // Negative delta is clamped to 0, so sparks should not advance or expire.
+        Assert.Equal(initialCount, manager.ActivePrimarySparkCountForTesting);
+    }
+
+    [Fact]
+    public void PrimarySparkInstance_GetNxStaticFirePosition_ShouldTravelFromOrigin()
+    {
+        // At frame 0, the spark should be at its origin position.
+        var origin = new Vector2(100, 200);
+        var spark = new NxAttackEffectManager.PrimarySparkInstance(
+            0, JudgementType.Perfect, origin, usesCombinedSheet: false, 0f);
+
+        var position = spark.GetNxStaticFirePosition();
+
+        Assert.Equal(origin, position);
+    }
+
+    [Fact]
+    public void PrimarySparkInstance_GetNxStaticFireScale_ShouldReturnPositiveScale()
+    {
+        var spark = new NxAttackEffectManager.PrimarySparkInstance(
+            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+
+        var scale = spark.GetNxStaticFireScale();
+
+        Assert.True(scale > 0f);
+    }
+
+    [Fact]
+    public void PrimarySparkInstance_Update_ShouldAdvanceFrameIndex()
+    {
+        var spark = new NxAttackEffectManager.PrimarySparkInstance(
+            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+
+        spark.Update(0.006, frameDurationSeconds: 0.003, frameCount: 71);
+
+        Assert.Equal(2, spark.FrameIndex);
+        Assert.False(spark.IsExpired);
+    }
+
+    [Fact]
+    public void PrimarySparkInstance_Update_WhenFrameExceedsCount_ShouldExpire()
+    {
+        var spark = new NxAttackEffectManager.PrimarySparkInstance(
+            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+
+        spark.Update(1.0, frameDurationSeconds: 0.003, frameCount: 5);
+
+        Assert.Equal(4, spark.FrameIndex);
+        Assert.True(spark.IsExpired);
+    }
 }

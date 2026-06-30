@@ -353,11 +353,20 @@ public class SpriteJudgementTextPopupTests
         return resourceManager;
     }
 
-    private sealed class MutableTexture : ITexture
+    private class MutableTexture : ITexture
     {
         public Texture2D Texture { get; set; } = CreateTexture2DStub();
         public string SourcePath => TexturePath.JudgeStringsXg;
-        public int Width { get; set; } = 448;
+        public int Width
+        {
+            get
+            {
+                if (ThrowOnWidthGet)
+                    throw new InvalidOperationException("Width getter failed");
+                return _width;
+            }
+            set => _width = value;
+        }
         public int Height { get; set; } = 256;
         public Vector2 Size => new Vector2(Width, Height);
         public bool IsDisposed { get; set; }
@@ -368,6 +377,9 @@ public class SpriteJudgementTextPopupTests
         public float ZAxisRotation { get; set; }
         public bool AdditiveBlending { get; set; }
         public int RemoveReferenceCount { get; private set; }
+        public bool ThrowOnRemoveReference { get; set; }
+        public bool ThrowOnWidthGet { get; set; }
+        private int _width = 448;
 
         public void AddReference()
         {
@@ -376,17 +388,19 @@ public class SpriteJudgementTextPopupTests
         public void RemoveReference()
         {
             RemoveReferenceCount++;
+            if (ThrowOnRemoveReference)
+                throw new InvalidOperationException("RemoveReference failed");
         }
 
-        public void Draw(SpriteBatch spriteBatch, Vector2 position)
+        public virtual void Draw(SpriteBatch spriteBatch, Vector2 position)
         {
         }
 
-        public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
+        public virtual void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
         {
         }
 
-        public void Draw(
+        public virtual void Draw(
             SpriteBatch spriteBatch,
             Rectangle destinationRectangle,
             Rectangle? sourceRectangle,
@@ -452,6 +466,294 @@ public class SpriteJudgementTextPopupTests
             }
 
             throw new InvalidOperationException("Texture2D disposed flag field not found.");
+        }
+    }
+
+    [Fact]
+    public void Popup_Update_WithNegativeDeltaTime_ShouldClampToZero()
+    {
+        var popup = new SpriteJudgementTextPopup(
+            JudgementType.Perfect,
+            new Rectangle(3, 6, 82, 22),
+            new Vector2(100, 200));
+
+        var active = popup.Update(-0.5);
+
+        // Negative delta is clamped to 0, so the popup stays at initial scale/alpha.
+        Assert.True(active);
+        Assert.True(popup.IsActive);
+        Assert.Equal(PerformanceUILayout.SpriteJudgementTextAssets.InitialScale, popup.Scale);
+        Assert.Equal(1f, popup.Alpha);
+    }
+
+    [Fact]
+    public void Popup_Update_WhenAlreadyInactive_ShouldReturnFalse()
+    {
+        var popup = new SpriteJudgementTextPopup(
+            JudgementType.Perfect,
+            new Rectangle(3, 6, 82, 22),
+            new Vector2(100, 200));
+
+        popup.Update(0.5); // Expire the popup
+        Assert.False(popup.IsActive);
+
+        var active = popup.Update(0.1);
+
+        Assert.False(active);
+    }
+
+    [Fact]
+    public void Manager_Draw_WithValidTexture_ShouldDrawActivePopup()
+    {
+        var texture = new MutableTexture();
+        var drawCalls = new List<Rectangle>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+        Assert.Single(manager.ActivePopupsForTesting);
+        var spriteBatch = (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(SpriteBatch));
+
+        var exception = Record.Exception(() => manager.Draw(spriteBatch));
+
+        Assert.Null(exception);
+        // MutableTexture.Draw is a no-op, but we verify the popup is still active (not migrated).
+        Assert.Single(manager.ActivePopupsForTesting);
+    }
+
+    [Fact]
+    public void Manager_Draw_WithNullSpriteBatch_ShouldNotThrow()
+    {
+        var texture = new MutableTexture();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+
+        var exception = Record.Exception(() => manager.Draw(null!));
+
+        Assert.Null(exception);
+        Assert.Single(manager.ActivePopupsForTesting);
+    }
+
+    [Fact]
+    public void Manager_Draw_WithInactivePopup_ShouldSkipDrawing()
+    {
+        var texture = new MutableTexture();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+        // Expire the popup via Update
+        manager.Update(0.5);
+        Assert.Empty(manager.ActivePopupsForTesting);
+
+        var spriteBatch = (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(SpriteBatch));
+
+        var exception = Record.Exception(() => manager.Draw(spriteBatch));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Manager_Draw_WhenDisposed_ShouldNotThrow()
+    {
+        var texture = new MutableTexture();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+        manager.Dispose();
+
+        var exception = Record.Exception(() => manager.Draw(null!));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Manager_SpawnPopup_WhenDisposed_ShouldNotSpawn()
+    {
+        var texture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        manager.Dispose();
+
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Empty(fallbackEvents);
+    }
+
+    [Fact]
+    public void Manager_SpawnPopup_WithNullJudgementEvent_ShouldNotThrow()
+    {
+        var texture = new MutableTexture();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+
+        var exception = Record.Exception(() => manager.SpawnPopup(null!));
+
+        Assert.Null(exception);
+        Assert.Empty(manager.ActivePopupsForTesting);
+    }
+
+    [Fact]
+    public void Manager_Update_WhenDisposed_ShouldNotThrow()
+    {
+        var texture = new MutableTexture();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+        manager.Dispose();
+
+        var exception = Record.Exception(() => manager.Update(0.1));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Manager_Draw_WhenSpriteDrawThrowsButTextureValid_ShouldRethrow()
+    {
+        // When Draw throws but the texture is still valid (not disposed/undersized),
+        // HandleSpriteDrawFailure returns false and the exception is rethrown.
+        var texture = new ThrowingDrawTexture(new InvalidOperationException("GPU error"));
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+        var spriteBatch = (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(SpriteBatch));
+
+        Assert.Throws<InvalidOperationException>(() => manager.Draw(spriteBatch));
+    }
+
+    [Fact]
+    public void Manager_Draw_WhenSpriteDrawThrowsAndTextureInvalid_ShouldMigrateToFontFallback()
+    {
+        // When Draw throws and the texture is invalid (disposed), HandleSpriteDrawFailure
+        // returns true, releases the texture, and migrates popups to font fallback.
+        var texture = new ThrowingDrawTexture(new InvalidOperationException("GPU error"));
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 0, 0.0, JudgementType.Perfect);
+        manager.SpawnPopup(judgement);
+        var spriteBatch = (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(SpriteBatch));
+
+        // Mark texture as disposed so HandleSpriteDrawFailure treats it as invalid.
+        texture.IsDisposed = true;
+
+        var exception = Record.Exception(() => manager.Draw(spriteBatch));
+
+        Assert.Null(exception);
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Manager_MigrateActivePopupsToFontFallback_WithNullSourceJudgementEvent_ShouldSkipThatPopup()
+    {
+        // Popups created without a source JudgementEvent (via the 3-arg constructor)
+        // cannot be migrated to font fallback and should be silently skipped.
+        var texture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        // Manually add a popup without a source event via the internal list.
+        var popups = (List<SpriteJudgementTextPopup>)typeof(SpriteJudgementTextPopupManager)
+            .GetField("_activePopups", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(manager)!;
+        popups.Add(new SpriteJudgementTextPopup(
+            JudgementType.Perfect,
+            new Rectangle(3, 6, 82, 22),
+            new Vector2(100, 200)));
+        Assert.Single(manager.ActivePopupsForTesting);
+
+        // Dispose the texture so Draw triggers MigrateActivePopupsToFontFallback.
+        texture.IsDisposed = true;
+        manager.Draw(null!);
+
+        // The popup had no SourceJudgementEvent, so no fallback is invoked,
+        // but the list is still cleared.
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Empty(fallbackEvents);
+    }
+
+    [Fact]
+    public void Manager_ReleaseHeldSpriteTexture_WhenRemoveReferenceThrows_ShouldNotThrow()
+    {
+        var texture = new MutableTexture { ThrowOnRemoveReference = true };
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture);
+
+        var exception = Record.Exception(() => manager.Dispose());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Manager_TryEnsureSpriteTextureAvailable_WhenValidationThrows_ShouldReleaseAndReturnFalse()
+    {
+        // When IsInvalidSpriteTexture throws (e.g. Width getter throws), the exception
+        // is caught, the texture is released, and false is returned.
+        var texture = new MutableTexture { ThrowOnWidthGet = true };
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(texture, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 0, 0.0, JudgementType.Perfect);
+
+        manager.SpawnPopup(judgement);
+
+        // The spawn should have fallen back since validation threw.
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenValidTextureLoaded_ShouldHoldReference()
+    {
+        // Exercises the LoadSpriteTexture success path: a valid texture is loaded
+        // and held, allowing SpawnPopup to create sprite-based popups.
+        var texture = new MutableTexture();
+        var resourceManager = CreateResourceManager(texture);
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object);
+
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+
+        Assert.Single(manager.ActivePopupsForTesting);
+
+        manager.Dispose();
+
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenResourceExistsReturnsFalse_ShouldNotLoadTexture()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(false);
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object);
+
+        // No texture loaded, so spawning should produce no popups.
+        manager.SpawnPopup(new JudgementEvent(10, 0, 0.0, JudgementType.Perfect));
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenResourceManagerNull_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new SpriteJudgementTextPopupManager(null!));
+    }
+
+    private sealed class ThrowingDrawTexture : MutableTexture
+    {
+        private readonly Exception _drawException;
+
+        public ThrowingDrawTexture(Exception drawException)
+        {
+            _drawException = drawException;
+        }
+
+        public override void Draw(
+            SpriteBatch spriteBatch,
+            Rectangle destinationRectangle,
+            Rectangle? sourceRectangle,
+            Color color,
+            float rotation,
+            Vector2 origin,
+            SpriteEffects effects,
+            float layerDepth)
+        {
+            throw _drawException;
         }
     }
 }
