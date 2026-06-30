@@ -8,6 +8,7 @@ namespace DTXMania.Test.UI
     /// <summary>
     /// Tests for PerformanceUILayout constants and methods
     /// </summary>
+    [Trait("Category", "Unit")]
     public class PerformanceUILayoutTests
     {
         #region Screen Configuration Tests

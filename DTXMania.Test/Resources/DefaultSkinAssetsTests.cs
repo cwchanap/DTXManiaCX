@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI.Layout;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -42,12 +44,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Theory]
-        [InlineData(TexturePath.JudgeStringsXg)]
-        [InlineData(TexturePath.ChipFireCombined)]
-        [InlineData(TexturePath.ChipWave)]
-        [InlineData("Graphics/ScreenPlayDrums chip fire_LC.png")]
-        [InlineData("Graphics/ScreenPlayDrums chip fire_SD.png")]
-        [InlineData("Graphics/ScreenPlayDrums chip star_LC.png")]
+        [MemberData(nameof(BundledNxJudgementCollisionAssetPaths))]
         public void DefaultSkin_ShouldShipBundledNxJudgementCollisionAssets(string relativePath)
         {
             var repoRoot = FindRepoRoot();
@@ -55,6 +52,19 @@ namespace DTXMania.Test.Resources
 
             Assert.True(File.Exists(assetPath), $"Bundled default skin must ship {relativePath}.");
             AssertPngSignature(assetPath, relativePath);
+        }
+
+        public static IEnumerable<object[]> BundledNxJudgementCollisionAssetPaths()
+        {
+            yield return new object[] { TexturePath.JudgeStringsXg };
+            yield return new object[] { TexturePath.ChipFireCombined };
+            yield return new object[] { TexturePath.ChipWave };
+
+            for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
+            {
+                yield return new object[] { TexturePath.GetDrumChipFireLanePath(lane) };
+                yield return new object[] { TexturePath.GetDrumChipStarLanePath(lane) };
+            }
         }
 
         private static void AssertPngSignature(string filePath, string relativePath)

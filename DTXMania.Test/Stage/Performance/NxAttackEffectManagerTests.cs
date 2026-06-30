@@ -286,7 +286,7 @@ public class NxAttackEffectManagerTests
     }
 
     [Fact]
-    public void Draw_DefaultNxParticles_ShouldUseCenteredRotationOriginsWithoutWaves()
+    public void Draw_DefaultNxParticles_ShouldUseCenteredRotationOrigins()
     {
         var starTexture = CreateTexture(width: 40, height: 20);
         var chipTexture = CreateTexture(width: 718, height: 776);
@@ -352,7 +352,7 @@ public class NxAttackEffectManagerTests
 
         Assert.NotEmpty(starDraws);
         Assert.NotEmpty(chipDraws);
-        Assert.Empty(waveDraws);
+        Assert.NotEmpty(waveDraws);
 
         foreach (var draw in starDraws)
         {
@@ -371,6 +371,12 @@ public class NxAttackEffectManagerTests
                 draw.Origin);
         }
 
+        foreach (var draw in waveDraws)
+        {
+            Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
+            Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
+            Assert.Equal(new Vector2(40f, 20f), draw.Origin);
+        }
     }
 
     private static NxAttackEffectManager CreateManager(
@@ -530,8 +536,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Draw_WaveParticle_ShouldDrawWaveTextureWithCenteredRotation()
     {
-        // Wave particles are never spawned by Spawn() — they can only be injected
-        // via reflection. This covers the DrawParticle Wave branch.
+        // Inject a zero-delay wave directly to cover the immediate DrawParticle branch.
         var waveTexture = CreateTexture(width: 80, height: 40);
         var waveDraws = new List<(Rectangle Destination, Vector2 Origin)>();
         waveTexture.Setup(x => x.Draw(

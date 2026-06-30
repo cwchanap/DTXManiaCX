@@ -333,7 +333,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (texture.IsDisposed)
                 return true;
 
-            if (texture.Width < 242 || texture.Height < 169)
+            if (texture.Width < PerformanceUILayout.SpriteJudgementTextAssets.RequiredTextureWidth
+                || texture.Height < PerformanceUILayout.SpriteJudgementTextAssets.RequiredTextureHeight)
                 return true;
 
             var spriteTexture = texture.Texture;
