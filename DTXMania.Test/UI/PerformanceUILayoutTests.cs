@@ -41,9 +41,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void JudgelineY_ShouldBe600()
+        public void JudgelineY_ShouldMatchNxDefaultDrumJudgeLine()
         {
-            Assert.Equal(600, PerformanceUILayout.JudgelineY);
+            Assert.Equal(561, PerformanceUILayout.JudgelineY);
         }
 
         [Fact]

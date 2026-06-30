@@ -1669,12 +1669,12 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void DrawJudgementLine_WhenTextureExists_ShouldDrawAtHitBarPositionUsingTextureSize()
+    public void DrawJudgementLine_WhenTextureExists_ShouldDrawNxSolidHitBarBounds()
     {
         var stage = CreateStage();
-        var judgementLineTexture = CreateTextureMock(width: 320, height: 24);
-        var expectedPosition = PerformanceUILayout.HitBar.Position;
-        var expectedRectangle = new Rectangle((int)expectedPosition.X, (int)expectedPosition.Y, 320, 24);
+        var judgementLineTexture = CreateTextureMock(width: 8, height: 8);
+        var expectedRectangle = new Rectangle(295, 561, 559, 6);
+        var expectedSource = new Rectangle(0, 0, 8, 6);
 
         ReflectionHelpers.SetPrivateField(stage, "_judgementLineTexture", judgementLineTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
@@ -1685,7 +1685,7 @@ public class PerformanceStageDeterministicTests
             texture => texture.Draw(
                 null!,
                 expectedRectangle,
-                null,
+                expectedSource,
                 Color.White,
                 0f,
                 Vector2.Zero,

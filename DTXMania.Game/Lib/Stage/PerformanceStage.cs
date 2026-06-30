@@ -1615,10 +1615,10 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (_judgementLineTexture != null)
             {
-                // Draw hit-bar (ScreenPlayDrums hit-bar.png) at judgement line depth
-                var hitBarPos = PerformanceUILayout.HitBar.Position;
-                var hitBarRect = new Rectangle((int)hitBarPos.X, (int)hitBarPos.Y, _judgementLineTexture.Width, _judgementLineTexture.Height);
-                _judgementLineTexture.Draw(_spriteBatch, hitBarRect, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
+                // NX stretches the 8px hit-bar strip across the full drum lane panel.
+                var hitBarRect = PerformanceUILayout.HitBar.Bounds;
+                var sourceRect = PerformanceUILayout.HitBar.GetSourceRect(_judgementLineTexture.Width, _judgementLineTexture.Height);
+                _judgementLineTexture.Draw(_spriteBatch, hitBarRect, sourceRect, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0.6f);
             }
             else
             {

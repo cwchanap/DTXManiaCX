@@ -32,9 +32,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static Vector2 ScreenSize => new Vector2(ScreenWidth, ScreenHeight);
         
         /// <summary>
-        /// Judgeline Y position (non-reverse layout)
+        /// Judgeline Y position (non-reverse layout), matching NX default drums judge line.
         /// </summary>
-        public const int JudgelineY = 600;
+        public const int JudgelineY = 561;
         
         /// <summary>
         /// Legacy judgement line Y position (compatibility)
@@ -153,10 +153,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         };
         
         /// <summary>
-        /// Lane height - stops before gauge area to prevent overlap
-        /// Gauge starts at Y=626, so lanes stop at Y=620 with padding
+        /// Lane height - NX draws the drum lane panel through the full 720px playfield.
         /// </summary>
-        public const int LaneHeight = 620;
+        public const int LaneHeight = 720;
         
         #endregion
         
@@ -637,7 +636,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class JudgementLine
         {
-            public const int DefaultThickness = 2;
+            public const int DefaultThickness = HitBar.Height;
         }
         
         /// <summary>
@@ -757,7 +756,54 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class HitBar
         {
-            public static readonly Vector2 Position = new Vector2(295, JudgelineY); // spans lane region
+            public const int Width = 0x22f;
+            public const int Height = 6;
+            public const int SourceWidth = 8;
+            public static readonly Vector2 Position = new Vector2(295, JudgelineY);
+            public static readonly Rectangle Bounds = new Rectangle((int)Position.X, (int)Position.Y, Width, Height);
+
+            public static Rectangle GetSourceRect(int textureWidth, int textureHeight)
+            {
+                return new Rectangle(
+                    0,
+                    0,
+                    Math.Min(textureWidth, SourceWidth),
+                    Math.Min(textureHeight, Height));
+            }
+        }
+
+        /// <summary>
+        /// NX drum pad row destinations for the 4x3 7_pads.png sprite sheet.
+        /// </summary>
+        public static class DrumPads
+        {
+            public const int CellSize = 96;
+            public const int RowY = 570;
+
+            public static readonly Rectangle[] DestinationRects = new Rectangle[]
+            {
+                new Rectangle(263, RowY, CellSize, CellSize), // LC
+                new Rectangle(336, RowY, CellSize, CellSize), // HH
+                new Rectangle(396, RowY, CellSize, CellSize), // LP
+                new Rectangle(446, RowY, CellSize, CellSize), // SN
+                new Rectangle(510, RowY, CellSize, CellSize), // HT
+                new Rectangle(565, RowY, CellSize, CellSize), // BD
+                new Rectangle(622, RowY, CellSize, CellSize), // LT
+                new Rectangle(672, RowY, CellSize, CellSize), // FT
+                new Rectangle(735, RowY, CellSize, CellSize), // CY
+                new Rectangle(791, RowY, CellSize, CellSize), // RD
+            };
+
+            public static Rectangle GetDestinationRect(int laneIndex)
+            {
+                if (laneIndex < 0 || laneIndex >= DestinationRects.Length)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(laneIndex),
+                        $"Lane index must be between 0 and {DestinationRects.Length - 1}.");
+                }
+
+                return DestinationRects[laneIndex];
+            }
         }
         
         /// <summary>
@@ -788,7 +834,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int CombinedSparkFrameHeight = 150;
             public const int CombinedSparkFrameCount = 12;
             public const int CombinedSparkLaneRows = 10;
-            public const double PrimarySparkFrameDurationSeconds = 0.03;
+            public const int PrimarySparkCounterEndValue = 70;
+            public const int PrimarySparkFrameCount = PrimarySparkCounterEndValue + 1;
+            public const double PrimarySparkFrameDurationSeconds = 0.003;
+            public const float PrimarySparkTravelPixels = 0.8f;
             public static readonly Vector2 PrimarySparkDrawSize = new Vector2(128, 128);
             public static readonly Vector2 StarDrawSize = new Vector2(32, 32);
             public static readonly Vector2 WaveDrawSize = new Vector2(64, 64);
@@ -853,7 +902,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class JudgementLineAssets
         {
-            public static readonly Rectangle Bounds = new Rectangle(295, JudgelineY - 5, 520, 10); // estimated span
+            public static readonly Rectangle Bounds = HitBar.Bounds;
         }
         
         public static class LifeGaugeAssets
