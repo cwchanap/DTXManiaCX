@@ -71,7 +71,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ArgumentNullException.ThrowIfNull(resourceManager);
 
             _settings = settings ?? NxAttackEffectSettings.Default;
-            _random = random ?? new Random(0);
+            _random = random ?? Random.Shared;
 
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
@@ -127,6 +127,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             SpawnStars(lane, origin);
             SpawnChipFragments(lane, origin);
+            SpawnWaves(lane, origin);
         }
 
         public void Update(double deltaTime)
@@ -241,6 +242,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     velocity,
                     source,
                     _settings.ChipFragmentLifetimeSeconds));
+            }
+        }
+
+        private void SpawnWaves(int lane, Vector2 origin)
+        {
+            if (_waveTexture == null)
+                return;
+
+            for (var i = 0; i < _settings.WaveParticleCount; i++)
+            {
+                _particles.Add(ParticleInstance.CreateWave(
+                    lane,
+                    origin,
+                    delaySeconds: i * 0.04,
+                    _settings.WaveLifetimeSeconds));
             }
         }
 

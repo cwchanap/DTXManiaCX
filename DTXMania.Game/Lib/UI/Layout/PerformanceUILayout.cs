@@ -963,6 +963,25 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Rectangle YellowAccentBar = new Rectangle(17, 111, 176, 18);
             public static readonly Rectangle GreenAccentBar = new Rectangle(17, 131, 176, 18);
             public static readonly Rectangle BlueAccentBar = new Rectangle(18, 151, 176, 18);
+            public static readonly int RequiredTextureWidth = MaxRight(
+                PerfectSource,
+                GreatSource,
+                GoodSource,
+                PoorSource,
+                MissSource,
+                YellowAccentBar,
+                GreenAccentBar,
+                BlueAccentBar);
+
+            public static readonly int RequiredTextureHeight = MaxBottom(
+                PerfectSource,
+                GreatSource,
+                GoodSource,
+                PoorSource,
+                MissSource,
+                YellowAccentBar,
+                GreenAccentBar,
+                BlueAccentBar);
 
             public static Rectangle GetJudgementSource(JudgementType judgementType)
             {
@@ -982,6 +1001,28 @@ namespace DTXMania.Game.Lib.UI.Layout
                 var x = GetLaneX(laneIndex) - source.Width / 2f;
                 var y = JudgementLineY - JudgementLineOffsetY;
                 return new Vector2(x, y);
+            }
+
+            private static int MaxRight(params Rectangle[] rectangles)
+            {
+                var max = 0;
+                foreach (var rectangle in rectangles)
+                {
+                    max = Math.Max(max, rectangle.Right);
+                }
+
+                return max;
+            }
+
+            private static int MaxBottom(params Rectangle[] rectangles)
+            {
+                var max = 0;
+                foreach (var rectangle in rectangles)
+                {
+                    max = Math.Max(max, rectangle.Bottom);
+                }
+
+                return max;
             }
         }
         

@@ -10,6 +10,7 @@ namespace DTXMania.Test.UI
     /// <summary>
     /// Additional tests for PerformanceUILayout static methods and inner classes
     /// </summary>
+    [Trait("Category", "Unit")]
     public class PerformanceUILayoutMoreTests
     {
         #region LaneStrips Tests

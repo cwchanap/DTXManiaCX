@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace DTXMania.Game.Lib.Resources
 {
@@ -575,7 +576,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public static string[] GetAllTexturePaths()
         {
-            return new[]
+            var paths = new List<string>
             {
                 StartupBackground,
                 TitleBackground,
@@ -682,6 +683,14 @@ namespace DTXMania.Game.Lib.Resources
                 ConfigItemBoxCursor,
                 ConfigDescriptionPanel
             };
+
+            for (var lane = 0; lane < DrumNxAssetLaneCodes.Length; lane++)
+            {
+                paths.Add(GetDrumChipFireLanePath(lane));
+                paths.Add(GetDrumChipStarLanePath(lane));
+            }
+
+            return paths.ToArray();
         }
 
         /// <summary>

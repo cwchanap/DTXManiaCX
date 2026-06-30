@@ -155,6 +155,11 @@ namespace DTXMania.Test.Resources
             Assert.Contains(TexturePath.JudgeStringsXg, paths);
             Assert.Contains(TexturePath.ChipFireCombined, paths);
             Assert.Contains(TexturePath.ChipWave, paths);
+            for (var lane = 0; lane < 10; lane++)
+            {
+                Assert.Contains(TexturePath.GetDrumChipFireLanePath(lane), paths);
+                Assert.Contains(TexturePath.GetDrumChipStarLanePath(lane), paths);
+            }
         }
 
         [Fact]
