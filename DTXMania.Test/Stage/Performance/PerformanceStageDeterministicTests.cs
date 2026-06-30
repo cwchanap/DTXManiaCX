@@ -1673,7 +1673,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementLineTexture = CreateTextureMock(width: 8, height: 8);
-        var expectedRectangle = new Rectangle(295, 561, 559, 6);
+        var expectedRectangle = new Rectangle(295, 561, 558, 6);
         var expectedSource = new Rectangle(0, 0, 8, 6);
 
         ReflectionHelpers.SetPrivateField(stage, "_judgementLineTexture", judgementLineTexture.Object);

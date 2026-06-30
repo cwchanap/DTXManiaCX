@@ -756,7 +756,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class HitBar
         {
-            public const int Width = 0x22f;
+            // Width = Progress.FrameBounds.X - Position.X = 853 - 295 = 558 (matches bundled 7_Paret.png width).
+            public const int Width = 0x22e;
             public const int Height = 6;
             public const int SourceWidth = 8;
             public static readonly Vector2 Position = new Vector2(295, JudgelineY);
