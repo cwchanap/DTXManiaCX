@@ -56,6 +56,14 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void HitBar_Bounds_ShouldNotOverlapProgressBar()
+        {
+            // HitBar must end exactly where the Progress panel begins (no overlap, no gap).
+            Assert.Equal(PerformanceUILayout.Progress.FrameBounds.X, PerformanceUILayout.HitBar.Bounds.Right);
+            Assert.Equal(558, PerformanceUILayout.HitBar.Width);
+        }
+
+        [Fact]
         public void NxAttackEffectAssets_CombinedSparkSheetConstants_ShouldMatchBundledAsset()
         {
             Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth);
