@@ -71,7 +71,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ArgumentNullException.ThrowIfNull(resourceManager);
 
             _settings = settings ?? NxAttackEffectSettings.Default;
-            _random = random ?? Random.Shared;
+            _random = random ?? new Random(0);
 
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
@@ -94,11 +94,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal int ActiveParticleCountForTesting => _particles.Count;
 
-        public static Rectangle GetCombinedSparkSource(int laneIndex, int frameIndex)
-        {
-            return PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(laneIndex, frameIndex);
-        }
-
         public virtual void Spawn(int lane, JudgementType judgementType)
         {
             if (_disposed
@@ -120,7 +115,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         lane,
                         judgementType,
                         origin,
-                        usesCombinedSheet: false,
                         baseAngle + (i * MathF.PI / 2f)));
                 }
             }
@@ -434,22 +428,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             private double _elapsedSeconds;
 
-            public PrimarySparkInstance(int lane, JudgementType judgementType, Vector2 position, bool usesCombinedSheet)
-                : this(lane, judgementType, position, usesCombinedSheet, 0f)
-            {
-            }
-
             public PrimarySparkInstance(
                 int lane,
                 JudgementType judgementType,
                 Vector2 position,
-                bool usesCombinedSheet,
                 float angleRadians)
             {
                 Lane = lane;
                 JudgementType = judgementType;
                 Position = position;
-                UsesCombinedSheet = usesCombinedSheet;
                 AngleRadians = angleRadians;
             }
 
@@ -458,8 +445,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             public JudgementType JudgementType { get; }
 
             public Vector2 Position { get; }
-
-            public bool UsesCombinedSheet { get; }
 
             public float AngleRadians { get; }
 
