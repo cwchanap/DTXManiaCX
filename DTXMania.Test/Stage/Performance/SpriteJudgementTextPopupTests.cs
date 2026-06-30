@@ -120,11 +120,29 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
-    public void Manager_PublicConstructor_WhenSpriteUndersized_ShouldUseFontFallbackAndReleaseTexture()
+    public void Manager_PublicConstructor_WhenSpriteTextureNull_ShouldUseFontFallbackAndReleaseTexture()
     {
         var texture = new Mock<ITexture>();
         texture.SetupGet(x => x.Width).Returns(241);
         texture.SetupGet(x => x.Height).Returns(169);
+        var resourceManager = CreateResourceManager(texture.Object);
+        var fallbackEvents = new List<JudgementEvent>();
+        var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));
+        var judgement = new JudgementEvent(10, 4, 0.0, JudgementType.Good);
+
+        manager.SpawnPopup(judgement);
+
+        Assert.Empty(manager.ActivePopupsForTesting);
+        Assert.Same(judgement, Assert.Single(fallbackEvents));
+        texture.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Manager_PublicConstructor_WhenSpriteUndersized_ShouldUseFontFallbackAndReleaseTexture()
+    {
+        var texture = new Mock<ITexture>();
+        texture.SetupGet(x => x.Width).Returns(100);
+        texture.SetupGet(x => x.Height).Returns(100);
         var resourceManager = CreateResourceManager(texture.Object);
         var fallbackEvents = new List<JudgementEvent>();
         var manager = new SpriteJudgementTextPopupManager(resourceManager.Object, e => fallbackEvents.Add(e));

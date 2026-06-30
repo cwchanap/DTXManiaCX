@@ -831,14 +831,14 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class NxAttackEffectAssets
         {
-            public const int CombinedSparkFrameWidth = 150;
-            public const int CombinedSparkFrameHeight = 150;
-            public const int CombinedSparkFrameCount = 12;
-            public const int CombinedSparkLaneRows = 10;
             public const int PrimarySparkCounterEndValue = 70;
             public const int PrimarySparkFrameCount = PrimarySparkCounterEndValue + 1;
             public const double PrimarySparkFrameDurationSeconds = 0.003;
             public const float PrimarySparkTravelPixels = 0.8f;
+            // Divisor for the scale curve counter, matching NX CActPerfDrumsChipFireD.cs:669
+            // (nCurrentValue / 50.0). The counter end value (70) and this divisor (50) are
+            // independent hardcoded constants in the original NX source.
+            public const int PrimarySparkScaleDivisor = 50;
             public static readonly Vector2 PrimarySparkDrawSize = new Vector2(128, 128);
             public static readonly Vector2 StarDrawSize = new Vector2(32, 32);
             public static readonly Vector2 WaveDrawSize = new Vector2(64, 64);
@@ -848,26 +848,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const double StarLifetimeSeconds = 0.34;
             public const double ChipFragmentLifetimeSeconds = 0.44;
             public const double WaveLifetimeSeconds = 0.42;
-
-            public static Rectangle GetCombinedSparkSource(int laneIndex, int frameIndex)
-            {
-                if (laneIndex < 0 || laneIndex >= CombinedSparkLaneRows)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(laneIndex),
-                        $"Lane index must be between 0 and {CombinedSparkLaneRows - 1}.");
-                }
-                if (frameIndex < 0 || frameIndex >= CombinedSparkFrameCount)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(frameIndex),
-                        $"Frame index must be between 0 and {CombinedSparkFrameCount - 1}.");
-                }
-
-                return new Rectangle(
-                    frameIndex * CombinedSparkFrameWidth,
-                    laneIndex * CombinedSparkFrameHeight,
-                    CombinedSparkFrameWidth,
-                    CombinedSparkFrameHeight);
-            }
 
             public static Vector2 GetEffectOrigin(int laneIndex)
             {

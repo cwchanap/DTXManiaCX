@@ -91,7 +91,7 @@ public class PerformanceStageAdditionalCoverageTests
     public void OnJudgementMade_WithHit_ShouldSpawnNxAttackAndSpriteJudgementText()
     {
         var stage = CreateStage();
-        var attackManager = NxAttackEffectManagerTestFactory.CreateEmpty();
+        var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
 
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
@@ -114,7 +114,7 @@ public class PerformanceStageAdditionalCoverageTests
     public void OnJudgementMade_WithMiss_ShouldSkipNxAttackAndShowSpriteJudgementText()
     {
         var stage = CreateStage();
-        var attackManager = NxAttackEffectManagerTestFactory.CreateEmpty();
+        var attackManager = CreateNxAttackEffectManager();
         var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
 
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
@@ -726,27 +726,11 @@ public class PerformanceStageAdditionalCoverageTests
         return renderer;
     }
 
-    private sealed class CountingNxAttackEffectManager : NxAttackEffectManager
+    private static NxAttackEffectManager CreateNxAttackEffectManager()
     {
-        public CountingNxAttackEffectManager()
-            : base(new Mock<IResourceManager>().Object)
-        {
-        }
-
-        public int SpawnCallCountForTesting { get; private set; }
-
-        public override void Spawn(int lane, JudgementType judgementType)
-        {
-            SpawnCallCountForTesting++;
-        }
-    }
-
-    private static class NxAttackEffectManagerTestFactory
-    {
-        public static CountingNxAttackEffectManager CreateEmpty()
-        {
-            return new CountingNxAttackEffectManager();
-        }
+        var manager = new NxAttackEffectManager(new Mock<IResourceManager>().Object);
+        manager.SuppressSpawnForTesting = true;
+        return manager;
     }
 
     private sealed class ScrollSpeedInputCompat : MockInputManagerCompat
