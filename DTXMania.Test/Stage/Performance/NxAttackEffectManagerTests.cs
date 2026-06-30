@@ -17,17 +17,6 @@ namespace DTXMania.Test.Stage.Performance;
 public class NxAttackEffectManagerTests
 {
     [Theory]
-    [InlineData(0, 0, 0, 0)]
-    [InlineData(5, 3, 450, 750)]
-    [InlineData(9, 11, 1650, 1350)]
-    public void GetCombinedSparkSource_ShouldUseLaneRowsAndFrameColumns(int lane, int frame, int x, int y)
-    {
-        var source = NxAttackEffectManager.GetCombinedSparkSource(lane, frame);
-
-        Assert.Equal(new Rectangle(x, y, 150, 150), source);
-    }
-
-    [Theory]
     [InlineData(5, 0, 720, 0, 35)]
     [InlineData(0, 0, 720, 540, 37)]
     [InlineData(0, 1, 720, 577, 37)]
@@ -164,7 +153,6 @@ public class NxAttackEffectManagerTests
         manager.Spawn(0, JudgementType.Perfect);
 
         Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
-        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
     }
 
     [Fact]
@@ -175,7 +163,6 @@ public class NxAttackEffectManagerTests
         manager.Spawn(0, JudgementType.Perfect);
 
         Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
-        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
     }
 
     [Fact]
@@ -224,7 +211,6 @@ public class NxAttackEffectManagerTests
 
         manager.Spawn(0, JudgementType.Perfect);
         Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
-        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
 
         manager.Dispose();
 
@@ -682,7 +668,7 @@ public class NxAttackEffectManagerTests
         // At frame 0, the spark should be at its origin position.
         var origin = new Vector2(100, 200);
         var spark = new NxAttackEffectManager.PrimarySparkInstance(
-            0, JudgementType.Perfect, origin, usesCombinedSheet: false, 0f);
+            0, JudgementType.Perfect, origin, 0f);
 
         var position = spark.GetNxStaticFirePosition();
 
@@ -693,7 +679,7 @@ public class NxAttackEffectManagerTests
     public void PrimarySparkInstance_GetNxStaticFireScale_ShouldReturnPositiveScale()
     {
         var spark = new NxAttackEffectManager.PrimarySparkInstance(
-            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+            0, JudgementType.Perfect, Vector2.Zero, 0f);
 
         var scale = spark.GetNxStaticFireScale();
 
@@ -704,7 +690,7 @@ public class NxAttackEffectManagerTests
     public void PrimarySparkInstance_Update_ShouldAdvanceFrameIndex()
     {
         var spark = new NxAttackEffectManager.PrimarySparkInstance(
-            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+            0, JudgementType.Perfect, Vector2.Zero, 0f);
 
         spark.Update(0.006, frameDurationSeconds: 0.003, frameCount: 71);
 
@@ -716,7 +702,7 @@ public class NxAttackEffectManagerTests
     public void PrimarySparkInstance_Update_WhenFrameExceedsCount_ShouldExpire()
     {
         var spark = new NxAttackEffectManager.PrimarySparkInstance(
-            0, JudgementType.Perfect, Vector2.Zero, usesCombinedSheet: false, 0f);
+            0, JudgementType.Perfect, Vector2.Zero, 0f);
 
         spark.Update(1.0, frameDurationSeconds: 0.003, frameCount: 5);
 
