@@ -37,17 +37,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Constants
 
         /// <summary>
-        /// Baseline Y position for pads - positioned below gauge bar as requested
-        /// Gauge frame is at Y=626 with fill height of 31, so pads go below at Y=670
-        /// </summary>
-        private const int PadsY = 670; // Below gauge bar (626 + ~44px spacing)
-
-        /// <summary>
-        /// Height of pad indicators - increased for better visibility
-        /// </summary>
-        private const int PadsHeight = 60;
-
-        /// <summary>
         /// Press duration for judged hits (milliseconds)
         /// </summary>
         private const double PressDurationJudged = 90.0;
@@ -273,36 +262,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             var pad = _padVisuals[laneIndex];
-            
-            // Calculate destination rectangle using lane position
-            var laneLeftX = PerformanceUILayout.GetLaneLeftX(laneIndex);
-            var laneWidth = PerformanceUILayout.GetLaneWidth(laneIndex);
-            
-            // Calculate pad width to maintain aspect ratio if we have sprite sheet
-            int padWidth = laneWidth;
-            if (_padSpriteSheet != null && _cellWidth > 0 && _cellHeight > 0)
-            {
-                // Maintain sprite aspect ratio
-                float aspectRatio = (float)_cellWidth / _cellHeight;
-                padWidth = (int)(PadsHeight * aspectRatio);
-                
-                // Center the pad within the lane if it's smaller than lane width
-                if (padWidth < laneWidth)
-                {
-                    laneLeftX += (laneWidth - padWidth) / 2;
-                }
-                else
-                {
-                    padWidth = laneWidth; // Use full lane width if calculated width is too large
-                }
-            }
-            
-            var destRect = new Rectangle(
-                laneLeftX,
-                PadsY,
-                padWidth,
-                PadsHeight
-            );
+            var destRect = PerformanceUILayout.DrumPads.GetDestinationRect(laneIndex);
             
             // Try sprite sheet rendering first
             if (_padSpriteSheet != null && TryDrawSpriteSheetPad(spriteBatch, pad, laneIndex, destRect))

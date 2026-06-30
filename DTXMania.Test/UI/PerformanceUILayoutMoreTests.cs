@@ -48,6 +48,14 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void DrumBottomLayout_ShouldMatchNxDefaultVerticalOrder()
+        {
+            Assert.Equal(new Vector2(295, 561), PerformanceUILayout.HitBar.Position);
+            Assert.Equal(new Vector2(294, 626), PerformanceUILayout.Gauge.FramePosition);
+            Assert.True(PerformanceUILayout.Gauge.FramePosition.Y > PerformanceUILayout.HitBar.Position.Y);
+        }
+
+        [Fact]
         public void NxAttackEffectAssets_CombinedSparkSheetConstants_ShouldMatchBundledAsset()
         {
             Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth);

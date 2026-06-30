@@ -81,35 +81,43 @@ public class NxAttackEffectManagerTests
     [InlineData(JudgementType.Miss, false)]
     public void Spawn_ShouldCreatePrimarySparkOnlyForHitJudgements(JudgementType judgementType, bool shouldSpawn)
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
 
         manager.Spawn(3, judgementType);
 
-        Assert.Equal(shouldSpawn ? 1 : 0, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(shouldSpawn ? 2 : 0, manager.ActivePrimarySparkCountForTesting);
     }
 
     [Fact]
     public void Spawn_WhenSameLaneAlreadyActive_ShouldRestartPrimarySpark()
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
         manager.Spawn(2, JudgementType.Perfect);
         manager.Update(0.09);
 
         manager.Spawn(2, JudgementType.Great);
 
-        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
-        Assert.Equal(0, spark.FrameIndex);
-        Assert.Equal(JudgementType.Great, spark.JudgementType);
+        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
+        Assert.All(manager.ActivePrimarySparksForTesting, spark =>
+        {
+            Assert.Equal(0, spark.FrameIndex);
+            Assert.Equal(JudgementType.Great, spark.JudgementType);
+        });
     }
 
     [Fact]
-    public void Spawn_WithCombinedSheet_ShouldCreateSecondaryParticles()
+    public void Spawn_WithNxDefaultAssets_ShouldCreateStarsAndChipFragments()
     {
-        var manager = CreateManager(combinedAvailable: true, starsAvailable: true, chipTextureAvailable: true, waveAvailable: true);
+        var manager = CreateManager(
+            combinedAvailable: true,
+            perLaneFallbackAvailable: true,
+            starsAvailable: true,
+            chipTextureAvailable: true,
+            waveAvailable: true);
 
         manager.Spawn(0, JudgementType.Perfect);
 
-        Assert.Equal(1, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(2, manager.ActivePrimarySparkCountForTesting);
         Assert.True(manager.ActiveParticleCountForTesting > 0);
     }
 
@@ -155,17 +163,28 @@ public class NxAttackEffectManagerTests
 
         manager.Spawn(0, JudgementType.Perfect);
 
-        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
-        Assert.False(spark.UsesCombinedSheet);
+        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
+        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
     }
 
     [Fact]
-    public void Update_AfterPrimarySparkDuration_ShouldExpireSpark()
+    public void Constructor_WhenCombinedSheetAndPerLaneFireExist_ShouldUsePerLaneNxDefaultSpark()
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
+
         manager.Spawn(0, JudgementType.Perfect);
 
-        manager.Update(1.0);
+        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
+        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
+    }
+
+    [Fact]
+    public void Update_AfterNxDefaultStaticFireDuration_ShouldExpireSpark()
+    {
+        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        manager.Spawn(0, JudgementType.Perfect);
+
+        manager.Update(0.22);
 
         Assert.Equal(0, manager.ActivePrimarySparkCountForTesting);
     }
@@ -173,11 +192,11 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Dispose_ShouldReleaseLoadedTextures()
     {
-        var texture = CreateTexture(width: 1800, height: 1650);
+        var texture = CreateTexture(width: 128, height: 128);
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(texture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(texture.Object);
 
         var manager = new NxAttackEffectManager(resourceManager.Object);
 
@@ -187,38 +206,39 @@ public class NxAttackEffectManagerTests
     }
 
     [Fact]
-    public void Constructor_WhenCombinedSheetInvalid_ShouldReleaseItOnceAndUseFallback()
+    public void Constructor_WhenCombinedSheetPresent_ShouldNotLoadItForNxDefaultExplosion()
     {
-        var invalidCombinedTexture = CreateTexture(width: 1799, height: 1499);
+        var combinedTexture = CreateTexture(width: 1800, height: 1650);
         var fallbackTexture = CreateTexture(width: 128, height: 128);
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
         resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(invalidCombinedTexture.Object);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(combinedTexture.Object);
         resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
         resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(fallbackTexture.Object);
 
         var manager = new NxAttackEffectManager(resourceManager.Object);
 
-        invalidCombinedTexture.Verify(x => x.RemoveReference(), Times.Once);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.ChipFireCombined), Times.Never);
+        combinedTexture.Verify(x => x.RemoveReference(), Times.Never);
 
         manager.Spawn(0, JudgementType.Perfect);
-        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
-        Assert.False(spark.UsesCombinedSheet);
+        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
+        Assert.All(manager.ActivePrimarySparksForTesting, spark => Assert.False(spark.UsesCombinedSheet));
 
         manager.Dispose();
 
-        invalidCombinedTexture.Verify(x => x.RemoveReference(), Times.Once);
+        fallbackTexture.Verify(x => x.RemoveReference(), Times.Once);
     }
 
     [Fact]
     public void Dispose_WhenCalledTwice_ShouldReleaseLoadedTexturesOnce()
     {
-        var texture = CreateTexture(width: 1800, height: 1650);
+        var texture = CreateTexture(width: 128, height: 128);
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(texture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(texture.Object);
 
         var manager = new NxAttackEffectManager(resourceManager.Object);
 
@@ -229,9 +249,45 @@ public class NxAttackEffectManagerTests
     }
 
     [Fact]
-    public void Draw_Particles_ShouldUseCenteredRotationOrigins()
+    public void Draw_PrimarySpark_ShouldDrawTwoPerLaneFireSprites()
     {
-        var combinedTexture = CreateTexture(width: 1800, height: 1650);
+        var fireTexture = CreateTexture(width: 128, height: 128);
+        var fireDraws = new List<(Rectangle Destination, Rectangle? Source)>();
+        fireTexture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    fireDraws.Add((destination, source)));
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(fireTexture.Object);
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+        manager.Spawn(0, JudgementType.Perfect);
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        manager.Draw(spriteBatch);
+
+        Assert.Equal(2, fireDraws.Count);
+        Assert.All(fireDraws, draw =>
+        {
+            Assert.Null(draw.Source);
+            Assert.True(draw.Destination.Width > PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize.X);
+            Assert.True(draw.Destination.Height > PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize.Y);
+        });
+    }
+
+    [Fact]
+    public void Draw_DefaultNxParticles_ShouldUseCenteredRotationOriginsWithoutWaves()
+    {
         var starTexture = CreateTexture(width: 40, height: 20);
         var chipTexture = CreateTexture(width: 718, height: 776);
         var waveTexture = CreateTexture(width: 80, height: 40);
@@ -282,8 +338,6 @@ public class NxAttackEffectManagerTests
 
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(combinedTexture.Object);
         resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipStarLanePath(0))).Returns(true);
         resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipStarLanePath(0))).Returns(starTexture.Object);
         resourceManager.Setup(x => x.ResourceExists(TexturePath.DrumChips)).Returns(true);
@@ -298,7 +352,7 @@ public class NxAttackEffectManagerTests
 
         Assert.NotEmpty(starDraws);
         Assert.NotEmpty(chipDraws);
-        Assert.NotEmpty(waveDraws);
+        Assert.Empty(waveDraws);
 
         foreach (var draw in starDraws)
         {
@@ -317,12 +371,6 @@ public class NxAttackEffectManagerTests
                 draw.Origin);
         }
 
-        foreach (var draw in waveDraws)
-        {
-            Assert.Equal(expectedDestinationOrigin.X, draw.Destination.X);
-            Assert.Equal(expectedDestinationOrigin.Y, draw.Destination.Y);
-            Assert.Equal(new Vector2(40f, 20f), draw.Origin);
-        }
     }
 
     private static NxAttackEffectManager CreateManager(

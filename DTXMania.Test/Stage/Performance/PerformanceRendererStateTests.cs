@@ -300,18 +300,16 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementLineRenderer_GetJudgementLineRectangle_ShouldUseLaneBoundsAndThickness()
+        public void JudgementLineRenderer_GetJudgementLineRectangle_ShouldUseNxHitBarBoundsAndThickness()
         {
             var renderer = CreateUninitialized<JudgementLineRenderer>();
             renderer.LineThickness = 4;
 
             var rectangle = ReflectionHelpers.InvokePrivateMethod<Rectangle>(renderer, "GetJudgementLineRectangle");
 
-            var leftX = PerformanceUILayout.GetLaneLeftX(0);
-            var rightX = PerformanceUILayout.GetLaneRightX(PerformanceUILayout.LaneCount - 1);
-            Assert.Equal(leftX, rectangle.X);
-            Assert.Equal(PerformanceUILayout.JudgementLineY, rectangle.Y);
-            Assert.Equal(rightX - leftX, rectangle.Width);
+            Assert.Equal(PerformanceUILayout.HitBar.Bounds.X, rectangle.X);
+            Assert.Equal(PerformanceUILayout.HitBar.Bounds.Y, rectangle.Y);
+            Assert.Equal(PerformanceUILayout.HitBar.Bounds.Width, rectangle.Width);
             Assert.Equal(4, rectangle.Height);
         }
 

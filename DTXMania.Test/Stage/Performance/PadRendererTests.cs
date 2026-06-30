@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -278,7 +279,40 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Empty(renderer.FallbackDrawCalls);
             Assert.Equal(new Rectangle(0, 0, 100, 50), renderer.SpriteSheetDrawCalls[0].Source);
             Assert.Equal(Color.White * 1.5f, renderer.SpriteSheetDrawCalls[0].Tint);
-            Assert.Equal(new Rectangle(PerformanceUILayout.GetLaneLeftX(1), 670, PerformanceUILayout.GetLaneWidth(1), 60), renderer.SpriteSheetDrawCalls[1].Destination);
+            Assert.Equal(new Rectangle(336, 570, 96, 96), renderer.SpriteSheetDrawCalls[1].Destination);
+            Assert.True(renderer.SpriteSheetDrawCalls[1].Destination.Bottom > PerformanceUILayout.Gauge.FramePosition.Y);
+        }
+
+        [Fact]
+        public void Draw_WhenSpriteSheetAvailable_ShouldUseNxPadRowDestinations()
+        {
+            var expectedDestinations = new[]
+            {
+                new Rectangle(263, 570, 96, 96),
+                new Rectangle(336, 570, 96, 96),
+                new Rectangle(396, 570, 96, 96),
+                new Rectangle(446, 570, 96, 96),
+                new Rectangle(510, 570, 96, 96),
+                new Rectangle(565, 570, 96, 96),
+                new Rectangle(622, 570, 96, 96),
+                new Rectangle(672, 570, 96, 96),
+                new Rectangle(735, 570, 96, 96),
+                new Rectangle(791, 570, 96, 96)
+            };
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
+            var spriteSheet = new Mock<ITexture>();
+            var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+            ReflectionHelpers.SetPrivateField(renderer, "_padSpriteSheet", spriteSheet.Object);
+            ReflectionHelpers.SetPrivateField(renderer, "_cellWidth", 96);
+            ReflectionHelpers.SetPrivateField(renderer, "_cellHeight", 96);
+            ReflectionHelpers.SetPrivateField(renderer, "_spriteColumns", 4);
+
+            renderer.Draw(spriteBatch);
+
+            Assert.Equal(expectedDestinations, renderer.SpriteSheetDrawCalls.Select(call => call.Destination).ToArray());
         }
 
         [Fact]

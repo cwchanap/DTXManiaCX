@@ -19,7 +19,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         // Judgement line properties
         private Color _lineColor = Color.White;
-        private int _lineThickness = 2; // From PerformanceUILayout.JudgementLine.DefaultThickness
+        private int _lineThickness = PerformanceUILayout.JudgementLine.DefaultThickness;
         private float _alpha = 1.0f;
 
         #endregion
@@ -150,15 +150,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private Rectangle GetJudgementLineRectangle()
         {
-            // Calculate the judgement line rectangle spanning all lanes
-            var leftX = PerformanceUILayout.GetLaneLeftX(0);
-            var rightX = PerformanceUILayout.GetLaneRightX(PerformanceUILayout.LaneCount - 1);
-            var width = rightX - leftX;
+            var hitBarBounds = PerformanceUILayout.HitBar.Bounds;
             
             return new Rectangle(
-                leftX,
-                PerformanceUILayout.JudgementLineY,
-                width,
+                hitBarBounds.X,
+                hitBarBounds.Y,
+                hitBarBounds.Width,
                 _lineThickness
             );
         }
