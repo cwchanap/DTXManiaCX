@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song.Components;
@@ -271,6 +272,164 @@ namespace DTXMania.Test.UI
         {
             Assert.Equal(200, PerformanceUILayout.GaugeSize.X);
             Assert.Equal(PerformanceUILayout.Gauge.FillHeight, PerformanceUILayout.GaugeSize.Y);
+        }
+
+        #endregion
+
+        #region NxAttackEffectAssets Edge Case Tests
+
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(10, 0)]
+        [InlineData(99, 0)]
+        public void NxAttackEffectAssets_GetCombinedSparkSource_WhenLaneOutOfRange_ShouldThrow(int lane, int frame)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame));
+        }
+
+        [Theory]
+        [InlineData(0, -1)]
+        [InlineData(0, 12)]
+        [InlineData(0, 99)]
+        public void NxAttackEffectAssets_GetCombinedSparkSource_WhenFrameOutOfRange_ShouldThrow(int lane, int frame)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        [InlineData(9)]
+        public void NxAttackEffectAssets_GetEffectOrigin_ShouldReturnLaneCenterXAtJudgementLine(int laneIndex)
+        {
+            var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(laneIndex);
+
+            Assert.Equal(PerformanceUILayout.GetLaneX(laneIndex), origin.X);
+            Assert.Equal(PerformanceUILayout.JudgementLineY, origin.Y);
+        }
+
+        [Fact]
+        public void NxAttackEffectAssets_PrimarySparkFrameCount_ShouldBeCounterEndPlusOne()
+        {
+            Assert.Equal(
+                PerformanceUILayout.NxAttackEffectAssets.PrimarySparkCounterEndValue + 1,
+                PerformanceUILayout.NxAttackEffectAssets.PrimarySparkFrameCount);
+        }
+
+        [Fact]
+        public void NxAttackEffectAssets_ParticleCountsAndLifetimes_ShouldBePositive()
+        {
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.StarParticleCount > 0);
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.ChipFragmentCount > 0);
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.WaveParticleCount > 0);
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.StarLifetimeSeconds > 0);
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.ChipFragmentLifetimeSeconds > 0);
+            Assert.True(PerformanceUILayout.NxAttackEffectAssets.WaveLifetimeSeconds > 0);
+        }
+
+        #endregion
+
+        #region DrumPads Tests
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        [InlineData(9)]
+        public void DrumPads_GetDestinationRect_ShouldReturnCorrectBounds(int laneIndex)
+        {
+            var rect = PerformanceUILayout.DrumPads.GetDestinationRect(laneIndex);
+
+            Assert.Equal(PerformanceUILayout.DrumPads.DestinationRects[laneIndex], rect);
+            Assert.Equal(PerformanceUILayout.DrumPads.CellSize, rect.Width);
+            Assert.Equal(PerformanceUILayout.DrumPads.CellSize, rect.Height);
+            Assert.Equal(PerformanceUILayout.DrumPads.RowY, rect.Y);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(10)]
+        [InlineData(99)]
+        public void DrumPads_GetDestinationRect_WhenLaneOutOfRange_ShouldThrow(int laneIndex)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.DrumPads.GetDestinationRect(laneIndex));
+        }
+
+        [Fact]
+        public void DrumPads_DestinationRects_ShouldHave10Entries()
+        {
+            Assert.Equal(10, PerformanceUILayout.DrumPads.DestinationRects.Length);
+        }
+
+        #endregion
+
+        #region HitBar Tests
+
+        [Fact]
+        public void HitBar_GetSourceRect_ShouldClampToSourceWidthAndHeight()
+        {
+            var rect = PerformanceUILayout.HitBar.GetSourceRect(textureWidth: 4, textureHeight: 3);
+
+            Assert.Equal(0, rect.X);
+            Assert.Equal(0, rect.Y);
+            Assert.Equal(4, rect.Width); // Math.Min(4, SourceWidth=8) = 4
+            Assert.Equal(3, rect.Height); // Math.Min(3, Height=6) = 3
+        }
+
+        [Fact]
+        public void HitBar_GetSourceRect_WhenTextureLargerThanSource_ShouldUseSourceDimensions()
+        {
+            var rect = PerformanceUILayout.HitBar.GetSourceRect(textureWidth: 1000, textureHeight: 1000);
+
+            Assert.Equal(0, rect.X);
+            Assert.Equal(0, rect.Y);
+            Assert.Equal(PerformanceUILayout.HitBar.SourceWidth, rect.Width);
+            Assert.Equal(PerformanceUILayout.HitBar.Height, rect.Height);
+        }
+
+        [Fact]
+        public void HitBar_Position_ShouldAlignWithJudgelineY()
+        {
+            Assert.Equal(PerformanceUILayout.JudgelineY, PerformanceUILayout.HitBar.Position.Y);
+        }
+
+        #endregion
+
+        #region SpriteJudgementTextAssets Tests
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        [InlineData(9)]
+        public void SpriteJudgementTextAssets_GetLaneTextPosition_ShouldCenterHorizontallyAtLaneX(int laneIndex)
+        {
+            var source = PerformanceUILayout.SpriteJudgementTextAssets.GetJudgementSource(JudgementType.Perfect);
+            var position = PerformanceUILayout.SpriteJudgementTextAssets.GetLaneTextPosition(laneIndex, source);
+
+            var expectedX = PerformanceUILayout.GetLaneX(laneIndex) - source.Width / 2f;
+            var expectedY = PerformanceUILayout.JudgementLineY
+                - PerformanceUILayout.SpriteJudgementTextAssets.JudgementLineOffsetY;
+
+            Assert.Equal(expectedX, position.X);
+            Assert.Equal(expectedY, position.Y);
+        }
+
+        [Fact]
+        public void SpriteJudgementTextAssets_DurationsAndScales_ShouldBeConsistent()
+        {
+            Assert.True(PerformanceUILayout.SpriteJudgementTextAssets.PopDurationSeconds
+                < PerformanceUILayout.SpriteJudgementTextAssets.TotalDurationSeconds);
+            Assert.True(PerformanceUILayout.SpriteJudgementTextAssets.InitialScale
+                > PerformanceUILayout.SpriteJudgementTextAssets.SettledScale);
+        }
+
+        [Fact]
+        public void SpriteJudgementTextAssets_GetJudgementSource_WhenUnknownType_ShouldThrow()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.SpriteJudgementTextAssets.GetJudgementSource((JudgementType)999));
         }
 
         #endregion

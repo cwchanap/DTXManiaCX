@@ -1175,6 +1175,101 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void PopulateTelemetry_WhenSongTimerPlaying_ShouldReportCurrentSongTimeMs()
+    {
+        // Exercises the PopulateTelemetry snapshot path where songTimerPlaying is true
+        // and currentGameTime is not null, so GetCurrentMs is called.
+        var stage = CreateStage();
+        var chart = new ParsedChart("playing-telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        // SongTimer is playing with _startTime=Zero, so GetCurrentMs = 2000 - 0 = 2000,
+        // minus the AudioLatencyOffsetMs compensation inside SongTimer.GetCurrentMs.
+        Assert.True(telemetry.CurrentSongTimeMs > 0.0);
+        Assert.True(telemetry.PerformanceReady);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenSongTimerPlayingButCurrentGameTimeNull_ShouldReportZeroSongTime()
+    {
+        // Exercises the branch where songTimerPlaying is true but currentGameTime is null,
+        // so CurrentSongTimeMs falls back to 0.0.
+        var stage = CreateStage();
+        var chart = new ParsedChart("null-gametime.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime", null);
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(0.0, telemetry.CurrentSongTimeMs);
+        Assert.True(telemetry.PerformanceReady);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenSongTimerNotPlaying_ShouldReportZeroSongTimeAndNotReady()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("stopped-telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        // Stopped timer: _isPlaying = false
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(2000), TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(0.0, telemetry.CurrentSongTimeMs);
+        // _isReady is false and songTimerPlaying is false, so PerformanceReady is false.
+        Assert.False(telemetry.PerformanceReady);
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_WhenSongPlaying_ShouldRecordLastLaneHitTelemetry()
+    {
+        // Exercises the _lastLaneHit = new LastLaneHit(...) line in OnLaneHitForPadFeedback
+        // when the song timer is actively playing.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
+
+        var args = new LaneHitEventArgs(3, new ButtonState("Key.L", true, 1.0f));
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnLaneHitForPadFeedback", null, args);
+
+        var lastHit = ReflectionHelpers.GetPrivateField<PerformanceStage.LastLaneHit?>(stage, "_lastLaneHit");
+        Assert.NotNull(lastHit);
+        Assert.Equal(3, lastHit!.Lane);
+        Assert.Equal("Key.L", lastHit.ButtonId);
+        Assert.True(lastHit.SongTimeMs > 0.0);
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
