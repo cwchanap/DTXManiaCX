@@ -39,7 +39,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             PerformanceUILayout.NxAttackEffectAssets.WaveLifetimeSeconds;
     }
 
-    public class NxAttackEffectManager : IDisposable
+    public sealed class NxAttackEffectManager : IDisposable
     {
         private const int ChipFragmentSourceY = 640;
         private const int ChipFragmentSourceHeight = 64;
@@ -94,8 +94,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal int ActiveParticleCountForTesting => _particles.Count;
 
-        public virtual void Spawn(int lane, JudgementType judgementType)
+        internal int SpawnCallCountForTesting { get; private set; }
+
+        internal int? LastSpawnLaneForTesting { get; private set; }
+
+        internal JudgementType? LastSpawnJudgementTypeForTesting { get; private set; }
+
+        internal bool SuppressSpawnForTesting { get; set; }
+
+        public void Spawn(int lane, JudgementType judgementType)
         {
+            SpawnCallCountForTesting++;
+            LastSpawnLaneForTesting = lane;
+            LastSpawnJudgementTypeForTesting = judgementType;
+
+            if (SuppressSpawnForTesting)
+                return;
+
             if (_disposed
                 || lane < 0
                 || lane >= PerformanceUILayout.LaneCount
@@ -481,7 +496,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             public float GetNxStaticFireScale()
             {
                 var scale = 0.2f
-                    + (0.2f + (0.8f * MathF.Cos((FrameIndex / 50f) * MathHelper.PiOver2)));
+                    + (0.2f + (0.8f * MathF.Cos((FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
 
                 return Math.Max(0.05f, scale);
             }

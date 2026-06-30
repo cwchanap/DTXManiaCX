@@ -168,12 +168,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (!popup.IsActive || popup.Alpha <= 0f)
                     continue;
 
-                if (!TryEnsureSpriteTextureAvailable())
-                {
-                    MigrateActivePopupsToFontFallback();
-                    return;
-                }
-
                 var spriteTexture = _spriteTexture;
                 if (spriteTexture == null)
                     return;

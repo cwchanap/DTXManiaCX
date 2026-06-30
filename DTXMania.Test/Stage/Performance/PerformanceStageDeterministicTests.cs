@@ -2654,8 +2654,8 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(1, comboManager.CurrentCombo);
         Assert.Equal(51.5f, gaugeManager.CurrentLife);
         Assert.Equal(1, attackManager.SpawnCallCountForTesting);
-        Assert.Equal(2, attackManager.LastLaneForTesting);
-        Assert.Equal(JudgementType.Great, attackManager.LastJudgementTypeForTesting);
+        Assert.Equal(2, attackManager.LastSpawnLaneForTesting);
+        Assert.Equal(JudgementType.Great, attackManager.LastSpawnJudgementTypeForTesting);
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
@@ -2691,8 +2691,8 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, comboManager.CurrentCombo);
         Assert.Equal(47.0f, gaugeManager.CurrentLife);
         Assert.Equal(0, attackManager.SpawnCallCountForTesting);
-        Assert.Null(attackManager.LastLaneForTesting);
-        Assert.Null(attackManager.LastJudgementTypeForTesting);
+        Assert.Null(attackManager.LastSpawnLaneForTesting);
+        Assert.Null(attackManager.LastSpawnJudgementTypeForTesting);
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[4]);
         Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[4].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
@@ -3326,28 +3326,11 @@ public class PerformanceStageDeterministicTests
         return SpriteJudgementTextPopupManager.CreateForTesting(CreateSpriteJudgementTexture());
     }
 
-    private static CountingNxAttackEffectManager CreateNxAttackEffectManager()
+    private static NxAttackEffectManager CreateNxAttackEffectManager()
     {
-        return new CountingNxAttackEffectManager();
-    }
-
-    private sealed class CountingNxAttackEffectManager : NxAttackEffectManager
-    {
-        public CountingNxAttackEffectManager()
-            : base(new Mock<IResourceManager>().Object)
-        {
-        }
-
-        public int SpawnCallCountForTesting { get; private set; }
-        public int? LastLaneForTesting { get; private set; }
-        public JudgementType? LastJudgementTypeForTesting { get; private set; }
-
-        public override void Spawn(int lane, JudgementType judgementType)
-        {
-            SpawnCallCountForTesting++;
-            LastLaneForTesting = lane;
-            LastJudgementTypeForTesting = judgementType;
-        }
+        var manager = new NxAttackEffectManager(new Mock<IResourceManager>().Object);
+        manager.SuppressSpawnForTesting = true;
+        return manager;
     }
 
     private static ITexture CreateSpriteJudgementTexture()

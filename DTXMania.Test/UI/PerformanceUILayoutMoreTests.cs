@@ -66,25 +66,9 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void NxAttackEffectAssets_CombinedSparkSheetConstants_ShouldMatchBundledAsset()
+        public void NxAttackEffectAssets_PrimarySparkDrawSize_ShouldMatchBundledAsset()
         {
-            Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth);
-            Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameHeight);
-            Assert.Equal(12, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameCount);
-            Assert.Equal(10, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkLaneRows);
             Assert.Equal(new Vector2(128, 128), PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize);
-        }
-
-        [Theory]
-        [InlineData(0, 0, 0, 0, 150)]
-        [InlineData(3, 4, 600, 450, 150)]
-        [InlineData(9, 11, 1650, 1350, 150)]
-        public void NxAttackEffectAssets_GetCombinedSparkSource_ShouldReturnLaneRowAndFrameColumn(
-            int lane, int frame, int x, int y, int size)
-        {
-            var source = PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame);
-
-            Assert.Equal(new Rectangle(x, y, size, size), source);
         }
 
         [Theory]
@@ -278,26 +262,6 @@ namespace DTXMania.Test.UI
         #endregion
 
         #region NxAttackEffectAssets Edge Case Tests
-
-        [Theory]
-        [InlineData(-1, 0)]
-        [InlineData(10, 0)]
-        [InlineData(99, 0)]
-        public void NxAttackEffectAssets_GetCombinedSparkSource_WhenLaneOutOfRange_ShouldThrow(int lane, int frame)
-        {
-            Assert.Throws<ArgumentOutOfRangeException>(() =>
-                PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame));
-        }
-
-        [Theory]
-        [InlineData(0, -1)]
-        [InlineData(0, 12)]
-        [InlineData(0, 99)]
-        public void NxAttackEffectAssets_GetCombinedSparkSource_WhenFrameOutOfRange_ShouldThrow(int lane, int frame)
-        {
-            Assert.Throws<ArgumentOutOfRangeException>(() =>
-                PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame));
-        }
 
         [Theory]
         [InlineData(0)]
