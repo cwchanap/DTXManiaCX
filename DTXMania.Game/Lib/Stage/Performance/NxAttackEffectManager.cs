@@ -29,6 +29,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int WaveParticleCount { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.WaveParticleCount;
 
+        public int PrimarySparkPairCount { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.PrimarySparkPairCount;
+
+        public double WaveStaggerSeconds { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.WaveStaggerSeconds;
+
         public double StarLifetimeSeconds { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.StarLifetimeSeconds;
 
@@ -124,7 +130,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _primarySparks.RemoveAll(spark => spark.Lane == lane);
                 var baseAngle = NextFloat(0f, MathHelper.TwoPi);
-                for (var i = 0; i < 2; i++)
+                for (var i = 0; i < _settings.PrimarySparkPairCount; i++)
                 {
                     _primarySparks.Add(new PrimarySparkInstance(
                         lane,
@@ -264,7 +270,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _particles.Add(ParticleInstance.CreateWave(
                     lane,
                     origin,
-                    delaySeconds: i * 0.04,
+                    delaySeconds: i * _settings.WaveStaggerSeconds,
                     _settings.WaveLifetimeSeconds));
             }
         }
@@ -300,7 +306,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (particle.Kind == ParticleKind.Star)
             {
                 var starTexture = _laneStarTextures[particle.Lane];
-                starTexture?.Draw(
+                if (starTexture == null)
+                    return;
+
+                starTexture.Draw(
                     spriteBatch,
                     CenteredRotationDestination(
                         particle.Position,
@@ -332,7 +341,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             else if (particle.Kind == ParticleKind.Wave)
             {
                 var waveTexture = _waveTexture;
-                waveTexture?.Draw(
+                if (waveTexture == null)
+                    return;
+
+                waveTexture.Draw(
                     spriteBatch,
                     CenteredRotationDestination(
                         particle.Position,

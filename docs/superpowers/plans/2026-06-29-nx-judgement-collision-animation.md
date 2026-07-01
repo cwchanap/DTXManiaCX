@@ -7,8 +7,8 @@
 > of porting NX's actual per-lane fire model (loading individual
 > `ScreenPlayDrums chip fire_*.png` assets directly). The `ChipFireCombined`
 > constant, its `GetAllTexturePaths` entry, and the 1.2 MB bundled asset were
-> subsequently removed. References to combined-sheet slicing below are retained
-> for historical context but no longer reflect the shipped implementation.
+> subsequently removed. The body below has been updated to describe the shipped
+> per-lane model.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -66,12 +66,6 @@ public void JudgeStringsXg_ShouldBeCorrectPath()
     Assert.Equal("Graphics/7_JudgeStrings_XG.png", TexturePath.JudgeStringsXg);
 }
 
-[Fact]
-public void ChipFireCombined_ShouldBeCorrectPath()
-{
-    Assert.Equal("Graphics/ScreenPlayDrums chip fire.png", TexturePath.ChipFireCombined);
-}
-
 [Theory]
 [InlineData(0, "Graphics/ScreenPlayDrums chip fire_LC.png")]
 [InlineData(1, "Graphics/ScreenPlayDrums chip fire_HH.png")]
@@ -112,7 +106,6 @@ public void GetAllTexturePaths_ShouldContainRequiredNxJudgementCollisionTextures
     var paths = TexturePath.GetAllTexturePaths();
 
     Assert.Contains(TexturePath.JudgeStringsXg, paths);
-    Assert.Contains(TexturePath.ChipFireCombined, paths);
     Assert.Contains(TexturePath.ChipWave, paths);
 }
 ```
@@ -122,28 +115,6 @@ public void GetAllTexturePaths_ShouldContainRequiredNxJudgementCollisionTextures
 Add these tests to `DTXMania.Test/UI/PerformanceUILayoutMoreTests.cs` after `HitSparks_GetSparkPosition_ShouldMatchLaneCenter`:
 
 ```csharp
-[Fact]
-public void NxAttackEffectAssets_CombinedSparkSheetConstants_ShouldMatchBundledAsset()
-{
-    Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth);
-    Assert.Equal(150, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameHeight);
-    Assert.Equal(12, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameCount);
-    Assert.Equal(10, PerformanceUILayout.NxAttackEffectAssets.CombinedSparkLaneRows);
-    Assert.Equal(new Vector2(128, 128), PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize);
-}
-
-[Theory]
-[InlineData(0, 0, 0, 150, 150)]
-[InlineData(3, 4, 600, 450, 150)]
-[InlineData(9, 11, 1650, 1350, 150)]
-public void NxAttackEffectAssets_GetCombinedSparkSource_ShouldReturnLaneRowAndFrameColumn(
-    int lane, int frame, int x, int y, int size)
-{
-    var source = PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(lane, frame);
-
-    Assert.Equal(new Rectangle(x, y, size, size), source);
-}
-
 [Theory]
 [InlineData(JudgementType.Perfect, 3, 6, 82, 22)]
 [InlineData(JudgementType.Great, 95, 6, 75, 22)]
@@ -180,7 +151,6 @@ Add this helper and test to `DTXMania.Test/Resources/DefaultSkinAssetsTests.cs`:
 ```csharp
 [Theory]
 [InlineData(TexturePath.JudgeStringsXg)]
-[InlineData(TexturePath.ChipFireCombined)]
 [InlineData(TexturePath.ChipWave)]
 [InlineData("Graphics/ScreenPlayDrums chip fire_LC.png")]
 [InlineData("Graphics/ScreenPlayDrums chip fire_SD.png")]
@@ -220,7 +190,7 @@ Run:
 rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~TexturePathTests|FullyQualifiedName~PerformanceUILayoutMoreTests|FullyQualifiedName~DefaultSkinAssetsTests"
 ```
 
-Expected: FAIL with missing `TexturePath.JudgeStringsXg`, `TexturePath.ChipFireCombined`, `TexturePath.GetDrumChipFireLanePath`, `PerformanceUILayout.NxAttackEffectAssets`, and `PerformanceUILayout.SpriteJudgementTextAssets`.
+Expected: FAIL with missing `TexturePath.JudgeStringsXg`, `TexturePath.GetDrumChipFireLanePath`, `PerformanceUILayout.NxAttackEffectAssets`, and `PerformanceUILayout.SpriteJudgementTextAssets`.
 
 - [ ] **Step 5: Implement texture-path constants**
 
@@ -231,11 +201,6 @@ In `DTXMania.Game/Lib/Resources/TexturePath.cs`, add this block after `HitSparkY
 /// Bundled XG-style judgement text sprite sheet for performance-stage judgement words.
 /// </summary>
 public const string JudgeStringsXg = "Graphics/7_JudgeStrings_XG.png";
-
-/// <summary>
-/// Combined NX-style drum chip fire sheet. Columns are animation frames; rows are lane colors.
-/// </summary>
-public const string ChipFireCombined = "Graphics/ScreenPlayDrums chip fire.png";
 
 private static readonly string[] DrumNxAssetLaneCodes =
 {
@@ -276,7 +241,6 @@ In `TexturePath.GetAllTexturePaths()`, add these entries immediately after `Judg
 
 ```csharp
 JudgeStringsXg,
-ChipFireCombined,
 ```
 
 Do not add `ChipWave2` because the bundled System skin does not currently ship `ScreenPlayDrums chip wave2.png`.
@@ -293,40 +257,31 @@ Add this class after `HitSparks`:
 /// </summary>
 public static class NxAttackEffectAssets
 {
-    public const int CombinedSparkFrameWidth = 150;
-    public const int CombinedSparkFrameHeight = 150;
-    public const int CombinedSparkFrameCount = 12;
-    public const int CombinedSparkLaneRows = 10;
-    public const double PrimarySparkFrameDurationSeconds = 0.03;
+    public const int PrimarySparkCounterEndValue = 70;
+    public const int PrimarySparkFrameCount = PrimarySparkCounterEndValue + 1;
+    public const double PrimarySparkFrameDurationSeconds = 0.003;
+    public const float PrimarySparkTravelPixels = 0.8f;
+    // Divisor for the scale curve counter, matching NX CActPerfDrumsChipFireD.cs:669
+    // (nCurrentValue / 50.0). The counter end value (70) and this divisor (50) are
+    // independent hardcoded constants in the original NX source.
+    public const int PrimarySparkScaleDivisor = 50;
     public static readonly Vector2 PrimarySparkDrawSize = new Vector2(128, 128);
     public static readonly Vector2 StarDrawSize = new Vector2(32, 32);
     public static readonly Vector2 WaveDrawSize = new Vector2(64, 64);
     public const int StarParticleCount = 16;
     public const int ChipFragmentCount = 2;
     public const int WaveParticleCount = 2;
+    /// <summary>
+    /// Number of primary sparks spawned per lane per hit (NX spawns a perpendicular pair).
+    /// </summary>
+    public const int PrimarySparkPairCount = 2;
+    /// <summary>
+    /// Delay between successive wave particles, in seconds.
+    /// </summary>
+    public const double WaveStaggerSeconds = 0.04;
     public const double StarLifetimeSeconds = 0.34;
     public const double ChipFragmentLifetimeSeconds = 0.44;
     public const double WaveLifetimeSeconds = 0.42;
-
-    public static Rectangle GetCombinedSparkSource(int laneIndex, int frameIndex)
-    {
-        if (laneIndex < 0 || laneIndex >= CombinedSparkLaneRows)
-        {
-            throw new ArgumentOutOfRangeException(nameof(laneIndex),
-                $"Lane index must be between 0 and {CombinedSparkLaneRows - 1}.");
-        }
-        if (frameIndex < 0 || frameIndex >= CombinedSparkFrameCount)
-        {
-            throw new ArgumentOutOfRangeException(nameof(frameIndex),
-                $"Frame index must be between 0 and {CombinedSparkFrameCount - 1}.");
-        }
-
-        return new Rectangle(
-            frameIndex * CombinedSparkFrameWidth,
-            laneIndex * CombinedSparkFrameHeight,
-            CombinedSparkFrameWidth,
-            CombinedSparkFrameHeight);
-    }
 
     public static Vector2 GetEffectOrigin(int laneIndex)
     {
@@ -826,17 +781,6 @@ namespace DTXMania.Test.Stage.Performance;
 public class NxAttackEffectManagerTests
 {
     [Theory]
-    [InlineData(0, 0, 0, 0)]
-    [InlineData(5, 3, 450, 750)]
-    [InlineData(9, 11, 1650, 1350)]
-    public void GetCombinedSparkSource_ShouldUseLaneRowsAndFrameColumns(int lane, int frame, int x, int y)
-    {
-        var source = NxAttackEffectManager.GetCombinedSparkSource(lane, frame);
-
-        Assert.Equal(new Rectangle(x, y, 150, 150), source);
-    }
-
-    [Theory]
     [InlineData(JudgementType.Perfect, true)]
     [InlineData(JudgementType.Great, true)]
     [InlineData(JudgementType.Good, true)]
@@ -844,53 +788,48 @@ public class NxAttackEffectManagerTests
     [InlineData(JudgementType.Miss, false)]
     public void Spawn_ShouldCreatePrimarySparkOnlyForHitJudgements(JudgementType judgementType, bool shouldSpawn)
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(laneFireAvailable: true);
 
         manager.Spawn(3, judgementType);
 
-        Assert.Equal(shouldSpawn ? 1 : 0, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(shouldSpawn ? PerformanceUILayout.NxAttackEffectAssets.PrimarySparkPairCount : 0,
+            manager.ActivePrimarySparkCountForTesting);
     }
 
     [Fact]
     public void Spawn_WhenSameLaneAlreadyActive_ShouldRestartPrimarySpark()
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(laneFireAvailable: true);
         manager.Spawn(2, JudgementType.Perfect);
         manager.Update(0.09);
 
         manager.Spawn(2, JudgementType.Great);
 
-        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
-        Assert.Equal(0, spark.FrameIndex);
-        Assert.Equal(JudgementType.Great, spark.JudgementType);
+        // Same-lane restart removes the prior sparks and spawns a fresh perpendicular pair.
+        Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.PrimarySparkPairCount,
+            manager.ActivePrimarySparkCountForTesting);
+        Assert.All(manager.ActivePrimarySparksForTesting,
+            spark => Assert.Equal(0, spark.FrameIndex));
+        Assert.All(manager.ActivePrimarySparksForTesting,
+            spark => Assert.Equal(JudgementType.Great, spark.JudgementType));
     }
 
     [Fact]
-    public void Spawn_WithCombinedSheet_ShouldCreateSecondaryParticles()
+    public void Spawn_WithPerLaneTextures_ShouldCreateSecondaryParticles()
     {
-        var manager = CreateManager(combinedAvailable: true, starsAvailable: true, chipTextureAvailable: true, waveAvailable: true);
+        var manager = CreateManager(laneFireAvailable: true, starsAvailable: true, chipTextureAvailable: true, waveAvailable: true);
 
         manager.Spawn(0, JudgementType.Perfect);
 
-        Assert.Equal(1, manager.ActivePrimarySparkCountForTesting);
+        Assert.Equal(PerformanceUILayout.NxAttackEffectAssets.PrimarySparkPairCount,
+            manager.ActivePrimarySparkCountForTesting);
         Assert.True(manager.ActiveParticleCountForTesting > 0);
-    }
-
-    [Fact]
-    public void Constructor_WhenCombinedSheetMissing_ShouldUsePerLaneFallbackTexture()
-    {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
-
-        manager.Spawn(0, JudgementType.Perfect);
-
-        var spark = Assert.Single(manager.ActivePrimarySparksForTesting.Values);
-        Assert.False(spark.UsesCombinedSheet);
     }
 
     [Fact]
     public void Update_AfterPrimarySparkDuration_ShouldExpireSpark()
     {
-        var manager = CreateManager(combinedAvailable: true);
+        var manager = CreateManager(laneFireAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
 
         manager.Update(1.0);
@@ -901,11 +840,12 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Dispose_ShouldReleaseLoadedTextures()
     {
-        var texture = CreateTexture(width: 1800, height: 1650);
+        var texture = CreateTexture(width: 128, height: 128);
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(texture.Object);
+        var lanePath = TexturePath.GetDrumChipFireLanePath(0);
+        resourceManager.Setup(x => x.ResourceExists(lanePath)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(lanePath)).Returns(texture.Object);
 
         var manager = new NxAttackEffectManager(resourceManager.Object);
 
@@ -915,8 +855,7 @@ public class NxAttackEffectManagerTests
     }
 
     private static NxAttackEffectManager CreateManager(
-        bool combinedAvailable,
-        bool perLaneFallbackAvailable = false,
+        bool laneFireAvailable,
         bool starsAvailable = false,
         bool chipTextureAvailable = false,
         bool waveAvailable = false)
@@ -924,14 +863,7 @@ public class NxAttackEffectManagerTests
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
 
-        if (combinedAvailable)
-        {
-            resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-            resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined))
-                .Returns(CreateTexture(width: 1800, height: 1650).Object);
-        }
-
-        if (perLaneFallbackAvailable)
+        if (laneFireAvailable)
         {
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
@@ -1010,24 +942,33 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public double PrimaryFrameDurationSeconds { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.PrimarySparkFrameDurationSeconds;
         public int PrimaryFrameCount { get; init; } =
-            PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameCount;
+            PerformanceUILayout.NxAttackEffectAssets.PrimarySparkFrameCount;
         public int StarParticleCount { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.StarParticleCount;
         public int ChipFragmentCount { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.ChipFragmentCount;
         public int WaveParticleCount { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.WaveParticleCount;
+        public int PrimarySparkPairCount { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.PrimarySparkPairCount;
+        public double WaveStaggerSeconds { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.WaveStaggerSeconds;
+        public double StarLifetimeSeconds { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.StarLifetimeSeconds;
+        public double ChipFragmentLifetimeSeconds { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.ChipFragmentLifetimeSeconds;
+        public double WaveLifetimeSeconds { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.WaveLifetimeSeconds;
     }
 
     public sealed class NxAttackEffectManager : IDisposable
     {
         private readonly NxAttackEffectSettings _settings;
         private readonly Random _random;
-        private readonly Dictionary<int, PrimarySparkInstance> _primarySparks = new Dictionary<int, PrimarySparkInstance>();
+        private readonly List<PrimarySparkInstance> _primarySparks = new List<PrimarySparkInstance>();
         private readonly List<ParticleInstance> _particles = new List<ParticleInstance>();
         private readonly ITexture?[] _laneSparkTextures = new ITexture?[PerformanceUILayout.LaneCount];
         private readonly ITexture?[] _laneStarTextures = new ITexture?[PerformanceUILayout.LaneCount];
-        private ITexture? _combinedSparkTexture;
         private ITexture? _chipTexture;
         private ITexture? _waveTexture;
         private bool _disposed;
@@ -1041,45 +982,47 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _settings = settings ?? NxAttackEffectSettings.Default;
             _random = random ?? new Random(0);
 
-            _combinedSparkTexture = LoadOptionalTexture(resourceManager, TexturePath.ChipFireCombined);
-            if (!CanUseCombinedSparkSheet(_combinedSparkTexture))
-            {
-                _combinedSparkTexture?.RemoveReference();
-                _combinedSparkTexture = null;
-            }
-
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
-                _laneSparkTextures[lane] = LoadOptionalTexture(resourceManager, TexturePath.GetDrumChipFireLanePath(lane));
-                _laneStarTextures[lane] = LoadOptionalTexture(resourceManager, TexturePath.GetDrumChipStarLanePath(lane));
+                _laneSparkTextures[lane] = LoadOptionalTexture(
+                    resourceManager,
+                    TexturePath.GetDrumChipFireLanePath(lane));
+                _laneStarTextures[lane] = LoadOptionalTexture(
+                    resourceManager,
+                    TexturePath.GetDrumChipStarLanePath(lane));
             }
 
             _chipTexture = LoadOptionalTexture(resourceManager, TexturePath.DrumChips);
             _waveTexture = LoadOptionalTexture(resourceManager, TexturePath.ChipWave);
         }
 
-        internal IReadOnlyDictionary<int, PrimarySparkInstance> ActivePrimarySparksForTesting => _primarySparks;
+        internal IReadOnlyList<PrimarySparkInstance> ActivePrimarySparksForTesting => _primarySparks;
         internal int ActivePrimarySparkCountForTesting => _primarySparks.Count;
         internal int ActiveParticleCountForTesting => _particles.Count;
 
-        public static Rectangle GetCombinedSparkSource(int laneIndex, int frameIndex)
-        {
-            return PerformanceUILayout.NxAttackEffectAssets.GetCombinedSparkSource(laneIndex, frameIndex);
-        }
-
         public void Spawn(int lane, JudgementType judgementType)
         {
-            if (_disposed || lane < 0 || lane >= PerformanceUILayout.LaneCount || judgementType == JudgementType.Miss)
+            if (_disposed
+                || lane < 0
+                || lane >= PerformanceUILayout.LaneCount
+                || judgementType == JudgementType.Miss)
+            {
                 return;
+            }
 
             var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(lane);
-            if (_combinedSparkTexture != null || _laneSparkTextures[lane] != null)
+            if (_laneSparkTextures[lane] != null)
             {
-                _primarySparks[lane] = new PrimarySparkInstance(
-                    lane,
-                    judgementType,
-                    origin,
-                    usesCombinedSheet: _combinedSparkTexture != null);
+                _primarySparks.RemoveAll(spark => spark.Lane == lane);
+                var baseAngle = NextFloat(0f, MathHelper.TwoPi);
+                for (var i = 0; i < _settings.PrimarySparkPairCount; i++)
+                {
+                    _primarySparks.Add(new PrimarySparkInstance(
+                        lane,
+                        judgementType,
+                        origin,
+                        baseAngle + (i * MathF.PI / 2f)));
+                }
             }
 
             SpawnStars(lane, origin);
@@ -1093,28 +1036,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             var safeDelta = Math.Max(0.0, deltaTime);
-            var expiredLanes = new List<int>();
-            foreach (var kvp in _primarySparks)
+            for (int i = _primarySparks.Count - 1; i >= 0; i--)
             {
-                kvp.Value.Update(safeDelta, _settings.PrimaryFrameDurationSeconds, _settings.PrimaryFrameCount);
-                if (kvp.Value.IsExpired)
-                {
-                    expiredLanes.Add(kvp.Key);
-                }
+                _primarySparks[i].Update(
+                    safeDelta,
+                    _settings.PrimaryFrameDurationSeconds,
+                    _settings.PrimaryFrameCount);
+
+                if (_primarySparks[i].IsExpired)
+                    _primarySparks.RemoveAt(i);
             }
 
-            foreach (var lane in expiredLanes)
-            {
-                _primarySparks.Remove(lane);
-            }
-
-            for (var i = _particles.Count - 1; i >= 0; i--)
+            for (int i = _particles.Count - 1; i >= 0; i--)
             {
                 _particles[i].Update(safeDelta);
                 if (_particles[i].IsExpired)
-                {
                     _particles.RemoveAt(i);
-                }
             }
         }
 
@@ -1123,7 +1060,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || spriteBatch == null)
                 return;
 
-            foreach (var spark in _primarySparks.Values)
+            foreach (var spark in _primarySparks)
             {
                 DrawPrimarySpark(spriteBatch, spark);
             }
@@ -1146,19 +1083,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             ClearAll();
-            _combinedSparkTexture?.RemoveReference();
-            _combinedSparkTexture = null;
+
             _chipTexture?.RemoveReference();
             _chipTexture = null;
+
             _waveTexture?.RemoveReference();
             _waveTexture = null;
 
-            for (var i = 0; i < _laneSparkTextures.Length; i++)
+            for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
-                _laneSparkTextures[i]?.RemoveReference();
-                _laneSparkTextures[i] = null;
-                _laneStarTextures[i]?.RemoveReference();
-                _laneStarTextures[i] = null;
+                _laneSparkTextures[lane]?.RemoveReference();
+                _laneSparkTextures[lane] = null;
+
+                _laneStarTextures[lane]?.RemoveReference();
+                _laneStarTextures[lane] = null;
             }
 
             _disposed = true;
@@ -1178,7 +1116,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     lane,
                     origin,
                     velocity,
-                    PerformanceUILayout.NxAttackEffectAssets.StarLifetimeSeconds));
+                    _settings.StarLifetimeSeconds));
             }
         }
 
@@ -1189,14 +1127,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             for (var i = 0; i < _settings.ChipFragmentCount; i++)
             {
-                var direction = i == 0 ? -1f : 1f;
-                var velocity = new Vector2(direction * NextFloat(90f, 130f), NextFloat(-150f, -95f));
+                var direction = i % 2 == 0 ? -1f : 1f;
+                var velocity = new Vector2(
+                    direction * NextFloat(90f, 130f),
+                    NextFloat(-150f, -95f));
                 _particles.Add(ParticleInstance.CreateChip(
                     lane,
                     origin,
                     velocity,
-                    GetChipFragmentSource(lane, i),
-                    PerformanceUILayout.NxAttackEffectAssets.ChipFragmentLifetimeSeconds));
+                    Rectangle.Empty,
+                    _settings.ChipFragmentLifetimeSeconds));
             }
         }
 
@@ -1210,31 +1150,31 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _particles.Add(ParticleInstance.CreateWave(
                     lane,
                     origin,
-                    delaySeconds: i * 0.05,
-                    PerformanceUILayout.NxAttackEffectAssets.WaveLifetimeSeconds));
+                    delaySeconds: i * _settings.WaveStaggerSeconds,
+                    _settings.WaveLifetimeSeconds));
             }
         }
 
         private void DrawPrimarySpark(SpriteBatch spriteBatch, PrimarySparkInstance spark)
         {
-            var drawSize = PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize;
-            var destination = CenteredDestination(spark.Position, drawSize, 1f);
-            if (spark.UsesCombinedSheet && _combinedSparkTexture != null)
-            {
-                _combinedSparkTexture.Draw(
-                    spriteBatch,
-                    destination,
-                    GetCombinedSparkSource(spark.Lane, spark.FrameIndex),
-                    Color.White,
-                    0f,
-                    Vector2.Zero,
-                    SpriteEffects.None,
-                    0f);
+            var texture = _laneSparkTextures[spark.Lane];
+            if (texture == null)
                 return;
-            }
 
-            var fallback = _laneSparkTextures[spark.Lane];
-            fallback?.Draw(spriteBatch, destination, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            var destination = CenteredDestination(
+                spark.GetNxStaticFirePosition(),
+                PerformanceUILayout.NxAttackEffectAssets.PrimarySparkDrawSize,
+                spark.GetNxStaticFireScale());
+
+            texture.Draw(
+                spriteBatch,
+                destination,
+                null,
+                Color.White,
+                0f,
+                Vector2.Zero,
+                SpriteEffects.None,
+                0f);
         }
 
         private void DrawParticle(SpriteBatch spriteBatch, ParticleInstance particle)
@@ -1245,19 +1185,47 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var color = Color.White * particle.Alpha;
             if (particle.Kind == ParticleKind.Star)
             {
-                var texture = _laneStarTextures[particle.Lane];
-                texture?.Draw(spriteBatch, CenteredDestination(particle.Position, PerformanceUILayout.NxAttackEffectAssets.StarDrawSize, particle.Scale),
-                    null, color, particle.Rotation, Vector2.Zero, SpriteEffects.None, 0f);
+                var starTexture = _laneStarTextures[particle.Lane];
+                if (starTexture == null)
+                    return;
+
+                starTexture.Draw(
+                    spriteBatch,
+                    CenteredDestination(particle.Position, PerformanceUILayout.NxAttackEffectAssets.StarDrawSize, particle.Scale),
+                    null,
+                    color,
+                    particle.Rotation,
+                    new Vector2(starTexture.Width / 2f, starTexture.Height / 2f),
+                    SpriteEffects.None,
+                    0f);
             }
             else if (particle.Kind == ParticleKind.Chip)
             {
-                _chipTexture?.Draw(spriteBatch, CenteredDestination(particle.Position, new Vector2(particle.SourceRectangle.Width, particle.SourceRectangle.Height), particle.Scale),
-                    particle.SourceRectangle, color, particle.Rotation, Vector2.Zero, SpriteEffects.None, 0f);
+                _chipTexture?.Draw(
+                    spriteBatch,
+                    CenteredDestination(particle.Position, new Vector2(particle.SourceRectangle.Width, particle.SourceRectangle.Height), particle.Scale),
+                    particle.SourceRectangle,
+                    color,
+                    particle.Rotation,
+                    new Vector2(particle.SourceRectangle.Width / 2f, particle.SourceRectangle.Height / 2f),
+                    SpriteEffects.None,
+                    0f);
             }
             else if (particle.Kind == ParticleKind.Wave)
             {
-                _waveTexture?.Draw(spriteBatch, CenteredDestination(particle.Position, PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize, particle.Scale),
-                    null, color, particle.Rotation, Vector2.Zero, SpriteEffects.None, 0f);
+                var waveTexture = _waveTexture;
+                if (waveTexture == null)
+                    return;
+
+                waveTexture.Draw(
+                    spriteBatch,
+                    CenteredDestination(particle.Position, PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize, particle.Scale),
+                    null,
+                    color,
+                    particle.Rotation,
+                    new Vector2(waveTexture.Width / 2f, waveTexture.Height / 2f),
+                    SpriteEffects.None,
+                    0f);
             }
         }
 
@@ -1270,15 +1238,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 (int)MathF.Round(center.Y - height / 2f),
                 width,
                 height);
-        }
-
-        private static Rectangle GetChipFragmentSource(int lane, int side)
-        {
-            var laneWidth = Math.Max(1, PerformanceUILayout.GetLaneWidth(lane));
-            var x = PerformanceUILayout.GetLaneLeftX(lane) - PerformanceUILayout.GetLaneLeftX(0);
-            var y = 640;
-            var width = Math.Max(8, Math.Min(40, laneWidth / 2));
-            return new Rectangle(Math.Max(0, x + side * width), y, width, 64);
         }
 
         private static ITexture? LoadOptionalTexture(IResourceManager resourceManager, string path)
@@ -1297,15 +1256,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        private static bool CanUseCombinedSparkSheet(ITexture? texture)
-        {
-            return texture != null
-                && texture.Width >= PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameWidth
-                    * PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameCount
-                && texture.Height >= PerformanceUILayout.NxAttackEffectAssets.CombinedSparkFrameHeight
-                    * PerformanceUILayout.NxAttackEffectAssets.CombinedSparkLaneRows;
-        }
-
         private float NextFloat(float min, float max)
         {
             return min + (float)_random.NextDouble() * (max - min);
@@ -1315,18 +1265,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             private double _elapsedSeconds;
 
-            public PrimarySparkInstance(int lane, JudgementType judgementType, Vector2 position, bool usesCombinedSheet)
+            public PrimarySparkInstance(
+                int lane,
+                JudgementType judgementType,
+                Vector2 position,
+                float angleRadians)
             {
                 Lane = lane;
                 JudgementType = judgementType;
                 Position = position;
-                UsesCombinedSheet = usesCombinedSheet;
+                AngleRadians = angleRadians;
             }
 
             public int Lane { get; }
             public JudgementType JudgementType { get; }
             public Vector2 Position { get; }
-            public bool UsesCombinedSheet { get; }
+            public float AngleRadians { get; }
             public int FrameIndex { get; private set; }
             public bool IsExpired { get; private set; }
 
@@ -1339,6 +1293,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     FrameIndex = frameCount - 1;
                     IsExpired = true;
                 }
+            }
+
+            public Vector2 GetNxStaticFirePosition()
+            {
+                var progress = MathHelper.Clamp(
+                    FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkCounterEndValue,
+                    0f,
+                    1f);
+                var distance = MathF.Sin(progress * MathHelper.PiOver2)
+                    * PerformanceUILayout.NxAttackEffectAssets.PrimarySparkTravelPixels;
+
+                return Position + new Vector2(
+                    MathF.Cos(AngleRadians) * distance,
+                    MathF.Sin(AngleRadians) * distance);
+            }
+
+            public float GetNxStaticFireScale()
+            {
+                var scale = 0.2f
+                    + (0.2f + (0.8f * MathF.Cos((FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
+
+                return Math.Max(0.05f, scale);
             }
         }
 
