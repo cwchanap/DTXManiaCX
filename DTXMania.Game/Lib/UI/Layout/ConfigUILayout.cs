@@ -29,54 +29,52 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         // Left category menu.
         public static Rectangle MenuPanelRect => new(245, 140, 180, 172);
-        public const int MenuFirstRowY = 156;
-        public const int MenuRowStride = 34;
-        public const int MenuLabelCenterX = 335;
-        public const int MenuCursorWidth = 150;
-        public const int MenuCursorHeight = 30;
-        public static int MenuRowY(int index) => MenuFirstRowY + index * MenuRowStride;
+        public const int MenuLabelCenterX = 335;   // panel center: 245 + 180/2
+        public const int MenuCursorX = 250;
+        public const int MenuCursorWidth = 170;
+        public const int MenuCursorHeight = 32;
+        public const int MenuFirstCursorY = 148;
+        public const int MenuRowStride = 32;
         public static Rectangle MenuCursorRect(int index) =>
-            new(250, MenuRowY(index) - 3, MenuCursorWidth, MenuCursorHeight);
+            new(MenuCursorX, MenuFirstCursorY + index * MenuRowStride, MenuCursorWidth, MenuCursorHeight);
 
-        // Right item list.
-        public const int ItemListX = 430;
-        public const int ItemFirstRowY = 150;
-        public const int ItemRowStride = 60;
-        public const int ItemBoxWidth = 360;
-        public const int ItemBoxHeight = 54;
-        public const int ItemNameInsetX = 24;
-        // Right-aligned value column: values anchor at the box's right inner edge so they never
-        // overflow the box and never run under the description panel (drawn afterward at x=800).
-        // A fixed left-aligned column left wide values stretching into the panel region.
-        public const int ItemValueRightInset = ItemNameInsetX; // symmetric with the name's left inset
-        public const int ItemTextInsetY = 14;
-        public static int ItemRowY(int row) => ItemFirstRowY + row * ItemRowStride;
-        public static Rectangle ItemRowRect(int row) =>
-            new(ItemListX, ItemRowY(row), ItemBoxWidth, ItemBoxHeight);
-        public static Rectangle ItemCursorRect(int row) =>
-            new(ItemListX - 4, ItemRowY(row) - 3, ItemBoxWidth + 8, ItemRowStride);
-        public static Vector2 ItemNamePos(int row) =>
-            new(ItemListX + ItemNameInsetX, ItemRowY(row) + ItemTextInsetY);
-        // Right anchor for value text; the draw layer subtracts the measured string width so the
-        // value's right edge sits here (inside the box, clear of the description panel).
-        public static int ItemValueRightX => ItemListX + ItemBoxWidth - ItemValueRightInset;
-        // Minimum horizontal gap kept between a measured item name and the right-aligned value
-        // drawn beside it. The draw layer subtracts the measured name width plus this gap from
-        // ItemValueRightX to derive the value's per-row max width before ellipsizing, so a long
-        // value (e.g. a deep macOS DTXPath) never touches or overwrites the name. This is required
-        // because the value is drawn after the name; reserving only the name's left edge (as
-        // ItemValueMaxWidth does below) lets the value's left edge sit exactly on that edge and
-        // still overlap the name's glyph run.
-        public const int ItemValueNameGap = 16;
-        // Theoretical maximum value width assuming a zero-width name: the full gap from the name
-        // column's left edge to the value's right anchor. Used only as an upper-bound ceiling
-        // (e.g. layout sanity assertions); the draw layer uses the per-row name-relative width
-        // derived via ItemValueNameGap instead, which is always <= this value for a real name.
-        public static int ItemValueMaxWidth => ItemBoxWidth - ItemValueRightInset - ItemNameInsetX;
+        // Right item list — scrolling viewport (selected item locked to the focus row).
+        public const int ItemListX = 420;
+        public const int ItemBoxHeight = 80;
+        public const int ItemBoxNormalWidth = 538;   // 4_itembox.png: dark name cell + white value cell
+        public const int ItemBoxOtherWidth = 438;    // 4_itembox other.png: single dark cell (navigation)
+        public const int ItemRowStride = 67;         // NX stride; boxes overlap 13px as the art tiles
+        public const int ItemFocusRowTopY = 189;     // panel-top Y of the centered/selected row
+        public const int ItemVisibleTopY = 105;      // header bottom
+        public const int ItemVisibleBottomY = 690;   // footer top
+        public const int ItemNameOffsetX = 20;
+        public const int ItemValueOffsetX = 260;
+        public const int ItemTextOffsetY = 24;
+        // Value text left-aligns at ItemListX+ItemValueOffsetX (680) and must stay left of the
+        // description panel (x=800), so cap its width. 800 - 680 - 4 margin = 116.
+        public const int ItemValueMaxWidth = 116;
+        // Selection cursor is fixed at the focus row; items scroll under it (NX 4_itembox cursor.png 497x68).
+        public static Rectangle ItemCursorRect => new(413, 193, 497, 68);
 
-        // Description panel.
+        // Panel-top Y of item `index` given the eased scroll position `scroll` (fractional index at focus).
+        public static int RowTopY(int index, double scroll) =>
+            ItemFocusRowTopY + (int)System.Math.Round((index - scroll) * ItemRowStride);
+
+        // True when the row's box intersects the visible band between header and footer.
+        public static bool IsRowVisible(int rowTopY) =>
+            (rowTopY + ItemBoxHeight) > ItemVisibleTopY && rowTopY < ItemVisibleBottomY;
+
+        public static Rectangle ItemBoxRect(int rowTopY, int width) =>
+            new(ItemListX, rowTopY, width, ItemBoxHeight);
+        public static Vector2 ItemNamePos(int rowTopY) =>
+            new(ItemListX + ItemNameOffsetX, rowTopY + ItemTextOffsetY);
+        public static Vector2 ItemValuePos(int rowTopY) =>
+            new(ItemListX + ItemValueOffsetX, rowTopY + ItemTextOffsetY);
+
+        // Description panel — art is white (top) over black (bottom); use both cells.
         public static Rectangle DescriptionPanelRect => new(800, 270, 280, 360);
-        public static Vector2 DescriptionTextPos => new(818, 288);
+        public static Vector2 DescriptionTitlePos => new(818, 300);   // white upper region -> dark text
+        public static Vector2 DescriptionBodyPos => new(818, 448);    // black lower region -> light text
         public const int DescriptionWrapWidth = 248;
         public const int DescriptionLineHeight = 22;
     }
