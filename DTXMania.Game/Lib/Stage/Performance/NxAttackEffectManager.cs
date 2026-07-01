@@ -90,6 +90,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             70, 58, 64, 56, 56, 56, 74, 48, 58, 74, 48, 56
         };
 
+        // Maps a gameplay lane index (0-9, in PerformanceUILayout.LaneType order:
+        // LC, HH, LP, SN, HT, BD, LT, FT, CY, RD) to the column index within the
+        // 12-column DrumChips sprite sheet (TexturePath.DrumChips). The sheet's
+        // column order differs from gameplay lane order, so this indirection is
+        // required to pick the correct chip fragment source rectangle per lane.
         private static readonly int[] LaneToDrumChipColumn =
         {
             9, 10, 11, 2, 3, 0, 4, 5, 1, 6
@@ -141,6 +146,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal int ActiveParticleCountForTesting => _particles.Count;
 
+        // The following test hooks record Spawn() *invocations*, not successful
+        // spawns. The counters/last-* fields are updated before the early-return
+        // guards (SuppressSpawnForTesting, _disposed, invalid lane, Miss), so they
+        // reflect every call into Spawn() regardless of whether particles were
+        // actually emitted. Tests that assert "no spawn occurred" should check
+        // ActivePrimarySparkCountForTesting/ActiveParticleCountForTesting instead.
         internal int SpawnCallCountForTesting { get; private set; }
 
         internal int? LastSpawnLaneForTesting { get; private set; }
@@ -270,6 +281,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        /// <summary>
+        /// Releases a held texture reference, swallowing exceptions thrown by a
+        /// device-reset-disposed texture so a single bad release cannot abort the
+        /// surrounding reload pass. Mirrors <see cref="SpriteJudgementTextPopupManager"/>'s
+        /// <c>ReleaseHeldSpriteTexture</c> pattern.
+        /// </summary>
+        private static void ReleaseTexture(ITexture? texture, string path)
+        {
+            if (texture == null)
+                return;
+
+            try
+            {
+                texture.RemoveReference();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"NxAttackEffectManager: {ex.GetType().Name} releasing {path}: {ex.Message}");
+            }
+        }
+
         private void TryReloadTextures()
         {
             // Retry at most once per invalidation episode to avoid reloading on every frame.
@@ -282,14 +315,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (IsTextureInvalid(_laneSparkTextures[lane]))
                 {
-                    _laneSparkTextures[lane]?.RemoveReference();
+                    ReleaseTexture(_laneSparkTextures[lane], TexturePath.GetDrumChipFireLanePath(lane));
                     _laneSparkTextures[lane] = LoadOptionalTexture(
                         _resourceManager, TexturePath.GetDrumChipFireLanePath(lane));
                 }
 
                 if (IsTextureInvalid(_laneStarTextures[lane]))
                 {
-                    _laneStarTextures[lane]?.RemoveReference();
+                    ReleaseTexture(_laneStarTextures[lane], TexturePath.GetDrumChipStarLanePath(lane));
                     _laneStarTextures[lane] = LoadOptionalTexture(
                         _resourceManager, TexturePath.GetDrumChipStarLanePath(lane));
                 }
@@ -297,13 +330,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             if (IsTextureInvalid(_chipTexture))
             {
-                _chipTexture?.RemoveReference();
+                ReleaseTexture(_chipTexture, TexturePath.DrumChips);
                 _chipTexture = LoadOptionalTexture(_resourceManager, TexturePath.DrumChips);
             }
 
             if (IsTextureInvalid(_waveTexture))
             {
-                _waveTexture?.RemoveReference();
+                ReleaseTexture(_waveTexture, TexturePath.ChipWave);
                 _waveTexture = LoadOptionalTexture(_resourceManager, TexturePath.ChipWave);
             }
 
