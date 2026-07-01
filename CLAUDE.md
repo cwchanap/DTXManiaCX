@@ -89,7 +89,7 @@ DTXMania.Game.Lib.Resources - ResourceManager, ManagedTexture/Sound/Font, SkinMa
 DTXMania.Game.Lib.Song      - SongManager, DTXChartParser, ChartManager
 DTXMania.Game.Lib.Song.Entities - Song, SongScore, PerformanceHistory
 DTXMania.Game.Lib.Stage     - BaseStage, StageManager, 7 stage types, 6 transition types
-DTXMania.Game.Lib.Stage.Performance - 23 specialized performance components
+DTXMania.Game.Lib.Stage.Performance - 22 specialized performance components
 DTXMania.Game.Lib.UI        - UIManager, UIElement, UIContainer, DTXManiaVisualTheme
 DTXMania.Game.Lib.UI.Components - UILabel, UIButton, UIImage, UIPanel, UIList
 DTXMania.Game.Lib.UI.Layout - SongSelectionUILayout, PerformanceUILayout, ResultUILayout
@@ -106,9 +106,9 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - BaseStage is the abstract base class; all stages implement IStage
 - `KeyAssign/` subdirectory: DrumKeyAssignPanel, SystemKeyAssignPanel, KeyConflictChecker for input mapping UI
 
-**Performance Stage** (`Lib/Stage/Performance/`): The most complex stage, composed of 23 specialized components:
+**Performance Stage** (`Lib/Stage/Performance/`): The most complex stage, composed of 22 specialized components:
 - AudioLoader, ChipSoundCache, BackgroundRenderer, LaneBackgroundRenderer, NoteRenderer, PadRenderer
-- ComboDisplay, ComboManager, EffectsManager, PooledEffectsManager
+- ComboDisplay, ComboManager, PooledEffectsManager, NxAttackEffectManager
 - GaugeDisplay, GaugeManager, JudgementLineRenderer, JudgementManager, JudgementTextPopup
 - ScoreDisplay, ScoreManager, PerformanceSummary, ScrollSpeedIndicator, SongTimer
 - Skill scoring subsystem: SkillManager, SkillMeterDisplay, SkillPanelDisplay
@@ -211,7 +211,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - `DTXMania.Game/Lib/Config/ConfigManager.cs` - Configuration system
 - `DTXMania.Game/Lib/Song/SongManager.cs` - Song database (singleton)
 - `DTXMania.Game/Lib/Song/DTXChartParser.cs` - DTX file parser
-- `DTXMania.Game/Lib/Stage/Performance/` - All 18 performance components
+- `DTXMania.Game/Lib/Stage/Performance/` - All 22 performance components
 - `DTXMania.Game/Lib/GameApiServer.cs` - HTTP/JSON-RPC server for MCP
 - `MCP/Tools/GameInteractionTools.cs` - MCP tool definitions
 - `MCP/Server/GameInteractionService.cs` - MCP game communication

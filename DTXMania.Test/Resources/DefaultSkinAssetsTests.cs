@@ -11,7 +11,7 @@ namespace DTXMania.Test.Resources
     /// <summary>
     /// Guards against regressions where the bundled default <c>System</c> skin is
     /// missing assets that the game loads at runtime. The most load-bearing case is
-    /// the hit-effect sprite sheet (<see cref="TexturePath.HitFx"/>): <see cref="EffectsManager"/>
+    /// the hit-effect sprite sheet (<see cref="TexturePath.HitFx"/>): <see cref="PooledEffectsManager"/>
     /// degrades gracefully when it is absent, but shipping it means players get the real
     /// hit-effect visual instead of the synthesized fallback, and the E2E gameplay smoke
     /// test exercises the real asset load path. Without this test, a future skin refactor
@@ -26,17 +26,17 @@ namespace DTXMania.Test.Resources
         };
 
         [Fact]
-        public void DefaultSkin_ShouldShipHitEffectSpriteSheet_ForRequiredEffectsManagerLoad()
+        public void DefaultSkin_ShouldShipHitEffectSpriteSheet_ForRequiredPooledEffectsManagerLoad()
         {
             var repoRoot = FindRepoRoot();
             var hitFxPath = Path.Combine(repoRoot, "System", "Graphics", "hit_fx.png");
 
-            // The path constant mirrors EffectsManager's FrameWidth x FrameHeight (8x32),
-            // so a load must yield TotalSprites >= 1. EffectsManager now degrades gracefully
+            // The path constant mirrors PooledEffectsManager's FrameWidth x FrameHeight (8x32),
+            // so a load must yield TotalSprites >= 1. PooledEffectsManager now degrades gracefully
             // if the asset is missing, but shipping it gives players the real visual and
             // keeps the E2E smoke test on the real load path.
             Assert.True(File.Exists(hitFxPath),
-                $"Bundled default skin must ship {TexturePath.HitFx}. EffectsManager falls " +
+                $"Bundled default skin must ship {TexturePath.HitFx}. PooledEffectsManager falls " +
                 "back to a synthesized texture when it is missing, but the default skin " +
                 "should provide the real hit-effect visual.");
 
@@ -57,7 +57,6 @@ namespace DTXMania.Test.Resources
         public static IEnumerable<object[]> BundledNxJudgementCollisionAssetPaths()
         {
             yield return new object[] { TexturePath.JudgeStringsXg };
-            yield return new object[] { TexturePath.ChipFireCombined };
             yield return new object[] { TexturePath.ChipWave };
 
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)

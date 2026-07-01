@@ -107,12 +107,6 @@ namespace DTXMania.Test.Resources
             Assert.Equal("Graphics/7_JudgeStrings_XG.png", TexturePath.JudgeStringsXg);
         }
 
-        [Fact]
-        public void ChipFireCombined_ShouldBeCorrectPath()
-        {
-            Assert.Equal("Graphics/ScreenPlayDrums chip fire.png", TexturePath.ChipFireCombined);
-        }
-
         [Theory]
         [InlineData(0, "Graphics/ScreenPlayDrums chip fire_LC.png")]
         [InlineData(1, "Graphics/ScreenPlayDrums chip fire_HH.png")]
@@ -153,7 +147,6 @@ namespace DTXMania.Test.Resources
             var paths = TexturePath.GetAllTexturePaths();
 
             Assert.Contains(TexturePath.JudgeStringsXg, paths);
-            Assert.Contains(TexturePath.ChipFireCombined, paths);
             Assert.Contains(TexturePath.ChipWave, paths);
             for (var lane = 0; lane < 10; lane++)
             {

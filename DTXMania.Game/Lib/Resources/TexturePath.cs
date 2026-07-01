@@ -486,11 +486,6 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public const string JudgeStringsXg = "Graphics/7_JudgeStrings_XG.png";
 
-        /// <summary>
-        /// Combined NX-style drum chip fire sheet. Columns are animation frames; rows are lane colors.
-        /// </summary>
-        public const string ChipFireCombined = "Graphics/ScreenPlayDrums chip fire.png";
-
         private static readonly string[] DrumNxAssetLaneCodes =
         {
             "LC", "HH", "LP", "SD", "HT", "BD", "LT", "FT", "CY", "RD"
@@ -657,7 +652,6 @@ namespace DTXMania.Game.Lib.Resources
                 LagNumbers,
                 JudgeStrings,
                 JudgeStringsXg,
-                ChipFireCombined,
                 LagIndicator,
                 PauseOverlay,
                 HitSparkRed,
