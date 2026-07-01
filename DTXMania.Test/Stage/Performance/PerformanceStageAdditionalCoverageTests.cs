@@ -92,7 +92,7 @@ public class PerformanceStageAdditionalCoverageTests
     {
         var stage = CreateStage();
         var attackManager = CreateNxAttackEffectManager();
-        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
+        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
 
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
@@ -117,7 +117,7 @@ public class PerformanceStageAdditionalCoverageTests
     {
         var stage = CreateStage();
         var attackManager = CreateNxAttackEffectManager();
-        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256).Object);
+        var spriteTextManager = SpriteJudgementTextPopupManager.CreateForTesting(CreateTexture(width: 448, height: 256));
 
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
@@ -699,15 +699,13 @@ public class PerformanceStageAdditionalCoverageTests
         return (SkillMeterDisplay)FormatterServices.GetUninitializedObject(typeof(SkillMeterDisplay));
     }
 
-    private static Mock<ITexture> CreateTexture(int width, int height)
+    private static ITexture CreateTexture(int width, int height)
     {
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Texture)
-            .Returns((Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D)));
-        texture.SetupGet(x => x.Width).Returns(width);
-        texture.SetupGet(x => x.Height).Returns(height);
-        texture.SetupGet(x => x.IsDisposed).Returns(false);
-        return texture;
+        return new MutableTexture
+        {
+            Width = width,
+            Height = height
+        };
     }
 
     private static NoteRenderer CreateNoteRenderer()
