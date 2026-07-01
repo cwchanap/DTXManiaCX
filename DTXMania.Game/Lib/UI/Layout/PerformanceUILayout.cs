@@ -757,7 +757,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class HitBar
         {
             // Width = Progress.FrameBounds.X - Position.X = 853 - 295 = 558 (matches bundled 7_Paret.png width).
-            public const int Width = 0x22e;
+            public const int Width = 558;
             public const int Height = 6;
             public const int SourceWidth = 8;
             public static readonly Vector2 Position = new Vector2(295, JudgelineY);
@@ -845,6 +845,14 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int StarParticleCount = 16;
             public const int ChipFragmentCount = 2;
             public const int WaveParticleCount = 2;
+            /// <summary>
+            /// Number of primary sparks spawned per lane per hit (NX spawns a perpendicular pair).
+            /// </summary>
+            public const int PrimarySparkPairCount = 2;
+            /// <summary>
+            /// Delay between successive wave particles, in seconds.
+            /// </summary>
+            public const double WaveStaggerSeconds = 0.04;
             public const double StarLifetimeSeconds = 0.34;
             public const double ChipFragmentLifetimeSeconds = 0.44;
             public const double WaveLifetimeSeconds = 0.42;

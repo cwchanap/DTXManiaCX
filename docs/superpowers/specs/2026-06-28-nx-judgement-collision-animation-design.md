@@ -5,8 +5,8 @@
 > That approach was abandoned in commits `de9323f` and `3a9ac4c` in favor of
 > porting NX's actual per-lane fire model (loading individual
 > `ScreenPlayDrums chip fire_*.png` assets directly). The combined sheet asset and
-> its `ChipFireCombined` texture path constant have been removed. References to
-> the combined-sheet approach below are retained for historical context.
+> its `ChipFireCombined` texture path constant have been removed. The body below
+> has been updated to describe the shipped per-lane model.
 
 ## Context
 
@@ -22,7 +22,7 @@ DTXManiaNX has a richer judgement-collision presentation. The relevant NX refere
 - `DTXManiaNX/DTXMania/Code/Stage/07.Performance/DrumsScreen/CActPerfDrumsJudgementString.cs`
 - `DTXManiaNX/DTXMania/Code/App/CSkin.cs`
 
-The bundled `System/Graphics` skin already includes NX-style assets such as `ScreenPlayDrums chip fire.png`, per-lane chip-fire images, chip-wave images, chip-star images, and `7_JudgeStrings_XG.png`.
+The bundled `System/Graphics` skin already includes NX-style assets such as per-lane chip-fire images (`ScreenPlayDrums chip fire_<lane>.png`), chip-wave images, chip-star images, and `7_JudgeStrings_XG.png`.
 
 ## Goal
 
@@ -90,14 +90,12 @@ Successful judgements (`Perfect`, `Great`, `Good`, `Poor`) spawn the full bundle
 
 Primary spark behavior:
 
-- Use `Graphics/ScreenPlayDrums chip fire.png` as the preferred combined spark sheet.
-- Slice it by lane row and frame column using fixed bundled defaults.
+- Load each lane's primary spark from its per-lane asset `Graphics/ScreenPlayDrums chip fire_<lane>.png` directly, matching NX's per-lane fire model.
 - Draw at the lane center and judgement-line Y position.
 - Restart the active primary spark for the same lane when a new hit lands on that lane, matching the NX behavior of replacing lane-local fire.
 
 Fallback spark behavior:
 
-- If the combined sheet is missing or cannot be sliced safely, use per-lane images such as `Graphics/ScreenPlayDrums chip fire_LC.png`.
 - If a per-lane image is missing, skip that lane's spark without breaking gameplay.
 
 Secondary particle behavior:
@@ -152,13 +150,12 @@ Add logic-focused tests that are safe for the Mac test project.
 
 Attack effect tests:
 
-- Combined spark sheet frame mapping.
-- Lane-to-row mapping and fallback to per-lane textures.
+- Per-lane spark frame mapping.
+- Lane-to-texture mapping and skip on missing per-lane textures.
 - Spawn on `Perfect`, `Great`, `Good`, and `Poor`; no attack effect on `Miss`.
 - Same-lane primary spark restart.
 - Secondary particle expiry.
 - Missing optional assets are skipped.
-- Missing primary combined sheet uses fallback textures.
 
 Judgement text tests:
 
@@ -180,7 +177,7 @@ Verification:
 
 ## Risks
 
-- The NX combined spark sheet is large and easy to slice incorrectly. Mitigate with explicit frame constants and mapping tests.
+- Per-lane spark textures are loaded individually; missing lanes are skipped rather than sliced from a shared sheet. Mitigate with explicit per-lane path constants and mapping tests.
 - Additive blending can obscure UI if particles travel too far. Keep particle motion bounded near lanes.
 - Resource ownership bugs can poison cached textures between stage activations. Preserve the existing `RemoveReference()` pattern and add disposal tests.
 - Sprite judgement text could be unreadable if placed too low or if scale is too large. Keep per-lane text near the existing popup location and test destination geometry.
