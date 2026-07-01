@@ -3341,17 +3341,7 @@ public class PerformanceStageDeterministicTests
 
     private static ITexture CreateSpriteJudgementTexture()
     {
-#pragma warning disable SYSLIB0050
-        var texture2D = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-#pragma warning restore SYSLIB0050
-        var texture = new Mock<ITexture>();
-        texture.SetupGet(x => x.Texture).Returns(texture2D);
-        texture.SetupGet(x => x.SourcePath).Returns(TexturePath.JudgeStringsXg);
-        texture.SetupGet(x => x.Width).Returns(448);
-        texture.SetupGet(x => x.Height).Returns(256);
-        texture.SetupGet(x => x.Size).Returns(new Vector2(448, 256));
-        texture.SetupGet(x => x.IsDisposed).Returns(false);
-        return texture.Object;
+        return new MutableTexture();
     }
 
     private static string GetGeneratedTestArtifactPath(string fileName)

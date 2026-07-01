@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Song.Entities;
 using System;
+using System.Linq;
 
 namespace DTXMania.Game.Lib.UI.Layout
 {
@@ -993,24 +994,12 @@ namespace DTXMania.Game.Lib.UI.Layout
 
             private static int MaxRight(params Rectangle[] rectangles)
             {
-                var max = 0;
-                foreach (var rectangle in rectangles)
-                {
-                    max = Math.Max(max, rectangle.Right);
-                }
-
-                return max;
+                return rectangles.Max(r => r.Right);
             }
 
             private static int MaxBottom(params Rectangle[] rectangles)
             {
-                var max = 0;
-                foreach (var rectangle in rectangles)
-                {
-                    max = Math.Max(max, rectangle.Bottom);
-                }
-
-                return max;
+                return rectangles.Max(r => r.Bottom);
             }
         }
         
