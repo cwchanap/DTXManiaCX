@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Resources;
-using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using Xunit;
 
@@ -10,12 +9,10 @@ namespace DTXMania.Test.Resources
 {
     /// <summary>
     /// Guards against regressions where the bundled default <c>System</c> skin is
-    /// missing assets that the game loads at runtime. The most load-bearing case is
-    /// the hit-effect sprite sheet (<see cref="TexturePath.HitFx"/>): <see cref="PooledEffectsManager"/>
-    /// degrades gracefully when it is absent, but shipping it means players get the real
-    /// hit-effect visual instead of the synthesized fallback, and the E2E gameplay smoke
-    /// test exercises the real asset load path. Without this test, a future skin refactor
-    /// could silently drop the asset and nobody would notice until a player reported it.
+    /// missing assets that the game loads at runtime. The hit-effect sprite sheet
+    /// (<see cref="TexturePath.HitFx"/>) is bundled for skin compatibility; without
+    /// this test, a future skin refactor could silently drop the asset and nobody
+    /// would notice until a player reported it.
     /// </summary>
     [Trait("Category", "Resources")]
     public class DefaultSkinAssetsTests
@@ -26,19 +23,13 @@ namespace DTXMania.Test.Resources
         };
 
         [Fact]
-        public void DefaultSkin_ShouldShipHitEffectSpriteSheet_ForRequiredPooledEffectsManagerLoad()
+        public void DefaultSkin_ShouldShipHitEffectSpriteSheet()
         {
             var repoRoot = FindRepoRoot();
             var hitFxPath = Path.Combine(repoRoot, "System", "Graphics", "hit_fx.png");
 
-            // The path constant mirrors PooledEffectsManager's FrameWidth x FrameHeight (8x32),
-            // so a load must yield TotalSprites >= 1. PooledEffectsManager now degrades gracefully
-            // if the asset is missing, but shipping it gives players the real visual and
-            // keeps the E2E smoke test on the real load path.
             Assert.True(File.Exists(hitFxPath),
-                $"Bundled default skin must ship {TexturePath.HitFx}. PooledEffectsManager falls " +
-                "back to a synthesized texture when it is missing, but the default skin " +
-                "should provide the real hit-effect visual.");
+                $"Bundled default skin must ship {TexturePath.HitFx}.");
 
             AssertPngSignature(hitFxPath, TexturePath.HitFx);
         }
