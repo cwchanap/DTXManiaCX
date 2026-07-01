@@ -273,7 +273,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                return texture.IsDisposed;
+                // ManagedTexture.IsDisposed only tracks the wrapper's disposed state; a
+                // graphics device reset can dispose the underlying Texture2D without
+                // flipping the wrapper flag. Mirror SpriteJudgementTextPopupManager's
+                // IsInvalidSpriteTexture and also probe the inner Texture2D so a
+                // device-loss-disposed texture triggers a reload instead of being drawn.
+                if (texture.IsDisposed)
+                    return true;
+
+                var inner = texture.Texture;
+                return inner == null || inner.IsDisposed;
             }
             catch
             {
