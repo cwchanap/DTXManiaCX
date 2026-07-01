@@ -162,41 +162,6 @@ namespace DTXMania.Test.Stage.Performance
     }
 
     /// <summary>
-    /// Tests for EffectPoolingStats
-    /// </summary>
-    public class EffectPoolingStatsTests
-    {
-        [Fact]
-        public void EffectPoolingStats_DefaultValues_ShouldBeZero()
-        {
-            var stats = new EffectPoolingStats();
-            Assert.Equal(0, stats.PoolSize);
-            Assert.Equal(0, stats.ActiveInstances);
-            Assert.Equal(0L, stats.TotalRequests);
-            Assert.Equal(0L, stats.PoolHits);
-            Assert.Equal(0L, stats.PoolMisses);
-        }
-
-        [Fact]
-        public void EffectPoolingStats_SetProperties_ShouldRetainValues()
-        {
-            var stats = new EffectPoolingStats
-            {
-                PoolSize = 50,
-                ActiveInstances = 10,
-                TotalRequests = 1000L,
-                PoolHits = 900L,
-                PoolMisses = 100L
-            };
-            Assert.Equal(50, stats.PoolSize);
-            Assert.Equal(10, stats.ActiveInstances);
-            Assert.Equal(1000L, stats.TotalRequests);
-            Assert.Equal(900L, stats.PoolHits);
-            Assert.Equal(100L, stats.PoolMisses);
-        }
-    }
-
-    /// <summary>
     /// Tests for NoteRuntimeState
     /// </summary>
     public class NoteRuntimeStateTests

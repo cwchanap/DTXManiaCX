@@ -87,7 +87,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private const int ChipFragmentSourceHeight = 64;
         private static readonly int[] DrumChipColumnWidths =
         {
-            70, 58, 64, 56, 56, 56, 74, 48, 58, 74, 48, 58
+            70, 58, 64, 56, 56, 56, 74, 48, 58, 74, 48, 56
         };
 
         private static readonly int[] LaneToDrumChipColumn =
@@ -97,6 +97,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private readonly NxAttackEffectSettings _settings;
         private readonly Random _random;
+        private readonly IResourceManager? _resourceManager;
         private readonly List<PrimarySparkInstance> _primarySparks = new List<PrimarySparkInstance>();
         private readonly List<ParticleInstance> _particles = new List<ParticleInstance>();
         private readonly ITexture?[] _laneSparkTextures = new ITexture?[PerformanceUILayout.LaneCount];
@@ -104,6 +105,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private ITexture? _chipTexture;
         private ITexture? _waveTexture;
         private bool _disposed;
+        private bool _reloadAttempted;
 
         public NxAttackEffectManager(
             IResourceManager resourceManager,
@@ -116,6 +118,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Production uses a runtime-seeded random so particle motion varies across
             // sessions. Tests inject an explicit Random (e.g. new Random(0)) for determinism.
             _random = random ?? new Random();
+            _resourceManager = resourceManager;
 
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
@@ -138,6 +141,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal int ActiveParticleCountForTesting => _particles.Count;
 
+#if DEBUG
         internal int SpawnCallCountForTesting { get; private set; }
 
         internal int? LastSpawnLaneForTesting { get; private set; }
@@ -145,15 +149,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal JudgementType? LastSpawnJudgementTypeForTesting { get; private set; }
 
         internal bool SuppressSpawnForTesting { get; set; }
+#endif
 
         public void Spawn(int lane, JudgementType judgementType)
         {
+#if DEBUG
             SpawnCallCountForTesting++;
             LastSpawnLaneForTesting = lane;
             LastSpawnJudgementTypeForTesting = judgementType;
 
             if (SuppressSpawnForTesting)
                 return;
+#endif
 
             if (_disposed
                 || lane < 0
@@ -214,6 +221,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed || spriteBatch == null)
                 return;
 
+            TryEnsureTexturesAvailable();
+
             foreach (var spark in _primarySparks)
             {
                 DrawPrimarySpark(spriteBatch, spark);
@@ -223,6 +232,87 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 DrawParticle(spriteBatch, particle);
             }
+        }
+
+        /// <summary>
+        /// Checks whether any held texture has been disposed (e.g. by a graphics device
+        /// reset) and attempts to reload them once before drawing. Without this, a device
+        /// loss would permanently disable the affected effect layers for the remainder of
+        /// the stage. Mirrors the reload pattern in <see cref="SpriteJudgementTextPopupManager"/>.
+        /// </summary>
+        private void TryEnsureTexturesAvailable()
+        {
+            var anyDisposed = false;
+
+            for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
+            {
+                if (IsTextureInvalid(_laneSparkTextures[lane]) || IsTextureInvalid(_laneStarTextures[lane]))
+                {
+                    anyDisposed = true;
+                    break;
+                }
+            }
+
+            if (!anyDisposed && !IsTextureInvalid(_chipTexture) && !IsTextureInvalid(_waveTexture))
+                return;
+
+            TryReloadTextures();
+        }
+
+        private static bool IsTextureInvalid(ITexture? texture)
+        {
+            if (texture == null)
+                return false; // null means the asset was absent at load time, not disposed
+
+            try
+            {
+                return texture.IsDisposed;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private void TryReloadTextures()
+        {
+            // Retry at most once per invalidation episode to avoid reloading on every frame.
+            if (_reloadAttempted || _resourceManager == null || _disposed)
+                return;
+
+            _reloadAttempted = true;
+
+            for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
+            {
+                if (IsTextureInvalid(_laneSparkTextures[lane]))
+                {
+                    _laneSparkTextures[lane]?.RemoveReference();
+                    _laneSparkTextures[lane] = LoadOptionalTexture(
+                        _resourceManager, TexturePath.GetDrumChipFireLanePath(lane));
+                }
+
+                if (IsTextureInvalid(_laneStarTextures[lane]))
+                {
+                    _laneStarTextures[lane]?.RemoveReference();
+                    _laneStarTextures[lane] = LoadOptionalTexture(
+                        _resourceManager, TexturePath.GetDrumChipStarLanePath(lane));
+                }
+            }
+
+            if (IsTextureInvalid(_chipTexture))
+            {
+                _chipTexture?.RemoveReference();
+                _chipTexture = LoadOptionalTexture(_resourceManager, TexturePath.DrumChips);
+            }
+
+            if (IsTextureInvalid(_waveTexture))
+            {
+                _waveTexture?.RemoveReference();
+                _waveTexture = LoadOptionalTexture(_resourceManager, TexturePath.ChipWave);
+            }
+
+            // A successful reload resets the guard so a future invalidation can retry.
+            _reloadAttempted = false;
         }
 
         public void ClearAll()
@@ -353,7 +443,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 starTexture.Draw(
                     spriteBatch,
-                    CenteredRotationDestination(
+                    RotationDrawDestination(
                         particle.Position,
                         PerformanceUILayout.NxAttackEffectAssets.StarDrawSize,
                         particle.Scale),
@@ -373,7 +463,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 chipTexture.Draw(
                     spriteBatch,
-                    CenteredRotationDestination(
+                    RotationDrawDestination(
                         particle.Position,
                         new Vector2(source.Width, source.Height),
                         particle.Scale),
@@ -392,7 +482,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 waveTexture.Draw(
                     spriteBatch,
-                    CenteredRotationDestination(
+                    RotationDrawDestination(
                         particle.Position,
                         PerformanceUILayout.NxAttackEffectAssets.WaveDrawSize,
                         particle.Scale),
@@ -417,7 +507,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
-        private static Rectangle CenteredRotationDestination(Vector2 center, Vector2 size, float scale)
+        /// <summary>
+        /// Builds the destination rectangle for a rotation/origin-based draw where the
+        /// sprite's effective rendered center must land at <paramref name="center"/>.
+        /// Unlike <see cref="CenteredDestination"/>, the rectangle's top-left is placed
+        /// AT <paramref name="center"/> (not offset by half the size); visual centering
+        /// is achieved by passing a centered texel origin (w/2, h/2) to
+        /// <c>SpriteBatch.Draw</c>. MonoGame's destRect-overload formula maps that origin
+        /// texel to <c>dest.Location + origin * (dest.Size / sourceSize)</c>, so the
+        /// origin offset cancels <c>dest.Size / 2</c> and the rendered center lands at
+        /// <paramref name="center"/>. Callers MUST pass a centered origin for this to hold.
+        /// </summary>
+        private static Rectangle RotationDrawDestination(Vector2 center, Vector2 size, float scale)
         {
             var width = Math.Max(1, (int)MathF.Round(size.X * scale));
             var height = Math.Max(1, (int)MathF.Round(size.Y * scale));

@@ -106,7 +106,9 @@ public class PerformanceStageAdditionalCoverageTests
         ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
             new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
 
+#if DEBUG
         Assert.Equal(1, attackManager.SpawnCallCountForTesting);
+#endif
         Assert.Equal(1, spriteTextManager.ActivePopupCount);
     }
 
@@ -129,7 +131,9 @@ public class PerformanceStageAdditionalCoverageTests
         ReflectionHelpers.InvokePrivateMethod(stage, "OnJudgementMade", null,
             new JudgementEvent(0, 0, 200.0, JudgementType.Miss));
 
+#if DEBUG
         Assert.Equal(0, attackManager.SpawnCallCountForTesting);
+#endif
         Assert.Equal(1, spriteTextManager.ActivePopupCount);
     }
 
@@ -729,7 +733,9 @@ public class PerformanceStageAdditionalCoverageTests
     private static NxAttackEffectManager CreateNxAttackEffectManager()
     {
         var manager = new NxAttackEffectManager(new Mock<IResourceManager>().Object);
+#if DEBUG
         manager.SuppressSpawnForTesting = true;
+#endif
         return manager;
     }
 

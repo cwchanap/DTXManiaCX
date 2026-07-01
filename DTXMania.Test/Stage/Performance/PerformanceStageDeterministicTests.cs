@@ -2653,9 +2653,11 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
         Assert.Equal(1, comboManager.CurrentCombo);
         Assert.Equal(51.5f, gaugeManager.CurrentLife);
+#if DEBUG
         Assert.Equal(1, attackManager.SpawnCallCountForTesting);
         Assert.Equal(2, attackManager.LastSpawnLaneForTesting);
         Assert.Equal(JudgementType.Great, attackManager.LastSpawnJudgementTypeForTesting);
+#endif
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
@@ -2690,9 +2692,11 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, scoreManager.CurrentScore);
         Assert.Equal(0, comboManager.CurrentCombo);
         Assert.Equal(47.0f, gaugeManager.CurrentLife);
+#if DEBUG
         Assert.Equal(0, attackManager.SpawnCallCountForTesting);
         Assert.Null(attackManager.LastSpawnLaneForTesting);
         Assert.Null(attackManager.LastSpawnJudgementTypeForTesting);
+#endif
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[4]);
         Assert.Equal(PadState.Idle, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[4].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
@@ -3329,7 +3333,9 @@ public class PerformanceStageDeterministicTests
     private static NxAttackEffectManager CreateNxAttackEffectManager()
     {
         var manager = new NxAttackEffectManager(new Mock<IResourceManager>().Object);
+#if DEBUG
         manager.SuppressSpawnForTesting = true;
+#endif
         return manager;
     }
 

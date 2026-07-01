@@ -23,7 +23,7 @@ public class NxAttackEffectManagerTests
     [InlineData(3, 0, 720, 128, 32)]
     [InlineData(8, 0, 720, 70, 29)]
     [InlineData(9, 0, 720, 360, 37)]
-    [InlineData(2, 1, 718, 689, 29)]
+    [InlineData(2, 1, 718, 690, 28)]
     public void GetChipFragmentSource_ShouldUseDrumChipSpriteSheetColumns(
         int lane,
         int side,
@@ -390,7 +390,7 @@ public class NxAttackEffectManagerTests
                 - draw.Origin * scaleFactor
                 + new Vector2(draw.Destination.Width / 2f, draw.Destination.Height / 2f);
 
-            // Allow 1px tolerance for the int rounding in CenteredRotationDestination.
+            // Allow 1px tolerance for the int rounding in RotationDrawDestination.
             Assert.InRange(renderedCenter.X, expectedCenter.X - 1f, expectedCenter.X + 1f);
             Assert.InRange(renderedCenter.Y, expectedCenter.Y - 1f, expectedCenter.Y + 1f);
         }

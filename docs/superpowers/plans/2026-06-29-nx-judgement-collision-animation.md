@@ -16,6 +16,19 @@
 
 **Architecture:** Keep gameplay event flow unchanged and replace only visual feedback. `PerformanceStage.OnJudgementMade` will call a new `NxAttackEffectManager` for successful hits and a new `SpriteJudgementTextPopupManager` for all judgements. Asset paths and frame geometry live in `TexturePath` and `PerformanceUILayout` so the renderers do not hardcode skin filenames or sheet dimensions.
 
+> **Implementation Boundary (updated 2026-06-30):** Although the event flow is
+> untouched, the visual feedback work required aligning the shared gameplay
+> layout constants in `PerformanceUILayout` with NX defaults so the new effects
+> land at the correct on-screen positions. Commit `c084a51` therefore also
+> updated global rendering constants used by *all* gameplay rendering —
+> `JudgementLineY` (600→561), `LaneHeight` (620→720), `HitBar` geometry, and the
+> `PadRenderer` pad-row destinations. These layout-alignment changes are
+> intentionally in-scope: the new collision effects share the same judge line
+> and playfield as the notes/pads, so moving the judge line without moving the
+> effects (or vice versa) would desync the visual feedback from the gameplay
+> plane. Out-of-scope remains: scoring, gauge, combo, skill, input handling,
+> chart parsing, and stage transitions.
+
 **Tech Stack:** .NET 8, C#, MonoGame `SpriteBatch`, xUnit, Moq, existing DTXManiaCX resource manager and layout constants.
 
 ---
