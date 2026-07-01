@@ -141,6 +141,14 @@ namespace DTXMania.Test.Resources
             Assert.Throws<ArgumentOutOfRangeException>(() => TexturePath.GetDrumChipFireLanePath(lane));
         }
 
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(10)]
+        public void GetDrumChipStarLanePath_WithInvalidLane_ShouldThrow(int lane)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => TexturePath.GetDrumChipStarLanePath(lane));
+        }
+
         [Fact]
         public void GetAllTexturePaths_ShouldContainRequiredNxJudgementCollisionTextures()
         {
