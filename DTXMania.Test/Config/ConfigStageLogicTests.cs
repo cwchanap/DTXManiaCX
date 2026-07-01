@@ -1009,8 +1009,10 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawItemList_WhenFocusOnItems_ShouldDrawItemCursorAtSelectedRow()
+    public void DrawItemList_WhenFocusOnItems_ShouldDrawFixedItemCursor()
     {
+        // The cursor is locked to the focus row (items scroll under it), so it always renders at
+        // the fixed ItemCursorRect regardless of which item is selected.
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
@@ -1023,7 +1025,7 @@ public class ConfigStageLogicTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
-            Assert.Contains(stage.RectangleDrawCalls, c => c.Rectangle == ConfigUILayout.ItemCursorRect(2));
+            Assert.Contains(stage.RectangleDrawCalls, c => c.Rectangle == ConfigUILayout.ItemCursorRect);
         }
     }
 
@@ -1041,7 +1043,7 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
             Assert.DoesNotContain(stage.RectangleDrawCalls,
-                c => c.Rectangle == ConfigUILayout.ItemCursorRect(0));
+                c => c.Rectangle == ConfigUILayout.ItemCursorRect);
         }
     }
 
@@ -1253,11 +1255,11 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawItemList_ShouldRightAlignValuesWithinTheBox()
+    public void DrawItemList_ShouldDrawValuesAtTheValueColumn()
     {
-        // Values anchor at the box's right inner edge (ItemValueRightX) so they never overflow the
-        // box and never run under the description panel drawn afterward at x=800. A fixed-width
-        // mock font lets us assert the exact right-aligned x position.
+        // Values left-align at the fixed value column (ItemListX + ItemValueOffsetX = 680), which
+        // sits on the itembox's white value cell. A fixed-width mock font keeps the value short so
+        // no truncation occurs and we can assert the exact left-aligned x.
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
@@ -1266,33 +1268,27 @@ public class ConfigStageLogicTests
             ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
 
-            const float measuredWidth = 80f;
             var font = new Mock<IFont>();
-            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(measuredWidth, 14f));
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(40f, 14f));
             ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
             ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
-            // Value x = right anchor (766) minus measured width (80) = 686. Names are drawn at the
-            // fixed ItemNamePos (x=454), so only the right-aligned values land at 686.
-            var expectedValueX = ConfigUILayout.ItemValueRightX - measuredWidth;
+            var expectedValueX = ConfigUILayout.ItemListX + ConfigUILayout.ItemValueOffsetX; // 680
             font.Verify(f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(),
                 It.Is<Vector2>(p => Math.Abs(p.X - expectedValueX) < 0.01f), It.IsAny<Color>()),
                 Times.AtLeastOnce,
-                "value text should be right-aligned within the item box");
+                "value text should be left-aligned at the value column on the white cell");
         }
     }
 
     [Fact]
-    public void DrawItemList_WhenValueExceedsAvailableWidth_ShouldEllipsizeBeforeRightAligning()
+    public void DrawItemList_WhenValueExceedsAvailableWidth_ShouldEllipsizeToFitTheValueColumn()
     {
-        // A value wider than the gap between the name's left edge and the value's right anchor
-        // (ItemValueMaxWidth) must be ellipsized before the right-aligned position is computed.
-        // Otherwise valuePos.X = ItemValueRightX - fullWidth moves left of the name and, since the
-        // value is drawn after the name, overwrites it (e.g. the default macOS DTXPath under
-        // ~/Library/Application Support/...). The per-character mock font makes the overflow
-        // deterministic: 8px/char means a 56-char path measures 448px > 312px available.
+        // A value wider than the value column's budget (ItemValueMaxWidth) must be ellipsized so it
+        // stays on the white value cell and clear of the description panel (x=800). The
+        // per-character mock font makes the overflow deterministic: 8px/char.
         var longPath = "/Users/testuser/Library/Application Support/DTXManiaCX/DTXFiles";
         var configManager = new ConfigManager { Config = { DTXPath = longPath } };
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice(configManager);
@@ -1317,30 +1313,16 @@ public class ConfigStageLogicTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
-            // No text may start left of the name column: names sit at ItemNamePos.X (454) and
-            // right-aligned values must not cross that boundary.
-            var nameLeftX = ConfigUILayout.ItemNamePos(0).X;
-            Assert.All(draws, d => Assert.True(d.Position.X >= nameLeftX - 0.01f,
-                $"text \"{d.Text}\" drawn at x={d.Position.X} crosses left of the name column at x={nameLeftX}"));
-
-            // The long DTX path value must be ellipsized (ends with "...") and fit the available width.
+            // The long DTX path value must be ellipsized (ends with "...") and fit the value column.
             var pathDraw = draws.Single(d => d.Text.StartsWith("/Users/", StringComparison.Ordinal));
             Assert.EndsWith("...", pathDraw.Text);
             Assert.True(font.Object.MeasureString(pathDraw.Text).X <= ConfigUILayout.ItemValueMaxWidth + 0.01f,
                 $"ellipsized value width must fit ItemValueMaxWidth ({ConfigUILayout.ItemValueMaxWidth})");
 
-            // The value is drawn after the name, so its left edge must sit strictly right of the
-            // name's right edge plus the reserved gap. Reserving only the name's left edge (the
-            // static ItemValueMaxWidth) lets the value's left edge reach that same X and overwrite
-            // the name's glyphs (e.g. a deep macOS DTXPath overwriting the "DTX Folder" label).
-            // Per-character mock font: "DTX Folder" (10 chars) measures 80px -> right edge at 534.
-            var folderNameDraw = draws.Single(d => d.Text == "DTX Folder");
-            var folderNameRightEdge = folderNameDraw.Position.X
-                + font.Object.MeasureString("DTX Folder").X;
-            var expectedValueLeftFloor = folderNameRightEdge + ConfigUILayout.ItemValueNameGap;
-            Assert.True(pathDraw.Position.X >= expectedValueLeftFloor - 0.01f,
-                $"value drawn at x={pathDraw.Position.X} overlaps the name (right edge {folderNameRightEdge}) "
-                + $"+ gap ({ConfigUILayout.ItemValueNameGap}); expected >= {expectedValueLeftFloor}");
+            // The value is left-aligned at the value column (680), well clear of the name column (440).
+            var expectedValueX = ConfigUILayout.ItemListX + ConfigUILayout.ItemValueOffsetX;
+            Assert.True(Math.Abs(pathDraw.Position.X - expectedValueX) < 0.01f,
+                $"value drawn at x={pathDraw.Position.X}; expected the value column at x={expectedValueX}");
         }
     }
 
@@ -1374,8 +1356,11 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
             // Every item row should get a fallback fill when its box texture is unavailable.
+            // Item 0 (Screen Resolution) uses the normal box at the settled focus row.
+            var row0Rect = ConfigUILayout.ItemBoxRect(
+                ConfigUILayout.RowTopY(0, 0.0), ConfigUILayout.ItemBoxNormalWidth);
             Assert.Contains(stage.RectangleDrawCalls,
-                c => c.Rectangle == ConfigUILayout.ItemRowRect(0) && c.Color == new Color(34, 40, 68, 200));
+                c => c.Rectangle == row0Rect && c.Color == new Color(34, 40, 68, 200));
         }
     }
 

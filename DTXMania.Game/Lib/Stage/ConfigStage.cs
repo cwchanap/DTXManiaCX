@@ -47,6 +47,10 @@ namespace DTXMania.Game.Lib.Stage
         private int _currentCategoryIndex = 0;
         private bool _focusOnMenu = true;
 
+        // Eased scroll position (fractional item index currently at the focus row). Tracks the
+        // selected item; snaps on a wrap/jump so last<->first never scrolls the whole list.
+        private double _itemScroll;
+
         private KeyboardState _previousKeyboardState;
         private KeyboardState _currentKeyboardState;
 
@@ -72,8 +76,16 @@ namespace DTXMania.Game.Lib.Stage
 
         // Light text reads on the dark NX config background.
         private static readonly Color LightText = new(235, 238, 248);
-        private static readonly Color SelectedText = Color.Yellow;
-        private static readonly Color ValueText = new(255, 226, 150);
+        // Value text sits on the itembox's white right cell, so it must be dark.
+        private static readonly Color ValueDarkText = new(24, 24, 32);
+        // Selected name / nav marker sit on a dark cell -> bright warm highlight.
+        private static readonly Color SelectedNameText = new(255, 238, 120);
+        // Selected value sits on the white cell -> dark warm highlight (readable on white).
+        private static readonly Color SelectedValueText = new(168, 52, 0);
+        // Selected menu label sits on the light menu cursor bar -> dark text.
+        private static readonly Color SelectedMenuText = new(36, 24, 72);
+        // Description title sits on the panel's white upper region -> dark text.
+        private static readonly Color DescriptionTitleText = new(24, 24, 32);
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
         private static readonly Color ItemCursorFallback = new(96, 96, 160, 180);
         private static readonly Color ImportStatusColor = new(180, 220, 255);
@@ -117,6 +129,7 @@ namespace DTXMania.Game.Lib.Stage
 
             _currentCategoryIndex = 0;
             _focusOnMenu = true;
+            _itemScroll = 0;
 
             // Clear any import status left over from a previous visit. StageManager reuses this
             // instance, so without this a stale "Imported N scores" / "cancelled" message would
@@ -141,6 +154,29 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             HandleInput();
+            UpdateItemScroll(deltaTime);
+        }
+
+        // Ease the scroll position toward the selected item so it settles at the focus row.
+        // A wrap or multi-row jump snaps instead of scrolling the whole list backward.
+        private void UpdateItemScroll(double deltaTime)
+        {
+            if (_categories.Count == 0)
+                return;
+
+            var category = _categories[_currentCategoryIndex];
+            double target = category.HasItems ? category.SelectedIndex : 0;
+            double delta = target - _itemScroll;
+            if (Math.Abs(delta) > 1.5)
+            {
+                _itemScroll = target;
+                return;
+            }
+
+            double factor = Math.Min(1.0, deltaTime * 15.0);
+            _itemScroll += delta * factor;
+            if (Math.Abs(target - _itemScroll) < 0.01)
+                _itemScroll = target;
         }
 
         protected override void OnDraw(double deltaTime)
@@ -723,10 +759,14 @@ namespace DTXMania.Game.Lib.Stage
             {
                 bool selected = i == _currentCategoryIndex;
                 var font = selected ? _boldFont : _font;
-                var color = selected ? SelectedText : LightText;
+                var color = selected ? SelectedMenuText : LightText;
                 var label = _categories[i].Name;
                 var size = font.MeasureString(label);
-                var pos = new Vector2(ConfigUILayout.MenuLabelCenterX - size.X / 2f, ConfigUILayout.MenuRowY(i));
+                var cursor = ConfigUILayout.MenuCursorRect(i);
+                // Center the label horizontally on the panel and vertically within the cursor band.
+                var pos = new Vector2(
+                    ConfigUILayout.MenuLabelCenterX - size.X / 2f,
+                    cursor.Y + (ConfigUILayout.MenuCursorHeight - size.Y) / 2f);
                 font.DrawString(_spriteBatch, label, pos, color);
             }
         }
@@ -739,59 +779,59 @@ namespace DTXMania.Game.Lib.Stage
             var category = _categories[_currentCategoryIndex];
             var items = category.Items;
 
-            for (int row = 0; row < items.Count; row++)
+            // Box pass. Only real items are drawn (non-cyclic), each at its scrolled Y.
+            for (int i = 0; i < items.Count; i++)
             {
-                var box = (items[row] is NavigationConfigItem || items[row] is ReadOnlyConfigItem)
-                    ? _itemBoxOtherTexture
-                    : _itemBoxTexture;
-                if (box?.Texture != null)
-                    _spriteBatch.Draw(box.Texture, ConfigUILayout.ItemRowRect(row), Color.White);
+                int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
+                if (!ConfigUILayout.IsRowVisible(rowTopY))
+                    continue;
+                bool isNav = items[i] is NavigationConfigItem;
+                var boxTex = isNav ? _itemBoxOtherTexture : _itemBoxTexture;
+                int boxWidth = isNav ? ConfigUILayout.ItemBoxOtherWidth : ConfigUILayout.ItemBoxNormalWidth;
+                var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, boxWidth);
+                if (boxTex?.Texture != null)
+                    _spriteBatch.Draw(boxTex.Texture, boxRect, Color.White);
                 else
-                    DrawFilledRectangle(ConfigUILayout.ItemRowRect(row), ItemBoxFallbackColor);
+                    DrawFilledRectangle(boxRect, ItemBoxFallbackColor);
             }
 
+            // Fixed cursor at the focus row; items scroll under it.
             if (!_focusOnMenu && category.HasItems)
             {
-                var cursorRect = ConfigUILayout.ItemCursorRect(category.SelectedIndex);
                 if (_itemBoxCursorTexture?.Texture != null)
-                    _spriteBatch.Draw(_itemBoxCursorTexture.Texture, cursorRect, Color.White);
+                    _spriteBatch.Draw(_itemBoxCursorTexture.Texture, ConfigUILayout.ItemCursorRect, Color.White);
                 else
-                    DrawFilledRectangle(cursorRect, ItemCursorFallback);
+                    DrawFilledRectangle(ConfigUILayout.ItemCursorRect, ItemCursorFallback);
             }
 
             if (_font == null || _boldFont == null)
                 return;
 
-            for (int row = 0; row < items.Count; row++)
+            // Text pass.
+            for (int i = 0; i < items.Count; i++)
             {
-                var item = items[row];
-                bool selected = !_focusOnMenu && row == category.SelectedIndex;
+                int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
+                if (!ConfigUILayout.IsRowVisible(rowTopY))
+                    continue;
+                var item = items[i];
+                bool selected = !_focusOnMenu && i == category.SelectedIndex;
+                bool isNav = item is NavigationConfigItem;
                 var font = selected ? _boldFont : _font;
 
-                font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(row),
-                    selected ? SelectedText : LightText);
+                font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
+                    selected ? SelectedNameText : LightText);
 
                 var value = GetItemValueText(item);
                 if (!string.IsNullOrEmpty(value))
                 {
-                    // Right-align the value at the box's right inner edge (ItemValueRightX) so it
-                    // never overflows the box and never runs under the description panel drawn next.
-                    // Reserve the measured name width plus ItemValueNameGap when deriving the value's
-                    // max width: truncating only to the static ItemValueMaxWidth lets the value's left
-                    // edge reach the name's left edge (namePos.X), which still overlaps the name
-                    // because the value is drawn after it (e.g. a deep macOS DTXPath overwriting the
-                    // "DTX Folder" label). The name-relative max width keeps the value strictly right
-                    // of the name's right edge plus a visual gap before right-aligning.
-                    var namePos = ConfigUILayout.ItemNamePos(row);
-                    var nameWidth = font.MeasureString(item.Name).X;
-                    var valueMaxWidth = Math.Max(0f,
-                        ConfigUILayout.ItemValueRightX - (namePos.X + nameWidth + ConfigUILayout.ItemValueNameGap));
-                    var displayValue = TextHelper.TruncateToWidth(value, valueMaxWidth, font);
-                    var valueWidth = font.MeasureString(displayValue).X;
-                    var valuePos = new Vector2(ConfigUILayout.ItemValueRightX - valueWidth,
-                        ConfigUILayout.ItemRowY(row) + ConfigUILayout.ItemTextInsetY);
-                    font.DrawString(_spriteBatch, displayValue, valuePos,
-                        selected ? SelectedText : ValueText);
+                    var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
+                    var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
+                    // Nav marker (">") sits on the dark "other" box -> light; real values sit on the
+                    // itembox white cell -> dark.
+                    Color valueColor = isNav
+                        ? (selected ? SelectedNameText : LightText)
+                        : (selected ? SelectedValueText : ValueDarkText);
+                    font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
                 }
             }
         }
@@ -831,6 +871,15 @@ namespace DTXMania.Game.Lib.Stage
                 DrawFilledRectangle(ConfigUILayout.DescriptionPanelRect, PanelFallbackColor);
 
             var category = _categories[_currentCategoryIndex];
+
+            // Title: the focused item's name (or the category name on menu focus) on the white upper cell.
+            string title = _focusOnMenu
+                ? category.Name
+                : (category.SelectedItem?.Name ?? category.Name);
+            if (!string.IsNullOrEmpty(title) && _boldFont != null)
+                _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos, DescriptionTitleText);
+
+            // Body: the description text, wrapped, on the black lower cell.
             string text = _focusOnMenu
                 ? category.Description
                 : (category.SelectedItem?.Description ?? string.Empty);
@@ -838,7 +887,7 @@ namespace DTXMania.Game.Lib.Stage
             if (string.IsNullOrEmpty(text) || _font == null)
                 return;
 
-            var pos = ConfigUILayout.DescriptionTextPos;
+            var pos = ConfigUILayout.DescriptionBodyPos;
             foreach (var line in WrapText(_font, text, ConfigUILayout.DescriptionWrapWidth))
             {
                 _font.DrawString(_spriteBatch, line, pos, LightText);

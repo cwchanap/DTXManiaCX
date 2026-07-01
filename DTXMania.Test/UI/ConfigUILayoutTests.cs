@@ -19,55 +19,62 @@ public class ConfigUILayoutTests
     }
 
     [Theory]
-    [InlineData(0, 156)]
-    [InlineData(1, 190)]
-    [InlineData(2, 224)]
-    public void MenuRowY_ShouldStepBy34(int index, int expected)
+    [InlineData(0, 148)]
+    [InlineData(1, 180)]
+    [InlineData(2, 212)]
+    public void MenuCursorRect_ShouldStepBy32(int index, int expectedY)
     {
-        Assert.Equal(expected, ConfigUILayout.MenuRowY(index));
+        Assert.Equal(new Rectangle(250, expectedY, 170, 32), ConfigUILayout.MenuCursorRect(index));
     }
 
     [Fact]
-    public void MenuCursorRect_ShouldSitOnSelectedRow()
+    public void MenuLabelCenterX_ShouldBePanelCenter()
     {
-        Assert.Equal(new Rectangle(250, 153, 150, 30), ConfigUILayout.MenuCursorRect(0));
-        Assert.Equal(new Rectangle(250, 221, 150, 30), ConfigUILayout.MenuCursorRect(2));
+        Assert.Equal(335, ConfigUILayout.MenuLabelCenterX);
     }
 
     [Fact]
-    public void ItemRowRect_ShouldStepBy60()
+    public void RowTopY_ShouldCenterSelectedItemWhenSettled()
     {
-        Assert.Equal(new Rectangle(430, 150, 360, 54), ConfigUILayout.ItemRowRect(0));
-        Assert.Equal(new Rectangle(430, 210, 360, 54), ConfigUILayout.ItemRowRect(1));
+        // p == selected index -> that row sits at the focus row.
+        Assert.Equal(189, ConfigUILayout.RowTopY(3, 3.0));
+        Assert.Equal(189, ConfigUILayout.RowTopY(0, 0.0));
     }
 
     [Fact]
-    public void ItemCursorRect_ShouldFrameTheRow()
+    public void RowTopY_ShouldStepByStride()
     {
-        Assert.Equal(new Rectangle(426, 147, 368, 60), ConfigUILayout.ItemCursorRect(0));
-        Assert.Equal(new Rectangle(426, 207, 368, 60), ConfigUILayout.ItemCursorRect(1));
+        Assert.Equal(189 + 67, ConfigUILayout.RowTopY(4, 3.0));
+        Assert.Equal(189 - 67, ConfigUILayout.RowTopY(2, 3.0));
+    }
+
+    [Theory]
+    [InlineData(189, true)]    // focus row
+    [InlineData(690, false)]   // top at footer edge -> below band
+    [InlineData(-213, false)]  // far above -> hidden behind header
+    [InlineData(60, true)]     // top above header bottom but box still intrudes band
+    public void IsRowVisible_ShouldGateOnVisibleBand(int rowTopY, bool expected)
+    {
+        Assert.Equal(expected, ConfigUILayout.IsRowVisible(rowTopY));
     }
 
     [Fact]
-    public void ItemTextPositions_ShouldOffsetFromRow()
+    public void ItemBoxAndTextPositions_ShouldMatchNx()
     {
-        Assert.Equal(new Vector2(454, 164), ConfigUILayout.ItemNamePos(0));
-        Assert.Equal(new Vector2(454, 224), ConfigUILayout.ItemNamePos(1));
+        Assert.Equal(new Rectangle(420, 189, 538, 80), ConfigUILayout.ItemBoxRect(189, ConfigUILayout.ItemBoxNormalWidth));
+        Assert.Equal(new Rectangle(420, 189, 438, 80), ConfigUILayout.ItemBoxRect(189, ConfigUILayout.ItemBoxOtherWidth));
+        Assert.Equal(new Vector2(440, 213), ConfigUILayout.ItemNamePos(189));
+        Assert.Equal(new Vector2(680, 213), ConfigUILayout.ItemValuePos(189));
+        Assert.Equal(new Rectangle(413, 193, 497, 68), ConfigUILayout.ItemCursorRect);
     }
 
     [Fact]
-    public void ItemValueRightX_ShouldSitInsideTheBoxClearOfTheDescriptionPanel()
+    public void DescriptionTitleAndBody_ShouldSitOnCorrectArtCells()
     {
-        // Value right anchor = box right edge (430 + 360 = 790) minus the symmetric inset (24).
-        // Values end at <= 790, so they never reach the description panel (x = 800).
-        Assert.Equal(766, ConfigUILayout.ItemValueRightX);
-        Assert.True(ConfigUILayout.ItemValueRightX < ConfigUILayout.DescriptionPanelRect.X);
-    }
-
-    [Fact]
-    public void DescriptionText_ShouldStartInsidePanel()
-    {
-        Assert.Equal(new Vector2(818, 288), ConfigUILayout.DescriptionTextPos);
+        // Title on the white upper region; body on the black lower region.
+        Assert.Equal(new Vector2(818, 300), ConfigUILayout.DescriptionTitlePos);
+        Assert.Equal(new Vector2(818, 448), ConfigUILayout.DescriptionBodyPos);
         Assert.Equal(248, ConfigUILayout.DescriptionWrapWidth);
+        Assert.True(ConfigUILayout.DescriptionBodyPos.Y > ConfigUILayout.DescriptionTitlePos.Y);
     }
 }
