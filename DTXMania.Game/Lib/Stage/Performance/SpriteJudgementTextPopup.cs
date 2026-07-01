@@ -77,33 +77,43 @@ namespace DTXMania.Game.Lib.Stage.Performance
     {
         private readonly List<SpriteJudgementTextPopup> _activePopups;
         private readonly Action<JudgementEvent>? _fontFallback;
+        private readonly IResourceManager? _resourceManager;
         private ITexture? _spriteTexture;
+        private bool _reloadAttempted;
         private bool _disposed;
 
         public SpriteJudgementTextPopupManager(IResourceManager resourceManager, Action<JudgementEvent>? fontFallback = null)
-            : this(LoadSpriteTexture(resourceManager), fontFallback, new List<SpriteJudgementTextPopup>())
+            : this(LoadSpriteTexture(resourceManager), fontFallback, new List<SpriteJudgementTextPopup>(), resourceManager)
         {
         }
 
         private SpriteJudgementTextPopupManager(
             ITexture? spriteTexture,
             Action<JudgementEvent>? fontFallback,
-            List<SpriteJudgementTextPopup> activePopups)
+            List<SpriteJudgementTextPopup> activePopups,
+            IResourceManager? resourceManager = null)
         {
             _spriteTexture = spriteTexture;
             _fontFallback = fontFallback;
             _activePopups = activePopups;
+            _resourceManager = resourceManager;
+            // If no valid texture was available at construction, don't retry on every call;
+            // reload is only attempted after a mid-stage invalidation of a previously valid
+            // texture (see TryReloadSpriteTexture).
+            _reloadAttempted = spriteTexture == null;
         }
 
         internal static SpriteJudgementTextPopupManager CreateForTesting(
             ITexture? spriteTexture,
             Action<JudgementEvent>? fontFallback = null,
-            List<SpriteJudgementTextPopup>? activePopups = null)
+            List<SpriteJudgementTextPopup>? activePopups = null,
+            IResourceManager? resourceManager = null)
         {
             return new SpriteJudgementTextPopupManager(
                 spriteTexture,
                 fontFallback,
-                activePopups ?? new List<SpriteJudgementTextPopup>());
+                activePopups ?? new List<SpriteJudgementTextPopup>(),
+                resourceManager);
         }
 
         internal IReadOnlyList<SpriteJudgementTextPopup> ActivePopupsForTesting => _activePopups;
@@ -252,7 +262,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             var spriteTexture = _spriteTexture;
             if (spriteTexture == null)
-                return false;
+                return TryReloadSpriteTexture();
 
             try
             {
@@ -266,7 +276,27 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
 
             ReleaseHeldSpriteTexture();
-            return false;
+            return TryReloadSpriteTexture();
+        }
+
+        private bool TryReloadSpriteTexture()
+        {
+            // After mid-stage invalidation (e.g. graphics device reset), attempt to reload
+            // the sprite texture once before falling back to the font renderer. Without this
+            // the manager would permanently route every judgement to the font fallback.
+            // Retry at most once per invalidation episode to avoid loading on every call.
+            if (_reloadAttempted || _resourceManager == null || _disposed)
+                return false;
+
+            _reloadAttempted = true;
+            var reloaded = LoadSpriteTexture(_resourceManager);
+            if (reloaded == null)
+                return false;
+
+            // A successful reload resets the guard so a future invalidation can retry.
+            _reloadAttempted = false;
+            _spriteTexture = reloaded;
+            return true;
         }
 
         private void ReleaseHeldSpriteTexture()

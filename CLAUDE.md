@@ -89,7 +89,7 @@ DTXMania.Game.Lib.Resources - ResourceManager, ManagedTexture/Sound/Font, SkinMa
 DTXMania.Game.Lib.Song      - SongManager, DTXChartParser, ChartManager
 DTXMania.Game.Lib.Song.Entities - Song, SongScore, PerformanceHistory
 DTXMania.Game.Lib.Stage     - BaseStage, StageManager, 7 stage types, 6 transition types
-DTXMania.Game.Lib.Stage.Performance - 22 specialized performance components
+DTXMania.Game.Lib.Stage.Performance - 24 specialized performance components
 DTXMania.Game.Lib.UI        - UIManager, UIElement, UIContainer, DTXManiaVisualTheme
 DTXMania.Game.Lib.UI.Components - UILabel, UIButton, UIImage, UIPanel, UIList
 DTXMania.Game.Lib.UI.Layout - SongSelectionUILayout, PerformanceUILayout, ResultUILayout
@@ -106,12 +106,13 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - BaseStage is the abstract base class; all stages implement IStage
 - `KeyAssign/` subdirectory: DrumKeyAssignPanel, SystemKeyAssignPanel, KeyConflictChecker for input mapping UI
 
-**Performance Stage** (`Lib/Stage/Performance/`): The most complex stage, composed of 22 specialized components:
+**Performance Stage** (`Lib/Stage/Performance/`): The most complex stage, composed of 24 specialized components:
 - AudioLoader, ChipSoundCache, BackgroundRenderer, LaneBackgroundRenderer, NoteRenderer, PadRenderer
 - ComboDisplay, ComboManager, PooledEffectsManager, NxAttackEffectManager
 - GaugeDisplay, GaugeManager, JudgementLineRenderer, JudgementManager, JudgementTextPopup
 - ScoreDisplay, ScoreManager, PerformanceSummary, ScrollSpeedIndicator, SongTimer
 - Skill scoring subsystem: SkillManager, SkillMeterDisplay, SkillPanelDisplay
+- Sprite judgement subsystem: SpriteJudgementTextPopupManager (with SpriteJudgementTextPopup sprite)
 - Event-driven: JudgementManager raises events consumed by ScoreManager, ComboManager, GaugeManager, SkillManager
 
 **Resource Management** (`Lib/Resources/`): Reference-counted caching with statistics tracking
@@ -174,7 +175,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - **Factory**: ResourceManagerFactory, ManagedFont
 - **Strategy**: Transition types (FadeTransition, CrossfadeTransition, etc.)
 - **Observer**: Stage lifecycle events, Graphics device events, lane hit events
-- **Component**: PerformanceStage composition of 23 subsystems
+- **Component**: PerformanceStage composition of 24 subsystems
 - **Reference Counting**: Resource management (AddReference/RemoveReference)
 
 ## Development Guidelines

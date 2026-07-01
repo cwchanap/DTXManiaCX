@@ -327,6 +327,94 @@ public class NxAttackEffectManagerTests
         }
     }
 
+    [Fact]
+    public void Draw_DefaultNxParticles_EffectiveRenderedCenterShouldLandAtEffectOrigin()
+    {
+        // Geometry-level check: compute the effective on-screen center of each drawn
+        // sprite from the actual (destination, source, origin) args using MonoGame's
+        // destRect-overload formula, and assert it lands at the intended effect origin.
+        //
+        // MonoGame's destRect Draw maps the source's origin texel to
+        //   dest.Location + origin * (dest.Size / sourceSize)
+        // so the sprite's effective center is
+        //   dest.Location - origin * (dest.Size / sourceSize) + dest.Size / 2
+        // (origin is in source-texel units). This is independent of whether the
+        // production code uses a centered-dest or top-left-dest convention, so it
+        // catches centering regressions that an args-only assertion would miss.
+        var starTexture = CreateTexture(width: 40, height: 20);
+        var chipTexture = CreateTexture(width: 718, height: 776);
+        var waveTexture = CreateTexture(width: 80, height: 40);
+        var starTextureSize = new Vector2(40, 20);
+        var waveTextureSize = new Vector2(80, 40);
+        var draws = new List<(Rectangle Destination, Rectangle? Source, Vector2 Origin, Vector2 TextureSize)>();
+
+        SetupTextureDrawCapture(starTexture, draws, starTextureSize);
+        SetupTextureDrawCapture(chipTexture, draws, new Vector2(718, 776));
+        SetupTextureDrawCapture(waveTexture, draws, waveTextureSize);
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipStarLanePath(0))).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipStarLanePath(0))).Returns(starTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.DrumChips)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.DrumChips)).Returns(chipTexture.Object);
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipWave)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipWave)).Returns(waveTexture.Object);
+
+        var manager = new NxAttackEffectManager(resourceManager.Object, random: new Random(0));
+        manager.Spawn(0, JudgementType.Perfect);
+        var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        manager.Draw(spriteBatch);
+
+        Assert.NotEmpty(draws);
+
+        var expectedCenter = new Vector2(
+            PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0).X,
+            PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(0).Y);
+
+        foreach (var draw in draws)
+        {
+            Assert.True(draw.Destination.Width > 0, "destination width must be positive");
+            Assert.True(draw.Destination.Height > 0, "destination height must be positive");
+
+            var sourceSize = draw.Source.HasValue
+                ? new Vector2(draw.Source.Value.Width, draw.Source.Value.Height)
+                : draw.TextureSize;
+            Assert.True(sourceSize.X > 0 && sourceSize.Y > 0, "source size must be positive");
+
+            var scaleFactor = new Vector2(
+                draw.Destination.Width / sourceSize.X,
+                draw.Destination.Height / sourceSize.Y);
+            var renderedCenter = new Vector2(draw.Destination.X, draw.Destination.Y)
+                - draw.Origin * scaleFactor
+                + new Vector2(draw.Destination.Width / 2f, draw.Destination.Height / 2f);
+
+            // Allow 1px tolerance for the int rounding in CenteredRotationDestination.
+            Assert.InRange(renderedCenter.X, expectedCenter.X - 1f, expectedCenter.X + 1f);
+            Assert.InRange(renderedCenter.Y, expectedCenter.Y - 1f, expectedCenter.Y + 1f);
+        }
+    }
+
+    private static void SetupTextureDrawCapture(
+        Mock<ITexture> texture,
+        List<(Rectangle Destination, Rectangle? Source, Vector2 Origin, Vector2 TextureSize)> draws,
+        Vector2 textureSize)
+    {
+        texture.Setup(x => x.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (spriteBatch, destination, source, color, rotation, origin, effects, layerDepth) =>
+                    draws.Add((destination, source, origin, textureSize)));
+    }
+
     private static NxAttackEffectManager CreateManager(
         bool perLaneFallbackAvailable = false,
         bool starsAvailable = false,
