@@ -293,6 +293,71 @@ public class SpriteJudgementTextPopupTests
     }
 
     [Fact]
+    public void Manager_SpawnPopup_WhenHeldSpriteTextureBecomesDisposed_ShouldReloadFromResourceManagerAndAvoidFontFallback()
+    {
+        // When the held sprite texture is invalidated mid-stage and a resource manager is
+        // available, the manager should attempt to reload the sprite texture once before
+        // routing judgements to the font fallback. Without the reload, every subsequent
+        // judgement would permanently use the font fallback.
+        var initialTexture = new MutableTexture();
+        var reloadedTexture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.JudgeStringsXg)).Returns(reloadedTexture);
+
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(
+            initialTexture,
+            e => fallbackEvents.Add(e),
+            resourceManager: resourceManager.Object);
+
+        // First spawn uses the initial (valid) texture.
+        manager.SpawnPopup(new JudgementEvent(10, 4, 0.0, JudgementType.Good));
+        Assert.Single(manager.ActivePopupsForTesting);
+
+        // Invalidate the held texture; the next spawn should reload rather than fall back.
+        initialTexture.IsDisposed = true;
+        manager.SpawnPopup(new JudgementEvent(11, 4, 0.0, JudgementType.Perfect));
+
+        Assert.Equal(2, manager.ActivePopupsForTesting.Count);
+        Assert.Empty(fallbackEvents);
+        Assert.Equal(1, initialTexture.RemoveReferenceCount);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.JudgeStringsXg), Times.Once);
+
+        manager.Dispose();
+
+        // The reloaded texture is released on dispose; the initial was released on invalidation.
+        Assert.Equal(1, reloadedTexture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Manager_SpawnPopup_WhenReloadAlsoFails_ShouldFallBackToFont()
+    {
+        // If the reload attempt also yields no texture, the manager should still route to
+        // the font fallback rather than silently dropping the judgement.
+        var initialTexture = new MutableTexture();
+        var fallbackEvents = new List<JudgementEvent>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.JudgeStringsXg)).Returns(false);
+
+        var manager = SpriteJudgementTextPopupManager.CreateForTesting(
+            initialTexture,
+            e => fallbackEvents.Add(e),
+            resourceManager: resourceManager.Object);
+
+        manager.SpawnPopup(new JudgementEvent(10, 4, 0.0, JudgementType.Good));
+        Assert.Single(manager.ActivePopupsForTesting);
+
+        initialTexture.IsDisposed = true;
+        var fallbackJudgement = new JudgementEvent(11, 4, 0.0, JudgementType.Great);
+        manager.SpawnPopup(fallbackJudgement);
+
+        Assert.Single(manager.ActivePopupsForTesting);
+        Assert.Same(fallbackJudgement, Assert.Single(fallbackEvents));
+        Assert.Equal(1, initialTexture.RemoveReferenceCount);
+    }
+
+    [Fact]
     public void Manager_Draw_WhenHeldSpriteTextureBecomesDisposed_ShouldFallbackActivePopupsAndReleaseReferenceOnce()
     {
         var texture = new MutableTexture();

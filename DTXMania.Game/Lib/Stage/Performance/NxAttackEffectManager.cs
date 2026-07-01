@@ -43,6 +43,31 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         public double WaveLifetimeSeconds { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.WaveLifetimeSeconds;
+
+        // Primary spark scale curve (matches NX CActPerfDrumsChipFireD.cs scale formula:
+        // base + (offset + amplitude * cos(progress * PiOver2)), clamped to a minimum).
+        public float PrimarySparkScaleBase { get; init; } = 0.2f;
+        public float PrimarySparkScaleOffset { get; init; } = 0.2f;
+        public float PrimarySparkScaleAmplitude { get; init; } = 0.8f;
+        public float PrimarySparkScaleMin { get; init; } = 0.05f;
+
+        // Particle rotation rates in radians per second.
+        public float ChipRotationRateRadians { get; init; } = 6f;
+        public float DefaultRotationRateRadians { get; init; } = 2f;
+
+        // Particle scale lerp ranges (start -> end over the particle lifetime).
+        public float WaveScaleStart { get; init; } = 0.6f;
+        public float WaveScaleEnd { get; init; } = 1.7f;
+        public float ParticleScaleStart { get; init; } = 1f;
+        public float ParticleScaleEnd { get; init; } = 0.75f;
+
+        // Spawn velocity ranges in pixels per second.
+        public float StarSpeedMin { get; init; } = 70f;
+        public float StarSpeedMax { get; init; } = 145f;
+        public float ChipVelocityXMin { get; init; } = 90f;
+        public float ChipVelocityXMax { get; init; } = 130f;
+        public float ChipVelocityYMin { get; init; } = -150f;
+        public float ChipVelocityYMax { get; init; } = -95f;
     }
 
     public sealed class NxAttackEffectManager : IDisposable
@@ -77,7 +102,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ArgumentNullException.ThrowIfNull(resourceManager);
 
             _settings = settings ?? NxAttackEffectSettings.Default;
-            _random = random ?? new Random(0);
+            // Production uses a runtime-seeded random so particle motion varies across
+            // sessions. Tests inject an explicit Random (e.g. new Random(0)) for determinism.
+            _random = random ?? new Random();
 
             for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
             {
@@ -136,7 +163,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         lane,
                         judgementType,
                         origin,
-                        baseAngle + (i * MathF.PI / 2f)));
+                        baseAngle + (i * MathF.PI / 2f),
+                        _settings));
                 }
             }
 
@@ -225,13 +253,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             for (var i = 0; i < _settings.StarParticleCount; i++)
             {
                 var angle = NextFloat(0f, MathHelper.TwoPi);
-                var speed = NextFloat(70f, 145f);
+                var speed = NextFloat(_settings.StarSpeedMin, _settings.StarSpeedMax);
                 var velocity = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * speed;
                 _particles.Add(ParticleInstance.CreateStar(
                     lane,
                     origin,
                     velocity,
-                    _settings.StarLifetimeSeconds));
+                    _settings.StarLifetimeSeconds,
+                    _settings));
             }
         }
 
@@ -244,8 +273,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 var direction = i % 2 == 0 ? -1f : 1f;
                 var velocity = new Vector2(
-                    direction * NextFloat(90f, 130f),
-                    NextFloat(-150f, -95f));
+                    direction * NextFloat(_settings.ChipVelocityXMin, _settings.ChipVelocityXMax),
+                    NextFloat(_settings.ChipVelocityYMin, _settings.ChipVelocityYMax));
 
                 var source = GetChipFragmentSource(lane, i, _chipTexture.Width, _chipTexture.Height);
                 if (source == Rectangle.Empty)
@@ -256,7 +285,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     origin,
                     velocity,
                     source,
-                    _settings.ChipFragmentLifetimeSeconds));
+                    _settings.ChipFragmentLifetimeSeconds,
+                    _settings));
             }
         }
 
@@ -271,7 +301,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     lane,
                     origin,
                     delaySeconds: i * _settings.WaveStaggerSeconds,
-                    _settings.WaveLifetimeSeconds));
+                    _settings.WaveLifetimeSeconds,
+                    _settings));
             }
         }
 
@@ -454,17 +485,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal sealed class PrimarySparkInstance
         {
             private double _elapsedSeconds;
+            private readonly NxAttackEffectSettings _settings;
 
             public PrimarySparkInstance(
                 int lane,
                 JudgementType judgementType,
                 Vector2 position,
-                float angleRadians)
+                float angleRadians,
+                NxAttackEffectSettings? settings = null)
             {
                 Lane = lane;
                 JudgementType = judgementType;
                 Position = position;
                 AngleRadians = angleRadians;
+                _settings = settings ?? NxAttackEffectSettings.Default;
             }
 
             public int Lane { get; }
@@ -507,16 +541,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             public float GetNxStaticFireScale()
             {
-                var scale = 0.2f
-                    + (0.2f + (0.8f * MathF.Cos((FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
+                var scale = _settings.PrimarySparkScaleBase
+                    + (_settings.PrimarySparkScaleOffset
+                        + (_settings.PrimarySparkScaleAmplitude
+                            * MathF.Cos((FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
 
-                return Math.Max(0.05f, scale);
+                return Math.Max(_settings.PrimarySparkScaleMin, scale);
             }
         }
 
         internal sealed class ParticleInstance
         {
             private readonly double _durationSeconds;
+            private readonly NxAttackEffectSettings _settings;
             private double _elapsedSeconds;
 
             private ParticleInstance(
@@ -526,7 +563,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Vector2 velocity,
                 Rectangle sourceRectangle,
                 double delaySeconds,
-                double durationSeconds)
+                double durationSeconds,
+                NxAttackEffectSettings? settings = null)
             {
                 Kind = kind;
                 Lane = lane;
@@ -535,8 +573,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 SourceRectangle = sourceRectangle;
                 DelaySeconds = delaySeconds;
                 _durationSeconds = durationSeconds;
+                _settings = settings ?? NxAttackEffectSettings.Default;
                 Alpha = 1f;
-                Scale = kind == ParticleKind.Wave ? 0.6f : 1f;
+                Scale = kind == ParticleKind.Wave ? _settings.WaveScaleStart : _settings.ParticleScaleStart;
             }
 
             public ParticleKind Kind { get; }
@@ -563,7 +602,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 int lane,
                 Vector2 position,
                 Vector2 velocity,
-                double durationSeconds)
+                double durationSeconds,
+                NxAttackEffectSettings? settings = null)
             {
                 return new ParticleInstance(
                     ParticleKind.Star,
@@ -572,7 +612,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     velocity,
                     Rectangle.Empty,
                     0.0,
-                    durationSeconds);
+                    durationSeconds,
+                    settings);
             }
 
             public static ParticleInstance CreateChip(
@@ -580,7 +621,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Vector2 position,
                 Vector2 velocity,
                 Rectangle sourceRectangle,
-                double durationSeconds)
+                double durationSeconds,
+                NxAttackEffectSettings? settings = null)
             {
                 return new ParticleInstance(
                     ParticleKind.Chip,
@@ -589,14 +631,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     velocity,
                     sourceRectangle,
                     0.0,
-                    durationSeconds);
+                    durationSeconds,
+                    settings);
             }
 
             public static ParticleInstance CreateWave(
                 int lane,
                 Vector2 position,
                 double delaySeconds,
-                double durationSeconds)
+                double durationSeconds,
+                NxAttackEffectSettings? settings = null)
             {
                 return new ParticleInstance(
                     ParticleKind.Wave,
@@ -605,7 +649,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     Vector2.Zero,
                     Rectangle.Empty,
                     delaySeconds,
-                    durationSeconds);
+                    durationSeconds,
+                    settings);
             }
 
             public void Update(double deltaTime)
@@ -626,10 +671,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 var progress = (float)(_elapsedSeconds / _durationSeconds);
                 Position += Velocity * (float)deltaTime;
-                Rotation += (Kind == ParticleKind.Chip ? 6f : 2f) * (float)deltaTime;
+                Rotation += (Kind == ParticleKind.Chip
+                        ? _settings.ChipRotationRateRadians
+                        : _settings.DefaultRotationRateRadians) * (float)deltaTime;
                 Scale = Kind == ParticleKind.Wave
-                    ? MathHelper.Lerp(0.6f, 1.7f, progress)
-                    : MathHelper.Lerp(1f, 0.75f, progress);
+                    ? MathHelper.Lerp(_settings.WaveScaleStart, _settings.WaveScaleEnd, progress)
+                    : MathHelper.Lerp(_settings.ParticleScaleStart, _settings.ParticleScaleEnd, progress);
                 Alpha = MathHelper.Clamp(1f - progress, 0f, 1f);
             }
         }
