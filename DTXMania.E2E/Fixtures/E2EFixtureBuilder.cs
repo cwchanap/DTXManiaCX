@@ -8,11 +8,9 @@ public static class E2EFixtureBuilder
     public const string SongTitle = "E2E AutoPlay Smoke";
     public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
-    // Minimal valid 8x32 white PNG = 1 sprite at the EffectsManager's 8x32 frame size.
-    // EffectsManager degrades gracefully when hit_fx.png is missing, but shipping a real
-    // asset here keeps the E2E smoke test on the real asset load path (and matches the
-    // bundled System skin, which ships this same file at System/Graphics/hit_fx.png and is
-    // kept in sync by DTXMania.Test/Resources/DefaultSkinAssetsTests). Mirrors
+    // Minimal valid 8x32 white PNG shipped into the sandbox skin so it mirrors the
+    // bundled System skin, which ships this same file at System/Graphics/hit_fx.png
+    // (kept in sync by DTXMania.Test/Resources/DefaultSkinAssetsTests). Mirrors
     // TexturePath.HitFx ("Graphics/hit_fx.png").
     private const string HitEffectPngBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAgCAYAAAAv8DnQAAAAFklEQVR42mP4TwAwjCoYVTCqYKQqAAA/aPwuqUTQyAAAAABJRU5ErkJggg==";
@@ -34,6 +32,7 @@ public static class E2EFixtureBuilder
 
         File.WriteAllText(paths.ConfigPath, BuildConfig(paths.DtxRoot, paths.SkinRoot, apiPort), Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
+        // Ship hit_fx.png so the sandbox skin matches the bundled System skin.
         File.WriteAllBytes(
             Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
             Convert.FromBase64String(HitEffectPngBase64));

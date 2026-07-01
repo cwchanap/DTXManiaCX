@@ -38,8 +38,8 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(File.Exists(fixture.ConfigPath));
             Assert.True(File.Exists(fixture.ChartPath));
 
-            // The Performance stage's EffectsManager requires a loadable hit-effect sprite sheet
-            // (throws in Debug builds otherwise), so the sandbox skin must ship a valid PNG.
+            // The sandbox skin must ship a valid hit_fx.png so it mirrors the bundled
+            // System skin (validated by DefaultSkinAssetsTests).
             var hitEffectPath = Path.Combine(fixture.SkinRoot, "Graphics", "hit_fx.png");
             Assert.True(File.Exists(hitEffectPath));
             var hitEffectBytes = File.ReadAllBytes(hitEffectPath);

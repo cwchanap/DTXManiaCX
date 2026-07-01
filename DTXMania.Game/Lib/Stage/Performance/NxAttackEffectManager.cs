@@ -141,7 +141,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         internal int ActiveParticleCountForTesting => _particles.Count;
 
-#if DEBUG
         internal int SpawnCallCountForTesting { get; private set; }
 
         internal int? LastSpawnLaneForTesting { get; private set; }
@@ -149,18 +148,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         internal JudgementType? LastSpawnJudgementTypeForTesting { get; private set; }
 
         internal bool SuppressSpawnForTesting { get; set; }
-#endif
 
         public void Spawn(int lane, JudgementType judgementType)
         {
-#if DEBUG
             SpawnCallCountForTesting++;
             LastSpawnLaneForTesting = lane;
             LastSpawnJudgementTypeForTesting = judgementType;
 
             if (SuppressSpawnForTesting)
                 return;
-#endif
 
             if (_disposed
                 || lane < 0
@@ -311,8 +307,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _waveTexture = LoadOptionalTexture(_resourceManager, TexturePath.ChipWave);
             }
 
-            // A successful reload resets the guard so a future invalidation can retry.
-            _reloadAttempted = false;
+            // Only reset the guard if no textures are still invalid after the reload
+            // attempt. This mirrors the sticky-on-failure pattern in
+            // SpriteJudgementTextPopupManager: a failed reload (texture still disposed)
+            // keeps the guard set so we don't retry every frame.
+            if (!AnyTextureStillInvalid())
+                _reloadAttempted = false;
+        }
+
+        private bool AnyTextureStillInvalid()
+        {
+            for (var lane = 0; lane < PerformanceUILayout.LaneCount; lane++)
+            {
+                if (IsTextureInvalid(_laneSparkTextures[lane]))
+                    return true;
+                if (IsTextureInvalid(_laneStarTextures[lane]))
+                    return true;
+            }
+
+            return IsTextureInvalid(_chipTexture) || IsTextureInvalid(_waveTexture);
         }
 
         public void ClearAll()
