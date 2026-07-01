@@ -17,6 +17,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public double PrimaryFrameDurationSeconds { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.PrimarySparkFrameDurationSeconds;
 
+        // The counter end value and scale divisor are independent hardcoded constants
+        // in the original NX source (CActPerfDrumsChipFireD.cs). PrimaryFrameCount is
+        // derived as CounterEndValue + 1 (the counter is 0-indexed). Exposing all three
+        // through settings keeps the position/scale curves coupled to the frame count
+        // so a future tuning change doesn't make sparks expire mid-flight.
+        public int PrimarySparkCounterEndValue { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.PrimarySparkCounterEndValue;
+
+        public int PrimarySparkScaleDivisor { get; init; } =
+            PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor;
+
         public int PrimaryFrameCount { get; init; } =
             PerformanceUILayout.NxAttackEffectAssets.PrimarySparkFrameCount;
 
@@ -309,7 +320,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void DrawPrimarySpark(SpriteBatch spriteBatch, PrimarySparkInstance spark)
         {
             var texture = _laneSparkTextures[spark.Lane];
-            if (texture == null)
+            if (texture == null || texture.IsDisposed)
                 return;
 
             var destination = CenteredDestination(
@@ -337,7 +348,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (particle.Kind == ParticleKind.Star)
             {
                 var starTexture = _laneStarTextures[particle.Lane];
-                if (starTexture == null)
+                if (starTexture == null || starTexture.IsDisposed)
                     return;
 
                 starTexture.Draw(
@@ -355,8 +366,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             else if (particle.Kind == ParticleKind.Chip)
             {
+                var chipTexture = _chipTexture;
                 var source = particle.SourceRectangle;
-                _chipTexture?.Draw(
+                if (chipTexture == null || chipTexture.IsDisposed)
+                    return;
+
+                chipTexture.Draw(
                     spriteBatch,
                     CenteredRotationDestination(
                         particle.Position,
@@ -372,7 +387,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             else if (particle.Kind == ParticleKind.Wave)
             {
                 var waveTexture = _waveTexture;
-                if (waveTexture == null)
+                if (waveTexture == null || waveTexture.IsDisposed)
                     return;
 
                 waveTexture.Draw(
@@ -528,7 +543,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             public Vector2 GetNxStaticFirePosition()
             {
                 var progress = MathHelper.Clamp(
-                    FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkCounterEndValue,
+                    FrameIndex / (float)_settings.PrimarySparkCounterEndValue,
                     0f,
                     1f);
                 var distance = MathF.Sin(progress * MathHelper.PiOver2)
@@ -544,7 +559,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var scale = _settings.PrimarySparkScaleBase
                     + (_settings.PrimarySparkScaleOffset
                         + (_settings.PrimarySparkScaleAmplitude
-                            * MathF.Cos((FrameIndex / (float)PerformanceUILayout.NxAttackEffectAssets.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
+                            * MathF.Cos((FrameIndex / (float)_settings.PrimarySparkScaleDivisor) * MathHelper.PiOver2)));
 
                 return Math.Max(_settings.PrimarySparkScaleMin, scale);
             }

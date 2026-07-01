@@ -101,7 +101,7 @@ Fallback spark behavior:
 Secondary particle behavior:
 
 - Spawn star particles from `Graphics/ScreenPlayDrums chip star_<lane>.png` when present.
-- Spawn small chip fragments from `Graphics/7_Chips_drums.png` when present.
+- Spawn small chip fragments from `Graphics/7_chips_drums.png` when present.
 - Spawn wave pulses from `Graphics/ScreenPlayDrums chip wave.png` and, if available, `Graphics/ScreenPlayDrums chip wave2.png`.
   - **Implementation note (2026-06-29):** `chip wave2.png` was dropped because the bundled System skin does not currently ship it. Only `chip wave.png` is loaded; wave2 support is deferred until the asset exists in the default skin. See `docs/superpowers/plans/2026-06-29-nx-judgement-collision-animation.md`.
 - Secondary particles may overlap briefly across repeated hits.

@@ -1248,7 +1248,7 @@ namespace DTXMania.Game.Lib.Stage
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
 
             // Spawn hit effect for successful hits (non-Miss)
-            if (e.Type != JudgementType.Miss)
+            if (e.IsHit())
             {
                 _nxAttackEffectManager?.Spawn(e.Lane, e.Type);
 
