@@ -1,5 +1,15 @@
 # NX Judgement Collision Animation Implementation Plan
 
+> **STATUS NOTE (2026-06-30):** This plan originally specified a combined-sheet
+> slicing model where `NxAttackEffectManager` would load `ChipFireCombined`
+> (`Graphics/ScreenPlayDrums chip fire.png`) and slice it into per-lane animation
+> frames. That approach was abandoned in commits `de9323f` and `3a9ac4c` in favor
+> of porting NX's actual per-lane fire model (loading individual
+> `ScreenPlayDrums chip fire_*.png` assets directly). The `ChipFireCombined`
+> constant, its `GetAllTexturePaths` entry, and the 1.2 MB bundled asset were
+> subsequently removed. References to combined-sheet slicing below are retained
+> for historical context but no longer reflect the shipped implementation.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add bundled NX-style note collision effects and sprite-art judgement text to the gameplay stage.

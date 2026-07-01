@@ -70,7 +70,7 @@ public class NxAttackEffectManagerTests
     [InlineData(JudgementType.Miss, false)]
     public void Spawn_ShouldCreatePrimarySparkOnlyForHitJudgements(JudgementType judgementType, bool shouldSpawn)
     {
-        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
 
         manager.Spawn(3, judgementType);
 
@@ -80,7 +80,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Spawn_WhenSameLaneAlreadyActive_ShouldRestartPrimarySpark()
     {
-        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(2, JudgementType.Perfect);
         manager.Update(0.09);
 
@@ -98,7 +98,6 @@ public class NxAttackEffectManagerTests
     public void Spawn_WithNxDefaultAssets_ShouldCreateStarsAndChipFragments()
     {
         var manager = CreateManager(
-            combinedAvailable: true,
             perLaneFallbackAvailable: true,
             starsAvailable: true,
             chipTextureAvailable: true,
@@ -114,7 +113,6 @@ public class NxAttackEffectManagerTests
     public void Spawn_WhenChipTextureTooNarrowForFragment_ShouldSkipChipFragments()
     {
         var manager = CreateManager(
-            combinedAvailable: false,
             chipTextureAvailable: true,
             chipTextureWidth: 7,
             settings: new NxAttackEffectSettings
@@ -131,7 +129,6 @@ public class NxAttackEffectManagerTests
     public void Spawn_WhenChipTextureTooShortForFragment_ShouldSkipChipFragments()
     {
         var manager = CreateManager(
-            combinedAvailable: false,
             chipTextureAvailable: true,
             chipTextureWidth: 718,
             chipTextureHeight: 703,
@@ -146,19 +143,9 @@ public class NxAttackEffectManagerTests
     }
 
     [Fact]
-    public void Constructor_WhenCombinedSheetMissing_ShouldUsePerLaneFallbackTexture()
+    public void Constructor_WithPerLaneFireAvailable_ShouldUsePerLaneNxDefaultSpark()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
-
-        manager.Spawn(0, JudgementType.Perfect);
-
-        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
-    }
-
-    [Fact]
-    public void Constructor_WhenCombinedSheetAndPerLaneFireExist_ShouldUsePerLaneNxDefaultSpark()
-    {
-        var manager = CreateManager(combinedAvailable: true, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
 
         manager.Spawn(0, JudgementType.Perfect);
 
@@ -168,7 +155,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Update_AfterNxDefaultStaticFireDuration_ShouldExpireSpark()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
 
         manager.Update(0.22);
@@ -190,31 +177,6 @@ public class NxAttackEffectManagerTests
         manager.Dispose();
 
         texture.Verify(x => x.RemoveReference(), Times.Once);
-    }
-
-    [Fact]
-    public void Constructor_WhenCombinedSheetPresent_ShouldNotLoadItForNxDefaultExplosion()
-    {
-        var combinedTexture = CreateTexture(width: 1800, height: 1650);
-        var fallbackTexture = CreateTexture(width: 128, height: 128);
-        var resourceManager = new Mock<IResourceManager>();
-        resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined)).Returns(combinedTexture.Object);
-        resourceManager.Setup(x => x.ResourceExists(TexturePath.GetDrumChipFireLanePath(0))).Returns(true);
-        resourceManager.Setup(x => x.LoadTexture(TexturePath.GetDrumChipFireLanePath(0))).Returns(fallbackTexture.Object);
-
-        var manager = new NxAttackEffectManager(resourceManager.Object);
-
-        resourceManager.Verify(x => x.LoadTexture(TexturePath.ChipFireCombined), Times.Never);
-        combinedTexture.Verify(x => x.RemoveReference(), Times.Never);
-
-        manager.Spawn(0, JudgementType.Perfect);
-        Assert.Equal(2, manager.ActivePrimarySparksForTesting.Count);
-
-        manager.Dispose();
-
-        fallbackTexture.Verify(x => x.RemoveReference(), Times.Once);
     }
 
     [Fact]
@@ -366,7 +328,6 @@ public class NxAttackEffectManagerTests
     }
 
     private static NxAttackEffectManager CreateManager(
-        bool combinedAvailable,
         bool perLaneFallbackAvailable = false,
         bool starsAvailable = false,
         bool chipTextureAvailable = false,
@@ -377,13 +338,6 @@ public class NxAttackEffectManagerTests
     {
         var resourceManager = new Mock<IResourceManager>();
         resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
-
-        if (combinedAvailable)
-        {
-            resourceManager.Setup(x => x.ResourceExists(TexturePath.ChipFireCombined)).Returns(true);
-            resourceManager.Setup(x => x.LoadTexture(TexturePath.ChipFireCombined))
-                .Returns(CreateTexture(width: 1800, height: 1650).Object);
-        }
 
         if (perLaneFallbackAvailable)
         {
@@ -447,7 +401,7 @@ public class NxAttackEffectManagerTests
     [InlineData(99)]
     public void Spawn_WhenLaneOutOfRange_ShouldNotSpawnAnything(int lane)
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
 
         manager.Spawn(lane, JudgementType.Perfect);
 
@@ -458,7 +412,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Spawn_WhenDisposed_ShouldNotSpawnAnything()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Dispose();
 
         manager.Spawn(0, JudgementType.Perfect);
@@ -470,7 +424,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Update_WhenDisposed_ShouldNotThrow()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
         manager.Dispose();
 
@@ -481,7 +435,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Draw_WhenDisposed_ShouldNotThrow()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
         manager.Dispose();
         var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
@@ -493,7 +447,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Draw_WithNullSpriteBatch_ShouldNotThrow()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
 
         var exception = Record.Exception(() => manager.Draw(null));
@@ -504,7 +458,6 @@ public class NxAttackEffectManagerTests
     public void ClearAll_ShouldRemoveAllSparksAndParticles()
     {
         var manager = CreateManager(
-            combinedAvailable: false,
             perLaneFallbackAvailable: true,
             starsAvailable: true,
             chipTextureAvailable: true);
@@ -652,7 +605,7 @@ public class NxAttackEffectManagerTests
     [Fact]
     public void Update_WithNegativeDeltaTime_ShouldClampToZero()
     {
-        var manager = CreateManager(combinedAvailable: false, perLaneFallbackAvailable: true);
+        var manager = CreateManager(perLaneFallbackAvailable: true);
         manager.Spawn(0, JudgementType.Perfect);
         var initialCount = manager.ActivePrimarySparkCountForTesting;
 

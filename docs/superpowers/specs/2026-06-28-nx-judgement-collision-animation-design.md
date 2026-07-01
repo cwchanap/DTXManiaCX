@@ -1,5 +1,13 @@
 # NX Judgement Collision Animation Design
 
+> **STATUS NOTE (2026-06-30):** The design below originally called for slicing the
+> combined `ScreenPlayDrums chip fire.png` sheet into per-lane animation frames.
+> That approach was abandoned in commits `de9323f` and `3a9ac4c` in favor of
+> porting NX's actual per-lane fire model (loading individual
+> `ScreenPlayDrums chip fire_*.png` assets directly). The combined sheet asset and
+> its `ChipFireCombined` texture path constant have been removed. References to
+> the combined-sheet approach below are retained for historical context.
+
 ## Context
 
 DTXManiaCX currently shows performance-stage judgement feedback through two small systems:
