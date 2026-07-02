@@ -41,6 +41,22 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         private static readonly int RowCount = ActionCount + 2;
         private const double ConflictDuration = 2.0;
 
+        // Config-aligned palette (mirrors ConfigStage / ConfigUILayout) so the sub-panel reads as
+        // part of the same stage: a dark framed board with a purple border, light text, and a warm
+        // highlight on the selected row.
+        private static readonly Color BackdropColor = new(0, 0, 0, 200);
+        private static readonly Color BoardColor = new(14, 16, 34, 236);
+        private static readonly Color BoardBorderColor = new(74, 62, 150, 235);
+        private static readonly Color RowFillColor = new(30, 34, 60, 220);
+        private static readonly Color SelectionBarColor = new(120, 92, 30, 190);
+        private static readonly Color TitleColor = new(235, 238, 248);
+        private static readonly Color RowNameColor = new(235, 238, 248);
+        private static readonly Color RowKeyColor = new(190, 205, 232);
+        private static readonly Color SelectedTextColor = new(255, 238, 120);
+        private static readonly Color AwaitingKeyColor = new(120, 220, 255);
+        private static readonly Color ConflictColor = new(255, 96, 96);
+        private static readonly Color InstructionColor = new(170, 180, 205);
+
         private readonly InputManager _inputManager;
 
         // Working copy: action -> key (one-to-one)
@@ -299,17 +315,36 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         {
             if (!IsActive || spriteBatch == null) return;
 
-            // Dark overlay
+            // Dim the whole stage behind the panel.
             if (whitePixel != null)
-                spriteBatch.Draw(whitePixel,
-                    new Rectangle(0, 0, viewportWidth, viewportHeight), new Color(0, 0, 0, 210));
+                spriteBatch.Draw(whitePixel, new Rectangle(0, 0, viewportWidth, viewportHeight), BackdropColor);
 
-            const int panelX = 80;
-            int y = 50;
-            const int rowH = 36;
+            // Centered framed board (all coordinates in the same scaled space as the config stage).
+            const int boardW = 720;
+            const int boardH = 540;
+            int boardX = (viewportWidth - boardW) / 2;
+            int boardY = (viewportHeight - boardH) / 2;
 
-            DrawText(spriteBatch, font, boldFont, "SYSTEM KEY MAPPING", panelX, y, Color.White, false);
-            y += rowH + 8;
+            if (whitePixel != null)
+            {
+                spriteBatch.Draw(whitePixel, new Rectangle(boardX - 4, boardY - 4, boardW + 8, boardH + 8), BoardBorderColor);
+                spriteBatch.Draw(whitePixel, new Rectangle(boardX, boardY, boardW, boardH), BoardColor);
+            }
+
+            // Title, centered on the board.
+            const string title = "SYSTEM KEY MAPPING";
+            var titleFont = boldFont ?? font;
+            if (titleFont != null)
+            {
+                var size = titleFont.MeasureString(title);
+                titleFont.DrawString(spriteBatch, title,
+                    new Vector2(boardX + (boardW - size.X) / 2f, boardY + 20), TitleColor);
+            }
+
+            const int rowH = 40;
+            int nameX = boardX + 40;
+            int keyX = boardX + 360;
+            int y = boardY + 78;
 
             for (int i = 0; i < ActionCount; i++)
             {
@@ -317,44 +352,79 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 bool sel = i == _selectedIndex;
 
                 if (sel && whitePixel != null)
-                    spriteBatch.Draw(whitePixel, new Rectangle(panelX - 4, y, 600, rowH - 2),
-                        new Color(64, 64, 128, 150));
+                    spriteBatch.Draw(whitePixel, new Rectangle(boardX + 20, y, boardW - 40, rowH - 6), SelectionBarColor);
 
-                string keyLabel = (sel && _state == CaptureState.AwaitingKey)
-                    ? "[Press any key... Backspace to cancel]"
+                bool awaiting = sel && _state == CaptureState.AwaitingKey;
+                string keyLabel = awaiting
+                    ? "[Press a key... Backspace cancels]"
                     : GetDisplayKeyLabel(action);
 
-                string rowText = $"{i + 1}. {action,-18}  {keyLabel}";
-                DrawText(spriteBatch, font, boldFont, rowText, panelX, y + 6,
-                    sel ? Color.Yellow : Color.White, sel);
+                DrawText(spriteBatch, font, boldFont, FormatActionName(action), nameX, y + 8,
+                    sel ? SelectedTextColor : RowNameColor, sel);
+                DrawText(spriteBatch, font, boldFont, keyLabel, keyX, y + 8,
+                    awaiting ? AwaitingKeyColor : (sel ? SelectedTextColor : RowKeyColor), sel);
                 y += rowH;
             }
 
-            y += 8;
+            y += 14;
 
-            // Footer
-            DrawFooterRow(spriteBatch, font, boldFont, whitePixel, panelX, y, rowH, "SAVE",
+            // Footer buttons: SAVE and CANCEL, side by side and centered.
+            const int btnW = 210;
+            const int btnGap = 40;
+            int totalW = btnW * 2 + btnGap;
+            int saveX = boardX + (boardW - totalW) / 2;
+            DrawFooterButton(spriteBatch, font, boldFont, whitePixel, saveX, y, btnW, rowH, "SAVE",
                 _selectedIndex == FooterSave);
-            y += rowH;
-            DrawFooterRow(spriteBatch, font, boldFont, whitePixel, panelX, y, rowH, GetFooterCancelLabel(),
-                _selectedIndex == FooterCancel);
-            y += rowH + 8;
+            DrawFooterButton(spriteBatch, font, boldFont, whitePixel, saveX + btnW + btnGap, y, btnW, rowH,
+                GetFooterCancelLabel(), _selectedIndex == FooterCancel);
+            y += rowH + 16;
 
-            if (_conflictMessage != null)
-                DrawText(spriteBatch, font, boldFont, $"Conflict: {_conflictMessage}",
-                    panelX, y, Color.Red, false);
+            if (_conflictMessage != null && font != null)
+            {
+                var msg = $"Conflict: {_conflictMessage}";
+                var size = font.MeasureString(msg);
+                font.DrawString(spriteBatch, msg, new Vector2(boardX + (boardW - size.X) / 2f, y), ConflictColor);
+            }
 
-            int instrY = viewportHeight - 28;
-            DrawText(spriteBatch, font, boldFont, GetInstructionText(), panelX, instrY,
-                new Color(180, 180, 180), false);
+            // Instruction line pinned near the board bottom.
+            if (font != null)
+            {
+                var instr = GetInstructionText();
+                var size = font.MeasureString(instr);
+                font.DrawString(spriteBatch, instr,
+                    new Vector2(boardX + (boardW - size.X) / 2f, boardY + boardH - 34), InstructionColor);
+            }
         }
 
-        private static void DrawFooterRow(SpriteBatch sb, IFont? font, IFont? boldFont, Texture2D? wp,
-            int x, int y, int h, string label, bool selected)
+        private static void DrawFooterButton(SpriteBatch sb, IFont? font, IFont? boldFont, Texture2D? wp,
+            int x, int y, int w, int h, string label, bool selected)
         {
-            if (selected && wp != null)
-                sb.Draw(wp, new Rectangle(x - 4, y, 300, h - 2), new Color(64, 64, 128, 150));
-            DrawText(sb, font, boldFont, label, x, y + 6, selected ? Color.Yellow : Color.White, selected);
+            if (wp != null)
+            {
+                sb.Draw(wp, new Rectangle(x - 3, y - 3, w + 6, h + 6), BoardBorderColor);
+                sb.Draw(wp, new Rectangle(x, y, w, h), selected ? SelectionBarColor : RowFillColor);
+            }
+
+            var picked = boldFont ?? font;
+            if (picked == null) return;
+            var size = picked.MeasureString(label);
+            picked.DrawString(sb, label,
+                new Vector2(x + (w - size.X) / 2f, y + (h - size.Y) / 2f),
+                selected ? SelectedTextColor : RowNameColor);
+        }
+
+        // Humanizes an action enum name for display: "MoveUp" -> "Move Up".
+        private static string FormatActionName(InputCommandType action)
+        {
+            var s = action.ToString();
+            var sb = new System.Text.StringBuilder(s.Length + 4);
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (i > 0 && char.IsUpper(s[i]) && !char.IsUpper(s[i - 1]))
+                    sb.Append(' ');
+                sb.Append(s[i]);
+            }
+            return sb.ToString();
         }
 
         private static void DrawText(SpriteBatch sb, IFont? font, IFont? boldFont, string text, int x, int y,
