@@ -70,7 +70,6 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture? _headerPanelTexture;
         private ITexture? _footerPanelTexture;
         private ITexture? _itemBoxTexture;
-        private ITexture? _itemBoxOtherTexture;
         private ITexture? _itemBoxCursorTexture;
         private ITexture? _descriptionPanelTexture;
 
@@ -98,6 +97,11 @@ namespace DTXMania.Game.Lib.Stage
         // region stays visually delimited and text remains legible without the texture.
         private static readonly Color PanelFallbackColor = new(28, 32, 54, 220);
         private static readonly Color ItemBoxFallbackColor = new(34, 40, 68, 200);
+
+        // Inner board: dark translucent fill with a purple frame (matching the itembox border),
+        // drawn over the background to contain the config content and keep it readable.
+        private static readonly Color InnerBoardColor = new(8, 10, 22, 196);
+        private static readonly Color InnerBoardBorderColor = new(74, 62, 150, 224);
 
         private volatile string _importStatus = "";
         private volatile bool _importRunning;
@@ -187,6 +191,7 @@ namespace DTXMania.Game.Lib.Stage
             BeginDrawFrame();
 
             DrawConfigBackground();
+            DrawInnerBoard();
             DrawItemBar();
             DrawCategoryMenu();
             DrawItemList();
@@ -196,8 +201,10 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_activePanel?.IsActive == true)
             {
-                var vp = GetViewport();
-                _activePanel.Draw(_spriteBatch, _font, _boldFont, _whitePixel, vp.Width, vp.Height);
+                // Panel draws in the same scaled 1280x720 space as the rest of the stage, so it
+                // receives the virtual dimensions (not the raw viewport) and centers within them.
+                _activePanel.Draw(_spriteBatch, _font, _boldFont, _whitePixel,
+                    ConfigUILayout.ScreenWidth, ConfigUILayout.ScreenHeight);
             }
 
             EndDrawFrame();
@@ -300,7 +307,6 @@ namespace DTXMania.Game.Lib.Stage
             _headerPanelTexture = TryLoadTexture(TexturePath.ConfigHeaderPanel);
             _footerPanelTexture = TryLoadTexture(TexturePath.ConfigFooterPanel);
             _itemBoxTexture = TryLoadTexture(TexturePath.ConfigItemBox);
-            _itemBoxOtherTexture = TryLoadTexture(TexturePath.ConfigItemBoxOther);
             _itemBoxCursorTexture = TryLoadTexture(TexturePath.ConfigItemBoxCursor);
             _descriptionPanelTexture = TryLoadTexture(TexturePath.ConfigDescriptionPanel);
         }
@@ -345,8 +351,6 @@ namespace DTXMania.Game.Lib.Stage
             _footerPanelTexture = null;
             _itemBoxTexture?.RemoveReference();
             _itemBoxTexture = null;
-            _itemBoxOtherTexture?.RemoveReference();
-            _itemBoxOtherTexture = null;
             _itemBoxCursorTexture?.RemoveReference();
             _itemBoxCursorTexture = null;
             _descriptionPanelTexture?.RemoveReference();
@@ -714,13 +718,23 @@ namespace DTXMania.Game.Lib.Stage
 
         protected virtual void DrawConfigBackground()
         {
-            var viewport = GetViewport();
-            var full = new Rectangle(0, 0, viewport.Width, viewport.Height);
+            // Draw the GALAXY WAVE background at the fixed 1280x720 virtual rect (not the raw
+            // viewport). The frame-wide viewport transform scales it uniformly to fill the screen,
+            // preserving aspect — drawing at viewport size here would stretch it out of proportion.
+            var full = ConfigUILayout.BackgroundRect;
 
             if (_backgroundTexture?.Texture != null)
                 _spriteBatch.Draw(_backgroundTexture.Texture, full, Color.White);
             else
                 DrawFilledRectangle(full, FallbackBackgroundColor);
+        }
+
+        // Dark translucent framed board over the background, behind the menu/item/description
+        // panels, so the config content stays readable against the busy background.
+        protected virtual void DrawInnerBoard()
+        {
+            DrawFilledRectangle(ConfigUILayout.InnerBoardBorderRect, InnerBoardBorderColor);
+            DrawFilledRectangle(ConfigUILayout.InnerBoardRect, InnerBoardColor);
         }
 
         protected virtual void DrawItemBar()
@@ -779,18 +793,17 @@ namespace DTXMania.Game.Lib.Stage
             var category = _categories[_currentCategoryIndex];
             var items = category.Items;
 
-            // Box pass. Only real items are drawn (non-cyclic), each at its scrolled Y.
+            // Box pass. Every item — value and navigation alike — uses the same normal itembox
+            // (dark name cell + white value cell) so the list reads uniformly. Only real items
+            // are drawn (non-cyclic), each at its scrolled Y.
             for (int i = 0; i < items.Count; i++)
             {
                 int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
                 if (!ConfigUILayout.IsRowVisible(rowTopY))
                     continue;
-                bool isNav = items[i] is NavigationConfigItem;
-                var boxTex = isNav ? _itemBoxOtherTexture : _itemBoxTexture;
-                int boxWidth = isNav ? ConfigUILayout.ItemBoxOtherWidth : ConfigUILayout.ItemBoxNormalWidth;
-                var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, boxWidth);
-                if (boxTex?.Texture != null)
-                    _spriteBatch.Draw(boxTex.Texture, boxRect, Color.White);
+                var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, ConfigUILayout.ItemBoxNormalWidth);
+                if (_itemBoxTexture?.Texture != null)
+                    _spriteBatch.Draw(_itemBoxTexture.Texture, boxRect, Color.White);
                 else
                     DrawFilledRectangle(boxRect, ItemBoxFallbackColor);
             }
@@ -815,7 +828,6 @@ namespace DTXMania.Game.Lib.Stage
                     continue;
                 var item = items[i];
                 bool selected = !_focusOnMenu && i == category.SelectedIndex;
-                bool isNav = item is NavigationConfigItem;
                 var font = selected ? _boldFont : _font;
 
                 font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
@@ -826,11 +838,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
                     var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
-                    // Nav marker (">") sits on the dark "other" box -> light; real values sit on the
-                    // itembox white cell -> dark.
-                    Color valueColor = isNav
-                        ? (selected ? SelectedNameText : LightText)
-                        : (selected ? SelectedValueText : ValueDarkText);
+                    // Every value (including the nav ">" marker) sits on the itembox white cell -> dark.
+                    Color valueColor = selected ? SelectedValueText : ValueDarkText;
                     font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
                 }
             }
@@ -861,28 +870,28 @@ namespace DTXMania.Game.Lib.Stage
             if (_categories.Count == 0)
                 return;
 
-            // The panel is a fixed UI region; always render its background (texture or fallback
-            // fill) so the layout stays consistent. Only the wrapped text is gated on content —
-            // every category/item has a description today (enforced by test), but decoupling the
-            // panel from the text avoids a surprise blank gap if that invariant ever changes.
+            // NX draws the description panel only while focus is on the item list
+            // (CStageConfig.cs:260, !bFocusIsOnMenu) — not while browsing the category menu. This
+            // keeps the busy GALAXY WAVE background clear on entry and stops the panel from
+            // overlapping the item boxes until the player is actually editing an item. The selected
+            // item sits at the focus row (y=189), above the panel top (y=270), so it stays readable.
+            if (_focusOnMenu)
+                return;
+
+            var category = _categories[_currentCategoryIndex];
+
             if (_descriptionPanelTexture?.Texture != null)
                 _spriteBatch.Draw(_descriptionPanelTexture.Texture, ConfigUILayout.DescriptionPanelRect, Color.White);
             else
                 DrawFilledRectangle(ConfigUILayout.DescriptionPanelRect, PanelFallbackColor);
 
-            var category = _categories[_currentCategoryIndex];
-
-            // Title: the focused item's name (or the category name on menu focus) on the white upper cell.
-            string title = _focusOnMenu
-                ? category.Name
-                : (category.SelectedItem?.Name ?? category.Name);
+            // Title: the selected item's name on the white upper cell.
+            string title = category.SelectedItem?.Name ?? category.Name;
             if (!string.IsNullOrEmpty(title) && _boldFont != null)
                 _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos, DescriptionTitleText);
 
-            // Body: the description text, wrapped, on the black lower cell.
-            string text = _focusOnMenu
-                ? category.Description
-                : (category.SelectedItem?.Description ?? string.Empty);
+            // Body: the selected item's description, wrapped, on the black lower cell.
+            string text = category.SelectedItem?.Description ?? string.Empty;
 
             if (string.IsNullOrEmpty(text) || _font == null)
                 return;
@@ -950,10 +959,24 @@ namespace DTXMania.Game.Lib.Stage
             _font.DrawString(_spriteBatch, _importStatus, ConfigUILayout.ImportStatusPos, ImportStatusColor);
         }
 
+        // Letterbox transform that scales the fixed 1280x720 layout up to fill the actual
+        // back-buffer/viewport (which matches the configured screen resolution, e.g. 3840x2160),
+        // preserving aspect. Mirrors ResultScreenRenderer.CreateViewportTransform. Without it the
+        // stage renders 1:1 in the top-left corner of a high-res back buffer.
+        internal static Matrix CreateViewportTransform(Viewport viewport)
+        {
+            float scaleX = viewport.Width / (float)ConfigUILayout.ScreenWidth;
+            float scaleY = viewport.Height / (float)ConfigUILayout.ScreenHeight;
+            float scale = Math.Min(scaleX, scaleY);
+            float offsetX = viewport.X + (viewport.Width - ConfigUILayout.ScreenWidth * scale) / 2f;
+            float offsetY = viewport.Y + (viewport.Height - ConfigUILayout.ScreenHeight * scale) / 2f;
+            return Matrix.CreateScale(scale, scale, 1f) * Matrix.CreateTranslation(offsetX, offsetY, 0f);
+        }
+
         [ExcludeFromCodeCoverage]
         protected virtual void BeginDrawFrame()
         {
-            _spriteBatch.Begin();
+            _spriteBatch.Begin(transformMatrix: CreateViewportTransform(GetViewport()));
         }
 
         [ExcludeFromCodeCoverage]

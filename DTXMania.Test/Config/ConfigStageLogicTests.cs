@@ -348,10 +348,12 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawBackground_ShouldFillViewportWithBackgroundColor()
+    public void DrawBackground_ShouldFillFixedVirtualRectRegardlessOfViewport()
     {
-        var viewport = new Viewport(0, 0, 1280, 720);
-        var (stage, inputManager) = CreateRenderSpyStage(viewport);
+        // The background is drawn at the fixed 1280x720 virtual rect; the frame-wide viewport
+        // transform scales it to fill the screen. Drawing at raw viewport size would stretch it
+        // out of aspect, so even a 4K viewport must still produce a (0,0,1280,720) fill.
+        var (stage, inputManager) = CreateRenderSpyStage(new Viewport(0, 0, 3840, 2160));
         using (inputManager)
         {
             stage.InitializeDrawingState();
@@ -359,10 +361,55 @@ public class ConfigStageLogicTests
             _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawConfigBackground"));
 
             var drawCall = Assert.Single(stage.RectangleDrawCalls);
-            Assert.Equal(new Rectangle(0, 0, viewport.Width, viewport.Height), drawCall.Rectangle);
+            Assert.Equal(ConfigUILayout.BackgroundRect, drawCall.Rectangle);
             // Must match ConfigStage.FallbackBackgroundColor: dark fill keeps LightText legible
             // when the background texture is unavailable (light-on-dark is the NX aesthetic).
             Assert.Equal(new Color(18, 20, 34), drawCall.Color);
+        }
+    }
+
+    [Fact]
+    public void DrawInnerBoard_ShouldFillBorderThenBoardRects()
+    {
+        // The inner board is a dark translucent frame over the background that contains the
+        // config content so it stays readable against the busy GALAXY WAVE background.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawInnerBoard");
+
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.InnerBoardBorderRect && c.Color == new Color(74, 62, 150, 224));
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.InnerBoardRect && c.Color == new Color(8, 10, 22, 196));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_ForNavigationItem_ShouldUseNormalItemBoxWidth()
+    {
+        // Navigation items (System Key Mapping / Import NX Scores / Drum Key Mapping) must use the
+        // same normal itembox as value items so the list reads uniformly — never the narrower
+        // "other" box, which made them look out of place.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System (index 5 = System Key Mapping)
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            var navRowTopY = ConfigUILayout.RowTopY(5, 0.0);
+            var normalRect = ConfigUILayout.ItemBoxRect(navRowTopY, ConfigUILayout.ItemBoxNormalWidth);
+            Assert.Contains(stage.RectangleDrawCalls,
+                c => c.Rectangle == normalRect && c.Color == new Color(34, 40, 68, 200));
+
+            // The narrower "other" box must no longer be used for any row.
+            var otherRect = ConfigUILayout.ItemBoxRect(navRowTopY, ConfigUILayout.ItemBoxOtherWidth);
+            Assert.DoesNotContain(stage.RectangleDrawCalls, c => c.Rectangle == otherRect);
         }
     }
 
@@ -1391,7 +1438,8 @@ public class ConfigStageLogicTests
             stage.InitializeDrawingState();
             ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
             ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
+            // Panel only renders on item focus (matches NX); menu focus draws nothing.
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
 
@@ -1521,32 +1569,33 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void DrawDescriptionPanel_WhenFocusOnMenu_ShouldDrawCategoryDescription()
+    public void DrawDescriptionPanel_WhenFocusOnMenu_ShouldNotDrawPanel()
     {
-        // Spec requirement: while focus = Menu, the description panel shows the focused
-        // category's Description. The render spy nulls the font, so this injects a mock
-        // font to capture the DrawString text content — the one spec assertion the
-        // fallback-rect tests can't cover.
+        // NX only shows the description panel while focus is on the item list, not while browsing
+        // the category menu (CStageConfig.cs:260). On menu focus nothing is drawn — no panel
+        // background and no text — so the entry view stays clear and the panel never overlaps the
+        // item boxes.
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
             stage.InitializeDrawingState();
             ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
-            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
             var mockFont = new Moq.Mock<IFont>();
             mockFont.Setup(f => f.MeasureString(Moq.It.IsAny<string>())).Returns(new Vector2(1, 1));
             ReflectionHelpers.SetPrivateField(stage, "_font", mockFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", mockFont.Object);
 
             ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System
             ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", true);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
 
-            var expected = categories![0].Description;
+            Assert.DoesNotContain(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.DescriptionPanelRect);
             mockFont.Verify(
-                f => f.DrawString(Moq.It.IsAny<SpriteBatch>(), expected,
+                f => f.DrawString(Moq.It.IsAny<SpriteBatch>(), Moq.It.IsAny<string>(),
                     Moq.It.IsAny<Vector2>(), Moq.It.IsAny<Color>()),
-                Moq.Times.Once);
+                Moq.Times.Never);
         }
     }
 

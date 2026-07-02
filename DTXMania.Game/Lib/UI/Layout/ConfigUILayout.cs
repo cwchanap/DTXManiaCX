@@ -18,6 +18,15 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static Rectangle BackgroundRect => new(0, 0, ScreenWidth, ScreenHeight);
         public static Rectangle ItemBarRect => new(400, 0, 18, ScreenHeight);
 
+        // Inner board: a dark, translucent framed panel drawn over the busy GALAXY WAVE
+        // background (4_background.png) but behind the menu/item/description panels, so the
+        // config content stays legible and reads as a contained window. NX has no dedicated
+        // asset for this — it is drawn with fills. The border rect is the outer frame; the
+        // board rect is the inset fill. Spans just inside the header (bottom=105) and footer
+        // (top=690), framing the menu (left), item list, and description panel.
+        public static Rectangle InnerBoardBorderRect => new(220, 112, 880, 574);
+        public static Rectangle InnerBoardRect => new(224, 116, 872, 566);
+
         // Header / footer / title / instructions / import status.
         public static Rectangle HeaderRect => new(0, 0, ScreenWidth, 105);
         public static Rectangle FooterRect => new(0, 690, ScreenWidth, 30);
