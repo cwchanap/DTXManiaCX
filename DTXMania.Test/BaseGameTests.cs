@@ -550,7 +550,12 @@ namespace DTXMania.Test
             Assert.True(config.FullScreen);
             Assert.False(config.VSyncWait);
             Assert.Same(fakeRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
-            Assert.Equal(("MainRenderTarget", 1920, 1080), renderTargetManager.LastRequest);
+            // The render target is decoupled from the display resolution: even though the new
+            // settings request 1920x1080, the target is recreated at the fixed virtual size and
+            // letterbox-scaled to the physical window in Draw().
+            Assert.Equal(
+                ("MainRenderTarget", GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
+                renderTargetManager.LastRequest);
         }
 
         [Fact]
@@ -580,7 +585,7 @@ namespace DTXMania.Test
         [Fact]
         public void OnGraphicsDeviceReset_WhenRenderTargetRecreationSucceeds_ShouldReplaceRenderTarget()
         {
-            var config = new ConfigData { ScreenWidth = 1280, ScreenHeight = 720 };
+            var config = new ConfigData { ScreenWidth = 640, ScreenHeight = 480 };
             var fakeRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
             var renderTargetManager = new RecordingRenderTargetManager(fakeRenderTarget);
             var game = CreateGameForLifecycle(config);
@@ -591,7 +596,10 @@ namespace DTXMania.Test
             ReflectionHelpers.InvokePrivateMethod(game, "OnGraphicsDeviceReset", null!, EventArgs.Empty);
 
             Assert.Same(fakeRenderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
-            Assert.Equal(("MainRenderTarget", 1280, 720), renderTargetManager.LastRequest);
+            // Recreated at the fixed virtual size, not the 640x480 configured resolution.
+            Assert.Equal(
+                ("MainRenderTarget", GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
+                renderTargetManager.LastRequest);
         }
 
         [Fact]
@@ -615,7 +623,10 @@ namespace DTXMania.Test
             game.InvokeBaseDraw(new GameTime());
 
             stageManager.Verify(value => value.Draw(0.0), Times.Once);
-            Assert.Equal(("MainRenderTarget", config.ScreenWidth, config.ScreenHeight), renderTargetManager.LastRequest);
+            // Recreated at the fixed virtual size, independent of the tiny 16x16 configured resolution.
+            Assert.Equal(
+                ("MainRenderTarget", GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
+                renderTargetManager.LastRequest);
             Assert.Same(renderTarget, ReflectionHelpers.GetPrivateField<object>(game, "_renderTarget"));
             Assert.True(pendingScreenshot.Task.IsCompletedSuccessfully);
             Assert.Equal(game.CapturedScreenshotToReturn, pendingScreenshot.Task.Result);
@@ -836,6 +847,43 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(server, "_cancellationTokenSource", cancellation);
             ReflectionHelpers.SetPrivateField(server, "_isRunning", true);
             return server;
+        }
+
+        [Fact]
+        public void CalculateLetterboxDestination_ExactSixteenByNine_FillsViewportWithNoBars()
+        {
+            // A 16:9 viewport that is an exact multiple of the 1280x720 virtual target
+            // scales up to fill it completely (no black bars).
+            var dest = BaseGame.CalculateLetterboxDestination(new Rectangle(0, 0, 3840, 2160), 1280, 720);
+
+            Assert.Equal(new Rectangle(0, 0, 3840, 2160), dest);
+        }
+
+        [Fact]
+        public void CalculateLetterboxDestination_SameSize_IsIdentity()
+        {
+            var dest = BaseGame.CalculateLetterboxDestination(new Rectangle(0, 0, 1280, 720), 1280, 720);
+
+            Assert.Equal(new Rectangle(0, 0, 1280, 720), dest);
+        }
+
+        [Fact]
+        public void CalculateLetterboxDestination_TallerViewport_LetterboxesVertically()
+        {
+            // 1280x800 (16:10) is the drawable macOS hands back for a 1280x720 fullscreen
+            // request. The image must keep 16:9 aspect and be centered with top/bottom bars,
+            // not stretched vertically to 800px.
+            var dest = BaseGame.CalculateLetterboxDestination(new Rectangle(0, 0, 1280, 800), 1280, 720);
+
+            Assert.Equal(new Rectangle(0, 40, 1280, 720), dest);
+        }
+
+        [Fact]
+        public void CalculateLetterboxDestination_WiderViewport_PillarboxesHorizontally()
+        {
+            var dest = BaseGame.CalculateLetterboxDestination(new Rectangle(0, 0, 1920, 720), 1280, 720);
+
+            Assert.Equal(new Rectangle(320, 0, 1280, 720), dest);
         }
 
         private static IConfigManager CreateConfigManager(ConfigData config)

@@ -173,13 +173,18 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
 
         _logger.LogInformation("Graphics Manager initialized with settings: {Settings}", _graphicsManager.Settings);
 
-        // Create main render target using the graphics manager
+        // Create the main render target at the fixed virtual resolution (NOT the configured
+        // screen resolution). Every stage draws its 1280x720-authored layout 1:1 into this
+        // target; Draw() then letterbox-scales it once to fill the physical window. Sizing the
+        // target to the configured resolution instead would leave stages that draw 1:1 stranded
+        // in the top-left corner of a larger target.
         _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
             "MainRenderTarget",
-            config.ScreenWidth,
-            config.ScreenHeight);
+            GameConstants.Display.VirtualWidth,
+            GameConstants.Display.VirtualHeight);
 
-        _logger.LogInformation("Main render target created: {Width}x{Height}", config.ScreenWidth, config.ScreenHeight);
+        _logger.LogInformation("Main render target created: {Width}x{Height}",
+            GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
     }
 
     protected override void LoadContent()
@@ -338,11 +343,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Ensure render target is valid before using it
         if (_renderTarget == null || _renderTarget.IsDisposed)
         {
-            var config = ConfigManager.Config;
             _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
                 "MainRenderTarget",
-                config.ScreenWidth,
-                config.ScreenHeight);
+                GameConstants.Display.VirtualWidth,
+                GameConstants.Display.VirtualHeight);
         }
 
         // Draw to render target first
@@ -399,9 +403,31 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     [ExcludeFromCodeCoverage]
     internal virtual void DrawRenderTargetToBackBuffer(RenderTarget2D renderTarget)
     {
+        // Scale the virtual-resolution render target up to fill the physical window while
+        // preserving 16:9 aspect (adds black bars if the window is a different aspect ratio),
+        // rather than stretching to the raw viewport bounds.
+        var destination = CalculateLetterboxDestination(
+            GraphicsDevice.Viewport.Bounds, renderTarget.Width, renderTarget.Height);
+
         _spriteBatch.Begin(samplerState: SamplerState.LinearClamp);
-        _spriteBatch.Draw(renderTarget, GraphicsDevice.Viewport.Bounds, Color.White);
+        _spriteBatch.Draw(renderTarget, destination, Color.White);
         _spriteBatch.End();
+    }
+
+    /// <summary>
+    /// Computes the aspect-preserving, centered destination rectangle for blitting a
+    /// <paramref name="virtualWidth"/>x<paramref name="virtualHeight"/> render target into
+    /// <paramref name="viewport"/>. The result fills the viewport on the fitting axis and is
+    /// centered (letterboxed/pillarboxed) on the other.
+    /// </summary>
+    internal static Rectangle CalculateLetterboxDestination(Rectangle viewport, int virtualWidth, int virtualHeight)
+    {
+        float scale = Math.Min(viewport.Width / (float)virtualWidth, viewport.Height / (float)virtualHeight);
+        int destWidth = (int)Math.Round(virtualWidth * scale);
+        int destHeight = (int)Math.Round(virtualHeight * scale);
+        int destX = viewport.X + (viewport.Width - destWidth) / 2;
+        int destY = viewport.Y + (viewport.Height - destHeight) / 2;
+        return new Rectangle(destX, destY, destWidth, destHeight);
     }
 
     [ExcludeFromCodeCoverage]
@@ -438,13 +464,15 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
                 _renderTarget.Dispose();
             }
 
-            // Create new render target with current settings
+            // Recreate at the fixed virtual resolution. The render target is decoupled from the
+            // display resolution; the new physical size only affects the letterbox blit in Draw().
             _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
                 "MainRenderTarget",
-                e.NewSettings.Width,
-                e.NewSettings.Height);
+                GameConstants.Display.VirtualWidth,
+                GameConstants.Display.VirtualHeight);
 
-            _logger.LogInformation("Render target recreated: {Width}x{Height}", e.NewSettings.Width, e.NewSettings.Height);
+            _logger.LogInformation("Render target recreated: {Width}x{Height}",
+                GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
         }
         catch (Exception ex)
         {
@@ -484,11 +512,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // Ensure our main render target is recreated after device reset
         try
         {
-            var config = ConfigManager.Config;
             _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
                 "MainRenderTarget",
-                config.ScreenWidth,
-                config.ScreenHeight);
+                GameConstants.Display.VirtualWidth,
+                GameConstants.Display.VirtualHeight);
 
             _logger.LogInformation("Main render target recreated after device reset");
         }
