@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -317,7 +318,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             // Dim the whole stage behind the panel.
             if (whitePixel != null)
-                spriteBatch.Draw(whitePixel, new Rectangle(0, 0, viewportWidth, viewportHeight), BackdropColor);
+                DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(0, 0, viewportWidth, viewportHeight), BackdropColor);
 
             // Centered framed board (all coordinates in the same scaled space as the config stage).
             const int boardW = 720;
@@ -327,8 +328,8 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             if (whitePixel != null)
             {
-                spriteBatch.Draw(whitePixel, new Rectangle(boardX - 4, boardY - 4, boardW + 8, boardH + 8), BoardBorderColor);
-                spriteBatch.Draw(whitePixel, new Rectangle(boardX, boardY, boardW, boardH), BoardColor);
+                DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(boardX - 4, boardY - 4, boardW + 8, boardH + 8), BoardBorderColor);
+                DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(boardX, boardY, boardW, boardH), BoardColor);
             }
 
             // Title, centered on the board.
@@ -352,7 +353,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
                 bool sel = i == _selectedIndex;
 
                 if (sel && whitePixel != null)
-                    spriteBatch.Draw(whitePixel, new Rectangle(boardX + 20, y, boardW - 40, rowH - 6), SelectionBarColor);
+                    DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(boardX + 20, y, boardW - 40, rowH - 6), SelectionBarColor);
 
                 bool awaiting = sel && _state == CaptureState.AwaitingKey;
                 string keyLabel = awaiting
@@ -396,13 +397,13 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             }
         }
 
-        private static void DrawFooterButton(SpriteBatch sb, IFont? font, IFont? boldFont, Texture2D? wp,
+        private void DrawFooterButton(SpriteBatch sb, IFont? font, IFont? boldFont, Texture2D? wp,
             int x, int y, int w, int h, string label, bool selected)
         {
             if (wp != null)
             {
-                sb.Draw(wp, new Rectangle(x - 3, y - 3, w + 6, h + 6), BoardBorderColor);
-                sb.Draw(wp, new Rectangle(x, y, w, h), selected ? SelectionBarColor : RowFillColor);
+                DrawWhitePixel(sb, wp, new Rectangle(x - 3, y - 3, w + 6, h + 6), BoardBorderColor);
+                DrawWhitePixel(sb, wp, new Rectangle(x, y, w, h), selected ? SelectionBarColor : RowFillColor);
             }
 
             var picked = boldFont ?? font;
@@ -411,6 +412,18 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             picked.DrawString(sb, label,
                 new Vector2(x + (w - size.X) / 2f, y + (h - size.Y) / 2f),
                 selected ? SelectedTextColor : RowNameColor);
+        }
+
+        /// <summary>
+        /// Draws a <paramref name="whitePixel"/> filled rectangle. Extracted as a virtual seam so
+        /// headless tests can override it to record draw calls instead of requiring a live
+        /// <see cref="SpriteBatch"/> (which needs a <see cref="GraphicsDevice"/>).
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        protected virtual void DrawWhitePixel(SpriteBatch spriteBatch, Texture2D whitePixel,
+            Rectangle rectangle, Color color)
+        {
+            spriteBatch.Draw(whitePixel, rectangle, color);
         }
 
         // Humanizes an action enum name for display: "MoveUp" -> "Move Up".

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
@@ -1765,6 +1766,180 @@ public class ConfigStageLogicTests
 
             Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
         }
+    }
+
+    // ---- Patch coverage: DrawCategoryMenu text loop, DrawItemList texture/scroll paths ----
+
+    [Fact]
+    public void DrawCategoryMenu_WithFonts_ShouldDrawSelectedCategoryLabelInSelectedColor()
+    {
+        // The text loop (lines after the null-font guard) centers each category label on the
+        // menu panel and vertically within the cursor band. The selected category uses
+        // SelectedMenuText; unselected uses LightText. This covers the font.MeasureString /
+        // font.DrawString path that the null-font RenderSpy tests skip.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 1); // Drums (selected)
+
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(60f, 16f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawCategoryMenu");
+
+            // The selected category (Drums, index 1) is drawn with SelectedMenuText.
+            var cursor = ConfigUILayout.MenuCursorRect(1);
+            var expectedPos = new Vector2(
+                ConfigUILayout.MenuLabelCenterX - 60f / 2f,
+                cursor.Y + (ConfigUILayout.MenuCursorHeight - 16f) / 2f);
+            font.Verify(
+                f => f.DrawString(It.IsAny<SpriteBatch>(), "Drums",
+                    It.Is<Vector2>(p => Math.Abs(p.X - expectedPos.X) < 0.01f && Math.Abs(p.Y - expectedPos.Y) < 0.01f),
+                    It.Is<Color>(c => c == new Color(36, 24, 72))),
+                Times.Once,
+                "selected category label should be centered in the cursor band with SelectedMenuText");
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WithItemBoxTexture_ShouldDrawTextureInsteadOfFallback()
+    {
+        // When _itemBoxTexture has a valid Texture, the box pass draws it via spriteBatch.Draw
+        // instead of the fallback fill. The RenderSpy's SpriteBatch is uninitialized so
+        // spriteBatch.Draw throws; we catch that and verify the fallback fill was NOT called,
+        // proving the texture-present branch was taken.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+
+            var mockTexture = new Mock<ITexture>();
+            mockTexture.SetupGet(t => t.Width).Returns(256);
+            mockTexture.SetupGet(t => t.Height).Returns(32);
+            mockTexture.SetupGet(t => t.Texture).Returns(CreateFakeTexture2D());
+            ReflectionHelpers.SetPrivateField(stage, "_itemBoxTexture", mockTexture.Object);
+
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList"));
+
+            // The fallback fill must NOT be used for row 0 when the texture is present.
+            var row0Rect = ConfigUILayout.ItemBoxRect(
+                ConfigUILayout.RowTopY(0, 0.0), ConfigUILayout.ItemBoxNormalWidth);
+            Assert.DoesNotContain(stage.RectangleDrawCalls,
+                c => c.Rectangle == row0Rect && c.Color == new Color(34, 40, 68, 200));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WithItemBoxCursorTexture_ShouldDrawTextureInsteadOfFallback()
+    {
+        // When _itemBoxCursorTexture has a valid Texture and focus is on items, the fixed cursor
+        // draws the texture instead of the fallback fill. Same uninitialized-SpriteBatch approach
+        // as the box-texture test above.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            var mockTexture = new Mock<ITexture>();
+            mockTexture.SetupGet(t => t.Width).Returns(256);
+            mockTexture.SetupGet(t => t.Height).Returns(32);
+            mockTexture.SetupGet(t => t.Texture).Returns(CreateFakeTexture2D());
+            ReflectionHelpers.SetPrivateField(stage, "_itemBoxCursorTexture", mockTexture.Object);
+
+            _ = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList"));
+
+            // The cursor fallback fill must NOT appear when the texture is present.
+            Assert.DoesNotContain(stage.RectangleDrawCalls,
+                c => c.Rectangle == ConfigUILayout.ItemCursorRect && c.Color == new Color(96, 96, 160, 180));
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WithScrolledList_ShouldSkipOffscreenRows()
+    {
+        // When _itemScroll is large (e.g. scrolled to the last item), early rows fall outside the
+        // visible band and IsRowVisible returns false -> continue. This covers the skip branch in
+        // both the box pass and the text pass. Mock fonts are set so the text pass is reached
+        // (it early-returns when _font/_boldFont are null).
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            // Scroll to the last item so row 0 is well above the visible band.
+            var lastIndex = categories[0].Items.Count - 1;
+            categories[0].SelectedIndex = lastIndex;
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", (double)lastIndex);
+
+            // Set mock fonts so the text pass is reached (not short-circuited by the null guard).
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(40f, 14f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            // Row 0's box rect (at the scrolled position) must not be drawn — it's offscreen.
+            var row0TopY = ConfigUILayout.RowTopY(0, (double)lastIndex);
+            var row0Rect = ConfigUILayout.ItemBoxRect(row0TopY, ConfigUILayout.ItemBoxNormalWidth);
+            Assert.DoesNotContain(stage.RectangleDrawCalls, c => c.Rectangle == row0Rect);
+        }
+    }
+
+    [Fact]
+    public void DrawDescriptionPanel_WithBoldFont_ShouldDrawSelectedItemTitle()
+    {
+        // The title (selected item's name) is drawn on the white upper cell of the description
+        // panel with DescriptionTitleText via _boldFont. This covers the boldFont.DrawString title
+        // path that the null-boldFont tests skip.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            categories![0].SelectedIndex = 0; // Screen Resolution
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            var boldFont = new Mock<IFont>();
+            boldFont.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(100f, 16f));
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+            // _font must be non-null too so the body text path doesn't NRE.
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(1f, 1f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawDescriptionPanel");
+
+            var expectedTitle = categories[0].SelectedItem!.Name;
+            boldFont.Verify(
+                f => f.DrawString(It.IsAny<SpriteBatch>(), expectedTitle,
+                    ConfigUILayout.DescriptionTitlePos,
+                    It.Is<Color>(c => c == new Color(24, 24, 32))),
+                Times.Once,
+                "title should be drawn with DescriptionTitleText via boldFont");
+        }
+    }
+
+    private static Texture2D CreateFakeTexture2D()
+    {
+#pragma warning disable SYSLIB0050
+        var tex = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+        GC.SuppressFinalize(tex);
+        return tex;
     }
 
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)

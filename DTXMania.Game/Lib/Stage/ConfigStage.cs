@@ -285,6 +285,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Initialization
 
+        [ExcludeFromCodeCoverage]
         protected virtual void InitializeGraphics()
         {
             var graphicsDevice = _game.GraphicsDevice;

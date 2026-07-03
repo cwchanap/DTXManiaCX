@@ -135,6 +135,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         _logger = _loggerFactory.CreateLogger<BaseGame>();
     }
 
+    [ExcludeFromCodeCoverage]
     protected override void Initialize()
     {
         // Initialize managers
@@ -471,11 +472,24 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         // against design-space rects still works instead of crashing.
         if (_graphicsManager == null)
             return windowPoint;
-        var graphicsDevice = GraphicsDevice;
-        if (graphicsDevice == null)
+        var viewport = TryGetViewportBounds();
+        if (viewport == null)
             return windowPoint;
-        return WindowToVirtualCoordinates(windowPoint, graphicsDevice.Viewport.Bounds,
+        return WindowToVirtualCoordinates(windowPoint, viewport.Value,
             GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
+    }
+
+    /// <summary>
+    /// Returns the current back-buffer viewport bounds (used by <see cref="MapMouseToVirtual"/>),
+    /// or null when no <see cref="GraphicsDevice"/> is available (headless tests / pre-Initialize).
+    /// Extracted as a seam so headless tests can override it with a known rectangle instead of
+    /// requiring a live GraphicsDevice.
+    /// </summary>
+    [ExcludeFromCodeCoverage]
+    protected virtual Rectangle? TryGetViewportBounds()
+    {
+        var graphicsDevice = GraphicsDevice;
+        return graphicsDevice == null ? null : graphicsDevice.Viewport.Bounds;
     }
 
     [ExcludeFromCodeCoverage]
