@@ -1077,6 +1077,27 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_ShouldWrapTheListInASingleClipRegion()
+    {
+        // Rows near the top/bottom of the scroll extend past the board edges (IsRowVisible only
+        // requires the box to intersect the header→footer band), so the list must be drawn inside
+        // one balanced clip region that confines the overflow to the inner board.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            Assert.Equal(1, stage.BeginItemClipCount);
+            Assert.Equal(1, stage.EndItemClipCount);
+        }
+    }
+
+    [Fact]
     public void DrawItemList_WhenFocusOnMenu_ShouldNotDrawItemCursor()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
@@ -1813,6 +1834,9 @@ public class ConfigStageLogicTests
 
         public List<(Rectangle Rectangle, Color Color)> RectangleDrawCalls { get; } = [];
 
+        public int BeginItemClipCount { get; private set; }
+        public int EndItemClipCount { get; private set; }
+
         public void InitializeDrawingState()
         {
             var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
@@ -1831,6 +1855,20 @@ public class ConfigStageLogicTests
 
         protected override void EndDrawFrame()
         {
+        }
+
+        // The item-list clip flushes and reopens the real SpriteBatch and touches the
+        // GraphicsDevice scissor state; the spy uses an uninitialized SpriteBatch, so no-op the
+        // clip hooks (mirrors BeginDrawFrame/EndDrawFrame) and only count them so a test can assert
+        // the list is wrapped in a single balanced clip region.
+        protected override void BeginItemClip()
+        {
+            BeginItemClipCount++;
+        }
+
+        protected override void EndItemClip()
+        {
+            EndItemClipCount++;
         }
 
         protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)

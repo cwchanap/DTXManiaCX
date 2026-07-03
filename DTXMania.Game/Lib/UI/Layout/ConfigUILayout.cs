@@ -22,10 +22,12 @@ namespace DTXMania.Game.Lib.UI.Layout
         // background (4_background.png) but behind the menu/item/description panels, so the
         // config content stays legible and reads as a contained window. NX has no dedicated
         // asset for this — it is drawn with fills. The border rect is the outer frame; the
-        // board rect is the inset fill. Spans just inside the header (bottom=105) and footer
-        // (top=690), framing the menu (left), item list, and description panel.
-        public static Rectangle InnerBoardBorderRect => new(220, 112, 880, 574);
-        public static Rectangle InnerBoardRect => new(224, 116, 872, 566);
+        // board rect is the 4px-inset fill. The border spans the full band between the header
+        // (bottom=105) and footer (top=690) so it fully backs the scrolling item list: item
+        // rows are visible anywhere in that band, so a shorter board would leave partial rows
+        // sitting on the bare background at the top/bottom edges.
+        public static Rectangle InnerBoardBorderRect => new(220, 105, 880, 585);
+        public static Rectangle InnerBoardRect => new(224, 109, 872, 577);
 
         // Header / footer / title / instructions / import status.
         public static Rectangle HeaderRect => new(0, 0, ScreenWidth, 105);

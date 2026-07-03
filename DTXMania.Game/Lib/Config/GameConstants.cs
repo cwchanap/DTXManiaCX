@@ -6,6 +6,24 @@ namespace DTXMania.Game.Lib.Config
     public static class GameConstants
     {
         /// <summary>
+        /// Display constants. All stage layouts are authored in a fixed virtual resolution;
+        /// the game renders every stage into a render target of this size and then
+        /// letterbox-scales that target once to fill the physical window (see BaseGame.Draw).
+        /// </summary>
+        public static class Display
+        {
+            /// <summary>
+            /// Virtual render width every stage is authored against (matches DTXManiaNX 1280x720).
+            /// </summary>
+            public const int VirtualWidth = 1280;
+
+            /// <summary>
+            /// Virtual render height every stage is authored against (matches DTXManiaNX 1280x720).
+            /// </summary>
+            public const int VirtualHeight = 720;
+        }
+
+        /// <summary>
         /// Stage transition timing constants
         /// </summary>
         public static class StageTransition

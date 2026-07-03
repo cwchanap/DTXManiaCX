@@ -16,15 +16,16 @@ public class ConfigUILayoutTests
         Assert.Equal(new Rectangle(0, 690, 1280, 30), ConfigUILayout.FooterRect);
         Assert.Equal(new Rectangle(245, 140, 180, 172), ConfigUILayout.MenuPanelRect);
         Assert.Equal(new Rectangle(800, 270, 280, 360), ConfigUILayout.DescriptionPanelRect);
-        Assert.Equal(new Rectangle(220, 112, 880, 574), ConfigUILayout.InnerBoardBorderRect);
-        Assert.Equal(new Rectangle(224, 116, 872, 566), ConfigUILayout.InnerBoardRect);
+        Assert.Equal(new Rectangle(220, 105, 880, 585), ConfigUILayout.InnerBoardBorderRect);
+        Assert.Equal(new Rectangle(224, 109, 872, 577), ConfigUILayout.InnerBoardRect);
     }
 
     [Fact]
     public void InnerBoard_ShouldSitBetweenHeaderAndFooterInsideBorder()
     {
-        // The inner board fill is fully contained by its border, and both live in the working
-        // band between the header (bottom=105) and footer (top=690).
+        // The inner board fill is fully contained by its border, and the border spans exactly the
+        // working band between the header (bottom=105) and footer (top=690) so it fully backs the
+        // scrolling item list (which is visible across that whole band).
         Assert.True(ConfigUILayout.InnerBoardBorderRect.Contains(ConfigUILayout.InnerBoardRect));
         Assert.True(ConfigUILayout.InnerBoardBorderRect.Top >= ConfigUILayout.HeaderRect.Bottom);
         Assert.True(ConfigUILayout.InnerBoardBorderRect.Bottom <= ConfigUILayout.FooterRect.Top);

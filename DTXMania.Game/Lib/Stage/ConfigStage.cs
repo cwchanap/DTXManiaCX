@@ -73,6 +73,16 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture? _itemBoxCursorTexture;
         private ITexture? _descriptionPanelTexture;
 
+        // Scissor state for clipping the scrolling item list to the inner board. A row stays
+        // visible while its box merely intersects the header→footer band, so rows near the top or
+        // bottom of the scroll extend past the board edges; without clipping that overflow draws on
+        // the bare background above the header / below the footer. Reopening the item-list batch with
+        // this rasterizer (ScissorTestEnable) confines the rows to the board so they slide under its
+        // frame instead of spilling. Created in InitializeGraphics; null in headless tests where the
+        // clip hooks are overridden to no-ops.
+        private RasterizerState? _itemClipRasterizer;
+        private Rectangle _savedScissorRectangle;
+
         // Light text reads on the dark NX config background.
         private static readonly Color LightText = new(235, 238, 248);
         // Value text sits on the itembox's white right cell, so it must be dark.
@@ -235,6 +245,8 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch = null!;
             _whitePixel?.Dispose();
             _whitePixel = null!;
+            _itemClipRasterizer?.Dispose();
+            _itemClipRasterizer = null;
 
             _previousKeyboardState = default;
             _currentKeyboardState = default;
@@ -252,6 +264,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
+                _itemClipRasterizer?.Dispose();
 
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
@@ -259,6 +272,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _whitePixel = null;
                 _spriteBatch = null;
+                _itemClipRasterizer = null;
                 _font = null;
                 _boldFont = null;
                 _resourceManager = null; // shared game-wide instance; do NOT dispose
@@ -275,6 +289,14 @@ namespace DTXMania.Game.Lib.Stage
         {
             var graphicsDevice = _game.GraphicsDevice;
             _spriteBatch = new SpriteBatch(graphicsDevice);
+
+            // CullMode.None so SpriteBatch quads are never winding-culled; ScissorTestEnable so the
+            // item-list batch is clipped to the inner board (see _itemClipRasterizer).
+            _itemClipRasterizer = new RasterizerState
+            {
+                CullMode = CullMode.None,
+                ScissorTestEnable = true
+            };
 
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
@@ -296,6 +318,8 @@ namespace DTXMania.Game.Lib.Stage
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
+                _itemClipRasterizer?.Dispose();
+                _itemClipRasterizer = null;
                 throw;
             }
 
@@ -793,56 +817,94 @@ namespace DTXMania.Game.Lib.Stage
             var category = _categories[_currentCategoryIndex];
             var items = category.Items;
 
-            // Box pass. Every item — value and navigation alike — uses the same normal itembox
-            // (dark name cell + white value cell) so the list reads uniformly. Only real items
-            // are drawn (non-cyclic), each at its scrolled Y.
-            for (int i = 0; i < items.Count; i++)
+            // Clip the scrolling list to the inner board so rows near the top/bottom of the scroll
+            // slide under the board frame instead of spilling onto the bare background above the
+            // header / below the footer. try/finally keeps the SpriteBatch balanced even on the
+            // early return in the text pass (so the description/header panels keep drawing).
+            BeginItemClip();
+            try
             {
-                int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
-                if (!ConfigUILayout.IsRowVisible(rowTopY))
-                    continue;
-                var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, ConfigUILayout.ItemBoxNormalWidth);
-                if (_itemBoxTexture?.Texture != null)
-                    _spriteBatch.Draw(_itemBoxTexture.Texture, boxRect, Color.White);
-                else
-                    DrawFilledRectangle(boxRect, ItemBoxFallbackColor);
-            }
-
-            // Fixed cursor at the focus row; items scroll under it.
-            if (!_focusOnMenu && category.HasItems)
-            {
-                if (_itemBoxCursorTexture?.Texture != null)
-                    _spriteBatch.Draw(_itemBoxCursorTexture.Texture, ConfigUILayout.ItemCursorRect, Color.White);
-                else
-                    DrawFilledRectangle(ConfigUILayout.ItemCursorRect, ItemCursorFallback);
-            }
-
-            if (_font == null || _boldFont == null)
-                return;
-
-            // Text pass.
-            for (int i = 0; i < items.Count; i++)
-            {
-                int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
-                if (!ConfigUILayout.IsRowVisible(rowTopY))
-                    continue;
-                var item = items[i];
-                bool selected = !_focusOnMenu && i == category.SelectedIndex;
-                var font = selected ? _boldFont : _font;
-
-                font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
-                    selected ? SelectedNameText : LightText);
-
-                var value = GetItemValueText(item);
-                if (!string.IsNullOrEmpty(value))
+                // Box pass. Every item — value and navigation alike — uses the same normal itembox
+                // (dark name cell + white value cell) so the list reads uniformly. Only real items
+                // are drawn (non-cyclic), each at its scrolled Y.
+                for (int i = 0; i < items.Count; i++)
                 {
-                    var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
-                    var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
-                    // Every value (including the nav ">" marker) sits on the itembox white cell -> dark.
-                    Color valueColor = selected ? SelectedValueText : ValueDarkText;
-                    font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
+                    int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
+                    if (!ConfigUILayout.IsRowVisible(rowTopY))
+                        continue;
+                    var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, ConfigUILayout.ItemBoxNormalWidth);
+                    if (_itemBoxTexture?.Texture != null)
+                        _spriteBatch.Draw(_itemBoxTexture.Texture, boxRect, Color.White);
+                    else
+                        DrawFilledRectangle(boxRect, ItemBoxFallbackColor);
+                }
+
+                // Fixed cursor at the focus row; items scroll under it.
+                if (!_focusOnMenu && category.HasItems)
+                {
+                    if (_itemBoxCursorTexture?.Texture != null)
+                        _spriteBatch.Draw(_itemBoxCursorTexture.Texture, ConfigUILayout.ItemCursorRect, Color.White);
+                    else
+                        DrawFilledRectangle(ConfigUILayout.ItemCursorRect, ItemCursorFallback);
+                }
+
+                if (_font == null || _boldFont == null)
+                    return;
+
+                // Text pass.
+                for (int i = 0; i < items.Count; i++)
+                {
+                    int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
+                    if (!ConfigUILayout.IsRowVisible(rowTopY))
+                        continue;
+                    var item = items[i];
+                    bool selected = !_focusOnMenu && i == category.SelectedIndex;
+                    var font = selected ? _boldFont : _font;
+
+                    font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
+                        selected ? SelectedNameText : LightText);
+
+                    var value = GetItemValueText(item);
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
+                        var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
+                        // Every value (including the nav ">" marker) sits on the itembox white cell -> dark.
+                        Color valueColor = selected ? SelectedValueText : ValueDarkText;
+                        font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
+                    }
                 }
             }
+            finally
+            {
+                EndItemClip();
+            }
+        }
+
+        // Flush the current batch, narrow the scissor rectangle to the inner board, and reopen the
+        // batch with scissor-test enabled so the item list is clipped to the board. The scissor
+        // rectangle is in render-target pixels; the frame's identity viewport transform (fixed
+        // 1280x720 target) maps it 1:1 to the virtual InnerBoardRect. Paired with EndItemClip.
+        [ExcludeFromCodeCoverage]
+        protected virtual void BeginItemClip()
+        {
+            _spriteBatch.End();
+            var graphicsDevice = _game.GraphicsDevice;
+            _savedScissorRectangle = graphicsDevice.ScissorRectangle;
+            graphicsDevice.ScissorRectangle = ConfigUILayout.InnerBoardRect;
+            _spriteBatch.Begin(rasterizerState: _itemClipRasterizer,
+                transformMatrix: CreateViewportTransform(GetViewport()));
+        }
+
+        // Close the clipped batch, restore the previous scissor rectangle, and reopen the default
+        // (unclipped) batch so the description and header/footer panels draw normally. Paired with
+        // BeginItemClip.
+        [ExcludeFromCodeCoverage]
+        protected virtual void EndItemClip()
+        {
+            _spriteBatch.End();
+            _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
+            _spriteBatch.Begin(transformMatrix: CreateViewportTransform(GetViewport()));
         }
 
         // Extracts the value portion for the two-column item list by stripping the
