@@ -330,6 +330,52 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void OnGameExiting_WithConcreteConfigManager_ShouldFlushPendingSave()
+        {
+            // OnGameExiting is a belt-and-suspenders handler that flushes any deferred config
+            // write (e.g. scroll-speed) even if the normal stage-deactivation path is skipped.
+            var tempDir = Path.Combine(
+                AppContext.BaseDirectory, "TestResults", "ongame-exiting-flush",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            var configPath = Path.Combine(tempDir, "Config.ini");
+            try
+            {
+                var configManager = new ConfigManager();
+                configManager.LoadConfig(configPath);
+                configManager.SetAutoPlay(true); // mark dirty
+                Assert.False(File.ReadAllText(configPath).Contains("AutoPlay=True"));
+
+                var game = CreateGameForLifecycle();
+                ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
+
+                ReflectionHelpers.InvokePrivateMethod(game, "OnGameExiting", null!, EventArgs.Empty);
+
+                Assert.True(File.ReadAllText(configPath).Contains("AutoPlay=True"));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void OnGameExiting_WithMockConfigManager_ShouldNotThrow()
+        {
+            // When ConfigManager is not the concrete ConfigManager (e.g. a mock), the cast fails
+            // and FlushPendingSave is skipped — no crash.
+            var game = ReflectionHelpers.CreateGame();
+            var mockConfig = new Mock<IConfigManager>();
+            mockConfig.SetupGet(c => c.Config).Returns(new ConfigData());
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", mockConfig.Object);
+
+            var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(game, "OnGameExiting", null!, EventArgs.Empty));
+
+            Assert.Null(ex);
+            mockConfig.Verify(c => c.FlushPendingSave(), Times.Never);
+        }
+
+        [Fact]
         public void ApplySavedSystemKeyBindings_WhenConfigManagerIsConcrete_ShouldLoadPersistedBindings()
         {
             var configManager = new ConfigManager();
@@ -933,11 +979,76 @@ namespace DTXMania.Test
             Assert.True(mapped.Value.Y < 720 && mapped.Value.Y >= 0);
         }
 
+        [Fact]
+        public void MapMouseToVirtual_WithoutGraphicsManager_ShouldReturnPointAsIs()
+        {
+            // Headless / pre-Initialize: no GraphicsManager means a 1:1 identity mapping so
+            // hit-testing against design-space rects still works instead of crashing.
+            var game = ReflectionHelpers.CreateGame();
+            // _graphicsManager is null by default in CreateGame (not set).
+            Assert.Null(ReflectionHelpers.GetPrivateField<IGraphicsManager>(game, "_graphicsManager"));
+
+            var result = game.MapMouseToVirtual(new Point(300, 200));
+
+            Assert.Equal(new Point(300, 200), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WithGraphicsManagerButNoViewport_ShouldReturnPointAsIs()
+        {
+            // GraphicsManager is set but TryGetViewportBounds returns null (no GraphicsDevice in
+            // headless tests): the 1:1 fallback must still apply so hit-testing doesn't crash.
+            var game = CreateViewportSpyGame();
+            // Set _graphicsManager but leave viewport bounds unset (null) — simulates a game
+            // with a graphics manager but no live GraphicsDevice.
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager",
+                new StubGraphicsManager(isDeviceAvailable: false, CreateFailingRenderTargetManager()));
+
+            var result = game.MapMouseToVirtual(new Point(300, 200));
+
+            Assert.Equal(new Point(300, 200), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WithViewport_ShouldDelegateToWindowToVirtualCoordinates()
+        {
+            // With a live viewport, MapMouseToVirtual delegates to WindowToVirtualCoordinates.
+            // A test-only subclass overrides the viewport seam with a known 1920x1080 rect so the
+            // 1.5x scale mapping can be asserted without a real GraphicsDevice.
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(0, 0, 1920, 1080));
+
+            var result = game.MapMouseToVirtual(new Point(960, 540));
+
+            // Center of 1920x1080 -> center of 1280x720.
+            Assert.Equal(new Point(640, 360), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WithViewport_OnBlackBars_ShouldReturnNull()
+        {
+            // A click on the letterbox/pillarbox bars (outside the scaled destination) returns
+            // null so callers can treat it as "no hit".
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(0, 0, 1920, 720)); // pillarboxed: left bar [0,320)
+
+            var result = game.MapMouseToVirtual(new Point(100, 360));
+
+            Assert.Null(result);
+        }
+
         private static IConfigManager CreateConfigManager(ConfigData config)
         {
             var configManager = new Mock<IConfigManager>();
             configManager.SetupGet(manager => manager.Config).Returns(config);
             return configManager.Object;
+        }
+
+        private static ViewportSpyGame CreateViewportSpyGame()
+        {
+            var game = ReflectionHelpers.CreateUninitialized<ViewportSpyGame>();
+            ReflectionHelpers.SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
+            return game;
         }
 
         private static RenderTargetManager CreateFailingRenderTargetManager()
@@ -1189,6 +1300,27 @@ namespace DTXMania.Test
             {
                 base.Draw(gameTime);
             }
+        }
+
+        /// <summary>
+        /// Test-only <see cref="BaseGame"/> that overrides the <see cref="BaseGame.TryGetViewportBounds"/>
+        /// seam with a controllable rectangle, so <see cref="BaseGame.MapMouseToVirtual"/> can be
+        /// exercised without a live <see cref="GraphicsDevice"/>.
+        /// </summary>
+        private sealed class ViewportSpyGame : BaseGame
+        {
+            private Rectangle? _viewportBounds;
+
+            public void SetViewportBounds(Rectangle bounds)
+            {
+                _viewportBounds = bounds;
+                // MapMouseToVirtual's first guard checks _graphicsManager; set a non-null stub so
+                // the method proceeds to TryGetViewportBounds instead of short-circuiting.
+                ReflectionHelpers.SetPrivateField(this, "_graphicsManager",
+                    new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            }
+
+            protected override Rectangle? TryGetViewportBounds() => _viewportBounds;
         }
     }
 }
