@@ -742,9 +742,9 @@ namespace DTXMania.Game.Lib.Stage
 
         protected virtual void DrawConfigBackground()
         {
-            // Draw the GALAXY WAVE background at the fixed 1280x720 virtual rect (not the raw
-            // viewport). The frame-wide viewport transform scales it uniformly to fill the screen,
-            // preserving aspect — drawing at viewport size here would stretch it out of proportion.
+            // Draw the GALAXY WAVE background at the fixed 1280x720 virtual rect. The stage draws
+            // 1:1 into the 1280x720 render target (letterboxed to the window by BaseGame), so
+            // drawing at the raw viewport size here would stretch it out of proportion.
             var full = ConfigUILayout.BackgroundRect;
 
             if (_backgroundTexture?.Texture != null)
@@ -883,8 +883,9 @@ namespace DTXMania.Game.Lib.Stage
 
         // Flush the current batch, narrow the scissor rectangle to the inner board, and reopen the
         // batch with scissor-test enabled so the item list is clipped to the board. The scissor
-        // rectangle is in render-target pixels; the frame's identity viewport transform (fixed
-        // 1280x720 target) maps it 1:1 to the virtual InnerBoardRect. Paired with EndItemClip.
+        // rectangle is in render-target pixels; the fixed 1280x720 render target is the draw
+        // surface, so no viewport transform is needed (coords are already 1:1 in virtual space).
+        // Paired with EndItemClip.
         [ExcludeFromCodeCoverage]
         protected virtual void BeginItemClip()
         {
@@ -892,8 +893,7 @@ namespace DTXMania.Game.Lib.Stage
             var graphicsDevice = _game.GraphicsDevice;
             _savedScissorRectangle = graphicsDevice.ScissorRectangle;
             graphicsDevice.ScissorRectangle = ConfigUILayout.InnerBoardRect;
-            _spriteBatch.Begin(rasterizerState: _itemClipRasterizer,
-                transformMatrix: CreateViewportTransform(GetViewport()));
+            _spriteBatch.Begin(rasterizerState: _itemClipRasterizer);
         }
 
         // Close the clipped batch, restore the previous scissor rectangle, and reopen the default
@@ -904,7 +904,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             _spriteBatch.End();
             _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
-            _spriteBatch.Begin(transformMatrix: CreateViewportTransform(GetViewport()));
+            _spriteBatch.Begin();
         }
 
         // Extracts the value portion for the two-column item list by stripping the
@@ -1021,24 +1021,14 @@ namespace DTXMania.Game.Lib.Stage
             _font.DrawString(_spriteBatch, _importStatus, ConfigUILayout.ImportStatusPos, ImportStatusColor);
         }
 
-        // Letterbox transform that scales the fixed 1280x720 layout up to fill the actual
-        // back-buffer/viewport (which matches the configured screen resolution, e.g. 3840x2160),
-        // preserving aspect. Mirrors ResultScreenRenderer.CreateViewportTransform. Without it the
-        // stage renders 1:1 in the top-left corner of a high-res back buffer.
-        internal static Matrix CreateViewportTransform(Viewport viewport)
-        {
-            float scaleX = viewport.Width / (float)ConfigUILayout.ScreenWidth;
-            float scaleY = viewport.Height / (float)ConfigUILayout.ScreenHeight;
-            float scale = Math.Min(scaleX, scaleY);
-            float offsetX = viewport.X + (viewport.Width - ConfigUILayout.ScreenWidth * scale) / 2f;
-            float offsetY = viewport.Y + (viewport.Height - ConfigUILayout.ScreenHeight * scale) / 2f;
-            return Matrix.CreateScale(scale, scale, 1f) * Matrix.CreateTranslation(offsetX, offsetY, 0f);
-        }
-
+        // The stage draws into the fixed 1280x720 render target (letterboxed to the window once
+        // by BaseGame), so the SpriteBatch needs no viewport transform — layout coords are already
+        // 1:1 in virtual space. The previous per-stage letterbox transform was always identity
+        // under this scheme and has been removed.
         [ExcludeFromCodeCoverage]
         protected virtual void BeginDrawFrame()
         {
-            _spriteBatch.Begin(transformMatrix: CreateViewportTransform(GetViewport()));
+            _spriteBatch.Begin();
         }
 
         [ExcludeFromCodeCoverage]
@@ -1054,12 +1044,6 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             _spriteBatch.Draw(_whitePixel, destinationRectangle, color);
-        }
-
-        [ExcludeFromCodeCoverage]
-        protected virtual Viewport GetViewport()
-        {
-            return _game.GraphicsDevice.Viewport;
         }
 
         #endregion

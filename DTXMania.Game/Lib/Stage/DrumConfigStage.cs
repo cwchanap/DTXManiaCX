@@ -146,35 +146,40 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            var vp = _game.GraphicsDevice.Viewport;
-            if (leftClick)
+            // The popup is drawn into the fixed 1280x720 render target (letterboxed to the
+            // window), so its rectangles are authored in virtual space. Hit-testing runs during
+            // Update where GraphicsDevice.Viewport is the back buffer (window size), so map the
+            // raw window mouse coords into virtual space and size the rects with the virtual
+            // dims to match what was drawn. A click on the letterbox bars maps to null = no hit.
+            var virtualMouse = _game.MapMouseToVirtual(mouse.Position);
+            if (leftClick && virtualMouse is { } vm)
             {
-                foreach (var chip in _popup.GetBindingChips(vp.Width, vp.Height))
+                foreach (var chip in _popup.GetBindingChips(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight))
                 {
-                    if (chip.IsMidi && chip.DecrementVelocityThreshold.Contains(mouse.X, mouse.Y))
+                    if (chip.IsMidi && chip.DecrementVelocityThreshold.Contains(vm.X, vm.Y))
                     {
                         AdjustMidiVelocityThreshold(chip.MidiNoteNumber, -1);
                         return;
                     }
-                    if (chip.IsMidi && chip.IncrementVelocityThreshold.Contains(mouse.X, mouse.Y))
+                    if (chip.IsMidi && chip.IncrementVelocityThreshold.Contains(vm.X, vm.Y))
                     {
                         AdjustMidiVelocityThreshold(chip.MidiNoteNumber, 1);
                         return;
                     }
-                    if (chip.Remove.Contains(mouse.X, mouse.Y))
+                    if (chip.Remove.Contains(vm.X, vm.Y))
                     {
                         // Popup is intent-only (no RemoveBinding): the stage unbinds via Config.
                         RemoveBindingFromConfig(chip.ButtonId);
                         return;
                     }
                 }
-                if (_popup.GetDoneRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
+                if (_popup.GetDoneRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vm.X, vm.Y))
                 {
                     _popup.Close();
                     _selectedLane = -1;
                     return;
                 }
-                if (_popup.GetClearRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
+                if (_popup.GetClearRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vm.X, vm.Y))
                 {
                     // Popup is intent-only (no ClearLane): the stage clears the lane via Config.
                     ClearLaneInConfig(_popup.Lane);
@@ -221,10 +226,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void UpdateSelection(MouseState mouse, bool leftClick)
         {
-            var vp = _game.GraphicsDevice.Viewport;
-            float designX = mouse.X * DrumKitLayout.DesignWidth / (float)vp.Width;
-            float designY = mouse.Y * DrumKitLayout.DesignHeight / (float)vp.Height;
-            _hoveredLane = DrumKitLayout.HitTest(designX, designY);
+            // The kit is drawn in the fixed 1280x720 virtual canvas and letterboxed to the
+            // window, so map raw window mouse coords back into virtual space (inverse of the
+            // letterbox blit). A point on the black bars maps to null = no zone hovered. The
+            // previous linear mouse*Design/vp.Width mapping assumed the kit filled the whole
+            // window, which only holds at exactly 16:9 with no bars.
+            var virtualMouse = _game.MapMouseToVirtual(mouse.Position);
+            _hoveredLane = virtualMouse is { } vm ? DrumKitLayout.HitTest(vm.X, vm.Y) : -1;
 
             // Moving the mouse is a clear signal the user is pointing, not keyboard-navigating, so
             // hide the keyboard focus highlight and let hover drive the highlight instead.
@@ -296,8 +304,10 @@ namespace DTXMania.Game.Lib.Stage
 
             // Reset-to-defaults button: check before zone hit-test so a click there
             // doesn't also open a lane popup. Move focus onto the action so the highlight
-            // reflects the click (matches keyboard focus landing here).
-            if (leftClick && GetResetButtonRect(vp.Width, vp.Height).Contains(mouse.X, mouse.Y))
+            // reflects the click (matches keyboard focus landing here). The button is drawn in
+            // virtual space, so hit-test against the virtual-space rect with the mapped mouse.
+            if (leftClick && virtualMouse is { } vmClick
+                && GetResetButtonRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vmClick.X, vmClick.Y))
             {
                 _focusIndex = DrumKitLayout.ResetActionIndex;
                 ResetDrumBindingsToDefault();

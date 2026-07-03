@@ -886,6 +886,53 @@ namespace DTXMania.Test
             Assert.Equal(new Rectangle(320, 0, 1280, 720), dest);
         }
 
+        [Fact]
+        public void WindowToVirtualCoordinates_SameSize_IsIdentity()
+        {
+            var mapped = BaseGame.WindowToVirtualCoordinates(new Point(640, 360), new Rectangle(0, 0, 1280, 720), 1280, 720);
+
+            Assert.Equal(new Point(640, 360), mapped);
+        }
+
+        [Fact]
+        public void WindowToVirtualCoordinates_ScaledUp_MapsIntoVirtualSpace()
+        {
+            // 1920x1080 window, 16:9, scale 1.5, no bars. A click at window (960,540) (center)
+            // maps to virtual (640,360) (center of 1280x720).
+            var mapped = BaseGame.WindowToVirtualCoordinates(new Point(960, 540), new Rectangle(0, 0, 1920, 1080), 1280, 720);
+
+            Assert.Equal(new Point(640, 360), mapped);
+        }
+
+        [Fact]
+        public void WindowToVirtualCoordinates_Pillarboxed_OffsetsX()
+        {
+            // 1920x720 window -> pillarboxed: dest = (320,0,1280,720). Window x=960 -> dest x=640 -> virtual x=640.
+            var mapped = BaseGame.WindowToVirtualCoordinates(new Point(960, 360), new Rectangle(0, 0, 1920, 720), 1280, 720);
+
+            Assert.Equal(new Point(640, 360), mapped);
+        }
+
+        [Fact]
+        public void WindowToVirtualCoordinates_OnBlackBars_ReturnsNull()
+        {
+            // 1920x720 pillarboxed: left bar is x in [0,320). A click at x=100 is on the bar.
+            var mapped = BaseGame.WindowToVirtualCoordinates(new Point(100, 360), new Rectangle(0, 0, 1920, 720), 1280, 720);
+
+            Assert.Null(mapped);
+        }
+
+        [Fact]
+        public void WindowToVirtualCoordinates_RightEdgeClampsToVirtualBounds()
+        {
+            // 1920x1080, scale 1.5. The right edge of the dest (x=1919) maps just under 1280.
+            var mapped = BaseGame.WindowToVirtualCoordinates(new Point(1919, 1079), new Rectangle(0, 0, 1920, 1080), 1280, 720);
+
+            Assert.NotNull(mapped);
+            Assert.True(mapped!.Value.X < 1280 && mapped.Value.X >= 0);
+            Assert.True(mapped.Value.Y < 720 && mapped.Value.Y >= 0);
+        }
+
         private static IConfigManager CreateConfigManager(ConfigData config)
         {
             var configManager = new Mock<IConfigManager>();

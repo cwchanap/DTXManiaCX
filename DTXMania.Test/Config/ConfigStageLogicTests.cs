@@ -350,10 +350,10 @@ public class ConfigStageLogicTests
     [Fact]
     public void DrawBackground_ShouldFillFixedVirtualRectRegardlessOfViewport()
     {
-        // The background is drawn at the fixed 1280x720 virtual rect; the frame-wide viewport
-        // transform scales it to fill the screen. Drawing at raw viewport size would stretch it
-        // out of aspect, so even a 4K viewport must still produce a (0,0,1280,720) fill.
-        var (stage, inputManager) = CreateRenderSpyStage(new Viewport(0, 0, 3840, 2160));
+        // The background is drawn at the fixed 1280x720 virtual rect; BaseGame letterboxes the
+        // 1280x720 render target to the window once. Drawing at raw viewport size would stretch it
+        // out of aspect, so the fill must always be the (0,0,1280,720) virtual rect.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
             stage.InitializeDrawingState();
@@ -1650,6 +1650,123 @@ public class ConfigStageLogicTests
         }
     }
 
+    [Fact]
+    public void UpdateItemScroll_EmptyCategories_ShouldEarlyReturnAndLeaveScrollUnchanged()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            // No SetupConfigItems: leave _categories empty so the guard returns immediately.
+            ReflectionHelpers.SetPrivateField(stage, "_categories", new List<ConfigCategory>());
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 5.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 0.016);
+
+            Assert.Equal(5.0, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
+        }
+    }
+
+    [Fact]
+    public void UpdateItemScroll_LargeDelta_ShouldSnapToTarget()
+    {
+        // A wrap/multi-row jump (|delta| > 1.5) snaps instead of scrolling the whole list.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            categories[0].SelectedIndex = categories[0].Items.Count - 1; // a far row
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 0.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 0.016);
+
+            Assert.Equal((double)categories[0].SelectedIndex,
+                ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
+        }
+    }
+
+    [Fact]
+    public void UpdateItemScroll_SmallDelta_SmallDeltaTime_ShouldEasePartially()
+    {
+        // |delta| <= 1.5 eases: factor = min(1, dt*15). dt=0.04 -> factor=0.6, delta=1.0 ->
+        // scroll advances by 0.6 and does NOT yet reach the target.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            categories[0].SelectedIndex = 1;
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 0.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 0.04);
+
+            Assert.Equal(0.6, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"), precision: 6);
+        }
+    }
+
+    [Fact]
+    public void UpdateItemScroll_SmallDelta_LargeDeltaTime_ShouldReachAndSnapToTarget()
+    {
+        // dt=1.0 -> factor=min(1,15)=1.0, so the full delta is applied in one step, then the
+        // sub-0.01 residual snaps to the exact target.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            categories[0].SelectedIndex = 1;
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 0.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 1.0);
+
+            Assert.Equal(1.0, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
+        }
+    }
+
+    [Fact]
+    public void UpdateItemScroll_WithinSnapThreshold_ShouldClampToTarget()
+    {
+        // After the ease step the residual is < 0.01, so the value clamps to the exact target
+        // rather than leaving a tiny fractional drift.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            categories[0].SelectedIndex = 1;
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 0.999);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 0.001);
+
+            Assert.Equal(1.0, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
+        }
+    }
+
+    [Fact]
+    public void UpdateItemScroll_EmptyCategory_ShouldTargetZero()
+    {
+        // A category with no items (e.g. Exit) targets 0 regardless of SelectedIndex.
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            var emptyCategory = categories.FirstOrDefault(c => !c.HasItems);
+            Assert.NotNull(emptyCategory);
+            var emptyIndex = categories.IndexOf(emptyCategory!);
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", emptyIndex);
+            ReflectionHelpers.SetPrivateField(stage, "_itemScroll", 3.0);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateItemScroll", 1.0);
+
+            Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(stage, "_itemScroll"));
+        }
+    }
+
     private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
@@ -1661,16 +1778,13 @@ public class ConfigStageLogicTests
     }
 
     private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStageWithGraphicsDevice(ConfigManager? configManager = null)
-        => CreateRenderSpyStage(new Viewport(0, 0, 1280, 720), configManager);
-
-    private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStage(Viewport viewport, ConfigManager? configManager = null)
     {
         configManager ??= new ConfigManager();
         var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        return (new RenderSpyConfigStage(game, viewport), inputManager);
+        return (new RenderSpyConfigStage(game), inputManager);
     }
 
     private static (ConfigStage Stage, InputManagerCompat InputManager) CreateLifecycleStage(ConfigManager? configManager = null)
@@ -1824,12 +1938,9 @@ public class ConfigStageLogicTests
 
     private sealed class RenderSpyConfigStage : ConfigStage
     {
-        private readonly Viewport _viewport;
-
-        public RenderSpyConfigStage(BaseGame game, Viewport viewport)
+        public RenderSpyConfigStage(BaseGame game)
             : base(game)
         {
-            _viewport = viewport;
         }
 
         public List<(Rectangle Rectangle, Color Color)> RectangleDrawCalls { get; } = [];
@@ -1874,11 +1985,6 @@ public class ConfigStageLogicTests
         protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)
         {
             RectangleDrawCalls.Add((destinationRectangle, color));
-        }
-
-        protected override Viewport GetViewport()
-        {
-            return _viewport;
         }
     }
 }

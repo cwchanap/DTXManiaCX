@@ -476,32 +476,38 @@ namespace DTXMania.Game.Lib.Stage
 
         private void HandleMouseInput()
         {
-            var mousePos = _currentMouseState.Position;
+            // Menu rects are authored in the fixed 1280x720 virtual canvas and letterboxed to
+            // the window, so map the raw window mouse position back into virtual space before
+            // hit-testing. A point on the black bars maps to null = no menu item hovered.
+            var mousePos = _game.MapMouseToVirtual(_currentMouseState.Position);
             var previousHoveredIndex = _hoveredMenuIndex;
             _hoveredMenuIndex = -1;
 
-            // Check if mouse is over any menu item
-            for (int i = 0; i < _menuItems.Length; i++)
+            if (mousePos is { } vm)
             {
-                var menuItemRect = new Rectangle(
-                    MenuX,
-                    MenuY + (i * MenuItemHeight),
-                    MenuItemWidth,
-                    MenuItemHeight
-                );
-
-                if (menuItemRect.Contains(mousePos))
+                // Check if mouse is over any menu item
+                for (int i = 0; i < _menuItems.Length; i++)
                 {
-                    _hoveredMenuIndex = i;
+                    var menuItemRect = new Rectangle(
+                        MenuX,
+                        MenuY + (i * MenuItemHeight),
+                        MenuItemWidth,
+                        MenuItemHeight
+                    );
 
-                    // If hover changed, update cursor position and play sound
-                    if (_hoveredMenuIndex != previousHoveredIndex && _hoveredMenuIndex != _currentMenuIndex)
+                    if (menuItemRect.Contains(vm))
                     {
-                        _currentMenuIndex = _hoveredMenuIndex;
-                        PlayCursorMoveSound();
-                        System.Diagnostics.Debug.WriteLine($"Mouse hover changed cursor to: {_menuItems[_currentMenuIndex]}");
+                        _hoveredMenuIndex = i;
+
+                        // If hover changed, update cursor position and play sound
+                        if (_hoveredMenuIndex != previousHoveredIndex && _hoveredMenuIndex != _currentMenuIndex)
+                        {
+                            _currentMenuIndex = _hoveredMenuIndex;
+                            PlayCursorMoveSound();
+                            System.Diagnostics.Debug.WriteLine($"Mouse hover changed cursor to: {_menuItems[_currentMenuIndex]}");
+                        }
+                        break;
                     }
-                    break;
                 }
             }
 

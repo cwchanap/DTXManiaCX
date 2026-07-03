@@ -1394,13 +1394,17 @@ namespace DTXMania.Game.Lib.Stage
 
             // 3. Mouse click routing for modal buttons
             //    Treat a null previous state as "all buttons released" so that the
-            //    very first click after the modal opens is not silently swallowed.
+            //    very first click after the modal opens is not silently swallowed. The modal's
+            //    button rects are authored in the fixed 1280x720 virtual canvas, so map the raw
+            //    window mouse coords into virtual space before hit-testing; a click on the
+            //    letterbox bars maps to null and is ignored.
             var mouseState = Microsoft.Xna.Framework.Input.Mouse.GetState();
             if ((_previousMouseState == null ||
                  _previousMouseState.Value.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Released) &&
-                mouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed)
+                mouseState.LeftButton == Microsoft.Xna.Framework.Input.ButtonState.Pressed &&
+                _game.MapMouseToVirtual(new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y)) is { } virtualClick)
             {
-                _searchFilterModal.HandleClick(new Microsoft.Xna.Framework.Point(mouseState.X, mouseState.Y));
+                _searchFilterModal.HandleClick(virtualClick);
             }
             _previousMouseState = mouseState;
         }
