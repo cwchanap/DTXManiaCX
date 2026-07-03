@@ -430,6 +430,54 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return new Rectangle(destX, destY, destWidth, destHeight);
     }
 
+    /// <summary>
+    /// Inverse of <see cref="CalculateLetterboxDestination"/>: maps a mouse position given in
+    /// physical window/client pixels into the fixed <paramref name="virtualWidth"/>x
+    /// <paramref name="virtualHeight"/> design space the stages author against. Returns null when
+    /// the point falls outside the letterboxed destination (i.e. on the black bars), so callers
+    /// can treat it as "no hit". Stages draw into the 1280x720 render target and read
+    /// <see cref="GraphicsDevice.Viewport"/> during Update (which is the back buffer = window
+    /// size, NOT the 1280x720 target), so raw mouse coords must be routed through this before
+    /// hit-testing against design-space rectangles.
+    /// </summary>
+    internal static Point? WindowToVirtualCoordinates(Point windowPoint, Rectangle viewport, int virtualWidth, int virtualHeight)
+    {
+        var dest = CalculateLetterboxDestination(viewport, virtualWidth, virtualHeight);
+        if (windowPoint.X < dest.X || windowPoint.X >= dest.Right ||
+            windowPoint.Y < dest.Y || windowPoint.Y >= dest.Bottom)
+            return null;
+
+        int vx = (int)Math.Round((windowPoint.X - dest.X) * virtualWidth / (float)dest.Width);
+        int vy = (int)Math.Round((windowPoint.Y - dest.Y) * virtualHeight / (float)dest.Height);
+        // Clamp to virtual bounds to guard against rounding at the right/bottom edge.
+        if (vx < 0) vx = 0;
+        if (vy < 0) vy = 0;
+        if (vx >= virtualWidth) vx = virtualWidth - 1;
+        if (vy >= virtualHeight) vy = virtualHeight - 1;
+        return new Point(vx, vy);
+    }
+
+    /// <summary>
+    /// Instance wrapper around <see cref="WindowToVirtualCoordinates"/> using the current
+    /// <see cref="GraphicsDevice.Viewport"/> (the back buffer during Update) and the fixed
+    /// virtual resolution from <see cref="GameConstants.Display"/>. Stages call this during
+    /// hit-testing to convert raw window mouse coords into the 1280x720 design space their
+    /// rectangles are authored in.
+    /// </summary>
+    internal Point? MapMouseToVirtual(Point windowPoint)
+    {
+        // If no graphics device is available (e.g. headless tests with an uninitialized game, or
+        // before Initialize completes), assume a 1:1 window->virtual mapping so hit-testing
+        // against design-space rects still works instead of crashing.
+        if (_graphicsManager == null)
+            return windowPoint;
+        var graphicsDevice = GraphicsDevice;
+        if (graphicsDevice == null)
+            return windowPoint;
+        return WindowToVirtualCoordinates(windowPoint, graphicsDevice.Viewport.Bounds,
+            GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
+    }
+
     [ExcludeFromCodeCoverage]
     internal virtual void CompleteBaseDraw(GameTime gameTime)
     {
