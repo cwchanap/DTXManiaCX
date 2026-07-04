@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using System;
 using System.Linq;
@@ -17,17 +18,17 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// DTXManiaNX screen resolution - 1280×720 letterboxed 16:9
         /// </summary>
-        public static readonly Vector2 ScreenResolution = new Vector2(1280, 720);
+        public static readonly Vector2 ScreenResolution = new(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
         
         /// <summary>
         /// Screen width in pixels
         /// </summary>
-        public const int ScreenWidth = 1280;
+        public const int ScreenWidth = GameConstants.Display.VirtualWidth;
         
         /// <summary>
         /// Screen height in pixels
         /// </summary>
-        public const int ScreenHeight = 720;
+        public const int ScreenHeight = GameConstants.Display.VirtualHeight;
         
         public static Vector2 ScreenCenter => new Vector2(ScreenWidth / 2, ScreenHeight / 2);
         public static Vector2 ScreenSize => new Vector2(ScreenWidth, ScreenHeight);

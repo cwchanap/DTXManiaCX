@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 
 namespace DTXMania.Game.Lib.Stage.DrumConfig
@@ -54,8 +55,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
     /// </summary>
     public static class DrumKitLayout
     {
-        public const int DesignWidth = 1280;
-        public const int DesignHeight = 720;
+        public const int DesignWidth = GameConstants.Display.VirtualWidth;
+        public const int DesignHeight = GameConstants.Display.VirtualHeight;
 
         public static IReadOnlyList<DrumZone> Zones { get; } = new[]
         {

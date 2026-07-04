@@ -296,6 +296,25 @@ public class KeyAssignPanelCoverageTests
         return tex;
     }
 
+    [Theory]
+    [InlineData(InputCommandType.MoveUp, "Move Up")]
+    [InlineData(InputCommandType.MoveDown, "Move Down")]
+    [InlineData(InputCommandType.MoveLeft, "Move Left")]
+    [InlineData(InputCommandType.MoveRight, "Move Right")]
+    [InlineData(InputCommandType.Activate, "Activate")]
+    [InlineData(InputCommandType.Back, "Back")]
+    [InlineData(InputCommandType.IncreaseScrollSpeed, "Increase Scroll Speed")]
+    [InlineData(InputCommandType.DecreaseScrollSpeed, "Decrease Scroll Speed")]
+    [InlineData(InputCommandType.OpenSearch, "Open Search")]
+    public void FormatActionName_ShouldHumanizeEnumNames(InputCommandType action, string expected)
+    {
+        var method = typeof(SystemKeyAssignPanel).GetMethod(
+            "FormatActionName", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var result = (string)method!.Invoke(null, new object[] { action })!;
+        Assert.Equal(expected, result);
+    }
+
     /// <summary>
     /// Test-only <see cref="SystemKeyAssignPanel"/> that overrides the <see cref="SystemKeyAssignPanel.DrawWhitePixel"/>
     /// seam to record draw calls instead of hitting the uninitialized SpriteBatch.
