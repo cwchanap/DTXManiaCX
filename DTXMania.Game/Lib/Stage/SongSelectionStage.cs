@@ -506,16 +506,14 @@ namespace DTXMania.Game.Lib.Stage
         {
             _uiManager = new UIManager();
 
-            // Get viewport dimensions with fallback for test/headless environments
-            var viewport = _game.GraphicsDevice?.Viewport ?? default;
-            var width = viewport.Width > 0 ? viewport.Width : SongSelectionUILayout.SongListDisplay.Width;
-            var height = viewport.Height > 0 ? viewport.Height : SongSelectionUILayout.SongListDisplay.Height;
-
-            // Create main panel
+            // Create main panel sized to the fixed virtual resolution. InitializeUI runs during
+            // OnActivate (not during draw), so GraphicsDevice.Viewport is the back buffer (window
+            // size), NOT the 1280x720 render target. Sizing from the viewport would make the panel
+            // window-dependent and break the fixed-virtual-resolution model.
             _mainPanel = new UIPanel
             {
                 Position = Vector2.Zero,
-                Size = new Vector2(width, height),
+                Size = SongSelectionUILayout.SongListDisplay.Size,
                 BackgroundColor = Color.Black * SongSelectionUILayout.Background.MainPanelAlpha,
                 LayoutMode = PanelLayoutMode.Manual
             };

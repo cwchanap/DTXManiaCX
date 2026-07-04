@@ -884,12 +884,17 @@ namespace DTXMania.Game.Lib.Stage
         // rectangle is in render-target pixels; the fixed 1280x720 render target is the draw
         // surface, so no viewport transform is needed (coords are already 1:1 in virtual space).
         // Paired with EndItemClip.
+        //
+        // The SpriteBatch.End/Begin calls are delegated to FlushCurrentBatch/BeginClippedBatch so
+        // a headless test spy can no-op those (they need a real GraphicsDevice) while still
+        // exercising this method's ApplyScissorRectangle(GetItemClipRectangle()) wiring — the
+        // invariant that actually confines the rows to the board.
         [ExcludeFromCodeCoverage]
         protected virtual void BeginItemClip()
         {
-            _spriteBatch.End();
+            FlushCurrentBatch();
             ApplyScissorRectangle(GetItemClipRectangle());
-            _spriteBatch.Begin(rasterizerState: _itemClipRasterizer);
+            BeginClippedBatch(_itemClipRasterizer);
         }
 
         // Close the clipped batch, restore the previous scissor rectangle, and reopen the default
@@ -898,10 +903,26 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         protected virtual void EndItemClip()
         {
-            _spriteBatch.End();
+            FlushClippedBatch();
             RestoreScissorRectangle();
-            _spriteBatch.Begin();
+            BeginDefaultBatch();
         }
+
+        // SpriteBatch flush/reopen seams extracted from BeginItemClip/EndItemClip so a headless
+        // test spy can override them as no-ops (SpriteBatch.End/Begin need a real GraphicsDevice)
+        // while still exercising the scissor-rectangle wiring in the calling methods.
+        [ExcludeFromCodeCoverage]
+        protected virtual void FlushCurrentBatch() => _spriteBatch.End();
+
+        [ExcludeFromCodeCoverage]
+        protected virtual void BeginClippedBatch(RasterizerState rasterizer) =>
+            _spriteBatch.Begin(rasterizerState: rasterizer);
+
+        [ExcludeFromCodeCoverage]
+        protected virtual void FlushClippedBatch() => _spriteBatch.End();
+
+        [ExcludeFromCodeCoverage]
+        protected virtual void BeginDefaultBatch() => _spriteBatch.Begin();
 
         // The rectangle the item list is clipped to. Defaults to the inner board so the scrolling
         // rows slide under the board frame; extracted as a seam so a headless test can assert the

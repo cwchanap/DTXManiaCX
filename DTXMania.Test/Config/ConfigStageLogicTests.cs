@@ -2188,20 +2188,26 @@ public class ConfigStageLogicTests
 
         // The item-list clip flushes and reopens the real SpriteBatch and touches the
         // GraphicsDevice scissor state; the spy uses an uninitialized SpriteBatch and has no
-        // GraphicsDevice, so skip the SpriteBatch.End/Begin calls but still exercise the same
-        // scissor-application seam production uses (ApplyScissorRectangle(GetItemClipRectangle()))
-        // so a test can assert the clip rect matches the inner board. Count the calls so a test can
-        // assert the list is wrapped in a single balanced clip region.
-        protected override void BeginItemClip()
+        // GraphicsDevice, so no-op the SpriteBatch.End/Begin seams but still let production's
+        // BeginItemClip/EndItemClip run for real — exercising the ApplyScissorRectangle(
+        // GetItemClipRectangle()) wiring that confines rows to the board. Count the flush calls so
+        // a test can assert the list is wrapped in a single balanced clip region.
+        protected override void FlushCurrentBatch()
         {
-            ApplyScissorRectangle(GetItemClipRectangle());
             BeginItemClipCount++;
         }
 
-        protected override void EndItemClip()
+        protected override void BeginClippedBatch(RasterizerState rasterizer)
         {
-            RestoreScissorRectangle();
+        }
+
+        protected override void FlushClippedBatch()
+        {
             EndItemClipCount++;
+        }
+
+        protected override void BeginDefaultBatch()
+        {
         }
 
         // Record the rect instead of touching a (null) GraphicsDevice.

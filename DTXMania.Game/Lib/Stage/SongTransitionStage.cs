@@ -293,11 +293,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             _uiManager = new UIManager();
             
-            // Create main panel with a visible background
+            // Create main panel sized to the fixed virtual resolution. InitializeUI runs during
+            // OnActivate (not during draw), so GraphicsDevice.Viewport is the back buffer (window
+            // size), NOT the 1280x720 render target.
             _mainPanel = new UIPanel
             {
                 Position = Vector2.Zero,
-                Size = new Vector2(_game.GraphicsDevice.Viewport.Width, _game.GraphicsDevice.Viewport.Height),
+                Size = new Vector2(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
                 BackgroundColor = Color.DarkBlue * 0.8f, // More visible background
                 LayoutMode = PanelLayoutMode.Manual
             };

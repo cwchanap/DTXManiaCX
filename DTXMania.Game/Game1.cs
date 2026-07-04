@@ -423,6 +423,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     /// </summary>
     internal static Rectangle CalculateLetterboxDestination(Rectangle viewport, int virtualWidth, int virtualHeight)
     {
+        // Guard against degenerate inputs (zero/negative viewport or virtual dims) that would
+        // produce division by zero or negative destination sizes. Not reachable in normal
+        // operation (the render target and back buffer always have positive dims), but the
+        // guard makes the contract explicit and prevents NaN/negative rects if a future caller
+        // passes a zero-sized viewport (e.g. a minimized window on some platforms).
+        if (virtualWidth <= 0 || virtualHeight <= 0 || viewport.Width <= 0 || viewport.Height <= 0)
+            return Rectangle.Empty;
+
         float scale = Math.Min(viewport.Width / (float)virtualWidth, viewport.Height / (float)virtualHeight);
         int destWidth = (int)Math.Round(virtualWidth * scale);
         int destHeight = (int)Math.Round(virtualHeight * scale);
