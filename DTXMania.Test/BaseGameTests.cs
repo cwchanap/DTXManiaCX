@@ -932,6 +932,22 @@ namespace DTXMania.Test
             Assert.Equal(new Rectangle(320, 0, 1280, 720), dest);
         }
 
+        [Theory]
+        [InlineData(0, 720, 1280, 720)]   // zero-width viewport
+        [InlineData(1280, 0, 1280, 720)]  // zero-height viewport
+        [InlineData(1280, 720, 0, 720)]   // zero virtual width
+        [InlineData(1280, 720, 1280, 0)]  // zero virtual height
+        public void CalculateLetterboxDestination_DegenerateDims_ReturnsEmpty(
+            int viewportW, int viewportH, int virtualW, int virtualH)
+        {
+            // Guard prevents division by zero / negative destination sizes for degenerate inputs
+            // (e.g. a minimized window reporting a zero-sized viewport on some platforms).
+            var dest = BaseGame.CalculateLetterboxDestination(
+                new Rectangle(0, 0, viewportW, viewportH), virtualW, virtualH);
+
+            Assert.Equal(Rectangle.Empty, dest);
+        }
+
         [Fact]
         public void WindowToVirtualCoordinates_SameSize_IsIdentity()
         {

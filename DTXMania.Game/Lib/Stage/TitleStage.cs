@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
@@ -153,9 +154,8 @@ namespace DTXMania.Game.Lib.Stage
             // Draw fallback if no background loaded
             if (!IsBackgroundReady && _whitePixel != null)
             {
-                var viewport = _game.GraphicsDevice.Viewport;
                 _spriteBatch.Draw(_whitePixel,
-                    new Rectangle(0, 0, viewport.Width, viewport.Height),
+                    new Rectangle(0, 0, GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
                     new Color(8, 8, 16));
             }
 
