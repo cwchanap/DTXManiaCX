@@ -407,10 +407,6 @@ public class ConfigStageLogicTests
             var normalRect = ConfigUILayout.ItemBoxRect(navRowTopY, ConfigUILayout.ItemBoxNormalWidth);
             Assert.Contains(stage.RectangleDrawCalls,
                 c => c.Rectangle == normalRect && c.Color == new Color(34, 40, 68, 200));
-
-            // The narrower "other" box must no longer be used for any row.
-            var otherRect = ConfigUILayout.ItemBoxRect(navRowTopY, ConfigUILayout.ItemBoxOtherWidth);
-            Assert.DoesNotContain(stage.RectangleDrawCalls, c => c.Rectangle == otherRect);
         }
     }
 

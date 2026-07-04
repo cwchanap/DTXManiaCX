@@ -225,9 +225,6 @@ namespace DTXMania.Game.Lib.Resources
         /// <summary>Config stage normal item-row box.</summary>
         public const string ConfigItemBox = "Graphics/4_itembox.png";
 
-        /// <summary>Config stage "other" item-row box (navigation/read-only items).</summary>
-        public const string ConfigItemBoxOther = "Graphics/4_itembox other.png";
-
         /// <summary>Config stage item-row selection cursor.</summary>
         public const string ConfigItemBoxCursor = "Graphics/4_itembox cursor.png";
 
@@ -673,7 +670,6 @@ namespace DTXMania.Game.Lib.Resources
                 ConfigHeaderPanel,
                 ConfigFooterPanel,
                 ConfigItemBox,
-                ConfigItemBoxOther,
                 ConfigItemBoxCursor,
                 ConfigDescriptionPanel
             };
@@ -758,7 +754,6 @@ namespace DTXMania.Game.Lib.Resources
                 ConfigHeaderPanel,
                 ConfigFooterPanel,
                 ConfigItemBox,
-                ConfigItemBoxOther,
                 ConfigItemBoxCursor,
                 ConfigDescriptionPanel
             };

@@ -509,7 +509,6 @@ namespace DTXMania.Test.Resources
             Assert.Equal("Graphics/4_header panel.png", TexturePath.ConfigHeaderPanel);
             Assert.Equal("Graphics/4_footer panel.png", TexturePath.ConfigFooterPanel);
             Assert.Equal("Graphics/4_itembox.png", TexturePath.ConfigItemBox);
-            Assert.Equal("Graphics/4_itembox other.png", TexturePath.ConfigItemBoxOther);
             Assert.Equal("Graphics/4_itembox cursor.png", TexturePath.ConfigItemBoxCursor);
             Assert.Equal("Graphics/4_Description Panel.png", TexturePath.ConfigDescriptionPanel);
         }

@@ -27,7 +27,7 @@ Menu (left categories):
 - `MenuCursorRect(i) = (250, 148 + i*32, 170, 32)`
 
 Item list (scrolling viewport):
-- `ItemListX = 420`, `ItemBoxHeight = 80`, `ItemBoxNormalWidth = 538`, `ItemBoxOtherWidth = 438`
+- `ItemListX = 420`, `ItemBoxHeight = 80`, `ItemBoxNormalWidth = 538`
 - `ItemRowStride = 67`, `ItemFocusRowTopY = 189`
 - `ItemVisibleTopY = 105`, `ItemVisibleBottomY = 690`
 - `ItemNameOffsetX = 20`, `ItemValueOffsetX = 260`, `ItemTextOffsetY = 24`, `ItemValueMaxWidth = 116`
@@ -126,7 +126,7 @@ git commit -m "refactor: align config menu metrics to NX (stride 32, panel-cente
 - Test: `DTXMania.Test/UI/ConfigUILayoutTests.cs`
 
 **Interfaces:**
-- Produces: `ItemListX`, `ItemBoxHeight`, `ItemBoxNormalWidth`, `ItemBoxOtherWidth`, `ItemRowStride`, `ItemFocusRowTopY`, `ItemValueMaxWidth` (all int consts); `ItemCursorRect` (Rectangle); `RowTopY(int index, double scroll) -> int`; `IsRowVisible(int rowTopY) -> bool`; `ItemBoxRect(int rowTopY, int width) -> Rectangle`; `ItemNamePos(int rowTopY) -> Vector2`; `ItemValuePos(int rowTopY) -> Vector2`.
+- Produces: `ItemListX`, `ItemBoxHeight`, `ItemBoxNormalWidth`, `ItemRowStride`, `ItemFocusRowTopY`, `ItemValueMaxWidth` (all int consts); `ItemCursorRect` (Rectangle); `RowTopY(int index, double scroll) -> int`; `IsRowVisible(int rowTopY) -> bool`; `ItemBoxRect(int rowTopY, int width) -> Rectangle`; `ItemNamePos(int rowTopY) -> Vector2`; `ItemValuePos(int rowTopY) -> Vector2`.
 
 - [ ] **Step 1: Replace the item-list tests**
 
@@ -162,7 +162,6 @@ public void IsRowVisible_ShouldGateOnVisibleBand(int rowTopY, bool expected)
 public void ItemBoxAndTextPositions_ShouldMatchNx()
 {
     Assert.Equal(new Rectangle(420, 189, 538, 80), ConfigUILayout.ItemBoxRect(189, ConfigUILayout.ItemBoxNormalWidth));
-    Assert.Equal(new Rectangle(420, 189, 438, 80), ConfigUILayout.ItemBoxRect(189, ConfigUILayout.ItemBoxOtherWidth));
     Assert.Equal(new Vector2(440, 213), ConfigUILayout.ItemNamePos(189));
     Assert.Equal(new Vector2(680, 213), ConfigUILayout.ItemValuePos(189));
     Assert.Equal(new Rectangle(413, 193, 497, 68), ConfigUILayout.ItemCursorRect);
@@ -183,7 +182,6 @@ Replace the "Right item list" block with:
 public const int ItemListX = 420;
 public const int ItemBoxHeight = 80;
 public const int ItemBoxNormalWidth = 538;   // 4_itembox.png: dark name cell + white value cell
-public const int ItemBoxOtherWidth = 438;    // 4_itembox other.png: single dark cell (navigation)
 public const int ItemRowStride = 67;         // NX stride; boxes overlap 13px as the art tiles
 public const int ItemFocusRowTopY = 189;     // panel-top Y of the centered/selected row
 public const int ItemVisibleTopY = 105;      // header bottom
@@ -353,7 +351,7 @@ git commit -m "feat: align config menu labels and darken selected label for the 
 - Modify: `DTXMania.Game/Lib/Stage/ConfigStage.cs` (`OnActivate`, `OnUpdate`, `DrawItemList`, fields)
 
 **Interfaces:**
-- Consumes: `ConfigUILayout.RowTopY`, `IsRowVisible`, `ItemBoxRect`, `ItemNamePos`, `ItemValuePos`, `ItemCursorRect`, `ItemBoxNormalWidth`, `ItemBoxOtherWidth`, `ItemValueMaxWidth` (Task 2); colors (Task 4).
+- Consumes: `ConfigUILayout.RowTopY`, `IsRowVisible`, `ItemBoxRect`, `ItemNamePos`, `ItemValuePos`, `ItemCursorRect`, `ItemBoxNormalWidth`, `ItemValueMaxWidth` (Task 2); colors (Task 4).
 - Produces: `_itemScroll` (double) eased toward `SelectedIndex`.
 
 - [ ] **Step 1: Add the scroll field**
@@ -413,18 +411,17 @@ Replace the body of `DrawItemList` (after the `if (_categories.Count == 0) retur
 var category = _categories[_currentCategoryIndex];
 var items = category.Items;
 
-// Box pass.
+// Box pass. Every item — value and navigation alike — uses the same normal itembox
+// (dark name cell + white value cell) so the list reads uniformly. Only real items
+// are drawn (non-cyclic), each at its scrolled Y.
 for (int i = 0; i < items.Count; i++)
 {
     int rowTopY = ConfigUILayout.RowTopY(i, _itemScroll);
     if (!ConfigUILayout.IsRowVisible(rowTopY))
         continue;
-    bool isNav = items[i] is NavigationConfigItem;
-    var boxTex = isNav ? _itemBoxOtherTexture : _itemBoxTexture;
-    int boxWidth = isNav ? ConfigUILayout.ItemBoxOtherWidth : ConfigUILayout.ItemBoxNormalWidth;
-    var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, boxWidth);
-    if (boxTex?.Texture != null)
-        _spriteBatch.Draw(boxTex.Texture, boxRect, Color.White);
+    var boxRect = ConfigUILayout.ItemBoxRect(rowTopY, ConfigUILayout.ItemBoxNormalWidth);
+    if (_itemBoxTexture?.Texture != null)
+        _spriteBatch.Draw(_itemBoxTexture.Texture, boxRect, Color.White);
     else
         DrawFilledRectangle(boxRect, ItemBoxFallbackColor);
 }
@@ -449,7 +446,6 @@ for (int i = 0; i < items.Count; i++)
         continue;
     var item = items[i];
     bool selected = !_focusOnMenu && i == category.SelectedIndex;
-    bool isNav = item is NavigationConfigItem;
     var font = selected ? _boldFont : _font;
 
     font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
@@ -460,11 +456,8 @@ for (int i = 0; i < items.Count; i++)
     {
         var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
         var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
-        // Nav marker (">") sits on the dark "other" box -> light; real values sit on the
-        // itembox white cell -> dark.
-        Color valueColor = isNav
-            ? (selected ? SelectedNameText : LightText)
-            : (selected ? SelectedValueText : ValueDarkText);
+        // Every value (including the nav ">" marker) sits on the itembox white cell -> dark.
+        Color valueColor = selected ? SelectedValueText : ValueDarkText;
         font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
     }
 }
@@ -499,22 +492,28 @@ git commit -m "feat: scroll config item list with NX centered focus and per-cell
 
 - [ ] **Step 1: Rewrite the text portion of `DrawDescriptionPanel`**
 
-Keep the panel-background draw. Replace everything after it (from `var category = ...`) with:
+NX draws the description panel only while focus is on the item list
+(`CStageConfig.cs:260`, `!bFocusIsOnMenu`) — not while browsing the category menu.
+This keeps the busy GALAXY WAVE background clear on entry and stops the panel from
+overlapping the item boxes until the player is actually editing an item. The
+selected item sits at the focus row (y=189), above the panel top (y=270), so it
+stays readable. Add the early return at the top of the method, then keep the
+panel-background draw and replace everything after it (from `var category = ...`)
+with:
 
 ```csharp
+if (_focusOnMenu)
+    return;
+
 var category = _categories[_currentCategoryIndex];
 
-// Title: the focused item's name (or the category name on menu focus) on the white upper cell.
-string title = _focusOnMenu
-    ? category.Name
-    : (category.SelectedItem?.Name ?? category.Name);
+// Title: the focused item's name on the white upper cell.
+string title = category.SelectedItem?.Name ?? category.Name;
 if (!string.IsNullOrEmpty(title) && _boldFont != null)
     _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos, DescriptionTitleText);
 
 // Body: the description text, wrapped, on the black lower cell.
-string text = _focusOnMenu
-    ? category.Description
-    : (category.SelectedItem?.Description ?? string.Empty);
+string text = category.SelectedItem?.Description ?? string.Empty;
 if (string.IsNullOrEmpty(text) || _font == null)
     return;
 
@@ -556,8 +555,8 @@ Launch the game, open Config (Title → Config), and confirm each state:
 - Item rows render full-size (no squish); names are light on the dark cell; values are dark on the white cell; the selected row is framed by the fixed cursor at center; selected name is warm yellow, selected value dark orange.
 - Scroll to the last item (System has 7): the selected item stays centered, rows scroll under the cursor, and no duplicate rows appear.
 - The read-only "DTX Folder" row shows its path in the white value cell (dark, truncated).
-- Navigation rows ("System Key Mapping", "Import NX Scores", "Drum Key Mapping") show a light ">" on the dark "other" box.
-- Description panel: bold title on the white upper region (dark), wrapped body on the black lower region (light).
+- Navigation rows ("System Key Mapping", "Import NX Scores", "Drum Key Mapping") show a dark ">" on the normal itembox white cell (same box as value rows).
+- Description panel: hidden while browsing the category menu; on item-list focus, bold title on the white upper region (dark), wrapped body on the black lower region (light).
 
 Fine-tune `ItemValueOffsetX`, `ItemNameOffsetX`, `ItemTextOffsetY`, `DescriptionTitlePos`/`DescriptionBodyPos` in `ConfigUILayout` (and the matching test expectations) if a screenshot shows any text off its cell.
 
