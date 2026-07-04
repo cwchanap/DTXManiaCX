@@ -155,9 +155,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         };
         
         /// <summary>
-        /// Lane height - NX draws the drum lane panel through the full 720px playfield.
+        /// Lane height - NX draws the drum lane panel through the full virtual-height playfield.
         /// </summary>
-        public const int LaneHeight = 720;
+        public const int LaneHeight = ScreenHeight;
         
         #endregion
         
@@ -520,7 +520,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         // Scroll-speed indicator (in-game toast shown when player adjusts scroll speed)
         public const float ScrollSpeedIndicatorDurationSeconds = 1.5f;
         public const float ScrollSpeedIndicatorFadeSeconds = 0.3f;
-        public const int ScrollSpeedIndicatorX = 640; // left edge at horizontal center of 1280-wide screen
+        public const int ScrollSpeedIndicatorX = ScreenWidth / 2; // left edge at horizontal center of the virtual screen
         public const int ScrollSpeedIndicatorY = 40;
 
         #endregion
@@ -668,26 +668,26 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// </summary>
         public static class Background
         {
-            public static readonly Rectangle Bounds = new Rectangle(0, 0, 1280, 720);
+            public static readonly Rectangle Bounds = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
         }
-        
+
         /// <summary>
         /// Stage Failed overlay
         /// </summary>
         public static class StageFailed
         {
-            public static readonly Rectangle Bounds = new Rectangle(0, 0, 1280, 720);
+            public static readonly Rectangle Bounds = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
         }
-        
+
         /// <summary>
         /// Full Combo overlay
         /// </summary>
         public static class FullCombo
         {
-            // Centered, baseline calculation: (1280-w)/2, (720-h)/2
+            // Centered on the virtual screen: (ScreenWidth-w)/2, (ScreenHeight-h)/2
             public static Vector2 GetCenteredPosition(int textureWidth, int textureHeight)
             {
-                return new Vector2((1280 - textureWidth) / 2, (720 - textureHeight) / 2);
+                return new Vector2((ScreenWidth - textureWidth) / 2, (ScreenHeight - textureHeight) / 2);
             }
         }
         
@@ -926,7 +926,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         
         public static class JudgementTextAssets
         {
-            public static readonly Rectangle Bounds = new Rectangle((int)(0.39f * 1280), (int)(0.77f * 720), (int)(0.22f * 1280), (int)(0.07f * 720));
+            public static readonly Rectangle Bounds = new Rectangle((int)(0.39f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.22f * ScreenWidth), (int)(0.07f * ScreenHeight));
             public const int AtlasRows = 1;
             public const int AtlasCols = 5;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -1006,8 +1006,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         
         public static class TimingIndicatorAssets
         {
-            public static readonly Rectangle EarlyBounds = new Rectangle((int)(0.335f * 1280), (int)(0.77f * 720), (int)(0.05f * 1280), (int)(0.05f * 720));
-            public static readonly Rectangle LateBounds = new Rectangle((int)(0.615f * 1280), (int)(0.77f * 720), (int)(0.05f * 1280), (int)(0.05f * 720));
+            public static readonly Rectangle EarlyBounds = new Rectangle((int)(0.335f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.05f * ScreenWidth), (int)(0.05f * ScreenHeight));
+            public static readonly Rectangle LateBounds = new Rectangle((int)(0.615f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.05f * ScreenWidth), (int)(0.05f * ScreenHeight));
             public const int AtlasRows = 1;
             public const int AtlasCols = 2;
             public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
@@ -1017,8 +1017,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         
         public static class OverlayAssets
         {
-            public static readonly Rectangle PauseOverlay = new Rectangle(0, 0, 1280, 720);
-            public static readonly Rectangle DangerOverlay = new Rectangle(0, 0, 1280, 720);
+            public static readonly Rectangle PauseOverlay = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
+            public static readonly Rectangle DangerOverlay = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
         }
         
         public static class NotesAssets

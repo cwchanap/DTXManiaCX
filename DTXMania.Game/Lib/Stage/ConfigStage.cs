@@ -292,12 +292,9 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch = new SpriteBatch(graphicsDevice);
 
             // CullMode.None so SpriteBatch quads are never winding-culled; ScissorTestEnable so the
-            // item-list batch is clipped to the inner board (see _itemClipRasterizer).
-            _itemClipRasterizer = new RasterizerState
-            {
-                CullMode = CullMode.None,
-                ScissorTestEnable = true
-            };
+            // item-list batch is clipped to the inner board (see _itemClipRasterizer). Built via the
+            // CreateItemClipRasterizer seam so headless tests can assert ScissorTestEnable is set.
+            _itemClipRasterizer = CreateItemClipRasterizer();
 
             _whitePixel = new Texture2D(graphicsDevice, 1, 1);
             _whitePixel.SetData(new[] { Color.White });
@@ -891,9 +888,7 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual void BeginItemClip()
         {
             _spriteBatch.End();
-            var graphicsDevice = _game.GraphicsDevice;
-            _savedScissorRectangle = graphicsDevice.ScissorRectangle;
-            graphicsDevice.ScissorRectangle = ConfigUILayout.InnerBoardRect;
+            ApplyScissorRectangle(GetItemClipRectangle());
             _spriteBatch.Begin(rasterizerState: _itemClipRasterizer);
         }
 
@@ -904,9 +899,40 @@ namespace DTXMania.Game.Lib.Stage
         protected virtual void EndItemClip()
         {
             _spriteBatch.End();
-            _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
+            RestoreScissorRectangle();
             _spriteBatch.Begin();
         }
+
+        // The rectangle the item list is clipped to. Defaults to the inner board so the scrolling
+        // rows slide under the board frame; extracted as a seam so a headless test can assert the
+        // clip rect matches the drawn board without a GraphicsDevice.
+        protected virtual Rectangle GetItemClipRectangle()
+            => ConfigUILayout.InnerBoardRect;
+
+        // The rasterizer used for the clipped item-list batch. Extracted as a seam so a headless
+        // test can assert ScissorTestEnable is set (the invariant that actually confines the rows).
+        protected virtual RasterizerState CreateItemClipRasterizer()
+            => new RasterizerState
+            {
+                CullMode = CullMode.None,
+                ScissorTestEnable = true
+            };
+
+        // Apply the item-list scissor rectangle, saving the previously active one so EndItemClip can
+        // restore it. Extracted as a seam so a headless spy can record the rect without touching a
+        // real GraphicsDevice.
+        [ExcludeFromCodeCoverage]
+        protected virtual void ApplyScissorRectangle(Rectangle rect)
+        {
+            var graphicsDevice = _game.GraphicsDevice;
+            _savedScissorRectangle = graphicsDevice.ScissorRectangle;
+            graphicsDevice.ScissorRectangle = rect;
+        }
+
+        // Restore the scissor rectangle saved by ApplyScissorRectangle.
+        [ExcludeFromCodeCoverage]
+        protected virtual void RestoreScissorRectangle()
+            => _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
 
         // Extracts the value portion for the two-column item list by stripping the
         // "{Name}: " prefix that GetDisplayText() prepends. This is coupled to every

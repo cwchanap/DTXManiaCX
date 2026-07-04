@@ -1095,6 +1095,45 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_ShouldClipToTheInnerBoardRectangle()
+    {
+        // Regression guard for the "zero spill past the board" invariant: the scissor rect
+        // applied during the item-list clip must equal the inner board the rows slide under.
+        // A future change to the clip rect (or to the board rect it must match) would otherwise
+        // pass silently with green tests.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            Assert.NotNull(stage.LastAppliedScissorRectangle);
+            Assert.Equal(ConfigUILayout.InnerBoardRect, stage.LastAppliedScissorRectangle!.Value);
+        }
+    }
+
+    [Fact]
+    public void ItemClipRasterizer_ShouldEnableScissorTest()
+    {
+        // Regression guard for the scissor-test invariant: the rasterizer used for the clipped
+        // item-list batch must have ScissorTestEnable = true, otherwise the clip rect has no
+        // effect and rows spill past the board. CullMode.None keeps SpriteBatch quads visible
+        // regardless of winding.
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            var rasterizer = stage.GetItemClipRasterizerForTest();
+
+            Assert.True(rasterizer.ScissorTestEnable);
+            Assert.Equal(CullMode.None, rasterizer.CullMode);
+        }
+    }
+
+    [Fact]
     public void DrawItemList_WhenFocusOnMenu_ShouldNotDrawItemCursor()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
@@ -2119,6 +2158,14 @@ public class ConfigStageLogicTests
         public int BeginItemClipCount { get; private set; }
         public int EndItemClipCount { get; private set; }
 
+        // The scissor rect applied by BeginItemClip, recorded via the ApplyScissorRectangle seam
+        // so a test can assert it matches the inner board (the "zero spill past the board"
+        // invariant) without a real GraphicsDevice.
+        public Rectangle? LastAppliedScissorRectangle { get; private set; }
+
+        // Exposes the pure rasterizer seam so a test can assert ScissorTestEnable is set.
+        public RasterizerState GetItemClipRasterizerForTest() => CreateItemClipRasterizer();
+
         public void InitializeDrawingState()
         {
             var spriteBatch = ReflectionHelpers.CreateUninitialized<SpriteBatch>();
@@ -2140,17 +2187,32 @@ public class ConfigStageLogicTests
         }
 
         // The item-list clip flushes and reopens the real SpriteBatch and touches the
-        // GraphicsDevice scissor state; the spy uses an uninitialized SpriteBatch, so no-op the
-        // clip hooks (mirrors BeginDrawFrame/EndDrawFrame) and only count them so a test can assert
-        // the list is wrapped in a single balanced clip region.
+        // GraphicsDevice scissor state; the spy uses an uninitialized SpriteBatch and has no
+        // GraphicsDevice, so skip the SpriteBatch.End/Begin calls but still exercise the same
+        // scissor-application seam production uses (ApplyScissorRectangle(GetItemClipRectangle()))
+        // so a test can assert the clip rect matches the inner board. Count the calls so a test can
+        // assert the list is wrapped in a single balanced clip region.
         protected override void BeginItemClip()
         {
+            ApplyScissorRectangle(GetItemClipRectangle());
             BeginItemClipCount++;
         }
 
         protected override void EndItemClip()
         {
+            RestoreScissorRectangle();
             EndItemClipCount++;
+        }
+
+        // Record the rect instead of touching a (null) GraphicsDevice.
+        protected override void ApplyScissorRectangle(Rectangle rect)
+        {
+            LastAppliedScissorRectangle = rect;
+        }
+
+        // No GraphicsDevice to restore in the spy.
+        protected override void RestoreScissorRectangle()
+        {
         }
 
         protected override void DrawFilledRectangle(Rectangle destinationRectangle, Color color)

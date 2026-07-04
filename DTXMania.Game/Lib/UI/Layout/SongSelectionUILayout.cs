@@ -409,8 +409,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             public const int X = 0;
             public const int Y = 0;
-            public const int Width = 1280;  // Full screen width
-            public const int Height = 720;  // Full screen height
+            public const int Width = GameConstants.Display.VirtualWidth;  // Full screen width
+            public const int Height = GameConstants.Display.VirtualHeight;  // Full screen height
             
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);

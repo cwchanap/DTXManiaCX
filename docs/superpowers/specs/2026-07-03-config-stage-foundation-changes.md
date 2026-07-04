@@ -94,6 +94,24 @@ lower-risk path.
   spilled into the gap between the clip rect (`y ∈ [109, 686)`) and the
   header/footer in any scroll state. The default `SpriteSortMode.Deferred`
   is sufficient; no fallback to `SpriteSortMode.Immediate` needed.
-- All four 1280×720 virtual-dimension copies (`GameConstants.Display`,
-  `ConfigUILayout`, `DrumKitLayout`, `PerformanceUILayout`) are now linked
-  to `GameConstants.Display` as the single source of truth.
+- Automated scissor-clip regression guard: `ConfigStage` exposes the item-
+  list clip via three seams — `GetItemClipRectangle()` (the rect to clip to),
+  `CreateItemClipRasterizer()` (the rasterizer with `ScissorTestEnable`),
+  and `ApplyScissorRectangle(Rectangle)` (the GraphicsDevice apply step).
+  `RenderSpyConfigStage` overrides `ApplyScissorRectangle` to record the
+  rect without a device, and tests assert the recorded rect equals
+  `ConfigUILayout.InnerBoardRect` and the rasterizer has
+  `ScissorTestEnable = true` / `CullMode = None`. A future change to the
+  clip rect or rasterizer that breaks the "zero spill past the board"
+  invariant now fails a test instead of regressing silently.
+- Virtual-dimension source of truth: `GameConstants.Display.VirtualWidth/
+  Height` is the single source for screen-dimension constants. The layout
+  classes that author in 1280×720 space link to it: `ConfigUILayout`
+  (`ScreenWidth`/`ScreenHeight`), `DrumKitLayout` (`DesignWidth`/
+  `DesignHeight`), `PerformanceUILayout` (`ScreenWidth`/`ScreenHeight`,
+  plus the derived `LaneHeight`, full-screen overlay bounds, centered
+  positioning, and proportional atlas bounds), `ResultUILayout.NXViewport`
+  (`Width`/`Height`), and `SongSelectionUILayout.SongListDisplay`
+  (`Width`/`Height`). Texture-atlas source rectangles (e.g. the 720px-tall
+  lane source rects in `PerformanceUILayout`) remain hardcoded by design —
+  they describe texture dimensions, not the screen.
