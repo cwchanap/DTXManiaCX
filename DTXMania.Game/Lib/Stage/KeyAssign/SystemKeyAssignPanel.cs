@@ -426,15 +426,24 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             spriteBatch.Draw(whitePixel, rectangle, color);
         }
 
-        // Humanizes an action enum name for display: "MoveUp" -> "Move Up".
+        // Humanizes an action enum name for display: "MoveUp" -> "Move Up",
+        // "IncreaseScrollSpeed" -> "Increase Scroll Speed", "MoveURLPath" -> "Move URL Path".
         private static string FormatActionName(InputCommandType action)
         {
             var s = action.ToString();
             var sb = new System.Text.StringBuilder(s.Length + 4);
             for (int i = 0; i < s.Length; i++)
             {
-                if (i > 0 && char.IsUpper(s[i]) && !char.IsUpper(s[i - 1]))
-                    sb.Append(' ');
+                // Insert a space at word boundaries. Two cases:
+                //  1. lowercase -> Uppercase:        "MoveUp"   -> "Move Up"
+                //  2. Uppercase, prev Upper, next lower: "URLPath" -> "URL Path" (acronym end)
+                if (i > 0 && char.IsUpper(s[i]))
+                {
+                    bool prevLower = !char.IsUpper(s[i - 1]);
+                    bool acronymEnd = char.IsUpper(s[i - 1]) && i + 1 < s.Length && char.IsLower(s[i + 1]);
+                    if (prevLower || acronymEnd)
+                        sb.Append(' ');
+                }
                 sb.Append(s[i]);
             }
             return sb.ToString();

@@ -1,6 +1,7 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Game.Lib.UI.Layout
 {
@@ -11,8 +12,8 @@ namespace DTXMania.Game.Lib.UI.Layout
     /// </summary>
     public static class ConfigUILayout
     {
-        public const int ScreenWidth = 1280;
-        public const int ScreenHeight = 720;
+        public const int ScreenWidth = GameConstants.Display.VirtualWidth;
+        public const int ScreenHeight = GameConstants.Display.VirtualHeight;
 
         // Background + vertical divider.
         public static Rectangle BackgroundRect => new(0, 0, ScreenWidth, ScreenHeight);
