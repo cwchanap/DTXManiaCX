@@ -1,7 +1,7 @@
 # Config Stage NX Layout Revamp — Design
 
 **Date:** 2026-06-25
-**Status:** Approved (brainstorming), ready for implementation planning
+**Status:** Implemented. Subsequently refined: `ConfigItemBoxOther` was removed and item-box rendering unified (see commit `09756ac`). References to `ConfigItemBoxOther` below are retained as the original design intent; the shipped code uses a single `ConfigItemBox` texture.
 
 ## Summary
 

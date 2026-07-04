@@ -2080,7 +2080,7 @@ public class ConfigStageLogicTests
             LastDeltaTime = deltaTime;
         }
 
-        public void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel, int viewportWidth, int viewportHeight)
+        public void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel, int virtualWidth, int virtualHeight)
         {
             DrawCallCount++;
         }
