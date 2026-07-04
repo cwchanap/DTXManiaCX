@@ -140,10 +140,10 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null)
                 return;
 
-            var viewport = _spriteBatch.GraphicsDevice.Viewport;
-            var transform = ResultScreenRenderer.CreateViewportTransform(viewport);
-
-            _spriteBatch.Begin(transformMatrix: transform);
+            // BaseGame now renders every stage into the fixed 1280×720 virtual render target and
+            // letterbox-scales it once to the window, so no per-stage viewport transform is needed
+            // here (the previous CreateViewportTransform call was always identity under that model).
+            _spriteBatch.Begin();
 
             if (_resultRenderer != null && _resultModel != null && _revealState != null)
             {

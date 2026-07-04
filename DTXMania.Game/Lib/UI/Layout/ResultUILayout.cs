@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Config;
 using Microsoft.Xna.Framework;
 
 namespace DTXMania.Game.Lib.UI.Layout
@@ -46,8 +47,8 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         public static class NXViewport
         {
-            public const int Width = 1280;
-            public const int Height = 720;
+            public const int Width = GameConstants.Display.VirtualWidth;
+            public const int Height = GameConstants.Display.VirtualHeight;
         }
 
         public static class Fonts
