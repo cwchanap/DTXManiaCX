@@ -97,8 +97,11 @@ From `DTXManiaNX/.../04.Config/CStageConfig.cs` and `CActConfigList.cs`:
 
 - `ItemListX = 420`; boxes drawn at the art's **native** size (no squish):
   - Normal box (`4_itembox.png`): **538×80** — dark name cell + white value cell.
-  - Other box (`4_itembox other.png`): **438×80** — single dark cell (navigation /
-    read-only rows, which have no value).
+    All rows — value items **and** navigation/read-only rows — use this single box
+    so the list reads uniformly. NX has a separate `4_itembox other.png` (438×80,
+    single dark cell) for nav rows, but it looked out of place next to value rows;
+    we intentionally use the normal box for every row and do not load the "other"
+    texture.
 - `ItemRowStride = 67` (NX; boxes overlap 13 px, matching how the art tiles).
 - `ItemFocusRowY = 189` — panel-top Y of the centered/selected row.
 - Per-item panel-top Y (pure helper):
@@ -121,7 +124,15 @@ From `DTXManiaNX/.../04.Config/CStageConfig.cs` and `CActConfigList.cs`:
 
 ### 3. Description panel (`DrawDescriptionPanel`)
 
-The panel art is white (top ~270..430) over black (~430..630). Use both cells:
+The panel is drawn **only while focus is on the item list** (`!_focusOnMenu`),
+matching NX (`CStageConfig.cs:260`, `!bFocusIsOnMenu`). While browsing the
+category menu the panel is suppressed so the busy GALAXY WAVE background stays
+clear on entry and the panel does not overlap the item boxes until the player is
+actually editing an item. The selected item sits at the focus row (y=189), above
+the panel top (y=270), so it stays readable.
+
+When focus is on the item list, the panel art is white (top ~270..430) over
+black (~430..630); use both cells:
 
 - **Title** (bold) — current item/category name — in the white upper region,
   **dark** text (≈ `24,24,32`) at ~`(818, 300)`.

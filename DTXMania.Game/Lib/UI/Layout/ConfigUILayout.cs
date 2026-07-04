@@ -53,7 +53,6 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ItemListX = 420;
         public const int ItemBoxHeight = 80;
         public const int ItemBoxNormalWidth = 538;   // 4_itembox.png: dark name cell + white value cell
-        public const int ItemBoxOtherWidth = 438;    // 4_itembox other.png: single dark cell (navigation)
         public const int ItemRowStride = 67;         // NX stride; boxes overlap 13px as the art tiles
         public const int ItemFocusRowTopY = 189;     // panel-top Y of the centered/selected row
         public const int ItemVisibleTopY = 105;      // header bottom
