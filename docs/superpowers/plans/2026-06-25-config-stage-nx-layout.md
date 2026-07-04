@@ -1,5 +1,7 @@
 # Config Stage NX Layout Revamp Implementation Plan
 
+> **Status:** Implemented. Subsequently refined: `ConfigItemBoxOther` was removed and item-box rendering unified (see commit `09756ac`). References to `ConfigItemBoxOther` in the tasks below are retained as the original plan; the shipped code uses a single `ConfigItemBox` texture.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild `ConfigStage` from a single flat list into the DTXManiaNX two-column master-detail layout (left category menu, right per-category item list, description panel, header/footer).

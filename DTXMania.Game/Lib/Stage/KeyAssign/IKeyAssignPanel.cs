@@ -37,6 +37,6 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         void Update(double deltaTime, KeyboardState current, KeyboardState previous);
 
         void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel,
-                  int viewportWidth, int viewportHeight);
+                  int virtualWidth, int virtualHeight);
     }
 }

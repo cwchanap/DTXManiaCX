@@ -342,17 +342,17 @@ namespace DTXMania.Game.Lib.Stage
                 OpenPopup(_focusIndex);
         }
 
-        // "Reset to defaults" button (viewport space), top-right of the screen. Named rather than
+        // "Reset to defaults" button, top-right of the screen in virtual space. Named rather than
         // magic numbers so the geometry is discoverable; matches the popup's centralized-constant
-        // pattern. viewportHeight is unused (button is top-anchored); kept for call-symmetry with
-        // the other (viewportWidth, viewportHeight) rect getters.
+        // pattern. virtualHeight is unused (button is top-anchored); kept for call-symmetry with
+        // the other (virtualWidth, virtualHeight) rect getters.
         private const int ResetButtonWidth = 190;
         private const int ResetButtonHeight = 30;
-        private const int ResetButtonRightInset = 210; // right viewport edge -> button's left edge
+        private const int ResetButtonRightInset = 210; // right virtual edge -> button's left edge
         private const int ResetButtonTopInset = 12;
 
-        private static Rectangle GetResetButtonRect(int viewportWidth, int viewportHeight) =>
-            new Rectangle(viewportWidth - ResetButtonRightInset, ResetButtonTopInset,
+        private static Rectangle GetResetButtonRect(int virtualWidth, int virtualHeight) =>
+            new Rectangle(virtualWidth - ResetButtonRightInset, ResetButtonTopInset,
                           ResetButtonWidth, ResetButtonHeight);
 
         [ExcludeFromCodeCoverage]
@@ -361,7 +361,13 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null || _renderer == null)
                 return;
 
-            var vp = _game.GraphicsDevice.Viewport;
+            // Draw against the fixed virtual render target (see GameConstants.Display). The stage
+            // is rendered into a VirtualWidth×VirtualHeight target and letterboxed once to the
+            // window in BaseGame.Draw, so every coordinate here is authored in that virtual space —
+            // matching the hit-test path, which already uses GameConstants.Display. Reading the
+            // GraphicsDevice viewport here would silently desync if the virtual target size changes.
+            int vw = GameConstants.Display.VirtualWidth;
+            int vh = GameConstants.Display.VirtualHeight;
             _spriteBatch.Begin();
 
             // Background: the bright startup artwork, calmed by a translucent light scrim so the
@@ -369,7 +375,7 @@ namespace DTXMania.Game.Lib.Stage
             // the texture or white pixel is unavailable, keeping DarkText legible.
             if (_background?.Texture != null && _whitePixel != null)
             {
-                var full = new Rectangle(0, 0, vp.Width, vp.Height);
+                var full = new Rectangle(0, 0, vw, vh);
                 _spriteBatch.Draw(_background.Texture, full, Color.White);
                 // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
                 // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
@@ -377,23 +383,24 @@ namespace DTXMania.Game.Lib.Stage
             }
             else if (_whitePixel != null)
             {
-                _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, vp.Width, vp.Height),
+                _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, vw, vh),
                     FallbackBackgroundColor);
             }
 
             // Drum-kit hardware skeleton behind the pieces, so the kit reads as one assembled set.
             if (_skeleton?.Texture != null)
-                _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vp.Width, vp.Height), Color.White * 0.9f);
+                _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vw, vh), Color.White * 0.9f);
 
             // Decorative bass drum at the kit's center, behind the (clickable) bass pedals.
             // Reuses the renderer's KickTexture (same asset as the Kick zone) — one load, one owner.
+            // Coordinates are authored directly in the 1280×720 virtual space (no scaling needed
+            // because the draw target IS that virtual space).
             var bassDrum = _renderer?.KickTexture;
             if (bassDrum?.Texture != null)
             {
-                float dsx = vp.Width / 1280f, dsy = vp.Height / 720f;
-                int bw = (int)(240 * dsx), bh = (int)(220 * dsy);
+                const int bw = 240, bh = 220;
                 _spriteBatch.Draw(bassDrum.Texture,
-                    new Rectangle((int)(640 * dsx) - (bw / 2), (int)(486 * dsy) - (bh / 2), bw, bh), Color.White);
+                    new Rectangle(640 - (bw / 2), 486 - (bh / 2), bw, bh), Color.White);
             }
 
             if (_font != null)
@@ -416,9 +423,9 @@ namespace DTXMania.Game.Lib.Stage
             // Display reads the runtime, which always mirrors Config (persist-on-edit truth).
             _renderer.Draw(_spriteBatch, _input?.ModularInputManager.KeyBindings ?? new KeyBindings(),
                 _font, _whitePixel,
-                vp.Width, vp.Height, in highlights);
+                vw, vh, in highlights);
 
-            var resetRect = GetResetButtonRect(vp.Width, vp.Height);
+            var resetRect = GetResetButtonRect(vw, vh);
             if (_whitePixel != null)
             {
                 // Focus ring first (yellow, inflated) so the fill sits inside it, mirroring the
@@ -435,7 +442,7 @@ namespace DTXMania.Game.Lib.Stage
                 _font.DrawString(_spriteBatch, "Reset to defaults",
                     new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
 
-            _popup?.Draw(_spriteBatch, _font, _whitePixel, vp.Width, vp.Height);
+            _popup?.Draw(_spriteBatch, _font, _whitePixel, vw, vh);
 
             _spriteBatch.End();
         }

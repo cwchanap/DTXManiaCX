@@ -312,19 +312,19 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
         }
 
         public void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel,
-                         int viewportWidth, int viewportHeight)
+                         int virtualWidth, int virtualHeight)
         {
             if (!IsActive || spriteBatch == null) return;
 
             // Dim the whole stage behind the panel.
             if (whitePixel != null)
-                DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(0, 0, viewportWidth, viewportHeight), BackdropColor);
+                DrawWhitePixel(spriteBatch, whitePixel, new Rectangle(0, 0, virtualWidth, virtualHeight), BackdropColor);
 
             // Centered framed board (all coordinates in the same scaled space as the config stage).
             const int boardW = 720;
             const int boardH = 540;
-            int boardX = (viewportWidth - boardW) / 2;
-            int boardY = (viewportHeight - boardH) / 2;
+            int boardX = (virtualWidth - boardW) / 2;
+            int boardY = (virtualHeight - boardH) / 2;
 
             if (whitePixel != null)
             {
