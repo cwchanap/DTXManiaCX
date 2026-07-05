@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -1338,17 +1339,40 @@ public class ConfigStageLogicTests
         Assert.Equal(">", InvokeGetItemValueText(item));
     }
 
+#if DEBUG
+    [Fact]
+    public void GetItemValueText_WhenDisplayTextDoesNotStartWithPrefix_ShouldFailDebugAssertion()
+    {
+        // A future item type whose GetDisplayText omits the "{Name}: " prefix is a bug.
+        // GetItemValueText fires a Debug.Assert so the mismatch is caught at development
+        // time. The throwing trace listener converts the assertion into an exception so it
+        // surfaces as a test failure instead of a modal dialog that hangs the run.
+        // InvokeGetItemValueText uses reflection, so the assertion exception is wrapped in a
+        // TargetInvocationException — unwrap and assert the inner exception type.
+        var item = new Mock<IConfigItem>();
+        item.SetupGet(i => i.Name).Returns("X");
+        item.Setup(i => i.GetDisplayText()).Returns("no prefix here");
+
+        using (ThrowingTraceListener.Install())
+        {
+            var wrapped = Assert.Throws<TargetInvocationException>(
+                () => InvokeGetItemValueText(item.Object));
+            Assert.IsType<DebugAssertFailedException>(wrapped.InnerException);
+        }
+    }
+#else
     [Fact]
     public void GetItemValueText_WhenDisplayTextDoesNotStartWithPrefix_ShouldReturnEmpty()
     {
-        // Defensive: a future item type whose GetDisplayText omits the "{Name}: " prefix renders
-        // an empty value column rather than echoing the whole display string into the value slot.
+        // In release builds the Debug.Assert is compiled out, so the defensive empty-string
+        // fallback is the only behavior.
         var item = new Mock<IConfigItem>();
         item.SetupGet(i => i.Name).Returns("X");
         item.Setup(i => i.GetDisplayText()).Returns("no prefix here");
 
         Assert.Equal(string.Empty, InvokeGetItemValueText(item.Object));
     }
+#endif
 
     private static string InvokeGetItemValueText(IConfigItem item)
     {

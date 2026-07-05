@@ -14,6 +14,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
@@ -82,6 +83,9 @@ namespace DTXMania.Game.Lib.Stage
         // clip hooks are overridden to no-ops.
         private RasterizerState? _itemClipRasterizer;
         private Rectangle _savedScissorRectangle;
+        // True between ApplyScissorRectangle and RestoreScissorRectangle. Guards against an
+        // unpaired Restore (subclass misuse) restoring the default {0,0,0,0} rectangle.
+        private bool _scissorSaved;
 
         // Light text reads on the dark NX config background.
         private static readonly Color LightText = new(235, 238, 248);
@@ -879,6 +883,39 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        // ---- Item-list scissor clip seam contract ----
+        //
+        // The following ten protected virtual methods form the scissor-clip lifecycle used to
+        // confine the scrolling item list to the inner board. They are extracted as seams so a
+        // headless test spy (ConfigStageRenderSpy) can override the SpriteBatch/GraphicsDevice
+        // touches as no-ops while still exercising the scissor-rectangle wiring — the invariant
+        // that actually confines the rows.
+        //
+        // Entry points: BeginItemClip / EndItemClip (called in matched pairs around the item-list
+        // draw). These are the only methods production code calls directly.
+        //
+        // Sub-seams invoked by the entry points:
+        //   - FlushCurrentBatch / BeginClippedBatch / FlushClippedBatch / BeginDefaultBatch
+        //     SpriteBatch.End/Begin wrappers (need a real GraphicsDevice).
+        //   - GetItemClipRectangle / CreateItemClipRasterizer
+        //     Pure value seams — return the clip rect / rasterizer state.
+        //   - ApplyScissorRectangle / RestoreScissorRectangle
+        //     Save/restore GraphicsDevice.ScissorRectangle around the clipped batch.
+        //
+        // Override contract for headless test spies:
+        //   1. Override the four SpriteBatch sub-seams as no-ops (no GraphicsDevice available).
+        //   2. Override ApplyScissorRectangle / RestoreScissorRectangle to record the rect without
+        //      touching GraphicsDevice (the spy records the applied rect for assertion).
+        //   3. Leave GetItemClipRectangle / CreateItemClipRasterizer at their defaults (pure
+        //      values, no device needed) so the spy can assert the real clip rect / rasterizer.
+        //   4. Do NOT override BeginItemClip / EndItemClip themselves — the entry points must run
+        //      so the wiring (Apply + Begin / Flush + Restore) is exercised by the test.
+        //
+        // Pairing invariant: every BeginItemClip must be matched by an EndItemClip before the next
+        // BeginItemClip or the end of OnDraw. RestoreScissorRectangle without a prior
+        // ApplyScissorRectangle restores the default {0,0,0,0} rectangle — only reachable by
+        // subclass misuse; the entry points enforce the pairing.
+
         // Flush the current batch, narrow the scissor rectangle to the inner board, and reopen the
         // batch with scissor-test enabled so the item list is clipped to the board. The scissor
         // rectangle is in render-target pixels; the fixed 1280x720 render target is the draw
@@ -947,22 +984,37 @@ namespace DTXMania.Game.Lib.Stage
         {
             var graphicsDevice = _game.GraphicsDevice;
             _savedScissorRectangle = graphicsDevice.ScissorRectangle;
+            _scissorSaved = true;
             graphicsDevice.ScissorRectangle = rect;
         }
 
-        // Restore the scissor rectangle saved by ApplyScissorRectangle.
+        // Restore the scissor rectangle saved by ApplyScissorRectangle. If called without a prior
+        // Apply (subclass misuse — the entry points BeginItemClip/EndItemClip enforce pairing),
+        // a Debug.Assert flags it and the restore is skipped so the default {0,0,0,0} rectangle
+        // is not written back into GraphicsDevice.
         [ExcludeFromCodeCoverage]
         protected virtual void RestoreScissorRectangle()
-            => _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
+        {
+            if (!_scissorSaved)
+            {
+                Debug.Assert(false,
+                    "RestoreScissorRectangle called without a prior ApplyScissorRectangle. " +
+                    "BeginItemClip/EndItemClip must be paired; this indicates subclass misuse.");
+                return;
+            }
+            _game.GraphicsDevice.ScissorRectangle = _savedScissorRectangle;
+            _scissorSaved = false;
+        }
 
         // Extracts the value portion for the two-column item list by stripping the
         // "{Name}: " prefix that GetDisplayText() prepends. This is coupled to every
         // concrete item type's GetDisplayText() format (Dropdown/Toggle/Integer/
-        // ReadOnly all use "$"{Name}: {value}""); a future item type that omits the
-        // prefix would render an empty value here. Adding a GetValueText() to
-        // IConfigItem would decouple this, but that value-semantics change is an
-        // explicit non-goal of the NX layout revamp — so the coupling is documented
-        // here instead.
+        // ReadOnly all use "$"{Name}: {value}""). A future item type that omits the
+        // prefix would silently render an empty value here, so a Debug.Assert flags the
+        // mismatch at development time; the empty fallback is retained for release
+        // builds. Adding a GetValueText() to IConfigItem would decouple this, but that
+        // value-semantics change is an explicit non-goal of the NX layout revamp — so
+        // the coupling is documented here instead.
         private static string GetItemValueText(IConfigItem item)
         {
             if (item is NavigationConfigItem)
@@ -970,9 +1022,15 @@ namespace DTXMania.Game.Lib.Stage
 
             var text = item.GetDisplayText();
             var prefix = item.Name + ": ";
-            return text.StartsWith(prefix, StringComparison.Ordinal)
-                ? text.Substring(prefix.Length)
-                : string.Empty;
+            if (!text.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                Debug.Assert(false,
+                    $"GetItemValueText: display text for '{item.Name}' does not start with " +
+                    $"expected prefix '{prefix}'. Got: '{text}'. A new IConfigItem type must " +
+                    $"either follow the \"{{Name}}: {{value}}\" convention or be handled here.");
+                return string.Empty;
+            }
+            return text.Substring(prefix.Length);
         }
 
         protected virtual void DrawDescriptionPanel()
