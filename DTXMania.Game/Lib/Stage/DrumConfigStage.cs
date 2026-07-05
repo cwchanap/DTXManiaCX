@@ -154,7 +154,9 @@ namespace DTXMania.Game.Lib.Stage
             var virtualMouse = _game.MapMouseToVirtual(mouse.Position);
             if (leftClick && virtualMouse is { } vm)
             {
-                foreach (var chip in _popup.GetBindingChips(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight))
+                int vw = GameConstants.Display.VirtualWidth;
+                int vh = GameConstants.Display.VirtualHeight;
+                foreach (var chip in _popup.GetBindingChips(vw, vh))
                 {
                     if (chip.IsMidi && chip.DecrementVelocityThreshold.Contains(vm.X, vm.Y))
                     {
@@ -173,13 +175,13 @@ namespace DTXMania.Game.Lib.Stage
                         return;
                     }
                 }
-                if (_popup.GetDoneRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vm.X, vm.Y))
+                if (_popup.GetDoneRect(vw, vh).Contains(vm.X, vm.Y))
                 {
                     _popup.Close();
                     _selectedLane = -1;
                     return;
                 }
-                if (_popup.GetClearRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vm.X, vm.Y))
+                if (_popup.GetClearRect(vw, vh).Contains(vm.X, vm.Y))
                 {
                     // Popup is intent-only (no ClearLane): the stage clears the lane via Config.
                     ClearLaneInConfig(_popup.Lane);
@@ -306,8 +308,10 @@ namespace DTXMania.Game.Lib.Stage
             // doesn't also open a lane popup. Move focus onto the action so the highlight
             // reflects the click (matches keyboard focus landing here). The button is drawn in
             // virtual space, so hit-test against the virtual-space rect with the mapped mouse.
+            int rVw = GameConstants.Display.VirtualWidth;
+            int rVh = GameConstants.Display.VirtualHeight;
             if (leftClick && virtualMouse is { } vmClick
-                && GetResetButtonRect(GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight).Contains(vmClick.X, vmClick.Y))
+                && GetResetButtonRect(rVw, rVh).Contains(vmClick.X, vmClick.Y))
             {
                 _focusIndex = DrumKitLayout.ResetActionIndex;
                 ResetDrumBindingsToDefault();
