@@ -441,8 +441,9 @@ namespace DTXMania.Game.Lib.Stage
             DrawStageBackground(_spriteBatch);
 
             // Draw fallback if no background loaded.
-            // Use NX virtual coordinates (1280x720) because the SpriteBatch
-            // has an active viewport transform that maps virtual→screen coords.
+            // BaseGame renders every stage into the fixed 1280x720 virtual render target and
+            // letterbox-scales it once to the window, so author the fallback rect in virtual
+            // coords (no per-stage viewport transform is applied here).
             if (!IsBackgroundReady)
             {
                 var backgroundRect = new Rectangle(0, 0,
