@@ -227,6 +227,22 @@ Fixed hardcoded paths in StartupStage and TitleStage that were causing "texture 
 ### Result
 Resources now load correctly from the current working directory using the proper skin system.
 
+## Skin Author Changelog
+
+Breaking changes to expected skin texture files. Skin authors should update their packs
+accordingly; the system fallback chain still loads the default `System/` assets when a
+custom skin omits a file.
+
+### 2026-06 — Config stage NX layout revamp (commit `09756ac`)
+
+- **Removed: `Graphics/4_itembox other.png`** (`TexturePath.ConfigItemBoxOther`).
+  The config stage previously rendered odd/even item rows with two separate box textures
+  (`4_itembox.png` and `4_itembox other.png`). Item-box rendering is now unified onto a
+  single texture (`Graphics/4_itembox.png`, `TexturePath.ConfigItemBox`). Custom skins
+  that shipped a `4_itembox other.png` file will silently stop using it — the file is no
+  longer referenced and can be deleted from skin packs. No fallback warning is emitted;
+  the extra texture is simply ignored.
+
 ## Summary
 
 The skin system implementation successfully provides:
