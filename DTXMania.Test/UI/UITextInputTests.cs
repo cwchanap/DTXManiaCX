@@ -15,6 +15,7 @@ namespace DTXMania.Test.UI
                 TextInput?.Invoke(this, new TextInputEventArgs(c, ToKey(c)));
             private static Microsoft.Xna.Framework.Input.Keys ToKey(char c) =>
                 Microsoft.Xna.Framework.Input.Keys.None;
+            public void Dispose() { }
         }
 
         [Fact]
@@ -134,6 +135,7 @@ namespace DTXMania.Test.UI
                 TextInput?.GetInvocationList().Length ?? 0;
             public void Fire(char c) =>
                 TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
         }
 
         [Fact]

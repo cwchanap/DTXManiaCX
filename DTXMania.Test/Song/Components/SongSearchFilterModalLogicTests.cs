@@ -17,6 +17,7 @@ namespace DTXMania.Test.Song.Components
             public void Fire(char c) =>
                 TextInput?.Invoke(this, new TextInputEventArgs(c,
                     Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
         }
 
         [Fact]

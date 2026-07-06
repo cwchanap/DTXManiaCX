@@ -13,6 +13,7 @@ namespace DTXMania.Test.UI
             public event EventHandler<TextInputEventArgs>? TextInput;
             public void Fire(char c) =>
                 TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
         }
 
         private sealed class CountingSource : ITextInputSource
@@ -22,6 +23,7 @@ namespace DTXMania.Test.UI
                 TextInput?.GetInvocationList().Length ?? 0;
             public void Fire(char c) =>
                 TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
         }
 
         [Fact]

@@ -14,6 +14,7 @@ namespace DTXMania.Test.UI
             public event EventHandler<TextInputEventArgs>? TextInput;
             public void Fire(char c) =>
                 TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
         }
 
         [Fact]
