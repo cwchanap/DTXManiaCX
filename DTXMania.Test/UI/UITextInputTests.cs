@@ -1,5 +1,6 @@
 using System;
 using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -8,16 +9,6 @@ namespace DTXMania.Test.UI
     [Trait("Category", "Unit")]
     public class UITextInputTests
     {
-        private sealed class FakeSource : ITextInputSource
-        {
-            public event EventHandler<TextInputEventArgs>? TextInput;
-            public void Fire(char c) =>
-                TextInput?.Invoke(this, new TextInputEventArgs(c, ToKey(c)));
-            private static Microsoft.Xna.Framework.Input.Keys ToKey(char c) =>
-                Microsoft.Xna.Framework.Input.Keys.None;
-            public void Dispose() { }
-        }
-
         [Fact]
         public void WhenFocused_ShouldAppendTypedCharacters()
         {

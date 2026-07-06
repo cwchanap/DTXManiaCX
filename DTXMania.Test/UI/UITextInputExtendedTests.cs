@@ -1,5 +1,6 @@
 using System;
 using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -8,14 +9,6 @@ namespace DTXMania.Test.UI
     [Trait("Category", "Unit")]
     public class UITextInputExtendedTests
     {
-        private sealed class FakeSource : ITextInputSource
-        {
-            public event EventHandler<TextInputEventArgs>? TextInput;
-            public void Fire(char c) =>
-                TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
-            public void Dispose() { }
-        }
-
         private sealed class CountingSource : ITextInputSource
         {
             public event EventHandler<TextInputEventArgs>? TextInput;
