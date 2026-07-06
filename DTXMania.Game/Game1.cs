@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -37,7 +38,7 @@ namespace DTXMania.Game;
 /// Uses structured logging via ILogger for diagnostics.
 /// Stage transition debouncing is configured via GameConstants.StageTransition.DebounceDelaySeconds.
 /// </remarks>
-public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
+public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 {
     internal readonly record struct LoadContentServices(
         SpriteBatch SpriteBatch,
@@ -97,6 +98,32 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
     public void MarkStageTransition()
     {
         _lastStageTransitionTime = _totalGameTime;
+    }
+
+    /// <summary>
+    /// Requests game process termination. Implements <see cref="IStageGame.RequestExit"/>
+    /// so stages can exit through the interface without depending on the concrete type.
+    /// </summary>
+    public void RequestExit()
+    {
+        Exit();
+    }
+
+    /// <summary>
+    /// Builds a <see cref="WindowTextInputSource"/> from the OS window for text input,
+    /// or returns null when no window is available (headless/test environments).
+    /// Implements <see cref="IStageGame.GetTextInputSource"/>.
+    /// </summary>
+    public ITextInputSource? GetTextInputSource()
+    {
+        // If no graphics manager is available (e.g. headless tests with an uninitialized game,
+        // or before Initialize completes), there is no OS window to source text input from.
+        // Mirrors the headless guard in <see cref="MapMouseToVirtual"/>; also avoids touching
+        // <see cref="Microsoft.Xna.Framework.Game.Window"/> on an uninitialized instance, whose
+        // MonoGame getter dereferences a platform field and would otherwise throw.
+        if (_graphicsManager == null)
+            return null;
+        return Window != null ? new WindowTextInputSource(Window) : null;
     }
 
     void IGameContext.QueueMainThreadAction(Action action)
@@ -486,6 +513,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext
         return WindowToVirtualCoordinates(windowPoint, viewport.Value,
             GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
     }
+
+    /// <summary>
+    /// Explicit <see cref="IStageGame.MapMouseToVirtual"/> implementation. The implicit
+    /// implementer above stays <c>internal</c> so existing in-game callers keep their current
+    /// access level; this thin forwarding member lets <see cref="BaseGame"/> satisfy the
+    /// <c>internal</c> <see cref="IStageGame"/> contract without widening the original method.
+    /// </summary>
+    Point? IStageGame.MapMouseToVirtual(Point windowPoint) => MapMouseToVirtual(windowPoint);
 
     /// <summary>
     /// Returns the current back-buffer viewport bounds (used by <see cref="MapMouseToVirtual"/>),
