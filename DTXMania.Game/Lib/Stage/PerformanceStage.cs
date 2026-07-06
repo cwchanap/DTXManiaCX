@@ -170,7 +170,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public PerformanceStage(BaseGame game) : base(game)
+        public PerformanceStage(IStageGame game) : base(game)
         {
             // Initialize core systems
             _spriteBatch = new SpriteBatch(game.GraphicsDevice);

@@ -66,7 +66,7 @@ namespace DTXMania.Game.Lib.Stage
 
         public override StageType Type => StageType.DrumConfig;
 
-        public DrumConfigStage(BaseGame game) : base(game)
+        public DrumConfigStage(IStageGame game) : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
         }

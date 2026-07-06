@@ -80,7 +80,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public StartupStage(BaseGame game) : base(game)
+        public StartupStage(IStageGame game) : base(game)
         {
             _progressMessages = new List<string>();
 

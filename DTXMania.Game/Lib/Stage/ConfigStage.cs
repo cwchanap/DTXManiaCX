@@ -127,7 +127,7 @@ namespace DTXMania.Game.Lib.Stage
 
         public override StageType Type => StageType.Config;
 
-        public ConfigStage(BaseGame game) : base(game)
+        public ConfigStage(IStageGame game) : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
         }

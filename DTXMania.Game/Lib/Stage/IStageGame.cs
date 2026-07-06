@@ -1,3 +1,4 @@
+#nullable enable
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
@@ -9,7 +10,7 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace DTXMania.Game.Lib.Stage
 {
-    internal interface IStageGame
+    public interface IStageGame
     {
         GraphicsDevice GraphicsDevice { get; }
         IStageManager StageManager { get; }
