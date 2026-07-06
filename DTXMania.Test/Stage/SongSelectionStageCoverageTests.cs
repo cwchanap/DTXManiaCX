@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -2231,6 +2232,76 @@ namespace DTXMania.Test.Stage
             }
 
             return null;
+        }
+
+        #endregion
+
+        #region RenderTarget Management Coverage
+
+        [Fact]
+        public void InitializeStageRenderTargets_WithGraphicsManager_ShouldCreateRenderTargetViaManager()
+        {
+            // Covers the refactored InitializeStageRenderTargets path that delegates directly
+            // to _game.GraphicsManager.RenderTargetManager (no BaseGame cast).
+            var renderTargetManager = new TestRenderTargetManager();
+            var mockGraphicsManager = new Mock<IGraphicsManager>();
+            mockGraphicsManager.SetupGet(g => g.RenderTargetManager).Returns(renderTargetManager);
+            var mockGame = new Mock<IStageGame>();
+            mockGame.SetupGet(g => g.GraphicsManager).Returns(mockGraphicsManager.Object);
+
+            var stage = new SongSelectionStage(mockGame.Object);
+
+            InvokePrivateMethod(stage, "InitializeStageRenderTargets");
+
+            var stageRenderTarget = GetPrivateField<RenderTarget2D>(stage, "_stageRenderTarget");
+            Assert.NotNull(stageRenderTarget);
+            Assert.Same(stageRenderTarget, renderTargetManager.GetOrCreateRenderTarget("SongSelectionStage_Main", 1024, 1024));
+        }
+
+        [Fact]
+        public void CleanupStageRenderTargets_WithExistingRenderTarget_ShouldRemoveViaManager()
+        {
+            // Covers the refactored CleanupStageRenderTargets path that delegates directly
+            // to _game.GraphicsManager.RenderTargetManager (no BaseGame cast / no fallback).
+            var renderTargetManager = new TestRenderTargetManager();
+            var mockGraphicsManager = new Mock<IGraphicsManager>();
+            mockGraphicsManager.SetupGet(g => g.RenderTargetManager).Returns(renderTargetManager);
+            var mockGame = new Mock<IStageGame>();
+            mockGame.SetupGet(g => g.GraphicsManager).Returns(mockGraphicsManager.Object);
+
+            var stage = new SongSelectionStage(mockGame.Object);
+
+            // Initialize so a render target exists in the manager and on the stage
+            InvokePrivateMethod(stage, "InitializeStageRenderTargets");
+            Assert.NotNull(GetPrivateField<RenderTarget2D>(stage, "_stageRenderTarget"));
+
+            // Now clean up — should remove from the manager and null out the field
+            InvokePrivateMethod(stage, "CleanupStageRenderTargets");
+
+            Assert.Null(GetPrivateField<RenderTarget2D>(stage, "_stageRenderTarget"));
+        }
+
+        /// <summary>
+        /// Test-only <see cref="RenderTargetManager"/> that overrides <see cref="RenderTargetManager.CreateRenderTarget"/>
+        /// to return an uninitialized <see cref="RenderTarget2D"/> instead of calling the GraphicsDevice constructor,
+        /// so render-target management paths can be exercised without a live graphics device.
+        /// </summary>
+        private sealed class TestRenderTargetManager : RenderTargetManager
+        {
+#pragma warning disable SYSLIB0050
+            private static readonly GraphicsDevice _stubDevice =
+                (GraphicsDevice)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(GraphicsDevice));
+#pragma warning restore SYSLIB0050
+
+            public TestRenderTargetManager() : base(_stubDevice) { }
+
+            protected override RenderTarget2D CreateRenderTarget(
+                int width, int height, SurfaceFormat format, DepthFormat depthFormat, int multiSampleCount)
+            {
+#pragma warning disable SYSLIB0050
+                return (RenderTarget2D)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(RenderTarget2D));
+#pragma warning restore SYSLIB0050
+            }
         }
 
         #endregion

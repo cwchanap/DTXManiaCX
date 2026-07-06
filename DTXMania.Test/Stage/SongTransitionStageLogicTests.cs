@@ -367,6 +367,31 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnUpdate_WhenAutoTransitionDelayElapsedButDebounceBlocks_ShouldNotTransition()
+        {
+            // Covers the false branch of _game.CanPerformStageTransition() in the auto-transition
+            // path: the auto-transition delay has elapsed, but the debounce window hasn't expired.
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame(totalGameTime: 0.3, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+
+            stage.StageManager = stageManager.Object;
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart { DrumLevel = 55, HasDrumChart = true }));
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", SongTransitionUILayout.Timing.AutoTransitionDelay);
+
+            InvokePrivateMethod(stage, "OnUpdate", 0.0);
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+            Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
+        }
+
+        [Fact]
         public void LoadFonts_WhenReloadFails_ShouldReleaseExistingFontsAndLeaveFieldsNull()
         {
             var stage = CreateStage();
