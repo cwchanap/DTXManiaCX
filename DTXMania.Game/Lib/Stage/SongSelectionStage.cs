@@ -222,15 +222,12 @@ namespace DTXMania.Game.Lib.Stage
             base.Activate(sharedData);
 
             // Use game's shared InputManager (supports MCP key injection)
-            AssignInputManager((_game as BaseGame)?.InputManager);
+            AssignInputManager(_game.InputManager);
             _inputManager?.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
 
             // Get config manager from game
-            if (_game is BaseGame baseGame)
-            {
-                _configManager = baseGame.ConfigManager;
-            }
+            _configManager = _game.ConfigManager;
 
             if (_configManager != null)
             {
@@ -622,13 +619,13 @@ namespace DTXMania.Game.Lib.Stage
             _mainPanel.AddChild(_playHistoryPanel);
             _mainPanel.AddChild(_previewImagePanel);
 
-            // Search/filter modal (guarded: Window is unavailable in headless/test environments)
+            // Search/filter modal (guarded: text input is unavailable in headless/test environments)
             try
             {
-                var window = _game.Window;
-                if (window != null)
+                var textInputSource = _game.GetTextInputSource();
+                if (textInputSource != null)
                 {
-                    _textInputSource = new WindowTextInputSource(window);
+                    _textInputSource = (WindowTextInputSource)textInputSource;
                     _searchFilterModal = new SongSearchFilterModal(_textInputSource);
                     // Inject graphics resources
                     _searchFilterModal.WhitePixel = _whitePixel;
@@ -953,10 +950,10 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             
             // Debounce stage transitions to prevent accidental double selections
-            if (!(_game is BaseGame baseGame) || !baseGame.CanPerformStageTransition())
+            if (!_game.CanPerformStageTransition())
                 return;
-            
-            baseGame.MarkStageTransition();
+
+            _game.MarkStageTransition();
             
             // Create shared data to pass song information to the transition stage
             var sharedData = new Dictionary<string, object>
@@ -1517,9 +1514,9 @@ namespace DTXMania.Game.Lib.Stage
                         // Return to title stage - debounce only for stage transitions.
                         // Also reached from the Recent tab: Back on Recent exits the stage
                         // rather than triggering All-Songs browse actions.
-                        if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                        if (_game.CanPerformStageTransition())
                         {
-                            baseGame.MarkStageTransition();
+                            _game.MarkStageTransition();
                             StageManager?.ChangeStage(StageType.Title, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
                         }
                     }
@@ -1682,9 +1679,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #region RenderTarget Management
 
-        // Track whether the render target was created outside RenderTargetManager
-        private bool _isUnmanagedRenderTarget = false;
-
         /// <summary>
         /// Initialize graphics resources needed by the stage.
         /// Overridable for unit testing.
@@ -1704,26 +1698,10 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         protected virtual void InitializeStageRenderTargets()
         {
-            // Create a single RenderTarget for all stage operations using RenderTargetManager
-            // Size should be large enough to accommodate all UI components
-            if (_game is BaseGame baseGame)
-            {
-                _stageRenderTarget = baseGame.GraphicsManager.RenderTargetManager
-                    .GetOrCreateRenderTarget("SongSelectionStage_Main", 1024, 1024);
-                _isUnmanagedRenderTarget = false;
-            }
-            else
-            {
-                // Fallback for non-BaseGame instances (shouldn't happen in normal operation)
-                // Log warning that we're creating an unmanaged render target
-                System.Diagnostics.Debug.WriteLine(
-                    "WARNING: SongSelectionStage.InitializeStageRenderTargets() - " +
-                    "Creating unmanaged RenderTarget2D fallback (1024x1024). " +
-                    "This resource will need manual disposal.");
-                
-                _stageRenderTarget = new RenderTarget2D(_game.GraphicsDevice, 1024, 1024);
-                _isUnmanagedRenderTarget = true;
-            }
+            // Create a single RenderTarget for all stage operations using RenderTargetManager.
+            // Size should be large enough to accommodate all UI components.
+            _stageRenderTarget = _game.GraphicsManager.RenderTargetManager
+                .GetOrCreateRenderTarget("SongSelectionStage_Main", 1024, 1024);
         }
 
         /// <summary>
@@ -1736,21 +1714,9 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            if (_game is BaseGame baseGame && !_isUnmanagedRenderTarget)
-            {
-                // Use RenderTargetManager to properly dispose the RenderTarget
-                baseGame.GraphicsManager.RenderTargetManager.RemoveRenderTarget("SongSelectionStage_Main");
-            }
-            else
-            {
-                // Fallback cleanup for non-BaseGame instances or unmanaged render targets
-                System.Diagnostics.Debug.WriteLine(
-                    "SongSelectionStage.CleanupStageRenderTargets() - " +
-                    "Disposing unmanaged RenderTarget2D.");
-                _stageRenderTarget.Dispose();
-            }
+            // Use RenderTargetManager to properly dispose the RenderTarget
+            _game.GraphicsManager.RenderTargetManager.RemoveRenderTarget("SongSelectionStage_Main");
             _stageRenderTarget = null;
-            _isUnmanagedRenderTarget = false;
         }
 
         /// <summary>
