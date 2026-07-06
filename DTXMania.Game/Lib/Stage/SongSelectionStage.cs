@@ -439,7 +439,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 Trace.TraceWarning(
                     "SongSelectionStage: No shared InputManager available; MCP key injection will not work. " +
-                    "This should not occur in production — ensure _game is a BaseGame instance.");
+                    "This should not occur in production — IStageGame.InputManager should be provided by the host.");
             }
         }
 

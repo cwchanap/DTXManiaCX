@@ -100,7 +100,7 @@ namespace DTXMania.Game.Lib.Stage
             // The decorative bass-drum body is drawn from _renderer.KickTexture (loaded once by
             // DrumKitRenderer above), so no separate TexturePath.DrumPadKick load is needed here.
 
-            _input = _game.InputManager; // BaseGame.InputManager is concretely InputManagerCompat
+            _input = _game.InputManager; // IStageGame.InputManager is concretely InputManagerCompat
 
             // The popup providers read the RUNTIME, which always mirrors Config via the Phase 2
             // events (ConfigManager.KeyBindingsChanged/SystemKeyBindingsChanged -> InputManagerCompat
