@@ -1420,6 +1420,42 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void InitializeUI_WhenTextInputSourceAvailable_ShouldCreateSearchFilterModal()
+        {
+            // When IStageGame.GetTextInputSource returns a live source (non-headless environment),
+            // InitializeUI should enter the textInputSource != null branch, create a
+            // SongSearchFilterModal, wire its events, and add it to the main panel.
+            var mockGame = new Mock<IStageGame>();
+            var textInputSource = new Mock<ITextInputSource>();
+            mockGame.SetupGet(g => g.GraphicsDevice).Returns((GraphicsDevice?)null);
+            mockGame.Setup(g => g.GetTextInputSource()).Returns(textInputSource.Object);
+
+            var stage = new SongSelectionStage(mockGame.Object);
+            var resourceManager = new Mock<IResourceManager>();
+            var configManager = new Mock<IConfigManager>();
+            var uiFont = new Mock<IFont>();
+
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
+
+            SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_stageRenderTarget", null);
+
+            InvokePrivateMethod(stage, "InitializeUI", uiFont.Object);
+
+            var searchFilterModal = GetPrivateField<SongSearchFilterModal>(stage, "_searchFilterModal");
+            var storedTextInputSource = GetPrivateField<ITextInputSource>(stage, "_textInputSource");
+            var mainPanel = GetPrivateField<UIPanel>(stage, "_mainPanel");
+
+            Assert.NotNull(searchFilterModal);
+            Assert.Same(textInputSource.Object, storedTextInputSource);
+            // The modal should be the 7th child (after title, breadcrumb, song list, status, history, preview)
+            Assert.Equal(7, mainPanel!.Children.Count);
+            Assert.Same(searchFilterModal, mainPanel.Children[6]);
+        }
+
+        [Fact]
         public void InitializeUI_WhenEnhancedRenderingInitializationSucceeds_ShouldEnableEnhancedRendering()
         {
             var game = CreateGame();

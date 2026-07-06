@@ -617,6 +617,32 @@ public class PerformanceStageCoverageTests
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
     }
 
+    [Fact]
+    public void Constructor_WithIStageGame_ShouldInitializeCoreSystems()
+    {
+        // Covers the refactored constructor signature (IStageGame instead of BaseGame).
+        // Uses a test subclass that overrides CreateSpriteBatch to avoid constructing a real
+        // SpriteBatch (whose GraphicsResource finalizers crash on an uninitialized GraphicsDevice).
+        var mockGame = new Mock<IStageGame>();
+        mockGame.SetupGet(g => g.GraphicsDevice).Returns((GraphicsDevice?)null);
+
+        var stage = new HeadlessPerformanceStage(mockGame.Object);
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<UIManager>(stage, "_uiManager"));
+    }
+
+    /// <summary>
+    /// Test-only <see cref="PerformanceStage"/> that overrides <see cref="PerformanceStage.CreateSpriteBatch"/>
+    /// to return null, so the constructor can be exercised without a live GraphicsDevice.
+    /// </summary>
+    private sealed class HeadlessPerformanceStage : PerformanceStage
+    {
+        public HeadlessPerformanceStage(IStageGame game) : base(game) { }
+
+        protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
+    }
+
     private static PerformanceStage CreateStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050

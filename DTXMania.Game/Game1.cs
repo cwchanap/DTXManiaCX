@@ -123,8 +123,19 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         // MonoGame getter dereferences a platform field and would otherwise throw.
         if (_graphicsManager == null)
             return null;
-        return Window != null ? new WindowTextInputSource(Window) : null;
+        var window = GetGameWindow();
+        return window != null ? new WindowTextInputSource(window) : null;
     }
+
+    /// <summary>
+    /// Returns the OS <see cref="GameWindow"/> used to build a <see cref="WindowTextInputSource"/>,
+    /// or null when no window is available. Extracted as a seam (mirroring
+    /// <see cref="TryGetViewportBounds"/>) so headless tests can override it without touching the
+    /// MonoGame <see cref="Microsoft.Xna.Framework.Game.Window"/> getter, which dereferences a
+    /// platform field and throws on an uninitialized instance.
+    /// </summary>
+    [ExcludeFromCodeCoverage]
+    protected virtual GameWindow? GetGameWindow() => Window;
 
     void IGameContext.QueueMainThreadAction(Action action)
     {
