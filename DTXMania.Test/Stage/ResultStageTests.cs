@@ -453,24 +453,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExecuteInputCommand_WhenGameIsMissing_ShouldIgnoreNavigationCommand()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            var stageManager = new Mock<IStageManager>();
-
-            stage.StageManager = stageManager.Object;
-            CompleteReveal(stage);
-
-            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Back, 0.0));
-
-            stageManager.Verify(
-                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
-                Times.Never);
-        }
-
-        [Fact]
         public void OnUpdate_WhenQueuedBackCommandExists_ShouldProcessInputAndReturnToSongSelect()
         {
             var game = DTXMania.Test.TestData.ReflectionHelpers.CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);

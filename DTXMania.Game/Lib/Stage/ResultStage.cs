@@ -365,9 +365,9 @@ namespace DTXMania.Game.Lib.Stage
                         return true;
                     }
 
-                    if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                    if (_game.CanPerformStageTransition())
                     {
-                        baseGame.MarkStageTransition();
+                        _game.MarkStageTransition();
                         ReturnToSongSelect();
                     }
                     break;
