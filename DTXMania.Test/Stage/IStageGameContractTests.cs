@@ -1,8 +1,5 @@
 using DTXMania.Game;
-using DTXMania.Game.Lib.Stage;
-using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
-using Microsoft.Xna.Framework;
 using Xunit;
 
 namespace DTXMania.Test.Stage
@@ -29,10 +26,11 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void GetTextInputSource_ShouldReturnNull_WhenWindowIsUnavailable()
+        public void GetTextInputSource_ShouldReturnNull_InHeadlessEnvironment()
         {
-            // ReflectionHelpers.CreateGame builds an uninitialized BaseGame (Window is null),
-            // which models the headless/test environment the search modal must tolerate.
+            // ReflectionHelpers.CreateGame builds an uninitialized BaseGame with no graphics
+            // manager (and thus no OS window), modeling the headless/test environment the
+            // search modal must tolerate.
             var game = ReflectionHelpers.CreateGame();
             Assert.Null(game.GetTextInputSource());
         }
