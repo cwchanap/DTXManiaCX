@@ -526,10 +526,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     }
 
     /// <summary>
-    /// Explicit <see cref="IStageGame.MapMouseToVirtual"/> implementation. The implicit
-    /// implementer above stays <c>internal</c> so existing in-game callers keep their current
-    /// access level; this thin forwarding member lets <see cref="BaseGame"/> satisfy the
-    /// <c>internal</c> <see cref="IStageGame"/> contract without widening the original method.
+    /// Explicit <see cref="IStageGame.MapMouseToVirtual"/> implementation that forwards to
+    /// the <c>internal</c> <see cref="MapMouseToVirtual(Point)"/> member above. The original
+    /// method stays <c>internal</c> so existing in-game callers keep their current access
+    /// level; this thin forwarding member exposes it through the public <see cref="IStageGame"/>
+    /// surface without widening the original method.
     /// </summary>
     Point? IStageGame.MapMouseToVirtual(Point windowPoint) => MapMouseToVirtual(windowPoint);
 
