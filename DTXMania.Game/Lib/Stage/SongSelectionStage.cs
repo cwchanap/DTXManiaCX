@@ -206,7 +206,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public SongSelectionStage(BaseGame game) : base(game)
+        public SongSelectionStage(IStageGame game) : base(game)
         {
             _navigationStack = new Stack<SongListNode>();
             AssignInputManager(game.InputManager);

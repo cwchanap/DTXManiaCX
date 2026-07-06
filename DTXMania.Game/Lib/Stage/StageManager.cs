@@ -16,7 +16,7 @@ namespace DTXMania.Game.Lib.Stage
     /// </remarks>
     public class StageManager : IStageManager
     {
-        private readonly BaseGame _game;
+        private readonly IStageGame _game;
         private readonly ILogger<StageManager> _logger;
         private readonly Dictionary<StageType, IStage> _stages;
         private IStage _currentStage;
@@ -33,7 +33,7 @@ namespace DTXMania.Game.Lib.Stage
         public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
         public bool IsTransitioning => _isTransitioning;
 
-        public StageManager(BaseGame game, ILogger<StageManager> logger = null)
+        public StageManager(IStageGame game, ILogger<StageManager> logger = null)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
             _logger = logger ?? NullLogger<StageManager>.Instance;

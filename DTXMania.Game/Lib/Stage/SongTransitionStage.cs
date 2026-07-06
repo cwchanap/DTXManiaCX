@@ -78,7 +78,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public SongTransitionStage(BaseGame game) : base(game)
+        public SongTransitionStage(IStageGame game) : base(game)
         {
             _inputManager = CreateConfiguredInputManager();
         }

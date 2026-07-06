@@ -68,7 +68,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        public TitleStage(BaseGame game) : base(game)
+        public TitleStage(IStageGame game) : base(game)
         {
         }
 

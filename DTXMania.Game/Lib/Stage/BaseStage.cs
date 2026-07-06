@@ -15,7 +15,7 @@ namespace DTXMania.Game.Lib.Stage
     {
         #region Fields
 
-        protected readonly BaseGame _game;
+        protected readonly IStageGame _game;
         protected StagePhase _currentPhase = StagePhase.Inactive;
         protected bool _disposed = false;
         protected bool _isFirstUpdate = true;
@@ -42,7 +42,7 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constructor
 
-        protected BaseStage(BaseGame game)
+        protected BaseStage(IStageGame game)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
         }
