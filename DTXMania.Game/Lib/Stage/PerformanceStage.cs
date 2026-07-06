@@ -505,9 +505,9 @@ namespace DTXMania.Game.Lib.Stage
             // Check for back action (ESC key or controller Back button) using consolidated method with debounce
             if (_inputManager.IsBackActionTriggered())
             {
-                if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                if (_game.CanPerformStageTransition())
                 {
-                    baseGame.MarkStageTransition();
+                    _game.MarkStageTransition();
                     ReturnToSongSelect();
                 }
             }

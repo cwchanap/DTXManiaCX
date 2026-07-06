@@ -567,9 +567,9 @@ namespace DTXMania.Game.Lib.Stage
             // Auto transition after delay (only if user hasn't pressed anything and debounce allows)
             if (_elapsedTime >= SongTransitionUILayout.Timing.AutoTransitionDelay && _currentPhase == StagePhase.Normal)
             {
-                if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                if (_game.CanPerformStageTransition())
                 {
-                    baseGame.MarkStageTransition();
+                    _game.MarkStageTransition();
                     TransitionToPerformance();
                 }
             }
@@ -828,17 +828,17 @@ namespace DTXMania.Game.Lib.Stage
             switch (command.Type)
             {
                 case InputCommandType.Activate:
-                    if (_game is BaseGame baseGame && baseGame.CanPerformStageTransition())
+                    if (_game.CanPerformStageTransition())
                     {
-                        baseGame.MarkStageTransition();
+                        _game.MarkStageTransition();
                         TransitionToPerformance();
                     }
                     break;
                     
                 case InputCommandType.Back:
-                    if (_game is BaseGame bg && bg.CanPerformStageTransition())
+                    if (_game.CanPerformStageTransition())
                     {
-                        bg.MarkStageTransition();
+                        _game.MarkStageTransition();
                         TransitionBackToSongSelect();
                     }
                     break;
