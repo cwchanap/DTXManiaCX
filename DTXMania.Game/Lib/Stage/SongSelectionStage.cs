@@ -147,7 +147,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Search/filter modal
         private SongSearchFilterModal? _searchFilterModal = null;
-        private WindowTextInputSource? _textInputSource = null;
+        private ITextInputSource? _textInputSource = null;
         private Microsoft.Xna.Framework.Input.MouseState? _previousMouseState = null;
         
         // DTXMania pattern: timing and animation
@@ -625,7 +625,7 @@ namespace DTXMania.Game.Lib.Stage
                 var textInputSource = _game.GetTextInputSource();
                 if (textInputSource != null)
                 {
-                    _textInputSource = (WindowTextInputSource)textInputSource;
+                    _textInputSource = textInputSource;
                     _searchFilterModal = new SongSearchFilterModal(_textInputSource);
                     // Inject graphics resources
                     _searchFilterModal.WhitePixel = _whitePixel;
