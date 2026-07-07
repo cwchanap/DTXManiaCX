@@ -106,12 +106,7 @@ namespace DTXMania.Test.Stage
         /// </summary>
         private sealed class TextInputSpyGame : BaseGame
         {
-            private readonly GameWindow? _window;
-
-            public TextInputSpyGame(GameWindow? window)
-            {
-                _window = window;
-            }
+            private GameWindow? _window;
 
             protected override GameWindow? GetGameWindow() => _window;
         }
@@ -120,8 +115,6 @@ namespace DTXMania.Test.Stage
         {
             var game = ReflectionHelpers.CreateUninitialized<TextInputSpyGame>();
             ReflectionHelpers.SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
-            // TextInputSpyGame stores the window via its constructor, but CreateUninitialized
-            // bypasses the constructor. Set the private field directly instead.
             ReflectionHelpers.SetPrivateField(game, "_window", window);
             return game;
         }
