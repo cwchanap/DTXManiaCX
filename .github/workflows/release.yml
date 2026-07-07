@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Normalize version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag -replace '^v', ''
+          if (-not $version) { throw "Could not normalize version from tag '$tag'" }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Release tag: $tag; normalized version: $version"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
+
+      - name: Publish self-contained (win-x64)
+        run: >
+          dotnet publish DTXMania.Game/DTXMania.Game.Windows.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishReadyToRun=false -p:TieredCompilation=false
+          -o ./publish/win
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=publish\win" "installer\windows\dtxmania.iss"
+
+      - name: Upload installer to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
+
+  mac-installer:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Normalize version from tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#v}"
+          if [ -z "$version" ]; then echo "Could not normalize version from tag '$tag'" >&2; exit 1; fi
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Release tag: $tag; normalized version: $version"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
+
+      - name: Smoke test build-dmg.sh (fast-fail on script regression)
+        run: |
+          chmod +x installer/macos/build-dmg.sh installer/macos/test-build-dmg.sh
+          bash installer/macos/test-build-dmg.sh
+
+      - name: Publish self-contained (osx-arm64)
+        run: >
+          dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj
+          -c Release -r osx-arm64 --self-contained
+          -p:PublishReadyToRun=false -p:TieredCompilation=false
+          -o ./publish/mac
+
+      - name: Build .app bundle and DMG
+        run: |
+          ./installer/macos/build-dmg.sh \
+            ./publish/mac \
+            ./System \
+            "$APP_VERSION" \
+            DTXMania.Game/Icon.ico \
+            ./output
+
+      - name: Upload DMG to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
