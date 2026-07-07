@@ -48,7 +48,10 @@ jobs:
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
-          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=publish\win" "installer\windows\dtxmania.iss"
+          # SourceDir MUST be absolute: Inno Setup resolves Source: paths relative
+          # to the .iss file's directory (installer/windows/), not the ISCC cwd.
+          $sourceDir = Join-Path $PWD "publish\win"
+          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
 
       - name: Upload installer to release
         uses: softprops/action-gh-release@v2
