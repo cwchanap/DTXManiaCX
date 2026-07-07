@@ -13,8 +13,8 @@ trap 'rm -rf "$TMP"' EXIT
 # Fake publish dir with a dummy executable + dll + Content/
 PUBLISH="$TMP/publish"
 mkdir -p "$PUBLISH/Content"
-printf '#!/bin/sh\nexit 0\n' > "$PUBLISH/DTXMania.Game"
-echo "fake-dll" > "$PUBLISH/DTXMania.Game.dll"
+printf '#!/bin/sh\nexit 0\n' > "$PUBLISH/DTXMania.Game.Mac"
+echo "fake-dll" > "$PUBLISH/DTXMania.Game.Mac.dll"
 echo "fake-content" > "$PUBLISH/Content/test.xnb"
 
 # Fake System/ skin dir
@@ -48,8 +48,8 @@ assert_contains() {
 }
 
 # Bundle layout
-assert_exists "$APP/Contents/MacOS/DTXMania.Game"
-assert_exists "$APP/Contents/MacOS/DTXMania.Game.dll"
+assert_exists "$APP/Contents/MacOS/DTXMania.Game.Mac"
+assert_exists "$APP/Contents/MacOS/DTXMania.Game.Mac.dll"
 assert_exists "$APP/Contents/MacOS/Content/test.xnb"
 assert_exists "$APP/Contents/Resources/System/Graphics/1_Background.png"
 assert_exists "$APP/Contents/Info.plist"
@@ -59,7 +59,7 @@ assert_contains "$APP/Contents/Info.plist" "0.0.0-test"
 assert_contains "$APP/Contents/Info.plist" "com.dtxmaniacx.DTXMania"
 
 # Executable bit set on the apphost stub
-if [[ ! -x "$APP/Contents/MacOS/DTXMania.Game" ]]; then
+if [[ ! -x "$APP/Contents/MacOS/DTXMania.Game.Mac" ]]; then
     echo "FAIL: expected executable to have +x bit" >&2
     exit 1
 fi
