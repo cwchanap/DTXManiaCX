@@ -4,21 +4,27 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   windows-installer:
     runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Normalize version from tag
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          $tag = "$env:RELEASE_TAG"
           $version = $tag -replace '^v', ''
           if (-not $version) { throw "Could not normalize version from tag '$tag'" }
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -60,14 +66,21 @@ jobs:
 
   mac-installer:
     runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Normalize version from tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          tag="${{ github.event.release.tag_name }}"
+          tag="$RELEASE_TAG"
           version="${tag#v}"
           if [ -z "$version" ]; then echo "Could not normalize version from tag '$tag'" >&2; exit 1; fi
           echo "APP_VERSION=$version" >> "$GITHUB_ENV"

@@ -57,8 +57,9 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdi
 ; Default System skin → per-user app-data so the game finds it on first launch.
 ; {localappdata} resolves to %LOCALAPPDATA%, matching AppPaths.GetDefaultSystemSkinRoot().
 ; Path is relative to this .iss file: installer\windows\..\..\System -> repo-root System\
-; uninsneveruninstall: never wipe the user's skin dir (they may have customized it).
-Source: "..\..\System\*"; DestDir: "{localappdata}\DTXManiaCX\System"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall
+; onlyifdoesntexist: seed defaults on first install only; never overwrite a user's
+; customized skin on upgrade. uninsneveruninstall: never wipe the user's skin dir.
+Source: "..\..\System\*"; DestDir: "{localappdata}\DTXManiaCX\System"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall onlyifdoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

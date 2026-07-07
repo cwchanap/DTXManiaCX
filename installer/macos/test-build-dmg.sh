@@ -54,6 +54,13 @@ assert_exists "$APP/Contents/MacOS/Content/test.xnb"
 assert_exists "$APP/Contents/Resources/System/Graphics/1_Background.png"
 assert_exists "$APP/Contents/Info.plist"
 
+# App icon: prefer .icns (macOS with iconutil/sips); fall back to .ico copy
+# when those tools are unavailable (e.g. non-macOS test runners).
+if [[ ! -e "$APP/Contents/Resources/DTXMania.icns" && ! -e "$APP/Contents/Resources/DTXMania.ico" ]]; then
+    echo "FAIL: expected either DTXMania.icns or DTXMania.ico under Resources" >&2
+    exit 1
+fi
+
 # Plist substitution + bundle id
 assert_contains "$APP/Contents/Info.plist" "0.0.0-test"
 assert_contains "$APP/Contents/Info.plist" "com.dtxmaniacx.DTXMania"
