@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>DTXMania</string>
     <key>CFBundleExecutable</key>
-    <string>DTXMania.Game</string>
+    <string>DTXMania.Game.Mac</string>
     <key>CFBundleIconFile</key>
     <string>DTXMania.icns</string>
     <key>CFBundleIdentifier</key>

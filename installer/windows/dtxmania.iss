@@ -1,7 +1,7 @@
 ; DTXManiaCX Windows installer (Inno Setup 6)
 ;
 ; Build with:
-;   iscc /DMyAppVersion=<x.y.z> /DSourceDir=<publish\win> installer\windows\dtxmania.iss
+;   iscc /DMyAppVersion=<x.y.z> /DSourceDir=<absolute\path\to\publish\win> installer\windows\dtxmania.iss
 ;
 ; MyAppVersion and SourceDir MUST be passed on the command line. The #error
 ; guards below fail the compile clearly if either is missing.
@@ -11,12 +11,12 @@
 #endif
 
 #ifndef SourceDir
-  #error "SourceDir must be defined (pass /DSourceDir=publish\win to iscc)"
+  #error "SourceDir must be defined (pass an absolute /DSourceDir=<path\to\publish\win> to iscc; Inno Setup resolves Source: relative to this .iss file's directory)"
 #endif
 
 #define MyAppName      "DTXManiaCX"
 #define MyAppPublisher "DTXManiaCX"
-#define MyAppExeName   "DTXMania.Game.exe"
+#define MyAppExeName   "DTXMania.Game.Windows.exe"
 #define MyAppURL       "https://github.com/chanwaichan/DTXmaniaCX"
 
 [Setup]
