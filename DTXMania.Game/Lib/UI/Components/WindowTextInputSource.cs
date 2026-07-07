@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework;
 
 namespace DTXMania.Game.Lib.UI.Components
 {
-    public sealed class WindowTextInputSource : ITextInputSource, IDisposable
+    public sealed class WindowTextInputSource : ITextInputSource
     {
         private readonly GameWindow _window;
         private bool _disposed;

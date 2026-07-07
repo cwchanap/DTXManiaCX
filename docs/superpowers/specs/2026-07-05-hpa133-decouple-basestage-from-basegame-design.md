@@ -146,3 +146,13 @@ Justification: `IStageGame.GraphicsManager` is non-nullable by interface contrac
 **Resolution chosen:** Widen `IStageGame` to `public`. This was the lower-diff option (the alternative — making all eight stage constructors `internal` — would have rippled into every test factory and call site that constructs stages, and would have broken `SongSelectionStageTestFactory.CreateStage` which the plan explicitly wanted to leave untouched). The original `MapMouseToVirtual(Point)` method on `BaseGame` remains `internal` so existing in-game callers keep their access level; only the interface surface is public.
 
 **Audit impact:** `AGENTS.md`/`CLAUDE.md` "Key Interfaces" and the `Game1.cs:529–535` forwarding-member comment were updated to reflect the public visibility. The interface is still distinct from `IGameContext` by purpose (stage-layer service access vs. external API/MCP access), not by visibility.
+
+### `GetTextInputSource` headless guard and `GetGameWindow` seam
+
+**Specified:** The design (section 1) specified `ITextInputSource? GetTextInputSource()` returning a `WindowTextInputSource` built from the game window, with no mention of a null-graphics-manager guard or a separate window-accessor seam.
+
+**Implemented:** `BaseGame.GetTextInputSource` (`Game1.cs:117–128`) adds a `_graphicsManager == null` guard returning `null` (mirroring `MapMouseToVirtual`'s headless guard), and introduces a `protected virtual GameWindow? GetGameWindow()` seam (`Game1.cs:137–138`) so headless tests can override window access without touching the MonoGame `Game.Window` getter, which dereferences a platform field and throws on an uninitialized instance.
+
+**Reason:** Without the guard, calling `GetTextInputSource` on an uninitialized/headless `BaseGame` (e.g. in tests that construct the game via `FormatterServices.GetUninitializedObject`) would dereference `Window` and throw. The seam parallels the existing `TryGetViewportBounds` test seam and keeps test doubles from touching platform-specific MonoGame internals.
+
+**Audit impact:** No interface or call-site changes — both additions are internal to `BaseGame`. The seam is annotated `[ExcludeFromCodeCoverage]` and is only exercised by test subclasses that override it.
