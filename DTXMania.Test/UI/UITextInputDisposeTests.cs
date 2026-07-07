@@ -13,7 +13,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Dispose_WhenSubscribed_ShouldUnsubscribe()
         {
-            var source = new FakeSource();
+            var source = new FakeTextInputSource();
             var input = new UITextInput(source);
 
             input.Focused = true;
@@ -28,7 +28,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Dispose_WhenAlreadyDisposed_ShouldNotThrow()
         {
-            var source = new FakeSource();
+            var source = new FakeTextInputSource();
             var input = new UITextInput(source);
 
             input.Dispose();
@@ -40,7 +40,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void OnDraw_NullFont_ShouldNotThrow()
         {
-            var source = new FakeSource();
+            var source = new FakeTextInputSource();
             var input = new UITextInput(source);
 
             var exception = Record.Exception(() =>
@@ -52,7 +52,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Clear_ShouldResetTextAndCaret()
         {
-            var source = new FakeSource();
+            var source = new FakeTextInputSource();
             var input = new UITextInput(source);
 
             input.Focused = true;

@@ -10,7 +10,7 @@ namespace DTXMania.Test.TestData
     /// text-input events via <see cref="Fire"/>. Shared across the SongSearchFilterModal
     /// and UITextInput test suites so each suite does not redeclare its own copy.
     /// </summary>
-    internal sealed class FakeSource : ITextInputSource
+    internal sealed class FakeTextInputSource : ITextInputSource
     {
         public event EventHandler<TextInputEventArgs>? TextInput;
 

@@ -72,11 +72,21 @@ namespace DTXMania.Game.Lib.Stage
         public ResultStage(IStageGame game) : base(game)
         {
             // Initialize core systems
-            _spriteBatch = new SpriteBatch(game.GraphicsDevice);
+            _spriteBatch = CreateSpriteBatch(game.GraphicsDevice);
             _resourceManager = game.ResourceManager;
             _uiManager = new UIManager();
             _inputManager = game.InputManager;
         }
+
+        /// <summary>
+        /// Creates the <see cref="SpriteBatch"/> used by this stage. Extracted as a seam so
+        /// headless tests can override it (returning null) instead of constructing a real
+        /// SpriteBatch, whose internal <see cref="GraphicsResource"/> finalizers crash on an
+        /// uninitialized <see cref="GraphicsDevice"/>. Mirrors PerformanceStage.CreateSpriteBatch.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        protected virtual SpriteBatch CreateSpriteBatch(GraphicsDevice graphicsDevice)
+            => graphicsDevice != null ? new SpriteBatch(graphicsDevice) : null;
 
         #endregion
 

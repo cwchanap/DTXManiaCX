@@ -22,7 +22,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZero_ShouldAlwaysBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 0 };
 
             input.Text = "hello";
@@ -33,7 +33,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthNegative_ShouldAlwaysBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = -1 };
 
             input.Text = "hello";
@@ -44,7 +44,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZero_CaretShouldBeClampedToZero()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 5 };
             input.Text = "abc";
 
@@ -82,7 +82,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZeroAndValueEmpty_ShouldBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 0 };
 
             input.Text = "";
@@ -93,7 +93,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthNegativeAndValueNull_ShouldBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = -5 };
 
             input.Text = null;
