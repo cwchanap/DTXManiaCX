@@ -62,7 +62,7 @@ Rejected: explicitly out of scope per the non-goals. Flagged as a follow-up.
 
 ### 1. `IStageGame` interface (`Lib/Stage/IStageGame.cs`)
 
-Add three members to the existing `internal interface IStageGame`:
+Add three members to the existing `internal interface IStageGame` (visibility changed during implementation — see [Implementation Deviations](#implementation-deviations)):
 
 ```csharp
 Point? MapMouseToVirtual(Point windowPoint);   // window→1280x720 virtual mapping; null never returned today
@@ -70,7 +70,7 @@ ITextInputSource? GetTextInputSource();          // platform-window seam; null i
 void RequestExit();                              // terminate the game process
 ```
 
-All existing members stay. Add `using DTXMania.Game.Lib.UI.Components;` for `ITextInputSource`. The interface remains `internal`.
+All existing members stay. Add `using DTXMania.Game.Lib.UI.Components;` for `ITextInputSource`. The interface was specified to remain `internal`, but was made `public` during implementation — see [Implementation Deviations](#implementation-deviations).
 
 ### 2. `BaseGame` implementation (`Game1.cs`)
 
@@ -132,3 +132,17 @@ Justification: `IStageGame.GraphicsManager` is non-nullable by interface contrac
 - This is an architectural refactor; do not bundle it with feature work.
 - The two nitpick fixes from the originating review (cached `vw`/`vh` in `DrumConfigStage.UpdatePopup`/`UpdateSelection`, and the stale comment in `ResultStage.DrawBackground`) are already applied on the working branch and are independent of this ticket.
 - Coordinate mapping context: `BaseGame.MapMouseToVirtual` (`Game1.cs:476`) maps raw window mouse coords into the fixed 1280×720 virtual render target; stages author their hit-test rects in virtual space.
+
+## Implementation Deviations
+
+### `IStageGame` visibility: `internal` → `public`
+
+**Specified:** The design (section 1) and the implementation plan both prescribed `IStageGame` staying `internal`, with `MapMouseToVirtual` remaining an `internal` method on `BaseGame` that implicitly satisfies the interface member.
+
+**Implemented:** `IStageGame` is `public` (`Lib/Stage/IStageGame.cs:13`). `MapMouseToVirtual(Point)` stays `internal` on `BaseGame` and is exposed through the interface via an explicit-interface-implementation forwarding member (`Game1.cs:535`).
+
+**Reason:** The plan's Task 5 retyped every stage constructor to `public ClassName(IStageGame game)` (e.g. `public TitleStage(IStageGame game)`, plan lines 767–774). A `public` constructor cannot expose an `internal` type as a parameter — the C# compiler rejects it with CS0060 ("Inconsistent accessibility: parameter type ... is less accessible than the constructor"). The plan's two requirements ("`IStageGame` stays `internal`" and "public constructors taking `IStageGame`") are therefore mutually exclusive.
+
+**Resolution chosen:** Widen `IStageGame` to `public`. This was the lower-diff option (the alternative — making all eight stage constructors `internal` — would have rippled into every test factory and call site that constructs stages, and would have broken `SongSelectionStageTestFactory.CreateStage` which the plan explicitly wanted to leave untouched). The original `MapMouseToVirtual(Point)` method on `BaseGame` remains `internal` so existing in-game callers keep their access level; only the interface surface is public.
+
+**Audit impact:** `AGENTS.md`/`CLAUDE.md` "Key Interfaces" and the `Game1.cs:529–535` forwarding-member comment were updated to reflect the public visibility. The interface is still distinct from `IGameContext` by purpose (stage-layer service access vs. external API/MCP access), not by visibility.

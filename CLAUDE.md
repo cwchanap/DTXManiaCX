@@ -162,8 +162,8 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - Env vars: `DTXMANIA_E2E_GAME_PROJECT` (which game csproj to launch), `DTXMANIA_E2E_API_PORT` (else an ephemeral port is chosen), `DTXMANIA_E2E_ARTIFACT_ROOT` (artifact output dir)
 
 ### Key Interfaces
-- `IStageGame` - Internal interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which is for external API/MCP access
-- `IGameContext` - External game state access for API/MCP (same services as `IStageGame` but public-facing)
+- `IStageGame` - Public interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which serves external API/MCP access
+- `IGameContext` - External game state access for API/MCP (exposes the same game services as `IStageGame` but for out-of-process consumers)
 - `IStageManager` / `IStage` / `IStageTransition` - Stage lifecycle and transitions
 - `IResourceManager` - Resource loading and caching
 - `IConfigManager` - Configuration access
