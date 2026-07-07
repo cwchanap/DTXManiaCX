@@ -38,6 +38,37 @@ namespace DTXMania.Test.Stage
             Assert.Throws<ArgumentNullException>(() => new ResultStage(null));
         }
 
+        // The defensive null-_game navigation test (ExecuteInputCommand_WhenGameIsMissing_*)
+        // was removed in commit 397cbac: BaseStage's constructor invariant
+        // (ArgumentNullException on null game) makes a _game=null state structurally
+        // impossible, so the test relied on a now-removed BaseGame cast's null tolerance.
+
+        [Fact]
+        public void Constructor_WithIStageGame_ShouldInitializeCoreSystems()
+        {
+            // Covers the refactored constructor signature (IStageGame instead of BaseGame).
+            // Uses a test subclass that overrides CreateSpriteBatch to avoid constructing a real
+            // SpriteBatch (whose GraphicsResource finalizers crash on an uninitialized GraphicsDevice).
+            var mockGame = new Mock<IStageGame>();
+            mockGame.SetupGet(g => g.GraphicsDevice).Returns((GraphicsDevice?)null);
+
+            var stage = new HeadlessResultStage(mockGame.Object);
+
+            Assert.Null(GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.NotNull(GetPrivateField<UIManager>(stage, "_uiManager"));
+        }
+
+        /// <summary>
+        /// Test-only <see cref="ResultStage"/> that overrides <see cref="ResultStage.CreateSpriteBatch"/>
+        /// to return null, so the constructor can be exercised without a live GraphicsDevice.
+        /// </summary>
+        private sealed class HeadlessResultStage : ResultStage
+        {
+            public HeadlessResultStage(IStageGame game) : base(game) { }
+
+            protected override SpriteBatch CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
+        }
+
         #endregion
 
         #region Type Property Tests
