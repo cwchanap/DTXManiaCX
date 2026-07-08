@@ -42,12 +42,15 @@ if [[ -d "$SYSTEM_DIR" ]]; then
     cp -R "$SYSTEM_DIR" "$RESOURCES_DIR/System"
 fi
 
-# Render Info.plist from template (substitute __APP_VERSION__)
-sed "s/__APP_VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist.template" > "$CONTENTS_DIR/Info.plist"
-
 # Convert ICO to icns (best-effort). iconutil needs an .iconset of sized PNGs;
 # we scale the ICO with sips into the standard sizes. Fall back to copying the
-# ICO verbatim if iconutil/sips is unavailable (e.g. on non-macOS test runners).
+# ICO verbatim if iconutil/sips is unavailable (e.g. on non-macOS test runners)
+# or if iconutil rejects the iconset (e.g. the ICO's max embedded size is too
+# small to produce the 512x512 entries iconutil requires).
+#
+# ICON_FILE tracks the filename that actually lands in Resources/ so the
+# rendered Info.plist's CFBundleIconFile always references a real file.
+ICON_FILE="$APP_NAME.ico"
 ICNS_PATH="$RESOURCES_DIR/$APP_NAME.icns"
 if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
     ICONSET_DIR="$OUTPUT_DIR/$APP_NAME.iconset"
@@ -60,13 +63,22 @@ if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
         double=$((size * 2))
         sips -z "$double" "$double" "$ICO_PATH" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
     done
-    if ! iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH" >/dev/null 2>&1; then
+    if iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH" >/dev/null 2>&1; then
+        ICON_FILE="$APP_NAME.icns"
+    else
         cp "$ICO_PATH" "$RESOURCES_DIR/$APP_NAME.ico"
     fi
     rm -rf "$ICONSET_DIR"
 else
     cp "$ICO_PATH" "$RESOURCES_DIR/$APP_NAME.ico"
 fi
+
+# Render Info.plist from template (substitute __APP_VERSION__ and __APP_ICON__).
+# __APP_ICON__ is the basename of the icon file actually placed in Resources/,
+# so CFBundleIconFile never references a missing file.
+sed -e "s/__APP_VERSION__/$VERSION/g" \
+    -e "s/__APP_ICON__/$ICON_FILE/g" \
+    "$SCRIPT_DIR/Info.plist.template" > "$CONTENTS_DIR/Info.plist"
 
 # Make the apphost stub executable
 if [[ -f "$MACOS_DIR/$EXEC_NAME" ]]; then

@@ -55,9 +55,24 @@ assert_exists "$APP/Contents/Resources/System/Graphics/1_Background.png"
 assert_exists "$APP/Contents/Info.plist"
 
 # App icon: prefer .icns (macOS with iconutil/sips); fall back to .ico copy
-# when those tools are unavailable (e.g. non-macOS test runners).
+# when those tools are unavailable (e.g. non-macOS test runners) or when
+# iconutil rejects the iconset (ICO too small for 512x512 entries).
 if [[ ! -e "$APP/Contents/Resources/DTXMania.icns" && ! -e "$APP/Contents/Resources/DTXMania.ico" ]]; then
     echo "FAIL: expected either DTXMania.icns or DTXMania.ico under Resources" >&2
+    exit 1
+fi
+
+# CFBundleIconFile must reference the icon file actually present in Resources/.
+# A stale reference (e.g. DTXMania.icns when only DTXMania.ico exists) makes
+# Finder/Dock fall back to the generic app icon. Extract with sed (portable;
+# avoids the macOS-only PlistBuddy dependency).
+ICON_REF="$(sed -n '/<key>CFBundleIconFile<\/key>/{n; s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$APP/Contents/Info.plist")"
+if [[ -z "$ICON_REF" ]]; then
+    echo "FAIL: CFBundleIconFile missing from Info.plist" >&2
+    exit 1
+fi
+if [[ ! -e "$APP/Contents/Resources/$ICON_REF" ]]; then
+    echo "FAIL: CFBundleIconFile references '$ICON_REF' but no such file exists under Resources/" >&2
     exit 1
 fi
 
