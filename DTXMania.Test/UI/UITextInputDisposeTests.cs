@@ -1,6 +1,5 @@
 using System;
 using DTXMania.Game.Lib.UI.Components;
-using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -10,10 +9,18 @@ namespace DTXMania.Test.UI
     [Trait("Category", "Unit")]
     public class UITextInputDisposeTests
     {
+        private sealed class FakeSource : ITextInputSource
+        {
+            public event EventHandler<TextInputEventArgs>? TextInput;
+            public void Fire(char c) =>
+                TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
+            public void Dispose() { }
+        }
+
         [Fact]
         public void Dispose_WhenSubscribed_ShouldUnsubscribe()
         {
-            var source = new FakeTextInputSource();
+            var source = new FakeSource();
             var input = new UITextInput(source);
 
             input.Focused = true;
@@ -28,7 +35,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Dispose_WhenAlreadyDisposed_ShouldNotThrow()
         {
-            var source = new FakeTextInputSource();
+            var source = new FakeSource();
             var input = new UITextInput(source);
 
             input.Dispose();
@@ -40,7 +47,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void OnDraw_NullFont_ShouldNotThrow()
         {
-            var source = new FakeTextInputSource();
+            var source = new FakeSource();
             var input = new UITextInput(source);
 
             var exception = Record.Exception(() =>
@@ -52,7 +59,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void Clear_ShouldResetTextAndCaret()
         {
-            var source = new FakeTextInputSource();
+            var source = new FakeSource();
             var input = new UITextInput(source);
 
             input.Focused = true;

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -89,34 +88,6 @@ namespace DTXMania.Game.Lib.Utilities
         public static string GetDefaultSystemSkinRoot()
         {
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "System"));
-        }
-
-        /// <summary>
-        /// Candidate read-only System skin roots bundled with the app, in priority order.
-        /// Used as the ultimate fallback when the writable app-data System skin is missing
-        /// assets (e.g. a clean macOS .app install where the bundled skin lives in
-        /// Contents/Resources/System but app-data is empty).
-        ///
-        /// Candidates are returned WITHOUT checking existence — callers pick the first
-        /// that actually exists on disk. Keeping this pure makes it testable without a
-        /// filesystem.
-        ///
-        /// macOS .app bundle: the executable lives in Contents/MacOS/, so
-        /// AppContext.BaseDirectory resolves to .../Contents/MacOS/ and the bundled
-        /// System skin is at ../Resources/System.
-        /// Portable build (Windows zip, non-bundled): System/ sibling to the executable.
-        /// </summary>
-        public static IEnumerable<string> GetBundledSystemSkinRootCandidates()
-        {
-            var baseDir = AppContext.BaseDirectory;
-            if (string.IsNullOrWhiteSpace(baseDir))
-                yield break;
-
-            // macOS .app bundle: Contents/Resources/System (relative to Contents/MacOS/)
-            yield return Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
-
-            // Portable build: System/ sibling to the executable
-            yield return Path.GetFullPath(Path.Combine(baseDir, "System"));
         }
 
         public static string GetSongsDatabasePath()

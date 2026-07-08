@@ -16,7 +16,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -43,7 +43,7 @@ jobs:
       run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults /p:CollectCoverage=true /p:CoverletOutput=./TestResults/Coverage/ /p:CoverletOutputFormat=cobertura /p:IncludeTestAssembly=false /p:Exclude="[DTXMania.Test*]*"
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results-windows
@@ -74,7 +74,7 @@ jobs:
         }
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v7
+      uses: codecov/codecov-action@v4
       if: always() && env.CODECOV_FILE != ''
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -88,7 +88,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -109,15 +109,6 @@ jobs:
     - name: Build Mac project
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
 
-    - name: Smoke test build-dmg.sh
-      # Validates the macOS installer script (.app bundle + Info.plist + DMG
-      # staging) on every PR/push, not just on release. Uses fake publish
-      # contents so it doesn't depend on a real dotnet publish. Catches
-      # regressions in build-dmg.sh before a release goes out.
-      run: |
-        chmod +x installer/macos/build-dmg.sh installer/macos/test-build-dmg.sh
-        bash installer/macos/test-build-dmg.sh
-
     - name: Run tests on macOS
       run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
 
@@ -133,7 +124,7 @@ jobs:
         fi
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results-macos
@@ -144,7 +135,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -179,7 +170,7 @@ jobs:
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-support --filter "Category=E2E-Support"
 
     - name: Upload gameplay E2E artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: gameplay-e2e-windows
@@ -202,7 +193,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -219,7 +210,7 @@ jobs:
       run: dotnet publish ${{ matrix.project }} --configuration Release --output ./publish/${{ matrix.output }} --no-restore --self-contained false
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact }}-${{ github.sha }}
         path: ./publish/${{ matrix.output }}

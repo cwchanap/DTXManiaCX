@@ -33,8 +33,6 @@ namespace DTXMania.Game.Lib.Stage
         /// Builds a text-input source for OS text events (used by the song search modal).
         /// Returns null in headless/test environments where no OS window is available.
         /// </summary>
-        /// <remarks>Each call returns a fresh disposable instance; the caller owns it and
-        /// must dispose it when no longer needed (see <see cref="ITextInputSource"/>).</remarks>
         ITextInputSource? GetTextInputSource();
 
         /// <summary>

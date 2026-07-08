@@ -100,7 +100,8 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Get the path to bundled ffmpeg binaries from MMTools packages
+        /// Get the path to bundled ffmpeg binaries from the MMTools NuGet packages
+        /// and the macOS release workflow's native arm64 build.
         /// </summary>
         private static string GetBundledFFmpegPath()
         {
@@ -108,45 +109,58 @@ namespace DTXMania.Game.Lib.Resources
             {
                 // Get the directory where the current assembly is located
                 string assemblyDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-                
+
                 if (string.IsNullOrEmpty(assemblyDir))
                     return null;
 
-                // Check for platform-specific bundled ffmpeg
-                string[] possiblePaths = {
-                    // macOS arm64 (native Apple Silicon build, built in release CI;
-                    // avoids the Rosetta 2 dependency of the x86_64 binary below)
-                    Path.Combine(assemblyDir, "runtimes", "osx-arm64", "MMTools"),
-
-                    // macOS x64 (from MMTools.Executables.MacOS.X64; runs under
-                    // Rosetta 2 on Apple Silicon when the arm64 build is absent)
-                    Path.Combine(assemblyDir, "runtimes", "osx-x64", "MMTools"),
-
-                    // Windows (from MMTools.Executables.Windows.X64)
-                    Path.Combine(assemblyDir, "runtimes", "win-x64", "MMTools"),
-                    Path.Combine(assemblyDir, "runtimes", "win-x86", "MMTools"),
-
-                    // Linux (if we add support later)
-                    Path.Combine(assemblyDir, "runtimes", "linux-x64", "MMTools"),
-                };
-
-                foreach (string path in possiblePaths)
-                {
-                    string ffmpegPath = Path.Combine(path, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
-                    
-                    if (File.Exists(ffmpegPath))
-                    {
-                        return path;
-                    }
-                }
-
-                return null;
+                return GetFFmpegBinaryFolder(assemblyDir, File.Exists);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ManagedSound: Error finding bundled ffmpeg: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Resolves the first bundled ffmpeg directory from the ordered candidate
+        /// list. Extracted from <see cref="GetBundledFFmpegPath"/> so the
+        /// preference order (native Apple Silicon before the x64 Rosetta fallback)
+        /// is unit-testable without a real assembly directory or files on disk.
+        /// </summary>
+        /// <param name="assemblyDir">Directory of the running assembly (publish root).</param>
+        /// <param name="ffmpegExists">Predicate returning true if the given full ffmpeg path exists.</param>
+        /// <returns>The first candidate folder containing ffmpeg, or null.</returns>
+        internal static string GetFFmpegBinaryFolder(string assemblyDir, Func<string, bool> ffmpegExists)
+        {
+            if (string.IsNullOrEmpty(assemblyDir) || ffmpegExists == null)
+                return null;
+
+            string binaryName = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+
+            // Order matters. The macOS release workflow
+            // (.github/workflows/release.yml "Build native arm64 ffmpeg" step)
+            // builds a native arm64 ffmpeg and ships it to runtimes/osx-arm64/MMTools
+            // so MP3-backed songs work on Apple Silicon WITHOUT Rosetta 2. Probe that
+            // path BEFORE the osx-x64 contents from MMTools.Executables.MacOS.X64,
+            // otherwise the native build is silently ignored and a Rosetta-only
+            // x86_64 binary is used instead.
+            string[] candidateFolders =
+            {
+                Path.Combine(assemblyDir, "runtimes", "osx-arm64", "MMTools"), // native Apple Silicon (preferred)
+                Path.Combine(assemblyDir, "runtimes", "osx-x64",  "MMTools"),  // macOS x86_64 (Rosetta fallback)
+                Path.Combine(assemblyDir, "runtimes", "win-x64",  "MMTools"),   // Windows (MMTools.Executables.Windows.X64)
+                Path.Combine(assemblyDir, "runtimes", "win-x86",  "MMTools"),
+                Path.Combine(assemblyDir, "runtimes", "linux-x64", "MMTools"),  // Linux (future)
+            };
+
+            foreach (string folder in candidateFolders)
+            {
+                if (ffmpegExists(Path.Combine(folder, binaryName)))
+                    return folder;
+            }
+
+            return null;
         }
 
         #endregion
@@ -366,9 +380,8 @@ namespace DTXMania.Game.Lib.Resources
                 throw new SoundLoadException(_sourcePath, 
                     $"FFMpeg binary not found. MP3 support requires bundled ffmpeg binaries from MMTools packages.\n" +
                     $"Ensure the appropriate MMTools.Executables package is installed for your platform:\n" +
-                    $"  macOS arm64: native build (release CI) under runtimes/osx-arm64/MMTools\n" +
-                    $"  macOS x64:   MMTools.Executables.MacOS.X64\n" +
-                    $"  Windows:     MMTools.Executables.Windows.X64\n" +
+                    $"  macOS: MMTools.Executables.MacOS.X64\n" +
+                    $"  Windows: MMTools.Executables.Windows.X64\n" +
                     $"Alternatively, convert {Path.GetFileName(filePath)} to WAV or OGG format.", ex);
             }
             catch (Exception ex)

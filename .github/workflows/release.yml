@@ -202,7 +202,18 @@ jobs:
           cp /tmp/ffmpeg-arm64/bin/ffmpeg  "$DEST/ffmpeg"
           cp /tmp/ffmpeg-arm64/bin/ffprobe "$DEST/ffprobe"
           chmod +x "$DEST/ffmpeg" "$DEST/ffprobe"
-          echo "Built arm64 ffmpeg:" && file "$DEST/ffmpeg"
+          echo "Built arm64 ffmpeg:" && file "$DEST/ffmpeg" "$DEST/ffprobe"
+          # Hard fail if the produced binaries are not arm64. This release ships an
+          # arm64-only .app bundle, so an x86_64 ffmpeg/ffprobe would either force
+          # Rosetta 2 or fail outright on Apple Silicon. macos-latest currently maps
+          # to an Apple Silicon runner, but this guard catches any future change to
+          # the -latest runner alias or to the configure flags without silently
+          # shipping a non-native build.
+          if ! file "$DEST/ffmpeg" "$DEST/ffprobe" | grep -qi 'arm64'; then
+            echo "::error::ffmpeg/ffprobe is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
+            file "$DEST/ffmpeg" "$DEST/ffprobe" >&2
+            exit 1
+          fi
 
       - name: Build .app bundle and DMG
         run: |
