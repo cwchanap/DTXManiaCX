@@ -59,15 +59,25 @@ if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
     ICONSET_DIR="$OUTPUT_DIR/$APP_NAME.iconset"
     rm -rf "$ICONSET_DIR"
     mkdir -p "$ICONSET_DIR"
-    # Standard macOS iconset: single-density + Retina @2x variants. iconutil
-    # produces a richer .icns when the @2x entries are present.
-    for size in 16 32 128 256 512; do
-        sips -z "$size" "$size" "$ICO_PATH" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null 2>&1 || true
-        double=$((size * 2))
-        sips -z "$double" "$double" "$ICO_PATH" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
-    done
-    if iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH" >/dev/null 2>&1; then
-        ICON_FILE="$APP_NAME.icns"
+    # sips reads ICO input but preserves ICO format on output even when the
+    # destination has a .png suffix (warning: "Output file suffix should be
+    # ico"), producing files iconutil rejects. It also cannot upscale beyond
+    # the ICO's largest embedded entry, so 512px and @2x entries go missing.
+    # Convert the ICO to a real PNG first; sips then upscales that PNG to fill
+    # the standard iconset sizes (16–512 + Retina @2x).
+    SOURCE_PNG="$ICONSET_DIR/_source.png"
+    if sips -s format png "$ICO_PATH" --out "$SOURCE_PNG" >/dev/null 2>&1; then
+        for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" "$SOURCE_PNG" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null 2>&1 || true
+            double=$((size * 2))
+            sips -z "$double" "$double" "$SOURCE_PNG" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
+        done
+        rm -f "$SOURCE_PNG"
+        if iconutil -c icns "$ICONSET_DIR" -o "$ICNS_PATH" >/dev/null 2>&1; then
+            ICON_FILE="$APP_NAME.icns"
+        else
+            cp "$ICO_PATH" "$RESOURCES_DIR/$APP_NAME.ico"
+        fi
     else
         cp "$ICO_PATH" "$RESOURCES_DIR/$APP_NAME.ico"
     fi

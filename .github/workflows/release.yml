@@ -165,6 +165,45 @@ jobs:
           -p:PublishReadyToRun=false -p:TieredCompilation=false
           -o ./publish/mac
 
+      - name: Build native arm64 ffmpeg (MP3 decode)
+        run: |
+          # The MMTools.Executables.MacOS.X64 NuGet package only bundles an
+          # x86_64 ffmpeg that requires Rosetta 2 on Apple Silicon. Build a
+          # minimal native arm64 ffmpeg/ffprobe so MP3-backed songs work
+          # without Rosetta. ManagedSound checks runtimes/osx-arm64/MMTools
+          # before falling back to the x64 Rosetta path.
+          #
+          # Minimal configure: only the mp3 decoder, pcm_s16le encoder,
+          # s16le muxer, and the protocols/filters needed by FFMpegCore's
+          # MP3-to-PCM pipeline (see ManagedSound.LoadMp3File).
+          FFMPEG_VERSION=7.0.2
+          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+            -o /tmp/ffmpeg.tar.xz
+          tar xJf /tmp/ffmpeg.tar.xz -C /tmp
+          cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
+          ./configure \
+            --prefix=/tmp/ffmpeg-arm64 \
+            --enable-static --disable-shared \
+            --disable-doc --disable-htmlpages --disable-manpages \
+            --disable-podpages --disable-txtpages \
+            --disable-ffplay \
+            --disable-everything \
+            --enable-decoder=mp3float \
+            --enable-demuxer=mp3 \
+            --enable-parser=mpegaudio \
+            --enable-protocol=file,pipe \
+            --enable-muxer=s16le \
+            --enable-encoder=pcm_s16le \
+            --enable-filter=aformat,anull,aresample
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          DEST=./publish/mac/runtimes/osx-arm64/MMTools
+          mkdir -p "$DEST"
+          cp /tmp/ffmpeg-arm64/bin/ffmpeg  "$DEST/ffmpeg"
+          cp /tmp/ffmpeg-arm64/bin/ffprobe "$DEST/ffprobe"
+          chmod +x "$DEST/ffmpeg" "$DEST/ffprobe"
+          echo "Built arm64 ffmpeg:" && file "$DEST/ffmpeg"
+
       - name: Build .app bundle and DMG
         run: |
           bash installer/macos/build-dmg.sh \
