@@ -114,13 +114,18 @@ namespace DTXMania.Game.Lib.Resources
 
                 // Check for platform-specific bundled ffmpeg
                 string[] possiblePaths = {
-                    // macOS (from MMTools.Executables.MacOS.X64)
+                    // macOS arm64 (native Apple Silicon build, built in release CI;
+                    // avoids the Rosetta 2 dependency of the x86_64 binary below)
+                    Path.Combine(assemblyDir, "runtimes", "osx-arm64", "MMTools"),
+
+                    // macOS x64 (from MMTools.Executables.MacOS.X64; runs under
+                    // Rosetta 2 on Apple Silicon when the arm64 build is absent)
                     Path.Combine(assemblyDir, "runtimes", "osx-x64", "MMTools"),
-                    
+
                     // Windows (from MMTools.Executables.Windows.X64)
                     Path.Combine(assemblyDir, "runtimes", "win-x64", "MMTools"),
                     Path.Combine(assemblyDir, "runtimes", "win-x86", "MMTools"),
-                    
+
                     // Linux (if we add support later)
                     Path.Combine(assemblyDir, "runtimes", "linux-x64", "MMTools"),
                 };
@@ -361,8 +366,9 @@ namespace DTXMania.Game.Lib.Resources
                 throw new SoundLoadException(_sourcePath, 
                     $"FFMpeg binary not found. MP3 support requires bundled ffmpeg binaries from MMTools packages.\n" +
                     $"Ensure the appropriate MMTools.Executables package is installed for your platform:\n" +
-                    $"  macOS: MMTools.Executables.MacOS.X64\n" +
-                    $"  Windows: MMTools.Executables.Windows.X64\n" +
+                    $"  macOS arm64: native build (release CI) under runtimes/osx-arm64/MMTools\n" +
+                    $"  macOS x64:   MMTools.Executables.MacOS.X64\n" +
+                    $"  Windows:     MMTools.Executables.Windows.X64\n" +
                     $"Alternatively, convert {Path.GetFileName(filePath)} to WAV or OGG format.", ex);
             }
             catch (Exception ex)
