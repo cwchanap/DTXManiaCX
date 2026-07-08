@@ -22,12 +22,21 @@
     <string>__APP_VERSION__</string>
     <key>CFBundleSignature</key>
     <string>DTXK</string>
+    <!-- CFBundleVersion is set to the marketing version string. Apple requires
+         a numeric (dotted-integer) build version for notarization; a tag like
+         '1.2.3-beta' would be rejected. This is acceptable for the current
+         ad-hoc signing flow (build-dmg.sh signs with '-'), but must be split
+         into a sanitized numeric build version before submitting to notarytool. -->
     <key>CFBundleVersion</key>
     <string>__APP_VERSION__</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.games</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
+    <!-- arm64-only by design. The release workflow publishes -r osx-arm64 and
+         LSRequiresNativeExecution prevents Rosetta 2 translation. Intel (x86_64)
+         Macs are intentionally excluded; add an osx-x64 publish + universal
+         build before supporting them. -->
     <key>LSArchitecturePriority</key>
     <array>
         <string>arm64</string>

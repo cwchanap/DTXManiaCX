@@ -3,6 +3,18 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (e.g. v1.2.3). Defaults to a dev version.'
+        required: false
+        type: string
+
+# One release pipeline per tag at a time. Cancel in-flight runs for the same
+# tag so re-publishing a release doesn't race on asset uploads.
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.event.inputs.tag || github.run_id }}
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -22,7 +34,7 @@ jobs:
       - name: Normalize version from tag
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || 'v0.0.0-dev' }}
         run: |
           $tag = "$env:RELEASE_TAG"
           $version = $tag -replace '^v', ''
@@ -41,6 +53,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-release-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
         run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
@@ -66,7 +86,14 @@ jobs:
           $sourceDir = Join-Path $PWD "publish\win"
           & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
 
-      - name: Upload installer to release
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dtxmania-windows-installer-${{ env.APP_VERSION }}
+          path: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
+
+      - name: Attach installer to release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
@@ -85,7 +112,7 @@ jobs:
 
       - name: Normalize version from tag
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || 'v0.0.0-dev' }}
         run: |
           tag="$RELEASE_TAG"
           version="${tag#v}"
@@ -106,6 +133,14 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-release-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Restore dependencies
         run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
 
@@ -123,14 +158,21 @@ jobs:
 
       - name: Build .app bundle and DMG
         run: |
-          ./installer/macos/build-dmg.sh \
+          bash installer/macos/build-dmg.sh \
             ./publish/mac \
             ./System \
             "$APP_VERSION" \
             DTXMania.Game/Icon.ico \
             ./output
 
-      - name: Upload DMG to release
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dtxmania-macos-dmg-${{ env.APP_VERSION }}
+          path: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
+
+      - name: Attach DMG to release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg

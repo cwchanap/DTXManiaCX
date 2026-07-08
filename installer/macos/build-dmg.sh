@@ -86,10 +86,14 @@ fi
 # Build the DMG (macOS only). On other platforms the bundle is still produced;
 # the test asserts bundle structure without requiring a DMG.
 DMG_PATH="$OUTPUT_DIR/$APP_NAME-$VERSION-arm64.dmg"
+DMG_BUILT=false
 if command -v hdiutil >/dev/null 2>&1; then
     rm -f "$DMG_PATH"
     STAGING="$OUTPUT_DIR/dmg-staging"
     rm -rf "$STAGING"
+    # Clean up staging on any exit (including hdiutil failure under set -e)
+    # so a failed build doesn't leave a partial dmg-staging/ behind.
+    trap 'rm -rf "$STAGING"' EXIT
     mkdir -p "$STAGING"
     cp -R "$APP_BUNDLE" "$STAGING/"
     # /Applications symlink so users can drag-to-install.
@@ -101,6 +105,12 @@ if command -v hdiutil >/dev/null 2>&1; then
         -imagekey zlib-level=9 \
         "$DMG_PATH" >/dev/null
     rm -rf "$STAGING"
+    trap - EXIT
+    DMG_BUILT=true
 fi
 
-echo "Built: $DMG_PATH"
+if $DMG_BUILT; then
+    echo "Built: $DMG_PATH"
+else
+    echo "Built: $APP_BUNDLE (DMG skipped — hdiutil unavailable on this platform)"
+fi
