@@ -513,6 +513,82 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void ResourceExists_WhenMissingFromCurrentAndFallback_ShouldReturnTrueIfInBundledSystemSkin()
+        {
+            // Bundled read-only System skin containing an asset that exists nowhere else.
+            var bundledRoot = Path.Combine(_testDataPath, "BundledSystem");
+            Directory.CreateDirectory(Path.Combine(bundledRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(bundledRoot, "Graphics", "bundled_only.png"), "bundled");
+
+            // Empty skin root (no matching asset) for both current and fallback tiers.
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            Assert.True(resourceManager.ResourceExists("Graphics/bundled_only.png"));
+        }
+
+        [Fact]
+        public void LoadTexture_WhenMissingFromCurrentAndFallback_ShouldFallBackToBundledSystemSkin()
+        {
+            var bundledRoot = Path.Combine(_testDataPath, "BundledSystem");
+            Directory.CreateDirectory(Path.Combine(bundledRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(bundledRoot, "Graphics", "bundled_only.png"), "bundled");
+
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateTestableResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            string? capturedResolvedPath = null;
+            resourceManager.CreateTextureCoreHandler = (resolved, orig, p) =>
+            {
+                capturedResolvedPath = resolved;
+                return CreateTextureMock().Object;
+            };
+            resourceManager.CreateFallbackTextureHandler = _ => CreateTextureMock().Object;
+
+            resourceManager.LoadTexture("Graphics/bundled_only.png");
+
+            Assert.NotNull(capturedResolvedPath);
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(bundledRoot, "Graphics", "bundled_only.png")),
+                capturedResolvedPath);
+        }
+
+        [Fact]
+        public void LoadSound_WhenMissingFromCurrentAndFallback_ShouldFallBackToBundledSystemSkin()
+        {
+            var bundledRoot = Path.Combine(_testDataPath, "BundledSystem");
+            Directory.CreateDirectory(Path.Combine(bundledRoot, "Sounds"));
+            File.WriteAllText(Path.Combine(bundledRoot, "Sounds", "bundled_only.wav"), "bundled");
+
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateTestableResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            string? capturedResolvedPath = null;
+            resourceManager.CreateSoundCoreHandler = (resolved, orig) =>
+            {
+                capturedResolvedPath = resolved;
+                return CreateSoundMock().Object;
+            };
+            resourceManager.CreateFallbackSoundHandler = _ => CreateSoundMock().Object;
+
+            resourceManager.LoadSound("Sounds/bundled_only.wav");
+
+            Assert.NotNull(capturedResolvedPath);
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(bundledRoot, "Sounds", "bundled_only.wav")),
+                capturedResolvedPath);
+        }
+
+        [Fact]
         public void SetBoxDefSkinPath_WithRelativePath_ShouldPreserveRelativePath()
         {
             var resourceManager = CreateResourceManager();

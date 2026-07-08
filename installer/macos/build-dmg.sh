@@ -37,7 +37,10 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # Copy published output (executable, dlls, runtime, Content) into MacOS/
 cp -R "$PUBLISH_DIR/." "$MACOS_DIR/"
 
-# Default skin — bundled for the future first-run seeding fix (not yet consumed by the game)
+# Default skin — bundled into Contents/Resources/System. The game's ResourceManager
+# resolves this as a read-only fallback when the writable app-data System skin
+# (~/Library/Application Support/DTXManiaCX/System) is missing assets, so a clean
+# DMG install launches with the bundled skin without any first-run copy step.
 if [[ -d "$SYSTEM_DIR" ]]; then
     cp -R "$SYSTEM_DIR" "$RESOURCES_DIR/System"
 fi
