@@ -30,6 +30,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # For release events this defaults to the published tag; for
+          # workflow_dispatch we must explicitly check out inputs.tag so a
+          # manual rerun of an older tag builds that tag's source, not the
+          # default branch. Empty (no tag input) falls back to the default
+          # branch for dev builds.
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
       - name: Normalize version from tag
         shell: pwsh
@@ -109,6 +115,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # See windows-installer job: check out inputs.tag on manual runs so
+          # the built source matches the version label.
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
       - name: Normalize version from tag
         env:
