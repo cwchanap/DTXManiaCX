@@ -76,6 +76,9 @@ fi
 # Ad-hoc codesign (no Apple Developer ID). Gatekeeper still warns on first
 # launch — users right-click → Open, or run xattr -dr com.apple.quarantine.
 # Failures are non-fatal (a bad sign shouldn't block a developer build).
+# --deep is deprecated by Apple for notarization submissions, but this is
+# ad-hoc signing only (no Developer ID, no notarytool), so --deep is fine
+# here and avoids having to sign each nested bundle manually.
 if command -v codesign >/dev/null 2>&1; then
     codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null 2>&1 || true
 fi
@@ -89,6 +92,8 @@ if command -v hdiutil >/dev/null 2>&1; then
     rm -rf "$STAGING"
     mkdir -p "$STAGING"
     cp -R "$APP_BUNDLE" "$STAGING/"
+    # /Applications symlink so users can drag-to-install.
+    ln -s /Applications "$STAGING/Applications"
     hdiutil create -volname "$APP_NAME" \
         -srcfolder "$STAGING" \
         -fs HFS+ \
