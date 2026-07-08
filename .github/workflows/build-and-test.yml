@@ -109,6 +109,15 @@ jobs:
     - name: Build Mac project
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
 
+    - name: Smoke test build-dmg.sh
+      # Validates the macOS installer script (.app bundle + Info.plist + DMG
+      # staging) on every PR/push, not just on release. Uses fake publish
+      # contents so it doesn't depend on a real dotnet publish. Catches
+      # regressions in build-dmg.sh before a release goes out.
+      run: |
+        chmod +x installer/macos/build-dmg.sh installer/macos/test-build-dmg.sh
+        bash installer/macos/test-build-dmg.sh
+
     - name: Run tests on macOS
       run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
 

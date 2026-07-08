@@ -27,6 +27,13 @@ jobs:
           $tag = "$env:RELEASE_TAG"
           $version = $tag -replace '^v', ''
           if (-not $version) { throw "Could not normalize version from tag '$tag'" }
+          # APP_VERSION flows into Inno Setup /D defines, sed substitutions and
+          # Info.plist XML. Reject anything outside [A-Za-z0-9.+-] so a tag like
+          # 'release/v1.2.3' (contains '/') or one with '&'/'<' can't break the
+          # installer build or corrupt the plist.
+          if ($version -notmatch '^[A-Za-z0-9.+-]+$') {
+            throw "Invalid version '$version' (from tag '$tag'): allowed chars are [A-Za-z0-9.+-]"
+          }
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Release tag: $tag; normalized version: $version"
 
@@ -83,6 +90,14 @@ jobs:
           tag="$RELEASE_TAG"
           version="${tag#v}"
           if [ -z "$version" ]; then echo "Could not normalize version from tag '$tag'" >&2; exit 1; fi
+          # APP_VERSION flows into sed substitutions and Info.plist XML. Reject
+          # anything outside [A-Za-z0-9.+-] so a tag like 'release/v1.2.3'
+          # (contains '/') or one with '&'/'<' can't break the sed delimiter or
+          # corrupt the plist.
+          if [[ ! "$version" =~ ^[A-Za-z0-9.+-]+$ ]]; then
+            echo "Invalid version '$version' (from tag '$tag'): allowed chars are [A-Za-z0-9.+-]" >&2
+            exit 1
+          fi
           echo "APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "Release tag: $tag; normalized version: $version"
 
