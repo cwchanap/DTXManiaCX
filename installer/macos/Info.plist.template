@@ -9,7 +9,7 @@
     <key>CFBundleExecutable</key>
     <string>DTXMania.Game.Mac</string>
     <key>CFBundleIconFile</key>
-    <string>DTXMania.icns</string>
+    <string>__APP_ICON__</string>
     <key>CFBundleIdentifier</key>
     <string>com.dtxmaniacx.DTXMania</string>
     <key>CFBundleInfoDictionaryVersion</key>
