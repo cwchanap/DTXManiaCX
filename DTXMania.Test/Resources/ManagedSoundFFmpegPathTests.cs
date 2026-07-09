@@ -14,6 +14,7 @@ namespace DTXMania.Test.Resources
     /// fallback. These tests are pure logic (no files, no audio device) and do
     /// not carry the Audio trait.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ManagedSoundFFmpegPathTests
     {
         /// <summary>
@@ -26,7 +27,7 @@ namespace DTXMania.Test.Resources
         private static string FFmpegPath(string folder) => Path.Combine(folder, BinName);
 
         [Fact]
-        public void GetFFmpegBinaryFolder_WithArm64Present_PrefersArm64OverX64()
+        public void WithArm64Present_ShouldPreferArm64OverX64()
         {
             var dir = "/app";
             var arm64 = Path.Combine(dir, "runtimes", "osx-arm64", "MMTools");
@@ -43,7 +44,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetFFmpegBinaryFolder_WithOnlyX64Present_ReturnsX64()
+        public void WithOnlyX64Present_ShouldReturnX64()
         {
             var dir = "/app";
             var x64 = Path.Combine(dir, "runtimes", "osx-x64", "MMTools");
@@ -55,7 +56,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetFFmpegBinaryFolder_WithNoBinariesPresent_ReturnsNull()
+        public void WithNoBinariesPresent_ShouldReturnNull()
         {
             var dir = "/app";
 
@@ -65,14 +66,14 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetFFmpegBinaryFolder_WithNullOrEmptyAssemblyDir_ReturnsNull()
+        public void WithNullOrEmptyAssemblyDir_ShouldReturnNull()
         {
             Assert.Null(ManagedSound.GetFFmpegBinaryFolder(null, _ => true));
             Assert.Null(ManagedSound.GetFFmpegBinaryFolder(string.Empty, _ => true));
         }
 
         [Fact]
-        public void GetFFmpegBinaryFolder_WithNullPredicate_ReturnsNull()
+        public void WithNullPredicate_ShouldReturnNull()
         {
             var result = ManagedSound.GetFFmpegBinaryFolder("/app", null);
 
@@ -87,7 +88,7 @@ namespace DTXMania.Test.Resources
         /// looked at osx-arm64 at all.
         /// </summary>
         [Fact]
-        public void GetFFmpegBinaryFolder_ProbesArm64CandidateBeforeX64()
+        public void ProbesArm64CandidateBeforeX64_ShouldProbeArm64First()
         {
             var dir = "/app";
             var probed = new List<string>();

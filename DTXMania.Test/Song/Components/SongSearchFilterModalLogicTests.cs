@@ -3,6 +3,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -11,19 +12,10 @@ namespace DTXMania.Test.Song.Components
     [Trait("Category", "Unit")]
     public class SongSearchFilterModalLogicTests
     {
-        private sealed class FakeSource : ITextInputSource
-        {
-            public event EventHandler<TextInputEventArgs>? TextInput;
-            public void Fire(char c) =>
-                TextInput?.Invoke(this, new TextInputEventArgs(c,
-                    Microsoft.Xna.Framework.Input.Keys.None));
-            public void Dispose() { }
-        }
-
         [Fact]
         public void Open_WithDefaultCriteria_ShouldPopulateFromArgument()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             var initial = SongFilterCriteria.Default with { SearchQuery = "abc" };
 
             modal.Open(initial);
@@ -35,7 +27,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Cancel_WhenInvoked_ShouldRaiseCancelledAndClose()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             bool fired = false;
             modal.Cancelled += (_, _) => fired = true;
@@ -49,7 +41,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Apply_WhenInvoked_ShouldFireFilterAppliedWithDraftAndClose()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             var initial = SongFilterCriteria.Default with { SearchQuery = "x" };
             modal.Open(initial);
             SongFilterCriteria? captured = null;
@@ -65,7 +57,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Reset_WhenInvoked_ShouldFireFilterResetAndClose()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { SearchQuery = "x" });
             bool fired = false;
             modal.FilterReset += (_, _) => fired = true;
@@ -79,7 +71,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void EditDraft_WhenUpdated_ShouldNotMutateInitialCriteria()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             var initial = SongFilterCriteria.Default with { SearchQuery = "orig" };
 
             modal.Open(initial);
@@ -92,7 +84,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void SubmitFromSearchBox_WhenQSlashCommand_ShouldTriggerReset()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/q" });
             bool resetFired = false;
@@ -110,7 +102,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void SubmitFromSearchBox_WhenQSlashCommandCaseInsensitive_ShouldTriggerReset()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/Q" });
             bool resetFired = false;
@@ -124,7 +116,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void SubmitFromSearchBox_WhenNormalQuery_ShouldTriggerApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "beatles" });
             bool resetFired = false;
@@ -142,7 +134,7 @@ namespace DTXMania.Test.Song.Components
         public void SubmitFromSearchBox_WhenQPrefixedQuery_ShouldNotBeResetCommand()
         {
             // "/quiet" is a literal search, not /q
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "/quiet" });
             bool resetFired = false;
@@ -159,7 +151,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Open_WhenOpened_ShouldInitiallyFocusSearchBox()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             Assert.Equal(SongSearchFilterModal.Field.SearchBox, modal.FocusedField);
@@ -168,7 +160,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void FocusNext_WhenCalled_ShouldCycleThroughFieldsInOrder()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             var order = new[]
@@ -195,7 +187,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void FocusPrev_WhenCalled_ShouldReverseOfFocusNext()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.FocusPrev();
@@ -207,7 +199,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEscape_ShouldFireCancel()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             bool fired = false;
             modal.Cancelled += (_, _) => fired = true;
@@ -221,7 +213,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenTab_ShouldAdvanceFocus()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Tab);
@@ -232,7 +224,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenDown_ShouldAdvanceFocus()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Down);
@@ -243,7 +235,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenUp_ShouldRetreatFocus()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Up);
@@ -254,7 +246,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnSearchBox_ShouldSubmitFromSearchBox()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "abc" });
             bool applied = false;
@@ -268,7 +260,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnApplyButton_ShouldFireApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // Move focus to ApplyButton
             for (int i = 0; i < 7; i++) modal.FocusNext();
@@ -285,7 +277,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnResetButton_ShouldFireReset()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // Move focus to ResetButton
             for (int i = 0; i < 6; i++) modal.FocusNext();
@@ -302,7 +294,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenLeftRightOnMinLevel_ShouldAdjustBy5()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
             Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
@@ -318,7 +310,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenLeftRightOnPlayedStatus_ShouldCycleEnum()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             for (int i = 0; i < 3; i++) modal.FocusNext();
             Assert.Equal(SongSearchFilterModal.Field.PlayedStatus, modal.FocusedField);
@@ -337,7 +329,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void TypingChars_WhenOnSearchBox_ShouldAppendToSearchQuery()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             // SearchBox is initial focus
@@ -350,7 +342,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void TypingChars_WhenNotOnSearchBox_ShouldBeIgnored()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
@@ -363,7 +355,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Backspace_WhenHandleKey_ShouldRemoveLastSearchChar()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             src.Fire('a');
@@ -377,7 +369,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Close_WhenClosed_ShouldUnsubscribeFromTextSource()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             src.Fire('a');
@@ -393,7 +385,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Apply_WhenLibraryNotReady_ShouldNotFire()
         {
-            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            var modal = new SongSearchFilterModal(new FakeTextInputSource()) { IsLibraryReady = false };
             modal.Open(SongFilterCriteria.Default);
             bool fired = false;
             modal.FilterApplied += (_, _) => fired = true;
@@ -407,7 +399,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Reset_WhenLibraryNotReady_ShouldStillWork()
         {
-            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            var modal = new SongSearchFilterModal(new FakeTextInputSource()) { IsLibraryReady = false };
             modal.Open(SongFilterCriteria.Default);
             bool fired = false;
             modal.FilterReset += (_, _) => fired = true;
@@ -420,7 +412,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenNotOpen_ShouldBeNoOp()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             bool cancelled = false;
             modal.Cancelled += (_, _) => cancelled = true;
 
@@ -432,7 +424,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenLeftRightOnMaxLevel_ShouldAdjustBy5()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
             modal.FocusNext(); // MaxLevel
@@ -449,7 +441,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenLeftRightOnSortBy_ShouldCycleSortCriteria()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // Navigate to SortBy (index 4)
             for (int i = 0; i < 4; i++) modal.FocusNext();
@@ -469,7 +461,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenLeftRightOnSortDirection_ShouldToggle()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             for (int i = 0; i < 5; i++) modal.FocusNext();
             Assert.Equal(SongSearchFilterModal.Field.SortDirection, modal.FocusedField);
@@ -484,7 +476,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenBackNotOnSearchBox_ShouldBeNoOp()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "abc" });
             modal.FocusNext(); // MinLevel
@@ -497,7 +489,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenBackAndQueryEmpty_ShouldBeNoOp()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleKey(Microsoft.Xna.Framework.Input.Keys.Back);
@@ -508,7 +500,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnPlayedStatus_ShouldApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             for (int i = 0; i < 3; i++) modal.FocusNext();
             Assert.Equal(SongSearchFilterModal.Field.PlayedStatus, modal.FocusedField);
@@ -523,7 +515,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnMinLevelField_ShouldApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
             bool applied = false;
@@ -537,7 +529,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleKey_WhenEnterOnMaxLevelField_ShouldApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
             modal.FocusNext(); // MaxLevel
@@ -552,7 +544,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void OnTextInput_WhenControlCharacters_ShouldBeIgnored()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
 
@@ -567,7 +559,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void OnTextInput_WhenBackspaceCharCode_ShouldBeIgnored()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
 
@@ -579,7 +571,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void OnTextInput_WhenModalClosed_ShouldBeIgnored()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             modal.Cancel();
@@ -592,7 +584,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void AdjustLevel_WhenAtMin_ShouldClampAt0()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
 
@@ -603,7 +595,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void AdjustLevel_WhenAtMax_ShouldClampAt99()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { MinLevel = 95 });
             modal.FocusNext(); // MinLevel
 
@@ -614,7 +606,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void SubmitFromSearchBox_WhenLibraryNotReady_ShouldNotFire()
         {
-            var modal = new SongSearchFilterModal(new FakeSource()) { IsLibraryReady = false };
+            var modal = new SongSearchFilterModal(new FakeTextInputSource()) { IsLibraryReady = false };
             modal.Open(SongFilterCriteria.Default);
             modal.UpdateDraft(SongFilterCriteria.Default with { SearchQuery = "test" });
             bool applied = false;
@@ -629,7 +621,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Dispose_WhenCalled_ShouldUnsubscribeFromSource()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var modal = new SongSearchFilterModal(src);
             modal.Open(SongFilterCriteria.Default);
             src.Fire('a');
@@ -644,7 +636,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Open_WhenNullInitial_ShouldUseDefault()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(null);
 
             Assert.True(modal.IsOpen);
@@ -654,7 +646,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void UpdateDraft_WhenNull_ShouldUseDefault()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { SearchQuery = "test" });
             modal.UpdateDraft(null);
 
@@ -670,7 +662,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void CycleSort_WhenStartingFromGenre_ShouldResetToArtist()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { SortBy = SongSortCriteria.Genre });
             for (int i = 0; i < 4; i++) modal.FocusNext();
             Assert.Equal(SongSearchFilterModal.Field.SortBy, modal.FocusedField);
@@ -682,7 +674,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void AdjustLevel_WhenDecrementToZero_ShouldReturnNull()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { MinLevel = 5 });
             modal.FocusNext(); // MinLevel
 
@@ -695,7 +687,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenMoveDown_ShouldAdvanceFocus()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveDown);
@@ -706,7 +698,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenMoveUp_ShouldRetreatFocus()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             modal.HandleCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveUp);
@@ -717,7 +709,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenMoveLeftOnMinLevel_ShouldAdjust()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { MinLevel = 10 });
             modal.FocusNext(); // MinLevel
 
@@ -729,7 +721,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenMoveRightOnMinLevel_ShouldAdjust()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.FocusNext(); // MinLevel
 
@@ -741,7 +733,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenActivateOnSearchBox_ShouldSubmit()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default with { SearchQuery = "abc" });
             bool applied = false;
             modal.FilterApplied += (_, _) => applied = true;
@@ -754,7 +746,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenActivateOnApplyButton_ShouldFireApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             for (int i = 0; i < 7; i++) modal.FocusNext();
             bool applied = false;
@@ -768,7 +760,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenActivateOnResetButton_ShouldFireReset()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             for (int i = 0; i < 6; i++) modal.FocusNext();
             bool reset = false;
@@ -782,7 +774,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenBack_ShouldFireCancel()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             bool fired = false;
             modal.Cancelled += (_, _) => fired = true;
@@ -796,7 +788,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleCommand_WhenNotOpen_ShouldBeNoOp()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             bool cancelled = false;
             modal.Cancelled += (_, _) => cancelled = true;
 
@@ -812,7 +804,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickResetButton_ShouldFireReset()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             bool reset = false;
             modal.FilterReset += (_, _) => reset = true;
@@ -828,7 +820,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickApplyButton_ShouldFireApply()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             bool applied = false;
             modal.FilterApplied += (_, _) => applied = true;
@@ -844,7 +836,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickInsideModalSearchArea_ShouldFocusSearchBox()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // Click in search box area: modal Y=180 + SearchBoxY=56 + 10 = 246
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(400, 246));
@@ -856,7 +848,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickMinLevel_ShouldFocusMinLevel()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // MinLevel: modal X=340 + LevelMinX=130 = 470, modal Y=180 + LevelRowY=100 + 10 = 290
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(470, 290));
@@ -868,7 +860,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickMaxLevel_ShouldFocusMaxLevel()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // MaxLevel: modal X=340 + LevelMaxX=310 = 650, modal Y=180 + LevelRowY=100 + 10 = 290
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(650, 290));
@@ -880,7 +872,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickSortBy_ShouldFocusSortBy()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // SortBy: modal X=340 + FieldX=130 = 470, modal Y=180 + SortRowY=188 + 10 = 378
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(470, 378));
@@ -892,7 +884,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickSortDirection_ShouldFocusSortDirection()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             // SortDirection: modal X=340 + FieldX+180=310 = 650, modal Y=180 + SortRowY=188 + 10 = 378
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(650, 378));
@@ -904,7 +896,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenClickOutsideModal_ShouldReturnFalse()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(10, 10));
@@ -915,7 +907,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleClick_WhenNotOpen_ShouldReturnFalse()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
 
             // Click right on the modal area, but modal is closed
             var clicked = modal.HandleClick(new Microsoft.Xna.Framework.Point(570, 258));
@@ -930,7 +922,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleInput_WhenOpen_ShouldConsumeAllInput()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             // HandleInput should return true (consume) even with a null input state,
@@ -941,7 +933,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleInput_WhenClosed_ShouldNotConsumeInput()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             // Modal starts closed — HandleInput must return false so the
             // invisible element doesn't swallow clicks.
             Assert.False(modal.HandleInput(null!));
@@ -950,7 +942,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleInput_AfterClose_ShouldNotConsumeInput()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.Cancel();
 
@@ -961,7 +953,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void HandleInput_AfterApply_ShouldNotConsumeInput()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.Apply();
 
@@ -971,7 +963,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Enabled_WhenConstructed_ShouldBeFalse()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
 
             Assert.False(modal.Enabled);
         }
@@ -979,7 +971,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Enabled_WhenOpened_ShouldBeTrue()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
 
             Assert.True(modal.Enabled);
@@ -988,7 +980,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Enabled_AfterClose_ShouldBeFalse()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             modal.Open(SongFilterCriteria.Default);
             modal.Cancel();
 
@@ -1002,7 +994,7 @@ namespace DTXMania.Test.Song.Components
         [Fact]
         public void Open_WhenCalled_ShouldSetUIElementBoundsToLayout()
         {
-            var modal = new SongSearchFilterModal(new FakeSource());
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
             var layout = DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.SearchFilterModal.Bounds;
 
             modal.Open(SongFilterCriteria.Default);

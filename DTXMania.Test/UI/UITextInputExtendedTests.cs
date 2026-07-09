@@ -1,5 +1,6 @@
 using System;
 using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Xunit;
 
@@ -8,14 +9,6 @@ namespace DTXMania.Test.UI
     [Trait("Category", "Unit")]
     public class UITextInputExtendedTests
     {
-        private sealed class FakeSource : ITextInputSource
-        {
-            public event EventHandler<TextInputEventArgs>? TextInput;
-            public void Fire(char c) =>
-                TextInput?.Invoke(this, new TextInputEventArgs(c, Microsoft.Xna.Framework.Input.Keys.None));
-            public void Dispose() { }
-        }
-
         private sealed class CountingSource : ITextInputSource
         {
             public event EventHandler<TextInputEventArgs>? TextInput;
@@ -29,7 +22,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZero_ShouldAlwaysBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 0 };
 
             input.Text = "hello";
@@ -40,7 +33,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthNegative_ShouldAlwaysBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = -1 };
 
             input.Text = "hello";
@@ -51,7 +44,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZero_CaretShouldBeClampedToZero()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 5 };
             input.Text = "abc";
 
@@ -89,7 +82,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthZeroAndValueEmpty_ShouldBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = 0 };
 
             input.Text = "";
@@ -100,7 +93,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TextSetter_WhenMaxLengthNegativeAndValueNull_ShouldBeEmpty()
         {
-            var src = new FakeSource();
+            var src = new FakeTextInputSource();
             var input = new UITextInput(src) { MaxLength = -5 };
 
             input.Text = null;
