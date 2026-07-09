@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           # For release events this defaults to the published tag; for
@@ -93,7 +93,7 @@ jobs:
           & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: dtxmania-windows-installer-${{ env.APP_VERSION }}
           path: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
@@ -112,7 +112,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           # See windows-installer job: check out inputs.tag on manual runs so
@@ -225,7 +225,7 @@ jobs:
             ./output
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: dtxmania-macos-dmg-${{ env.APP_VERSION }}
           path: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
