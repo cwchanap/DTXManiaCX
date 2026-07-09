@@ -197,7 +197,12 @@ jobs:
           # to an Apple Silicon runner, but this guard catches any future change to
           # the -latest runner alias or to the configure flags without silently
           # shipping a non-native build.
-          if ! file "$DEST/ffmpeg" "$DEST/ffprobe" | grep -qi 'arm64'; then
+          #
+          # Use `file -b` (bare mode) so the output contains only the Mach-O type
+          # description and NOT the destination path, which itself contains
+          # "osx-arm64" and would otherwise make the grep match the directory name
+          # instead of the binary architecture.
+          if ! file -b "$DEST/ffmpeg" "$DEST/ffprobe" | grep -qi 'arm64'; then
             echo "::error::ffmpeg/ffprobe is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
             file "$DEST/ffmpeg" "$DEST/ffprobe" >&2
             exit 1
