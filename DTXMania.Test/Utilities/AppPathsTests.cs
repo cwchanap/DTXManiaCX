@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using DTXMania.Game.Lib.Utilities;
@@ -348,5 +349,33 @@ public class AppPathsEnvironmentTests
             Environment.SetEnvironmentVariable("HOME", savedHome);
             Environment.SetEnvironmentVariable("USERPROFILE", savedUserProfile);
         }
+    }
+
+    [Fact]
+    public void GetBundledSystemSkinRootCandidates_ShouldReturnAbsoluteRootedPaths()
+    {
+        var candidates = AppPaths.GetBundledSystemSkinRootCandidates();
+
+        Assert.NotEmpty(candidates);
+        Assert.All(candidates, c =>
+        {
+            Assert.True(Path.IsPathRooted(c), $"Expected rooted candidate, got '{c}'");
+        });
+    }
+
+    [Fact]
+    public void GetBundledSystemSkinRootCandidates_ShouldIncludeMacOSBundleAndPortableLayouts()
+    {
+        // The candidates are derived from AppContext.BaseDirectory, so assert against
+        // the exact expected paths rather than path suffixes (the bin dir is not inside
+        // a real .app/Contents/MacOS/ structure during tests).
+        var baseDir = AppContext.BaseDirectory;
+        var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+        var expectedPortable = Path.GetFullPath(Path.Combine(baseDir, "System"));
+
+        var candidates = AppPaths.GetBundledSystemSkinRootCandidates().ToList();
+
+        Assert.Contains(expectedBundle, candidates);
+        Assert.Contains(expectedPortable, candidates);
     }
 }

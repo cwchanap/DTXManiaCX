@@ -35,6 +35,13 @@ namespace DTXMania.Game.Lib.Resources
         private bool _useBoxDefSkin = true;
         private bool _disposed = false;
 
+        // Read-only bundled System skin root (macOS .app Contents/Resources/System or
+        // portable System/ sibling to the executable). Used as the ultimate fallback
+        // when the writable app-data System skin is missing assets. Null when no
+        // bundled System directory exists (e.g. dev runs, Windows-installed builds
+        // where the installer already seeds app-data).
+        private string _bundledSystemSkinRoot;
+
         // Cached app data root to avoid repeated OS checks and path calculations
         private readonly string _cachedAppDataRoot;
 
@@ -56,6 +63,9 @@ namespace DTXMania.Game.Lib.Resources
 
             // Cache app data root once to avoid repeated OS checks and path calculations
             _cachedAppDataRoot = AppPaths.GetAppDataRoot();
+
+            // Resolve the read-only bundled System skin root (null if none exists on disk).
+            _bundledSystemSkinRoot = ResolveBundledSystemSkinRoot();
 
             // Initialize default skin path
             InitializeDefaultSkinPath();
@@ -109,14 +119,26 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     // Try fallback skin
                     var fallbackPath = ResolvePathWithSkin(path, _fallbackSkinPath);
-                    if (!File.Exists(fallbackPath))
+                    if (File.Exists(fallbackPath))
                     {
-                        var errorMsg = $"Texture not found: {path} (resolved: {resolvedPath})";
-                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
-                            new FileNotFoundException(errorMsg), errorMsg));
-                        return CreateFallbackTexture(path);
+                        resolvedPath = fallbackPath;
                     }
-                    resolvedPath = fallbackPath;
+                    else
+                    {
+                        // Try read-only bundled System skin (macOS .app / portable build)
+                        var bundledPath = TryResolveFromBundledSkin(path);
+                        if (bundledPath != null && File.Exists(bundledPath))
+                        {
+                            resolvedPath = bundledPath;
+                        }
+                        else
+                        {
+                            var errorMsg = $"Texture not found: {path} (resolved: {resolvedPath})";
+                            OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
+                                new FileNotFoundException(errorMsg), errorMsg));
+                            return CreateFallbackTexture(path);
+                        }
+                    }
                 }
 
                 // Create texture parameters
@@ -242,14 +264,26 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     // Try fallback skin
                     var fallbackPath = ResolvePathWithSkin(path, _fallbackSkinPath);
-                    if (!File.Exists(fallbackPath))
+                    if (File.Exists(fallbackPath))
                     {
-                        var errorMsg = $"Sound not found: {path} (resolved: {resolvedPath})";
-                        OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
-                            new FileNotFoundException(errorMsg), errorMsg));
-                        return CreateFallbackSound(path);
+                        resolvedPath = fallbackPath;
                     }
-                    resolvedPath = fallbackPath;
+                    else
+                    {
+                        // Try read-only bundled System skin (macOS .app / portable build)
+                        var bundledPath = TryResolveFromBundledSkin(path);
+                        if (bundledPath != null && File.Exists(bundledPath))
+                        {
+                            resolvedPath = bundledPath;
+                        }
+                        else
+                        {
+                            var errorMsg = $"Sound not found: {path} (resolved: {resolvedPath})";
+                            OnResourceLoadFailed(new ResourceLoadFailedEventArgs(path,
+                                new FileNotFoundException(errorMsg), errorMsg));
+                            return CreateFallbackSound(path);
+                        }
+                    }
                 }
 
                 // Load and create sound
@@ -345,7 +379,12 @@ namespace DTXMania.Game.Lib.Resources
 
             // Match LoadTexture/LoadSound semantics: allow fallback skin hits.
             var fallbackPath = ResolvePathWithSkin(relativePath, _fallbackSkinPath);
-            return File.Exists(fallbackPath);
+            if (File.Exists(fallbackPath))
+                return true;
+
+            // Read-only bundled System skin (macOS .app / portable build)
+            var bundledPath = TryResolveFromBundledSkin(relativePath);
+            return bundledPath != null && File.Exists(bundledPath);
         }
 
         /// <summary>
@@ -668,6 +707,59 @@ namespace DTXMania.Game.Lib.Resources
 
             Debug.WriteLine($"ResourceManager: Resolved '{relativePath}' with skin '{skinPath}' to '{fullPath}'");
             return fullPath;
+        }
+
+        /// <summary>
+        /// Resolve the read-only bundled System skin root from the candidate paths
+        /// (macOS .app Contents/Resources/System, portable System/ sibling to the
+        /// executable). Returns the first existing candidate with a trailing
+        /// separator, or null when no bundled System directory exists.
+        /// </summary>
+        private string ResolveBundledSystemSkinRoot()
+        {
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            {
+                try
+                {
+                    if (Directory.Exists(candidate))
+                    {
+                        var normalized = candidate.EndsWith(Path.DirectorySeparatorChar.ToString())
+                            ? candidate
+                            : candidate + Path.DirectorySeparatorChar;
+                        Debug.WriteLine($"ResourceManager: Using bundled System skin root: {normalized}");
+                        return normalized;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"ResourceManager: Bundled candidate '{candidate}' check failed: {ex.Message}");
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolve a relative resource path against the read-only bundled System skin.
+        /// Returns null when no bundled root is available or the path is absolute, so
+        /// callers can treat null as "no bundled hit" and fall through to the
+        /// fallback texture/sound. Mirrors ResolvePathWithSkin's absolute-path guard.
+        /// </summary>
+        private string TryResolveFromBundledSkin(string relativePath)
+        {
+            if (string.IsNullOrEmpty(_bundledSystemSkinRoot))
+                return null;
+            if (Path.IsPathRooted(relativePath))
+                return null;
+
+            try
+            {
+                return Path.GetFullPath(Path.Combine(_bundledSystemSkinRoot, relativePath));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ResourceManager: Bundled resolution of '{relativePath}' failed: {ex.Message}");
+                return null;
+            }
         }
 
         private string NormalizePath(string path)
