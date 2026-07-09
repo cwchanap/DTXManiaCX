@@ -97,7 +97,15 @@ jobs:
           files: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
 
   mac-installer:
-    runs-on: macos-latest
+    # Pin to macos-15 (Apple Silicon / arm64) instead of macos-latest. This
+    # job publishes an arm64-only .app bundle and builds FFmpeg from source
+    # for the host architecture (./configure passes no --arch flag), so an
+    # x64 runner would produce x86_64 binaries that the arm64 guard below
+    # rejects — only after wasting the full FFmpeg build. macos-15 is arm64,
+    # stable, and not deprecated (unlike macos-14, whose deprecation started
+    # 2026-07-06). macos-latest is mid-transition to macos-26 (rollout
+    # 2026-06-15 through 2026-07-15), so avoid the alias until it settles.
+    runs-on: macos-15
     timeout-minutes: 30
     permissions:
       contents: write
@@ -195,10 +203,10 @@ jobs:
           echo "Built arm64 ffmpeg:" && file "$DEST/ffmpeg" "$DEST/ffprobe"
           # Hard fail if the produced binaries are not arm64. This release ships an
           # arm64-only .app bundle, so an x86_64 ffmpeg/ffprobe would either force
-          # Rosetta 2 or fail outright on Apple Silicon. macos-latest currently maps
-          # to an Apple Silicon runner, but this guard catches any future change to
-          # the -latest runner alias or to the configure flags without silently
-          # shipping a non-native build.
+          # Rosetta 2 or fail outright on Apple Silicon. The job is pinned to
+          # macos-15 (an Apple Silicon runner) so configure builds for arm64 by
+          # default; this guard catches any future change to the runner image or
+          # to the configure flags without silently shipping a non-native build.
           #
           # Use `file -b` (bare mode) so the output contains only the Mach-O type
           # description and NOT the destination path, which itself contains
