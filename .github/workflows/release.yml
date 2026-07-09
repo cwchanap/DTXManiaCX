@@ -177,8 +177,12 @@ jobs:
           # s16le muxer, and the protocols/filters needed by FFMpegCore's
           # MP3-to-PCM pipeline (see ManagedSound.LoadMp3File).
           FFMPEG_VERSION=7.0.2
+          FFMPEG_TARBALL_SHA256=8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389
           curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
             -o /tmp/ffmpeg.tar.xz
+          printf '%s  %s\n' "$FFMPEG_TARBALL_SHA256" /tmp/ffmpeg.tar.xz \
+            > /tmp/ffmpeg.tar.xz.sha256
+          shasum -a 256 -c /tmp/ffmpeg.tar.xz.sha256
           tar xJf /tmp/ffmpeg.tar.xz -C /tmp
           cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
           ./configure \
