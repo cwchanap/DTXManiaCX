@@ -201,7 +201,7 @@ jobs:
             --enable-filter=aformat,anull,aresample
           make -j"$(sysctl -n hw.ncpu)"
           make install
-          DEST=./publish/mac/runtimes/osx-arm64/MMTools
+          DEST="${GITHUB_WORKSPACE}/publish/mac/runtimes/osx-arm64/MMTools"
           mkdir -p "$DEST"
           cp /tmp/ffmpeg-arm64/bin/ffmpeg  "$DEST/ffmpeg"
           cp /tmp/ffmpeg-arm64/bin/ffprobe "$DEST/ffprobe"
@@ -221,6 +221,8 @@ jobs:
 
       - name: Build .app bundle and DMG
         run: |
+          test -x ./publish/mac/runtimes/osx-arm64/MMTools/ffmpeg
+          test -x ./publish/mac/runtimes/osx-arm64/MMTools/ffprobe
           bash installer/macos/build-dmg.sh \
             ./publish/mac \
             ./System \
