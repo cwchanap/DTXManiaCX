@@ -757,6 +757,17 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
 
+            var loadStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseOlderLoad = new TaskCompletionSource<List<SongListNode>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            SetPrivateField(stage, "_loadBookmarkedNodesAsync",
+                new Func<Task<List<SongListNode>>>(() =>
+                {
+                    loadStarted.TrySetResult(true);
+                    return releaseOlderLoad.Task;
+                }));
+
             // Simulate the result of a newer load already landing.
             var freshNodes = new List<SongListNode> { ScoreNode("Fresh") };
             SetPrivateField(stage, "_bookmarkNodes", freshNodes);
@@ -764,14 +775,17 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
 
             // Start the older background load — captures load version 1.
-            InvokePrivateMethod(stage, "BeginBookmarksLoad");
+            var olderLoad = Assert.IsAssignableFrom<Task>(
+                InvokePrivateMethod(stage, "BeginBookmarksLoad"));
+            await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
             // Simulate a newer same-activation load starting (e.g., from a tab switch
             // after a bookmark toggle). This bumps _bookmarksLoadVersion past the
             // captured value so the older load's completion is treated as stale.
             SetPrivateField(stage, "_bookmarksLoadVersion", 2);
 
-            await Task.Delay(300);
+            releaseOlderLoad.SetResult(new List<SongListNode>());
+            await olderLoad.WaitAsync(TimeSpan.FromSeconds(1));
 
             // The stale continuation must NOT have overwritten _bookmarkNodes with
             // the empty no-DB result.

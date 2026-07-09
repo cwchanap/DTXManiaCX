@@ -85,6 +85,8 @@ namespace DTXMania.Game.Lib.Stage
         // continuations (SwitchToNextTab's Task.WhenAll chain). volatile so the plain read
         // in the continuation observes the latest increment.
         private volatile int _bookmarksLoadVersion;
+        private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync =
+            () => SongManager.Instance.GetBookmarkedNodesAsync();
         // Set when the active tab's list must be repopulated on the next OnUpdate.
         // Used so background recent-plays loads and lane-hit/Tab switches never mutate
         // SongListDisplay off the update thread. volatile so the update thread reliably
@@ -314,7 +316,7 @@ namespace DTXMania.Game.Lib.Stage
             // from a prior activation discards its stale result.
             _activationVersion++;
             BeginRecentPlaysLoad();
-            BeginBookmarksLoad();
+            _ = BeginBookmarksLoad();
 
             SubscribeTabSwitchLaneHits();
 
@@ -2098,7 +2100,10 @@ namespace DTXMania.Game.Lib.Stage
                 // present in _bookmarkNodes, so a newly bookmarked song wouldn't appear until
                 // the next reload). Task.WhenAll of an empty/completed set settles immediately.
                 var pending = _pendingBookmarkWrites.Values.ToArray();
-                _ = Task.WhenAll(pending).ContinueWith(_ => BeginBookmarksLoad(), TaskScheduler.Default);
+                _ = Task.WhenAll(pending).ContinueWith(_ =>
+                {
+                    _ = BeginBookmarksLoad();
+                }, TaskScheduler.Default);
             }
 
             _tabListNeedsRefresh = true;
@@ -2158,7 +2163,7 @@ namespace DTXMania.Game.Lib.Stage
         /// (<see cref="_bookmarksLoadVersion"/>) so an older same-activation load
         /// cannot overwrite the result of a newer load.
         /// </summary>
-        private void BeginBookmarksLoad()
+        private Task BeginBookmarksLoad()
         {
             int capturedVersion = _activationVersion;
             // Assign a monotonic per-load id so an older same-activation load (e.g., the
@@ -2166,17 +2171,12 @@ namespace DTXMania.Game.Lib.Stage
             // switches to the Bookmarks tab) can detect it has been superseded by a newer
             // load and discard its stale result.
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
-            _ = Task.Run(async () =>
+            return Task.Run(async () =>
             {
-                // Force a genuine async yield so the caller has a chance to update
-                // _bookmarksLoadVersion before we check it (avoids a race in tests
-                // where GetBookmarkedNodesAsync completes synchronously).
-                await Task.Yield();
-
                 List<SongListNode>? nodes = null;
                 try
                 {
-                    nodes = await SongManager.Instance.GetBookmarkedNodesAsync().ConfigureAwait(false);
+                    nodes = await _loadBookmarkedNodesAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -2331,7 +2331,7 @@ namespace DTXMania.Game.Lib.Stage
                 // the row from view (the song is still bookmarked in the DB). Re-sync from the
                 // authoritative store so the row reappears.
                 if (_activeTab == SongSelectionTab.Bookmarks)
-                    BeginBookmarksLoad();
+                    _ = BeginBookmarksLoad();
             }
         }
 
