@@ -588,6 +588,207 @@ namespace DTXMania.Test.Resources
                 capturedResolvedPath);
         }
 
+        #region ResolveBundledSystemSkinRootFromCandidates
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithExistingDirectory_ShouldReturnNormalizedPath()
+        {
+            var existingDir = Path.Combine(_testDataPath, "BundledCandidate_Exists");
+            Directory.CreateDirectory(existingDir);
+
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { existingDir });
+
+            Assert.Equal(NormalizeDirectory(existingDir), result);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithAlreadyNormalizedPath_ShouldNotDoubleAppendSeparator()
+        {
+            var existingDir = NormalizeDirectory(Path.Combine(_testDataPath, "BundledCandidate_Normalized"));
+            Directory.CreateDirectory(existingDir);
+
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { existingDir });
+
+            Assert.Equal(existingDir, result);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNoExistingDirectory_ShouldReturnNull()
+        {
+            var missingDir = Path.Combine(_testDataPath, "BundledCandidate_Missing");
+
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { missingDir });
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithFirstMissingSecondExisting_ShouldReturnSecond()
+        {
+            var missingDir = Path.Combine(_testDataPath, "BundledCandidate_FirstMissing");
+            var existingDir = Path.Combine(_testDataPath, "BundledCandidate_SecondExists");
+            Directory.CreateDirectory(existingDir);
+
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { missingDir, existingDir });
+
+            Assert.Equal(NormalizeDirectory(existingDir), result);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithEmptyCandidates_ShouldReturnNull()
+        {
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(Array.Empty<string>());
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRoot_WhenNoBundledCandidateExists_ShouldReturnNull()
+        {
+            // The private wrapper delegates to the internal static method using the real
+            // AppPaths candidates, none of which exist in the test environment.
+            var resourceManager = CreateResourceManager();
+
+            var result = InvokePrivateMethod<string>(resourceManager, "ResolveBundledSystemSkinRoot");
+
+            Assert.Null(result);
+        }
+
+        #endregion
+
+        #region TryResolveFromBundledSkin
+
+        [Fact]
+        public void TryResolveFromBundledSkin_WithNullBundledRoot_ShouldReturnNull()
+        {
+            var resourceManager = CreateResourceManager();
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", null);
+
+            var result = resourceManager.TryResolveFromBundledSkin("Graphics/test.png");
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryResolveFromBundledSkin_WithEmptyBundledRoot_ShouldReturnNull()
+        {
+            var resourceManager = CreateResourceManager();
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", string.Empty);
+
+            var result = resourceManager.TryResolveFromBundledSkin("Graphics/test.png");
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryResolveFromBundledSkin_WithAbsolutePath_ShouldReturnNull()
+        {
+            var bundledRoot = NormalizeDirectory(Path.Combine(_testDataPath, "BundledResolve_Absolute"));
+            Directory.CreateDirectory(bundledRoot);
+            var resourceManager = CreateResourceManager();
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", bundledRoot);
+
+            var absolutePath = Path.GetFullPath(Path.Combine(_testDataPath, "absolute.png"));
+            var result = resourceManager.TryResolveFromBundledSkin(absolutePath);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryResolveFromBundledSkin_WithRelativePath_ShouldReturnFullPathUnderBundledRoot()
+        {
+            var bundledRoot = NormalizeDirectory(Path.Combine(_testDataPath, "BundledResolve_Relative"));
+            Directory.CreateDirectory(bundledRoot);
+            var resourceManager = CreateResourceManager();
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", bundledRoot);
+
+            var result = resourceManager.TryResolveFromBundledSkin("Graphics/test.png");
+
+            Assert.Equal(Path.GetFullPath(Path.Combine(bundledRoot, "Graphics", "test.png")), result);
+        }
+
+        [Fact]
+        public void TryResolveFromBundledSkin_WithInvalidPathCharacters_ShouldReturnNull()
+        {
+            var bundledRoot = NormalizeDirectory(Path.Combine(_testDataPath, "BundledResolve_Invalid"));
+            Directory.CreateDirectory(bundledRoot);
+            var resourceManager = CreateResourceManager();
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", bundledRoot);
+
+            // A path with an embedded NUL character causes Path.GetFullPath to throw,
+            // exercising the exception-guard branch.
+            var result = resourceManager.TryResolveFromBundledSkin("Graphics\0test.png");
+
+            Assert.Null(result);
+        }
+
+        #endregion
+
+        #region Bundled Skin Miss Paths
+
+        [Fact]
+        public void LoadTexture_WhenBundledRootSetButFileNotInBundled_ShouldRaiseEventAndReturnFallbackTexture()
+        {
+            var bundledRoot = Path.Combine(_testDataPath, "BundledMiss_Texture");
+            Directory.CreateDirectory(bundledRoot);
+
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem_Texture");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateTestableResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            var fallbackTexture = CreateTextureMock();
+            resourceManager.CreateFallbackTextureHandler = _ => fallbackTexture.Object;
+            ResourceLoadFailedEventArgs? eventArgs = null;
+            resourceManager.ResourceLoadFailed += (_, args) => eventArgs = args;
+
+            var loadedTexture = resourceManager.LoadTexture("Graphics/missing.png");
+
+            Assert.Same(fallbackTexture.Object, loadedTexture);
+            Assert.NotNull(eventArgs);
+        }
+
+        [Fact]
+        public void LoadSound_WhenBundledRootSetButFileNotInBundled_ShouldRaiseEventAndReturnFallbackSound()
+        {
+            var bundledRoot = Path.Combine(_testDataPath, "BundledMiss_Sound");
+            Directory.CreateDirectory(bundledRoot);
+
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem_Sound");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateTestableResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            var fallbackSound = CreateSoundMock();
+            resourceManager.CreateFallbackSoundHandler = _ => fallbackSound.Object;
+            ResourceLoadFailedEventArgs? eventArgs = null;
+            resourceManager.ResourceLoadFailed += (_, args) => eventArgs = args;
+
+            var loadedSound = resourceManager.LoadSound("Sounds/missing.wav");
+
+            Assert.Same(fallbackSound.Object, loadedSound);
+            Assert.NotNull(eventArgs);
+        }
+
+        [Fact]
+        public void ResourceExists_WhenBundledRootSetButFileNotInBundled_ShouldReturnFalse()
+        {
+            var bundledRoot = Path.Combine(_testDataPath, "BundledMiss_Exists");
+            Directory.CreateDirectory(bundledRoot);
+
+            var emptySkinRoot = Path.Combine(_testDataPath, "EmptySystem_Exists");
+            CreateSkinRoot(emptySkinRoot);
+
+            var resourceManager = CreateResourceManager(emptySkinRoot, emptySkinRoot);
+            SetPrivateField(resourceManager, "_bundledSystemSkinRoot", NormalizeDirectory(bundledRoot));
+
+            Assert.False(resourceManager.ResourceExists("Graphics/missing.png"));
+        }
+
+        #endregion
+
         [Fact]
         public void SetBoxDefSkinPath_WithRelativePath_ShouldPreserveRelativePath()
         {

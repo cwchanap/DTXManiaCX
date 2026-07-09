@@ -108,7 +108,18 @@ namespace DTXMania.Game.Lib.Utilities
         /// </summary>
         public static IEnumerable<string> GetBundledSystemSkinRootCandidates()
         {
-            var baseDir = AppContext.BaseDirectory;
+            return GetBundledSystemSkinRootCandidates(AppContext.BaseDirectory);
+        }
+
+        /// <summary>
+        /// Overload accepting an explicit base directory so the empty/whitespace guard
+        /// and candidate layout are unit-testable without depending on
+        /// <see cref="AppContext.BaseDirectory"/> (which is never empty during tests).
+        /// </summary>
+        /// <param name="baseDir">The base directory to resolve candidates from.</param>
+        /// <returns>Candidate bundled System skin root paths in priority order.</returns>
+        internal static IEnumerable<string> GetBundledSystemSkinRootCandidates(string baseDir)
+        {
             if (string.IsNullOrWhiteSpace(baseDir))
                 yield break;
 

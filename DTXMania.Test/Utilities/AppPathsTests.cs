@@ -378,4 +378,27 @@ public class AppPathsEnvironmentTests
         Assert.Contains(expectedBundle, candidates);
         Assert.Contains(expectedPortable, candidates);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void GetBundledSystemSkinRootCandidates_WithNullOrWhitespaceBaseDir_ShouldYieldNothing(string? baseDir)
+    {
+        var candidates = AppPaths.GetBundledSystemSkinRootCandidates(baseDir!);
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void GetBundledSystemSkinRootCandidates_WithExplicitBaseDir_ShouldReturnBundleAndPortableCandidates()
+    {
+        var baseDir = Path.GetTempPath();
+
+        var candidates = AppPaths.GetBundledSystemSkinRootCandidates(baseDir).ToList();
+
+        var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+        var expectedPortable = Path.GetFullPath(Path.Combine(baseDir, "System"));
+        Assert.Equal(new[] { expectedBundle, expectedPortable }, candidates);
+    }
 }
