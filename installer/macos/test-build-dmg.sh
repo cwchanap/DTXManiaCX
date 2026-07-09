@@ -22,9 +22,16 @@ SYSTEM="$TMP/system"
 mkdir -p "$SYSTEM/Graphics"
 echo "fake-texture" > "$SYSTEM/Graphics/1_Background.png"
 
-# Fake ICO
+# Use the repository icon when available so macOS smoke tests exercise the real
+# sips/iconutil .icns conversion path. Fall back to a tiny fake ICO only for
+# trimmed checkouts where the game icon is unavailable.
 ICO="$TMP/icon.ico"
-printf 'fake-ico' > "$ICO"
+SOURCE_ICO="$SCRIPT_DIR/../../DTXMania.Game/Icon.ico"
+if [[ -f "$SOURCE_ICO" ]]; then
+    cp "$SOURCE_ICO" "$ICO"
+else
+    printf 'fake-ico' > "$ICO"
+fi
 
 # Run the builder
 OUTPUT="$TMP/out"
@@ -60,6 +67,9 @@ assert_exists "$APP/Contents/Info.plist"
 if [[ ! -e "$APP/Contents/Resources/DTXMania.icns" && ! -e "$APP/Contents/Resources/DTXMania.ico" ]]; then
     echo "FAIL: expected either DTXMania.icns or DTXMania.ico under Resources" >&2
     exit 1
+fi
+if [[ "$(uname)" == "Darwin" && -f "$SOURCE_ICO" && -x "$(command -v iconutil)" && -x "$(command -v sips)" ]]; then
+    assert_exists "$APP/Contents/Resources/DTXMania.icns"
 fi
 
 # CFBundleIconFile must reference the icon file actually present in Resources/.
