@@ -717,7 +717,20 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         private string ResolveBundledSystemSkinRoot()
         {
-            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            return ResolveBundledSystemSkinRootFromCandidates(AppPaths.GetBundledSystemSkinRootCandidates());
+        }
+
+        /// <summary>
+        /// Core logic of <see cref="ResolveBundledSystemSkinRoot"/> extracted as an
+        /// internal static method so the candidate iteration, trailing-separator
+        /// normalization, and exception handling are unit-testable without a real
+        /// assembly directory or files on disk.
+        /// </summary>
+        /// <param name="candidates">Ordered candidate bundled System skin root paths.</param>
+        /// <returns>The first existing candidate with a trailing separator, or null.</returns>
+        internal static string ResolveBundledSystemSkinRootFromCandidates(IEnumerable<string> candidates)
+        {
+            foreach (var candidate in candidates)
             {
                 try
                 {
@@ -744,7 +757,7 @@ namespace DTXMania.Game.Lib.Resources
         /// callers can treat null as "no bundled hit" and fall through to the
         /// fallback texture/sound. Mirrors ResolvePathWithSkin's absolute-path guard.
         /// </summary>
-        private string TryResolveFromBundledSkin(string relativePath)
+        internal string TryResolveFromBundledSkin(string relativePath)
         {
             if (string.IsNullOrEmpty(_bundledSystemSkinRoot))
                 return null;
