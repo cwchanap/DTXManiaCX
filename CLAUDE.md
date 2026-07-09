@@ -61,7 +61,7 @@ DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj \
 
 ### Test Projects
 - `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
-- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Stage/Performance/PooledEffectsManagerTests.cs`, `Helpers/MockPerformanceStage.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
+- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `StressTestConsole/**/*.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
 - `DTXMania.E2E.csproj` - End-to-end tests (`net8.0-windows7.0`). References the matching game `.csproj` for shared types but runs the game out-of-process. Two trait categories: `E2E` (full gameplay smoke, launches the game) and `E2E-Support` (in-process unit tests for the harness itself: fixtures, JSON-RPC client, telemetry).
 
 ## Architecture Overview
@@ -162,8 +162,8 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - Env vars: `DTXMANIA_E2E_GAME_PROJECT` (which game csproj to launch), `DTXMANIA_E2E_API_PORT` (else an ephemeral port is chosen), `DTXMANIA_E2E_ARTIFACT_ROOT` (artifact output dir)
 
 ### Key Interfaces
-- `IStageGame` - Internal interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which is for external API/MCP access
-- `IGameContext` - External game state access for API/MCP (same services as `IStageGame` but public-facing)
+- `IStageGame` - Public interface used by stages to access game services (GraphicsDevice, StageManager, ConfigManager, InputManager, GraphicsManager, ResourceManager); distinct from `IGameContext` which serves external API/MCP access
+- `IGameContext` - External game state access for API/MCP (exposes the same game services as `IStageGame` but for out-of-process consumers)
 - `IStageManager` / `IStage` / `IStageTransition` - Stage lifecycle and transitions
 - `IResourceManager` - Resource loading and caching
 - `IConfigManager` - Configuration access
