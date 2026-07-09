@@ -202,11 +202,19 @@ jobs:
           # description and NOT the destination path, which itself contains
           # "osx-arm64" and would otherwise make the grep match the directory name
           # instead of the binary architecture.
-          if ! file -b "$DEST/ffmpeg" "$DEST/ffprobe" | grep -qi 'arm64'; then
-            echo "::error::ffmpeg/ffprobe is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
-            file "$DEST/ffmpeg" "$DEST/ffprobe" >&2
-            exit 1
-          fi
+          #
+          # Validate each binary independently. A single combined `file ... | grep`
+          # would pass as long as EITHER binary is arm64, letting a mixed pair
+          # (e.g. arm64 ffmpeg + x86_64 ffprobe) slip through. ManagedSound.LoadMp3File
+          # invokes FFProbe before ffmpeg, so a non-native ffprobe breaks MP3 playback
+          # on Apple Silicon systems without Rosetta 2.
+          for bin in "$DEST/ffmpeg" "$DEST/ffprobe"; do
+            if ! file -b "$bin" | grep -qi 'arm64'; then
+              echo "::error::$(basename "$bin") is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
+              file "$bin" >&2
+              exit 1
+            fi
+          done
 
       - name: Build .app bundle and DMG
         run: |
