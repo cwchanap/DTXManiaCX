@@ -22,9 +22,6 @@ remain usable as a user-supplied alternative, not a shipped one.
 
 ## Non-Goals
 
-- Original sound effects for `System/Sounds/` (same copyright concern — tracked as a
-  separate follow-up; sounds are gitignored today, but release packaging must be audited
-  when that follow-up happens).
 - A general-purpose layout engine or per-skin layout classes. Overrides are a whitelist
   that grows only on concrete need.
 - Changes to box.def/song-level skin behavior.
@@ -40,6 +37,7 @@ remain usable as a user-supplied alternative, not a shipped one.
 | Visual direction | Neon dark / synthwave |
 | Delivery scope | Complete pack, all 7 stages, before release |
 | Architecture | Per-skin `Theme.ini` with whitelisted overrides (Approach A) |
+| SFX | Original sound pack generated with ElevenLabs, shipped with CX Neon |
 
 ## Architecture
 
@@ -143,6 +141,37 @@ byte-identical and existing tests are unaffected.
 - `tools/skingen/STYLE.md` holds the prompt/style guide so regenerated art stays
   consistent.
 
+## CX Neon Sound Pack (ElevenLabs)
+
+**Required inventory (8 files):** the game code references exactly eight sound paths, all
+short one-shot SFX/jingles — `Decide`, `Move`, `Game start`, `Now loading`, `Stage Clear`,
+`Excellent`, `Full Combo`, `New Record` (all `.ogg`). The other files present in NX's
+`System/Sounds/` (announcer voices, `Title.ogg`, `1Config BGM.ogg`, …) are never played by
+CX code and are not part of the pack.
+
+**Code change — `SoundPath` constants class:** the eight paths are currently hardcoded
+strings scattered across stages. Add `SoundPath` (mirroring `TexturePath`) with a
+`GetAllSoundPaths()` helper, and replace the string literals. This centralizes the
+inventory and gives the completeness test its source of truth.
+
+**Generation pipeline:** `tools/sfxgen/` (sibling of `skingen`, shares its manifest
+conventions):
+
+- Each sound has a recipe: ElevenLabs sound-effects API prompt + duration + post-processing
+  (loudness normalization, trim, fade-out).
+- ElevenLabs outputs MP3; the pipeline converts to OGG/Vorbis via ffmpeg (`AudioLoader`
+  plays OGG natively through NVorbis).
+- Requires `ELEVENLABS_API_KEY` locally; **generated OGGs are committed** under
+  `System/CXNeon/Sounds/`, so builds, CI, and regeneration of other assets never need the
+  API. Prompts live in the manifest so the sound identity is reproducible/tweakable.
+- Style guide: SFX follow the synthwave direction — synthetic, clean transients, subtle
+  neon "zap/shimmer" character; jingles (`Stage Clear`, `Excellent`, `Full Combo`,
+  `New Record`) short and melodic.
+
+**Gitignore fix (also needed for graphics):** `.gitignore` currently ignores `System/*`
+except `System/Graphics/`, so `System/CXNeon/` would be silently untracked. Add
+`!System/CXNeon/` so the full pack (Graphics, Sounds, Theme.ini) is committed.
+
 ## Packaging & Distribution
 
 The default-skin swap happens in packaging, not code:
@@ -150,8 +179,9 @@ The default-skin swap happens in packaging, not code:
 - **Dev (repo as-is):** `System/Graphics/` stays NX and remains the default fallback
   root — current behavior is untouched. CX Neon is previewed via `Config.ini`
   (`SkinPath=System/CXNeon/`).
-- **Release:** the artifacts job copies `System/CXNeon/*` (Graphics + Theme.ini) to
-  `<release>/System/` as the base system skin and never packages the NX graphics. The
+- **Release:** the artifacts job copies `System/CXNeon/*` (Graphics + Sounds + Theme.ini)
+  to `<release>/System/` as the base system skin and never packages the NX graphics or
+  the NX sounds. The
   fallback chain is untouched; in release the final fallback *is* CX Neon, so a missing
   file in a user's custom skin falls back to neon art, never a white box.
 - Users who own NX-format skins drop them into `System/<name>/` and select them — the
@@ -161,9 +191,10 @@ The default-skin swap happens in packaging, not code:
 
 - Artifacts job (manual dispatch): bundle CX Neon as `System/`, exclude NX graphics.
 - New pack-completeness test runs on both Windows and macOS jobs (pure file I/O,
-  Mac-safe): every `TexturePath.GetAllTexturePaths()` entry **exists** under
-  `System/CXNeon/`. Dimension/cell-metric correctness is the skingen validator's job
-  (single source of truth: the manifest), run alongside the test suite in CI.
+  Mac-safe): every `TexturePath.GetAllTexturePaths()` and `SoundPath.GetAllSoundPaths()`
+  entry **exists** under `System/CXNeon/`. Dimension/cell-metric correctness is the
+  skingen validator's job (single source of truth: the manifest), run alongside the test
+  suite in CI.
 
 ## Testing
 
@@ -171,23 +202,27 @@ The default-skin swap happens in packaging, not code:
   fallbacks; malformed values → fallback + warning; unknown keys ignored.
 - Theme-aware draw sites: unit tests that an overridden key actually moves/recolors the
   element, following existing stage-logic test patterns.
+- `SoundPath` refactor: existing stage tests keep passing (paths are unchanged strings,
+  only centralized into constants).
 - Pack-completeness test as described under CI.
 - E2E smoke: unaffected (uses generated fixtures). During art development, stages are
-  verified visually via the dtxmania MCP screenshot flow.
+  verified visually via the dtxmania MCP screenshot flow; SFX are auditioned in-game.
 
 ## Implementation Phases (for the plan)
 
 1. **Theming layer:** `ISkinTheme`/`SkinTheme` + parsing + `IResourceManager.CurrentTheme`
-   + SkinManager loading + tests.
-2. **Pipeline scaffolding:** `tools/skingen/` manifest, compositor, validator, STYLE.md;
-   pack-completeness test wired into CI.
+   + SkinManager loading + tests. Includes the `SoundPath` constants refactor and the
+   `.gitignore` fix for `System/CXNeon/`.
+2. **Pipeline scaffolding:** `tools/skingen/` (images) and `tools/sfxgen/` (ElevenLabs
+   audio) — manifests, compositor, validator, STYLE.md; pack-completeness test wired
+   into CI.
 3. **Asset production:** generate the pack tier-by-tier (backgrounds → panels → sprite
-   sheets → effects), verifying each stage on-screen; add theme overrides to draw sites
-   as concrete needs appear.
-4. **Packaging:** artifacts-job changes; release smoke check that no NX file ships.
+   sheets → effects → SFX), verifying each stage on-screen and auditioning SFX in-game;
+   add theme overrides to draw sites as concrete needs appear.
+4. **Packaging:** artifacts-job changes (Graphics + Sounds + Theme.ini); release smoke
+   check that no NX file ships.
 
 ## Open Follow-Ups (not part of this work)
 
-- Original SFX pack for `System/Sounds/` and a release-packaging audit for sounds.
 - Whether the public repo should eventually purge NX graphics from history (the user
   accepted keeping them tracked for now).
