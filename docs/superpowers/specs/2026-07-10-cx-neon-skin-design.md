@@ -1,0 +1,193 @@
+# CX Neon Skin — Alternative Skin/Style/Theming System
+
+**Date:** 2026-07-10
+**Status:** Approved design, pending implementation plan
+
+## Problem
+
+DTXManiaCX's default UI assets (`System/Graphics/`, 247 tracked files) are derived from
+Konami's GITADORA (via DTXManiaNX). Publishing the game — or even keeping the repo public —
+carries copyright risk. The game needs an original default skin. The existing NX look should
+remain usable as a user-supplied alternative, not a shipped one.
+
+## Goals
+
+1. Ship an original, complete skin (**CX Neon**) as the default in release builds.
+2. Keep the NX assets in the repo for development, but exclude them from release artifacts.
+3. Let skins make *small* layout/color/font-metric adjustments without forking layout code.
+4. Preserve the existing skin system (fallback chain, `System/<name>/` discovery,
+   box.def skins) unchanged, so NX-format skins users already own keep working.
+5. Release builds must never render missing-asset white boxes: the pack is complete and is
+   itself the final fallback.
+
+## Non-Goals
+
+- Original sound effects for `System/Sounds/` (same copyright concern — tracked as a
+  separate follow-up; sounds are gitignored today, but release packaging must be audited
+  when that follow-up happens).
+- A general-purpose layout engine or per-skin layout classes. Overrides are a whitelist
+  that grows only on concrete need.
+- Changes to box.def/song-level skin behavior.
+- Guitar-mode assets beyond what `TexturePath` already requires.
+
+## Decisions Made
+
+| Decision | Choice |
+|---|---|
+| NX assets | Keep in repo for dev; exclude from release builds |
+| Layout scope | NX skeleton + light per-skin theming layer (whitelisted overrides) |
+| Art production | AI-generated image pack, assembled/validated by a script pipeline |
+| Visual direction | Neon dark / synthwave |
+| Delivery scope | Complete pack, all 7 stages, before release |
+| Architecture | Per-skin `Theme.ini` with whitelisted overrides (Approach A) |
+
+## Architecture
+
+### SkinTheme
+
+New type `SkinTheme` (namespace `DTXMania.Game.Lib.Resources`), parsed from an optional
+`Theme.ini` at the skin root, using the same INI conventions as `ConfigManager`.
+
+- `SkinManager` loads `Theme.ini` from the **effective skin root** — whatever directory
+  the fallback chain currently treats as the skin root, including the base `System/`
+  root itself (this is how the release build, where CX Neon *is* `System/`, picks up its
+  theme). Absent file → empty theme where every getter returns the caller's fallback.
+- Exposed as `IResourceManager.CurrentTheme` (`ISkinTheme`). Every stage and performance
+  component already holds an `IResourceManager`, so no new plumbing through `IStageGame`.
+- Skin switching already tears down and reloads resources; the theme reloads at the same
+  point. No hot-reload beyond that.
+
+```csharp
+public interface ISkinTheme
+{
+    Color  GetColor(string key, Color fallback);
+    int    GetInt(string key, int fallback);
+    float  GetFloat(string key, float fallback);
+    Point  GetPoint(string key, Point fallback);   // "x,y"
+}
+```
+
+### Theme.ini format
+
+Three sections, all keys optional:
+
+```ini
+[Palette]
+; semantic colors for code-drawn elements
+Lane.HH=#22D3EE
+Judgement.Just=#E879F9
+Gauge.Fill=#22D3EE
+UI.TextPrimary=#F1F5F9
+
+[Layout]
+; whitelisted overrides; defaults remain the NX constants in layout classes
+SongSelect.StatusPanel.Position=580,130
+Result.RankBadge.Scale=1.15
+
+[Fonts]
+; bitmap-font sheet metrics so new fonts needn't match NX cells
+LevelNumber.CellSize=22,30
+BpmNumber.CellSize=14,22
+```
+
+### Integration rule (keeps blast radius small)
+
+Layout classes (`SongSelectionUILayout`, `PerformanceUILayout`, …) and
+`DTXManiaVisualTheme` keep their current constants as **defaults**. A draw site becomes
+theme-aware only when the CX Neon skin concretely needs it:
+
+```csharp
+var color = theme.GetColor("Judgement.Just", DTXManiaVisualTheme.JustColor);
+```
+
+With no `Theme.ini`, every call returns its fallback, so the NX skin's behavior is
+byte-identical and existing tests are unaffected.
+
+### Error handling
+
+- Malformed `Theme.ini` never crashes: log a warning, continue with defaults.
+- Malformed individual values (bad hex, bad point) → that key falls back, warning logged.
+- Unknown keys are ignored (forward compatibility as the whitelist grows).
+- Missing textures in any skin → existing fallback chain, unchanged.
+
+## CX Neon Asset Pack
+
+**Location:** `System/CXNeon/` (Graphics + Theme.ini), tracked in git like the NX graphics.
+
+### Art direction (style guide for every AI prompt)
+
+- Base `#0F172A` (dark slate); panel surface `#1E293B` with 1px neon edge strokes
+- Primary accent cyan `#22D3EE`; secondary magenta `#E879F9`; success green `#22C55E`;
+  danger red `#EF4444`
+- Motifs: thin grid/scanlines, chamfered panel corners, soft outer glow on highlighted
+  elements
+- Display type: geometric/Orbitron-like letterforms for headings and bitmap fonts
+
+### Production tiers
+
+| Tier | Assets | Method |
+|---|---|---|
+| 1. Backgrounds | 7 stage backgrounds, rank result backgrounds | Direct AI generation at 1280×720 |
+| 2. Panels & bars | headers, footers, status/menu panels, song bars, item boxes | AI generation oversized → script crops/resizes to exact dimensions |
+| 3. Metric sprite sheets | bitmap number fonts, judge strings, rank icons, difficulty sprites, chips, pads | AI generates individual glyphs/elements; compositing script assembles sheets at declared cell metrics (`[Fonts]` may differ from NX) |
+| 4. Effects | hit sparks, lane flushes, per-lane fire/star variants, explosion | One AI master per effect; script derives per-lane variants by hue-shift |
+
+### Pipeline tool: `tools/skingen/` (Python + Pillow)
+
+- A manifest maps every `TexturePath` entry → recipe (source image(s), transform, target
+  size, sheet layout).
+- One command regenerates `System/CXNeon/Graphics/` deterministically from checked-in
+  source art.
+- **Validation:** asserts every path in `TexturePath.GetAllTexturePaths()` exists in the
+  pack with expected dimensions. Runnable locally and in CI.
+- `tools/skingen/STYLE.md` holds the prompt/style guide so regenerated art stays
+  consistent.
+
+## Packaging & Distribution
+
+The default-skin swap happens in packaging, not code:
+
+- **Dev (repo as-is):** `System/Graphics/` stays NX and remains the default fallback
+  root — current behavior is untouched. CX Neon is previewed via `Config.ini`
+  (`SkinPath=System/CXNeon/`).
+- **Release:** the artifacts job copies `System/CXNeon/*` (Graphics + Theme.ini) to
+  `<release>/System/` as the base system skin and never packages the NX graphics. The
+  fallback chain is untouched; in release the final fallback *is* CX Neon, so a missing
+  file in a user's custom skin falls back to neon art, never a white box.
+- Users who own NX-format skins drop them into `System/<name>/` and select them — the
+  "NX as alternative" path.
+
+### CI changes (`.github/workflows/build-and-test.yml`)
+
+- Artifacts job (manual dispatch): bundle CX Neon as `System/`, exclude NX graphics.
+- New pack-completeness test runs on both Windows and macOS jobs (pure file I/O,
+  Mac-safe): every `TexturePath.GetAllTexturePaths()` entry **exists** under
+  `System/CXNeon/`. Dimension/cell-metric correctness is the skingen validator's job
+  (single source of truth: the manifest), run alongside the test suite in CI.
+
+## Testing
+
+- `SkinThemeTests` (unit): hex color / point / int / float parsing; missing file →
+  fallbacks; malformed values → fallback + warning; unknown keys ignored.
+- Theme-aware draw sites: unit tests that an overridden key actually moves/recolors the
+  element, following existing stage-logic test patterns.
+- Pack-completeness test as described under CI.
+- E2E smoke: unaffected (uses generated fixtures). During art development, stages are
+  verified visually via the dtxmania MCP screenshot flow.
+
+## Implementation Phases (for the plan)
+
+1. **Theming layer:** `ISkinTheme`/`SkinTheme` + parsing + `IResourceManager.CurrentTheme`
+   + SkinManager loading + tests.
+2. **Pipeline scaffolding:** `tools/skingen/` manifest, compositor, validator, STYLE.md;
+   pack-completeness test wired into CI.
+3. **Asset production:** generate the pack tier-by-tier (backgrounds → panels → sprite
+   sheets → effects), verifying each stage on-screen; add theme overrides to draw sites
+   as concrete needs appear.
+4. **Packaging:** artifacts-job changes; release smoke check that no NX file ships.
+
+## Open Follow-Ups (not part of this work)
+
+- Original SFX pack for `System/Sounds/` and a release-packaging audit for sounds.
+- Whether the public repo should eventually purge NX graphics from history (the user
+  accepted keeping them tracked for now).
