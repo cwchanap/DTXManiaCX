@@ -216,9 +216,14 @@ The default-skin swap happens in packaging, not code:
 2. **Pipeline scaffolding:** `tools/skingen/` (images) and `tools/sfxgen/` (ElevenLabs
    audio) — manifests, compositor, validator, STYLE.md; pack-completeness test wired
    into CI.
-3. **Asset production:** generate the pack tier-by-tier (backgrounds → panels → sprite
-   sheets → effects → SFX), verifying each stage on-screen and auditioning SFX in-game;
-   add theme overrides to draw sites as concrete needs appear.
+3. **Prompt manifest & delegation docs (assets deferred):** asset generation will not
+   happen immediately — the deliverable is a complete, ready-to-delegate manifest: one
+   entry per asset with the exact image-gen prompt (style-guide baked in), target
+   size/sheet metrics, and post-processing recipe; likewise ElevenLabs prompts per sound.
+   A HOWTO doc explains the workflow (generate → drop into source dir → run skingen/sfxgen
+   → validate). The pack is produced later, tier-by-tier (backgrounds → panels → sprite
+   sheets → effects → SFX), verified on-screen/in-game; theme overrides are added to draw
+   sites as concrete needs appear then.
 4. **Packaging:** artifacts-job changes (Graphics + Sounds + Theme.ini); release smoke
    check that no NX file ships.
 
