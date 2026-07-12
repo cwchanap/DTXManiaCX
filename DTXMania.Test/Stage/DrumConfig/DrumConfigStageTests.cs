@@ -1065,6 +1065,8 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetVSync(bool value) { }
 
+            public void SetSkinPath(string configFilePath, string skinPath) { }
+
             public void FlushPendingSave() { }
         }
     }

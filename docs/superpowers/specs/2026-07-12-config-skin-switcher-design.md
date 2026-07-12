@@ -36,7 +36,7 @@ game invokes them at runtime.
 | Apply timing | Live in Config stage; other stages on next `OnActivate` |
 | Logic placement | Local to `ConfigStage` (Approach A) — no `IStageGame`/`BaseGame` changes |
 | Persistence | New `IConfigManager` setter following the `SetScrollSpeed` persist-on-edit pattern |
-| Persisted value shape | Portable relative form: `System/` for Default, `System/<Name>/` otherwise |
+| Persisted value shape | The effective absolute skin path (`Config.SkinPath` is absolute after `NormalizeConfigPaths`; the identical value round-trips through startup) |
 
 ## Design
 
@@ -60,7 +60,9 @@ reality — including after a failed switch (self-correcting UI).
    if the skin vanished since discovery.
 2. On success: persist via new `IConfigManager.SetSkinPath(...)`, mirroring the
    `SetScrollSpeed(configFilePath, value)` persist-on-edit mechanism (deferred write,
-   flushed on exit like other config edits). Stored value: the portable relative form.
+   flushed on exit like other config edits). Stored value: the effective absolute skin path the switch produced —
+   `Config.ini` already stores absolute paths after `NormalizeConfigPaths`
+   resolves them at load, so this matches existing config behavior exactly.
 3. On success: ConfigStage releases its stage-local textures and re-runs its graphics
    initialization so the new skin is visible immediately.
 4. On failure: log, write nothing, reload nothing — `getValue` snaps the dropdown back.

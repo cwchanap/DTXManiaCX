@@ -640,6 +640,16 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets VSync (<see cref="ConfigData.VSyncWait"/>) and marks a deferred save pending. No event raised.</summary>
         public void SetVSync(bool value) { Config.VSyncWait = value; MarkDirty(); }
 
+        /// <summary>Sets the skin path (<see cref="ConfigData.SkinPath"/>) and marks a deferred save pending. No event raised. No-op when null/whitespace or unchanged.</summary>
+        public void SetSkinPath(string configFilePath, string skinPath)
+        {
+            if (string.IsNullOrWhiteSpace(skinPath) || skinPath == Config.SkinPath)
+                return;
+
+            Config.SkinPath = skinPath;
+            MarkDirty(configFilePath);
+        }
+
         /// <inheritdoc/>
         public void FlushPendingSave()
         {
