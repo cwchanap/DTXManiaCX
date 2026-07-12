@@ -44,6 +44,7 @@ namespace DTXMania.Game.Lib.Stage
         private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
 
         private IConfigManager _configManager;
+        private SkinManager? _skinManager;
         private List<ConfigCategory> _categories = new();
         private int _currentCategoryIndex = 0;
         private bool _focusOnMenu = true;
@@ -235,6 +236,9 @@ namespace DTXMania.Game.Lib.Stage
             _activePanel?.Deactivate();
             _activePanel = null;
 
+            _skinManager?.Dispose();
+            _skinManager = null;
+
             _font?.RemoveReference();
             _font = null;
             _boldFont?.RemoveReference();
@@ -325,7 +329,17 @@ namespace DTXMania.Game.Lib.Stage
                 throw;
             }
 
-            // All skin art is best-effort; every draw is null-guarded with a fill/text fallback.
+            LoadSkinTextures();
+        }
+
+        /// <summary>
+        /// Loads the stage's skin textures. Called from InitializeGraphics on activation and
+        /// again after an in-stage skin switch (after ReleaseTextures) so the newly selected
+        /// skin shows immediately. All skin art is best-effort; every draw is null-guarded
+        /// with a fill/text fallback.
+        /// </summary>
+        private void LoadSkinTextures()
+        {
             _backgroundTexture = TryLoadTexture(TexturePath.ConfigBackground);
             _itemBarTexture = TryLoadTexture(TexturePath.ConfigItemBar);
             _menuPanelTexture = TryLoadTexture(TexturePath.ConfigMenuPanel);
@@ -421,6 +435,28 @@ namespace DTXMania.Game.Lib.Stage
                 valueFormatter: v => $"{v} ms")
             { Description = "Shifts audio timing to compensate for output latency." };
 
+            // BaseGame guarantees ResourceManager after LoadContent, before any stage activates,
+            // so at runtime this branch always runs. Headless reflection tests may build the
+            // items without a resource manager; they get the base menu without the Skin item.
+            DropdownConfigItem? skinItem = null;
+            if (_game.ResourceManager != null)
+            {
+                _skinManager?.Dispose();
+                _skinManager = new SkinManager(_game.ResourceManager, _configManager.Config.SystemSkinRoot);
+                var skinNames = _skinManager.AvailableSystemSkins
+                    .Select(SkinManager.GetSkinName)
+                    .Where(name => !string.IsNullOrEmpty(name))
+                    .ToArray();
+                skinItem = new DropdownConfigItem(
+                    "Skin",
+                    GetCurrentSkinName,
+                    // DropdownConfigItem rejects an empty options array; with nothing discovered,
+                    // fall back to the current name so the item is a harmless no-op.
+                    skinNames.Length > 0 ? skinNames : new[] { GetCurrentSkinName() },
+                    value => SwitchSkin(value))
+                { Description = "Switches the UI skin. Applies immediately; other screens update on entry." };
+            }
+
             var dtxFolderItem = new ReadOnlyConfigItem(
                 "DTX Folder",
                 () => _configManager.Config.DTXPath)
@@ -462,9 +498,15 @@ namespace DTXMania.Game.Lib.Stage
 
             var systemItems = new List<IConfigItem>
             {
-                resolutionItem, fullscreenItem, vsyncItem, audioLatencyItem,
-                dtxFolderItem, systemKeyItem, importItem
+                resolutionItem, fullscreenItem, vsyncItem, audioLatencyItem
             };
+            if (skinItem != null)
+            {
+                systemItems.Add(skinItem);
+            }
+            systemItems.Add(dtxFolderItem);
+            systemItems.Add(systemKeyItem);
+            systemItems.Add(importItem);
 
             var drumItems = new List<IConfigItem>
             {
@@ -474,7 +516,7 @@ namespace DTXMania.Game.Lib.Stage
             _categories = new List<ConfigCategory>
             {
                 new ConfigCategory("System",
-                    "System settings: display, audio, file paths, and system key bindings.",
+                    "System settings: display, audio, skin, file paths, and system key bindings.",
                     systemItems),
                 new ConfigCategory("Drums",
                     "Drum gameplay settings and drum pad key bindings.",
@@ -486,6 +528,37 @@ namespace DTXMania.Game.Lib.Stage
 
             _currentCategoryIndex = 0;
             _focusOnMenu = true;
+        }
+
+        private string GetCurrentSkinName()
+        {
+            var name = SkinManager.GetSkinName(_game.ResourceManager.GetCurrentEffectiveSkinPath());
+            return string.IsNullOrEmpty(name) ? "Default" : name;
+        }
+
+        private void SwitchSkin(string skinName)
+        {
+            if (_skinManager == null)
+                return;
+
+            if (!_skinManager.SwitchToSystemSkin(skinName))
+            {
+                _logger.LogWarning("Skin switch to '{SkinName}' failed; keeping the current skin", skinName);
+                return;
+            }
+
+            _configManager.SetSkinPath(AppPaths.GetConfigFilePath(),
+                _game.ResourceManager.GetCurrentEffectiveSkinPath());
+
+            _logger.LogInformation("Switched skin to '{SkinName}'", skinName);
+
+            // Live reload of this stage's own art. Guarded: headless tests invoke
+            // SetupConfigItems without InitializeGraphics, so _resourceManager is null there.
+            if (_resourceManager != null)
+            {
+                ReleaseTextures();
+                LoadSkinTextures();
+            }
         }
 
         private void InitializePanels()
