@@ -131,5 +131,53 @@ class ComposeTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.out, "Graphics", "todo.png")))
 
 
+class PromptsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, name, payload):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "w") as f:
+            json.dump(payload, f)
+        return path
+
+    def test_prompts_renders_style_family_and_desc(self):
+        manifest = self._write("manifest.json", {"assets": {
+            "Graphics/a.png": {"width": 10, "height": 5, "optional": False, "recipe": None}}})
+        descriptors = self._write("descriptors.json", {
+            "families": {"panel": "Panel base prompt."},
+            "assets": {"Graphics/a.png": {"family": "panel", "desc": "The A panel."}}})
+        out = os.path.join(self.tmp.name, "PROMPTS.md")
+        missing = skingen.render_prompts(manifest, descriptors, "BASE STYLE.", out)
+        self.assertEqual(missing, [])
+        with open(out) as f:
+            text = f.read()
+        self.assertIn("Graphics/a.png", text)
+        self.assertIn("10x5", text)
+        self.assertIn("BASE STYLE.", text)
+        self.assertIn("Panel base prompt.", text)
+        self.assertIn("The A panel.", text)
+
+    def test_prompts_skips_hueshift_derived_assets(self):
+        manifest = self._write("manifest.json", {"assets": {
+            "Graphics/derived.png": {"width": 4, "height": 4, "optional": False,
+                                     "recipe": {"type": "hueshift", "base": "Graphics/a.png", "degrees": 90}}}})
+        descriptors = self._write("descriptors.json", {"families": {}, "assets": {}})
+        out = os.path.join(self.tmp.name, "PROMPTS.md")
+        missing = skingen.render_prompts(manifest, descriptors, "S", out)
+        self.assertEqual(missing, [])
+
+    def test_prompts_reports_uncovered_required_assets(self):
+        manifest = self._write("manifest.json", {"assets": {
+            "Graphics/uncovered.png": {"width": 4, "height": 4, "optional": False, "recipe": None}}})
+        descriptors = self._write("descriptors.json", {"families": {}, "assets": {}})
+        out = os.path.join(self.tmp.name, "PROMPTS.md")
+        missing = skingen.render_prompts(manifest, descriptors, "S", out)
+        self.assertEqual(missing, ["Graphics/uncovered.png"])
+
+
 if __name__ == "__main__":
     unittest.main()
