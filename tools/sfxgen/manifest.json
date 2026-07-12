@@ -1,0 +1,53 @@
+{
+  "output_dir": "System/CXNeon/Sounds",
+  "sounds": [
+    {
+      "file": "Move.ogg",
+      "duration_seconds": 0.5,
+      "prompt_influence": 0.4,
+      "prompt": "Minimal futuristic UI cursor tick for a rhythm game menu: one short clean synthetic blip with a tight high-frequency neon shimmer, dry, no reverb tail, synthwave aesthetic"
+    },
+    {
+      "file": "Decide.ogg",
+      "duration_seconds": 0.8,
+      "prompt_influence": 0.4,
+      "prompt": "Confident futuristic UI confirm sound: two quick ascending analog synth pluck notes with a soft neon glow tail, clean and punchy, video game menu select, synthwave aesthetic"
+    },
+    {
+      "file": "Game start.ogg",
+      "duration_seconds": 2.5,
+      "prompt_influence": 0.35,
+      "prompt": "Energetic synthwave game-start sting: rising sawtooth synth riser building into a bright analog chord hit with side-chained pulse, punchy and exciting, arcade rhythm game round start"
+    },
+    {
+      "file": "Now loading.ogg",
+      "duration_seconds": 2.0,
+      "prompt_influence": 0.35,
+      "prompt": "Smooth futuristic transition whoosh with a fast ascending synth arpeggio and airy shimmer, anticipatory, video game loading transition, synthwave aesthetic"
+    },
+    {
+      "file": "Stage Clear.ogg",
+      "duration_seconds": 3.5,
+      "prompt_influence": 0.3,
+      "prompt": "Short triumphant synthwave victory jingle: bright major-key analog synth arpeggio resolving to a warm sustained chord with punchy electronic drums, arcade stage clear fanfare"
+    },
+    {
+      "file": "Full Combo.ogg",
+      "duration_seconds": 3.5,
+      "prompt_influence": 0.3,
+      "prompt": "Celebratory synthwave fanfare: sparkling ascending arpeggios layered with glittering high synth bells ending on a big bright final chord, arcade perfect-run reward jingle"
+    },
+    {
+      "file": "Excellent.ogg",
+      "duration_seconds": 4.0,
+      "prompt_influence": 0.3,
+      "prompt": "Epic short synthwave victory fanfare: layered analog synth brass, rising three-chord progression with shimmering bells and a powerful resolving hit, top-rank celebration jingle"
+    },
+    {
+      "file": "New Record.ogg",
+      "duration_seconds": 3.0,
+      "prompt_influence": 0.3,
+      "prompt": "Triumphant synthwave achievement jingle: heroic rising synth melody over a pulsing bassline, ending on a sustained bright chord with sparkle, new high score celebration"
+    }
+  ]
+}
