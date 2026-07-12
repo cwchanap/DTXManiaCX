@@ -1729,7 +1729,7 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load DTXMania-style cursor move sound (same as TitleStage)
-                _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
+                _cursorMoveSound = _resourceManager.LoadSound(SoundPath.CursorMove);
             }
             catch (Exception)
             {
@@ -1739,14 +1739,14 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load now loading sound for song selection
-                _gameStartSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
+                _gameStartSound = _resourceManager.LoadSound(SoundPath.NowLoading);
             }
             catch (Exception)
             {
                 try
                 {
                     // Fallback to decide sound if Now loading.ogg doesn't work
-                    _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                    _gameStartSound = _resourceManager.LoadSound(SoundPath.Decide);
                 }
                 catch (Exception)
                 {

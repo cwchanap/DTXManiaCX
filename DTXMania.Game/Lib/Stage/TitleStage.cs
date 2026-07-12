@@ -274,7 +274,7 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load DTXMania-style sound effects (OGG format)
-                _cursorMoveSound = _resourceManager.LoadSound("Sounds/Move.ogg");
+                _cursorMoveSound = _resourceManager.LoadSound(SoundPath.CursorMove);
                 System.Diagnostics.Debug.WriteLine("Loaded cursor move sound");
             }
             catch (Exception ex)
@@ -284,7 +284,7 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                _selectSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                _selectSound = _resourceManager.LoadSound(SoundPath.Decide);
                 System.Diagnostics.Debug.WriteLine("Loaded select sound");
             }
             catch (Exception ex)
@@ -295,7 +295,7 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load game start sound (note: file name has space)
-                _gameStartSound = _resourceManager.LoadSound("Sounds/Game start.ogg");
+                _gameStartSound = _resourceManager.LoadSound(SoundPath.GameStart);
                 System.Diagnostics.Debug.WriteLine("Loaded game start sound");
             }
             catch (Exception ex)
@@ -304,7 +304,7 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     // Fallback to decide sound if Game start.ogg doesn't exist
-                    _gameStartSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                    _gameStartSound = _resourceManager.LoadSound(SoundPath.Decide);
                     System.Diagnostics.Debug.WriteLine("Loaded game start sound (fallback to Decide.ogg)");
                 }
                 catch (Exception fallbackEx)

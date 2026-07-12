@@ -257,14 +257,14 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 
                 // Load now loading sound for song selection
-                _nowLoadingSound = _resourceManager.LoadSound("Sounds/Now loading.ogg");
+                _nowLoadingSound = _resourceManager.LoadSound(SoundPath.NowLoading);
             }
             catch (Exception)
             {
                 try
                 {
                     // Fallback to decide sound if Now loading.ogg doesn't work
-                    _nowLoadingSound = _resourceManager.LoadSound("Sounds/Decide.ogg");
+                    _nowLoadingSound = _resourceManager.LoadSound(SoundPath.Decide);
                 }
                 catch (Exception)
                 {
