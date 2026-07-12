@@ -34,6 +34,7 @@ namespace DTXMania.Game.Lib.Resources
         private string _boxDefSkinPath = "";
         private bool _useBoxDefSkin = true;
         private bool _disposed = false;
+        private ISkinTheme _currentTheme;
 
         // Read-only bundled System skin root (macOS .app Contents/Resources/System or
         // portable System/ sibling to the executable). Used as the ultimate fallback
@@ -352,6 +353,7 @@ namespace DTXMania.Game.Lib.Resources
                 }
 
                 OnSkinChanged(new SkinChangedEventArgs(oldSkinPath, _currentSkinPath));
+                _currentTheme = null;
             }
         }
 
@@ -428,6 +430,7 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
                 }
+                _currentTheme = null;
             }
         }
 
@@ -441,6 +444,7 @@ namespace DTXMania.Game.Lib.Resources
             {
                 _useBoxDefSkin = useBoxDefSkin;
                 Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
+                _currentTheme = null;
             }
         }
 
@@ -455,6 +459,38 @@ namespace DTXMania.Game.Lib.Resources
                 return _boxDefSkinPath;
             }
             return _currentSkinPath;
+        }
+
+        /// <summary>
+        /// Theme for the effective skin. Lazily loaded; invalidated whenever the
+        /// skin path, box.def path, or box.def usage changes.
+        /// </summary>
+        public ISkinTheme CurrentTheme
+        {
+            get
+            {
+                lock (_lockObject)
+                {
+                    if (_currentTheme == null)
+                    {
+                        _currentTheme = SkinTheme.Load(ResolveThemeFilePath());
+                    }
+                    return _currentTheme;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Finds Theme.ini using the same candidate order as texture resolution:
+        /// effective skin path, then fallback skin path.
+        /// </summary>
+        private string ResolveThemeFilePath()
+        {
+            var effectivePath = Path.Combine(GetCurrentEffectiveSkinPath(), SkinTheme.ThemeFileName);
+            if (File.Exists(effectivePath))
+                return effectivePath;
+
+            return Path.Combine(_fallbackSkinPath ?? "", SkinTheme.ThemeFileName);
         }
 
         public void UnloadAll()

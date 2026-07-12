@@ -108,6 +108,13 @@ namespace DTXMania.Game.Lib.Resources
         /// <returns>Current skin path being used</returns>
         string GetCurrentEffectiveSkinPath();
 
+        /// <summary>
+        /// Theme values for the effective skin (Theme.ini at the skin root).
+        /// Never null; returns an empty theme when the skin has no theme file.
+        /// Reloaded automatically when the skin path changes.
+        /// </summary>
+        ISkinTheme CurrentTheme { get; }
+
         #endregion
 
         #region Resource Management
