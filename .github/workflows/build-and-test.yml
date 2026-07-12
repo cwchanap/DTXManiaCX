@@ -178,6 +178,7 @@ jobs:
 
   build-artifacts:
     runs-on: ${{ matrix.os }}
+    needs: [build-and-test-windows, build-and-test-macos]
     if: github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
