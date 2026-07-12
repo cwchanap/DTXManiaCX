@@ -128,6 +128,72 @@ def validate_pack(manifest_path, pack_root):
     return errors
 
 
+def _save(img, target, width, height):
+    if width is not None and img.size != (width, height):
+        img = img.resize((width, height), Image.LANCZOS)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    if target.lower().endswith((".jpg", ".jpeg")):
+        img.convert("RGB").save(target, quality=90)
+    else:
+        img.save(target)
+
+
+def _hueshift(img, degrees):
+    offset = int(degrees / 360.0 * 255) % 256
+    rgba = img.convert("RGBA")
+    alpha = rgba.getchannel("A")
+    h, s, v = rgba.convert("RGB").convert("HSV").split()
+    h = h.point(lambda value: (value + offset) % 256)
+    shifted = Image.merge("HSV", (h, s, v)).convert("RGBA")
+    shifted.putalpha(alpha)
+    return shifted
+
+
+def compose(manifest_path, source_root, pack_root, only=None):
+    """Builds recipe-bearing assets; returns the list of recipe-less (skipped) ones."""
+    manifest = load_manifest(manifest_path)
+    assets = manifest.get("assets", {})
+    skipped = []
+
+    def matches(rel):
+        return only is None or only in rel
+
+    # Pass 1: everything except hueshift (hueshift reads composed outputs).
+    for rel, entry in sorted(assets.items()):
+        if not matches(rel):
+            continue
+        recipe = entry.get("recipe")
+        if recipe is None:
+            if not entry.get("optional"):
+                skipped.append(rel)
+            continue
+        target = os.path.join(pack_root, rel.replace("/", os.sep))
+        if recipe["type"] == "copy":
+            with Image.open(os.path.join(source_root, recipe["source"])) as img:
+                _save(img.convert("RGBA"), target, entry.get("width"), entry.get("height"))
+        elif recipe["type"] == "sheet":
+            canvas = Image.new("RGBA", (entry["width"], entry["height"]), (0, 0, 0, 0))
+            for cell in recipe["cells"]:
+                with Image.open(os.path.join(source_root, cell["source"])) as glyph:
+                    glyph = glyph.convert("RGBA").resize((cell["w"], cell["h"]), Image.LANCZOS)
+                    canvas.paste(glyph, (cell["x"], cell["y"]), glyph)
+            _save(canvas, target, entry.get("width"), entry.get("height"))
+
+    # Pass 2: hueshift derivations.
+    for rel, entry in sorted(assets.items()):
+        if not matches(rel):
+            continue
+        recipe = entry.get("recipe")
+        if recipe is None or recipe["type"] != "hueshift":
+            continue
+        base_path = os.path.join(pack_root, recipe["base"].replace("/", os.sep))
+        target = os.path.join(pack_root, rel.replace("/", os.sep))
+        with Image.open(base_path) as base:
+            _save(_hueshift(base, recipe["degrees"]), target, entry.get("width"), entry.get("height"))
+
+    return skipped
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", default=MANIFEST_PATH)
@@ -138,6 +204,11 @@ def main(argv=None):
     validate = sub.add_parser("validate")
     validate.add_argument("--pack", default=DEFAULT_TARGET_PACK,
                           help="pack root containing Graphics/ (default: System/CXNeon)")
+
+    compose_cmd = sub.add_parser("compose")
+    compose_cmd.add_argument("--source", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "source"))
+    compose_cmd.add_argument("--pack", default=DEFAULT_TARGET_PACK)
+    compose_cmd.add_argument("--only", default=None, help="substring filter on asset paths")
 
     args = parser.parse_args(argv)
 
@@ -150,6 +221,13 @@ def main(argv=None):
             print(error)
         print("validate: %d problem(s) in %s" % (len(errors), args.pack))
         return 1 if errors else 0
+
+    if args.command == "compose":
+        skipped = compose(args.manifest, args.source, args.pack, args.only)
+        for rel in skipped:
+            print("no recipe yet: %s" % rel)
+        print("compose: done (%d assets still without recipes)" % len(skipped))
+        return 0
 
     return 2
 
