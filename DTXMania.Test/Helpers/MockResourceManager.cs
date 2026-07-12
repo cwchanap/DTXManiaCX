@@ -195,6 +195,8 @@ namespace DTXMania.Test.Helpers
             return _skinPath;
         }
 
+        public ISkinTheme CurrentTheme { get; set; } = SkinTheme.Empty;
+
         public void UnloadAll()
         {
             ClearCache();
