@@ -3,9 +3,11 @@ bin
 
 Config.ini
 
-# Skin assets: track the committed art under System/Graphics, ignore the rest of System/.
+# Skin assets: track the committed art under System/Graphics (NX, dev-only)
+# and the original CX Neon pack under System/CXNeon; ignore the rest of System/.
 System/*
 !System/Graphics/
+!System/CXNeon/
 # ...but never the non-asset junk that collects inside it.
 System/Graphics/desktop.ini
 System/Graphics/debug.log
