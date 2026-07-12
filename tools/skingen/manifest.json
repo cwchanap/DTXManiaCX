@@ -1,0 +1,844 @@
+{
+  "assets": {
+    "Graphics/1_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/2_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/2_menu.png": {
+      "height": 256,
+      "optional": false,
+      "recipe": null,
+      "width": 256
+    },
+    "Graphics/4_Description Panel.png": {
+      "height": 360,
+      "optional": false,
+      "recipe": null,
+      "width": 280
+    },
+    "Graphics/4_background.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/4_footer panel.png": {
+      "height": 30,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/4_header panel.png": {
+      "height": 105,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/4_item bar.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 18
+    },
+    "Graphics/4_itembox cursor.png": {
+      "height": 68,
+      "optional": false,
+      "recipe": null,
+      "width": 497
+    },
+    "Graphics/4_itembox.png": {
+      "height": 80,
+      "optional": false,
+      "recipe": null,
+      "width": 538
+    },
+    "Graphics/4_menu cursor.png": {
+      "height": 25,
+      "optional": false,
+      "recipe": null,
+      "width": 64
+    },
+    "Graphics/4_menu panel.png": {
+      "height": 172,
+      "optional": false,
+      "recipe": null,
+      "width": 180
+    },
+    "Graphics/5_BPM.png": {
+      "height": 67,
+      "optional": false,
+      "recipe": null,
+      "width": 187
+    },
+    "Graphics/5_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/5_bar box selected.png": {
+      "height": 150,
+      "optional": false,
+      "recipe": null,
+      "width": 640
+    },
+    "Graphics/5_bar box.png": {
+      "height": 60,
+      "optional": false,
+      "recipe": null,
+      "width": 709
+    },
+    "Graphics/5_bar other selected.png": {
+      "height": 96,
+      "optional": false,
+      "recipe": null,
+      "width": 640
+    },
+    "Graphics/5_bar other.png": {
+      "height": 48,
+      "optional": false,
+      "recipe": null,
+      "width": 620
+    },
+    "Graphics/5_bar score selected.png": {
+      "height": 96,
+      "optional": false,
+      "recipe": null,
+      "width": 640
+    },
+    "Graphics/5_bar score.png": {
+      "height": 48,
+      "optional": false,
+      "recipe": null,
+      "width": 620
+    },
+    "Graphics/5_bpm font.png": {
+      "height": 20,
+      "optional": false,
+      "recipe": null,
+      "width": 132
+    },
+    "Graphics/5_comment bar.png": {
+      "height": 114,
+      "optional": false,
+      "recipe": null,
+      "width": 720
+    },
+    "Graphics/5_default_preview.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/5_difficulty frame.png": {
+      "height": 60,
+      "optional": false,
+      "recipe": null,
+      "width": 187
+    },
+    "Graphics/5_difficulty panel.png": {
+      "height": 321,
+      "optional": false,
+      "recipe": null,
+      "width": 561
+    },
+    "Graphics/5_footer panel.png": {
+      "height": 30,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/5_graph panel drums.png": {
+      "height": 321,
+      "optional": false,
+      "recipe": null,
+      "width": 110
+    },
+    "Graphics/5_graph panel guitar bass.png": {
+      "height": 321,
+      "optional": false,
+      "recipe": null,
+      "width": 110
+    },
+    "Graphics/5_header panel.png": {
+      "height": 105,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/5_level number.png": {
+      "height": 28,
+      "optional": false,
+      "recipe": null,
+      "width": 250
+    },
+    "Graphics/5_play history panel.png": {
+      "height": 151,
+      "optional": false,
+      "recipe": null,
+      "width": 458
+    },
+    "Graphics/5_preimage default.png": {
+      "height": 400,
+      "optional": false,
+      "recipe": null,
+      "width": 400
+    },
+    "Graphics/5_preimage panel.png": {
+      "height": 313,
+      "optional": false,
+      "recipe": null,
+      "width": 430
+    },
+    "Graphics/5_scrollbar.png": {
+      "height": 504,
+      "optional": false,
+      "recipe": null,
+      "width": 12
+    },
+    "Graphics/5_skill icon.png": {
+      "height": 53,
+      "optional": false,
+      "recipe": null,
+      "width": 350
+    },
+    "Graphics/5_skill max.png": {
+      "height": 20,
+      "optional": false,
+      "recipe": null,
+      "width": 53
+    },
+    "Graphics/5_skill number.png": {
+      "height": 20,
+      "optional": false,
+      "recipe": null,
+      "width": 138
+    },
+    "Graphics/5_skill point panel.png": {
+      "height": 64,
+      "optional": false,
+      "recipe": null,
+      "width": 187
+    },
+    "Graphics/5_status panel.png": {
+      "height": 342,
+      "optional": false,
+      "recipe": null,
+      "width": 561
+    },
+    "Graphics/6_Difficulty.png": {
+      "height": 600,
+      "optional": false,
+      "recipe": null,
+      "width": 262
+    },
+    "Graphics/6_LevelNumber.png": {
+      "height": 130,
+      "optional": false,
+      "recipe": null,
+      "width": 1030
+    },
+    "Graphics/6_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/7_Bonus.png": {
+      "height": 88,
+      "optional": false,
+      "recipe": null,
+      "width": 117
+    },
+    "Graphics/7_Bonus_100.png": {
+      "height": 88,
+      "optional": false,
+      "recipe": null,
+      "width": 117
+    },
+    "Graphics/7_Danger.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/7_Difficulty.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 60
+    },
+    "Graphics/7_Drum_Progress_bg.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/7_FullCombo.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/7_Gauge.png": {
+      "height": 94,
+      "optional": false,
+      "recipe": null,
+      "width": 543
+    },
+    "Graphics/7_Graph_Gauge.png": {
+      "height": 512,
+      "optional": false,
+      "recipe": null,
+      "width": 256
+    },
+    "Graphics/7_Graph_main.png": {
+      "height": 1024,
+      "optional": false,
+      "recipe": null,
+      "width": 562
+    },
+    "Graphics/7_JacketPanel.png": {
+      "height": 347,
+      "optional": false,
+      "recipe": null,
+      "width": 349
+    },
+    "Graphics/7_JudgeStrings_XG.png": {
+      "height": 256,
+      "optional": false,
+      "recipe": null,
+      "width": 448
+    },
+    "Graphics/7_LevelNumber.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 165
+    },
+    "Graphics/7_Paret.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 558
+    },
+    "Graphics/7_RatePercent_l.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 28
+    },
+    "Graphics/7_Ratenumber_l.png": {
+      "height": 42,
+      "optional": false,
+      "recipe": null,
+      "width": 290
+    },
+    "Graphics/7_Ratenumber_s.png": {
+      "height": 26,
+      "optional": false,
+      "recipe": null,
+      "width": 220
+    },
+    "Graphics/7_SkillPanel.png": {
+      "height": 439,
+      "optional": false,
+      "recipe": null,
+      "width": 257
+    },
+    "Graphics/7_WailingFire.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 2688
+    },
+    "Graphics/7_WailingFlush.png": {
+      "height": 64,
+      "optional": false,
+      "recipe": null,
+      "width": 64
+    },
+    "Graphics/7_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/7_background.mp4": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_chips_drums.png": {
+      "height": 776,
+      "optional": false,
+      "recipe": null,
+      "width": 718
+    },
+    "Graphics/7_combobomb.png": {
+      "height": 4760,
+      "optional": false,
+      "recipe": null,
+      "width": 360
+    },
+    "Graphics/7_explosion.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_gauge_bar.jpg": {
+      "height": 31,
+      "optional": false,
+      "recipe": null,
+      "width": 504
+    },
+    "Graphics/7_gauge_bar.png": {
+      "height": 31,
+      "optional": false,
+      "recipe": null,
+      "width": 504
+    },
+    "Graphics/7_judge.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_lag numbers.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/7_lag.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_lanes_Cover_cls.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 216
+    },
+    "Graphics/7_longnotes.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_pads.png": {
+      "height": 288,
+      "optional": false,
+      "recipe": null,
+      "width": 384
+    },
+    "Graphics/7_panel_icons.jpg": {
+      "height": 768,
+      "optional": false,
+      "recipe": null,
+      "width": 42
+    },
+    "Graphics/7_pause_overlay.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_progress_fill.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/7_score numbersGD.png": {
+      "height": 78,
+      "optional": false,
+      "recipe": null,
+      "width": 360
+    },
+    "Graphics/7_shutter.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 558
+    },
+    "Graphics/7_skill max.png": {
+      "height": 42,
+      "optional": false,
+      "recipe": null,
+      "width": 100
+    },
+    "Graphics/7_stage_failed.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/8_New Record.png": {
+      "height": 12,
+      "optional": false,
+      "recipe": null,
+      "width": 90
+    },
+    "Graphics/8_background rankA.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankB.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankC.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankD.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankE.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankS.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background rankSS.png": {
+      "height": null,
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/8_background.jpg": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/8_rankA.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankB.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankC.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankD.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankE.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankS.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/8_rankSS.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": null,
+      "width": 274
+    },
+    "Graphics/Console font 2 8x16.png": {
+      "height": 256,
+      "optional": false,
+      "recipe": null,
+      "width": 256
+    },
+    "Graphics/Console font 8x16.png": {
+      "height": 256,
+      "optional": false,
+      "recipe": null,
+      "width": 256
+    },
+    "Graphics/ScreenPlayDrums chip fire_BD.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_CY.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_FT.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_HH.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_HT.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_LC.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_LP.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_LT.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_RD.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_SD.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": null,
+      "width": 128
+    },
+    "Graphics/ScreenPlayDrums chip fire_blue.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/ScreenPlayDrums chip fire_green.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/ScreenPlayDrums chip fire_purple.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/ScreenPlayDrums chip fire_red.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/ScreenPlayDrums chip fire_yellow.png": {
+      "height": null,
+      "note": "pre-existing NX gap: not present under this filename in the System/ reference pack (no equivalent asset found); optional until CX Neon art is authored and target dimensions are set",
+      "optional": true,
+      "recipe": null,
+      "width": null
+    },
+    "Graphics/ScreenPlayDrums chip star_BD.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_CY.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_FT.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_HH.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_HT.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_LC.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_LP.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_LT.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_RD.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip star_SD.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 32
+    },
+    "Graphics/ScreenPlayDrums chip wave.png": {
+      "height": 64,
+      "optional": false,
+      "recipe": null,
+      "width": 64
+    },
+    "Graphics/ScreenPlayDrums combo.png": {
+      "height": 380,
+      "optional": false,
+      "recipe": null,
+      "width": 600
+    },
+    "Graphics/ScreenPlayDrums combo_2.png": {
+      "height": 316,
+      "optional": false,
+      "recipe": null,
+      "width": 480
+    },
+    "Graphics/ScreenPlayDrums hit-bar.png": {
+      "height": 8,
+      "optional": false,
+      "recipe": null,
+      "width": 8
+    },
+    "Graphics/ScreenResult Excellent.png": {
+      "height": 190,
+      "optional": false,
+      "recipe": null,
+      "width": 520
+    },
+    "Graphics/ScreenResult StageCleared.png": {
+      "height": 190,
+      "optional": false,
+      "recipe": null,
+      "width": 600
+    },
+    "Graphics/ScreenResult fullcombo.png": {
+      "height": 190,
+      "optional": false,
+      "recipe": null,
+      "width": 520
+    },
+    "Graphics/drumkit_cymbal.png": {
+      "height": 453,
+      "optional": false,
+      "recipe": null,
+      "width": 512
+    },
+    "Graphics/drumkit_drum.png": {
+      "height": 466,
+      "optional": false,
+      "recipe": null,
+      "width": 512
+    },
+    "Graphics/drumkit_hihat.png": {
+      "height": 481,
+      "optional": false,
+      "recipe": null,
+      "width": 512
+    },
+    "Graphics/drumkit_kick.png": {
+      "height": 501,
+      "optional": false,
+      "recipe": null,
+      "width": 512
+    },
+    "Graphics/drumkit_pedal.png": {
+      "height": 512,
+      "optional": false,
+      "recipe": null,
+      "width": 398
+    },
+    "Graphics/drumkit_skeleton.png": {
+      "height": 720,
+      "optional": false,
+      "recipe": null,
+      "width": 1280
+    },
+    "Graphics/hit_fx.png": {
+      "height": 32,
+      "optional": false,
+      "recipe": null,
+      "width": 8
+    }
+  }
+}
