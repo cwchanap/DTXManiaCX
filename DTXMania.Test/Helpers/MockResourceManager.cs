@@ -18,9 +18,9 @@ namespace DTXMania.Test.Helpers
         private string _skinPath = "System/";
         private string _boxDefSkinPath = "";
         private bool _useBoxDefSkin = false;        public event EventHandler<ResourceLoadFailedEventArgs>? ResourceLoadFailed;
-        public event EventHandler<SkinChangedEventArgs>? SkinChanged;        public MockResourceManager(GraphicsDevice graphicsDevice)
+        public event EventHandler<SkinChangedEventArgs>? SkinChanged;        public MockResourceManager(GraphicsDevice? graphicsDevice = null)
         {
-            _graphicsDevice = graphicsDevice;
+            _graphicsDevice = graphicsDevice!;
             _textureCache = new CacheManager<string, ITexture>();
             _fontCache = new CacheManager<string, IFont>();
             _soundCache = new CacheManager<string, ISound>();
