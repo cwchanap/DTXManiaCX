@@ -208,7 +208,40 @@ jobs:
     
     - name: Publish
       run: dotnet publish ${{ matrix.project }} --configuration Release --output ./publish/${{ matrix.output }} --no-restore --self-contained false
-    
+
+    - name: Setup Python for pack validation
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.11'
+
+    - name: Validate CX Neon pack is complete
+      shell: bash
+      run: |
+        pip install Pillow
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
+
+    - name: Bundle CX Neon skin as the base System skin
+      shell: bash
+      run: |
+        dest="./publish/${{ matrix.output }}/System"
+        mkdir -p "$dest"
+        cp -R System/CXNeon/Graphics "$dest/Graphics"
+        cp -R System/CXNeon/Sounds "$dest/Sounds"
+        cp System/CXNeon/Theme.ini "$dest/Theme.ini"
+
+    - name: Assert no NX-derived assets in the release
+      shell: bash
+      run: |
+        # The only System content allowed in the artifact is what we just
+        # copied from System/CXNeon. Fail if anything else snuck in.
+        unexpected=$(cd "./publish/${{ matrix.output }}/System" && find . -type f | while read -r f; do
+          [ -f "$GITHUB_WORKSPACE/System/CXNeon/${f#./}" ] || echo "$f"
+        done)
+        if [ -n "$unexpected" ]; then
+          echo "Unexpected System files in release artifact:"; echo "$unexpected"; exit 1
+        fi
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
       with:
