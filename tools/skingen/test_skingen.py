@@ -71,5 +71,65 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class ComposeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.source = os.path.join(self.tmp.name, "source")
+        self.out = os.path.join(self.tmp.name, "out")
+        os.makedirs(self.source)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _manifest(self, assets):
+        path = os.path.join(self.tmp.name, "manifest.json")
+        with open(path, "w") as f:
+            json.dump({"assets": assets}, f)
+        return path
+
+    def test_copy_recipe_resizes_to_manifest_dims(self):
+        Image.new("RGBA", (100, 50), (255, 0, 0, 255)).save(os.path.join(self.source, "bg.png"))
+        manifest = self._manifest({"Graphics/bg.png": {
+            "width": 10, "height": 5, "optional": False,
+            "recipe": {"type": "copy", "source": "bg.png"}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "bg.png")) as img:
+            self.assertEqual(img.size, (10, 5))
+
+    def test_sheet_recipe_places_cells(self):
+        Image.new("RGBA", (8, 8), (0, 255, 0, 255)).save(os.path.join(self.source, "glyph.png"))
+        manifest = self._manifest({"Graphics/font.png": {
+            "width": 16, "height": 8, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"source": "glyph.png", "x": 8, "y": 0, "w": 8, "h": 8}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "font.png")) as img:
+            self.assertEqual(img.size, (16, 8))
+            self.assertEqual(img.getpixel((0, 0))[3], 0)      # left half transparent
+            self.assertEqual(img.getpixel((12, 4)), (0, 255, 0, 255))  # cell placed
+
+    def test_hueshift_recipe_derives_variant_preserving_alpha(self):
+        base = Image.new("RGBA", (4, 4), (255, 0, 0, 200))
+        base.save(os.path.join(self.source, "fire.png"))
+        manifest = self._manifest({
+            "Graphics/fire_LC.png": {"width": 4, "height": 4, "optional": False,
+                                     "recipe": {"type": "copy", "source": "fire.png"}},
+            "Graphics/fire_HH.png": {"width": 4, "height": 4, "optional": False,
+                                     "recipe": {"type": "hueshift", "base": "Graphics/fire_LC.png", "degrees": 120}},
+        })
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "fire_HH.png")) as img:
+            r, g, b, a = img.getpixel((0, 0))
+            self.assertEqual(a, 200)                # alpha preserved
+            self.assertGreater(g, r)                # red rotated ~120deg toward green
+
+    def test_compose_skips_assets_without_recipe(self):
+        manifest = self._manifest({"Graphics/todo.png": {
+            "width": 4, "height": 4, "optional": False, "recipe": None}})
+        skipped = skingen.compose(manifest, self.source, self.out)
+        self.assertEqual(skipped, ["Graphics/todo.png"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "Graphics", "todo.png")))
+
+
 if __name__ == "__main__":
     unittest.main()
