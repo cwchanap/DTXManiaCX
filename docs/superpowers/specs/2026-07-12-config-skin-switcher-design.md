@@ -69,9 +69,9 @@ reality — including after a failed switch (self-correcting UI).
 
 **Round-trip requirement:** after a restart, startup
 (`Game1.cs` `LoadContent` → `ResourceManager.SetSkinPath(config.SkinPath)`) must resolve
-to the same effective skin the in-game switch produced. The implementation plan must
-verify the persisted relative form against `ConfigManager.NormalizeConfigPaths` and the
-skin-root resolution (`AppPaths`) rather than assuming path shapes.
+to the same effective skin the in-game switch produced. Verified: the persisted
+effective absolute skin path passes through `ConfigManager.NormalizeConfigPaths` and the
+skin-root resolution (`AppPaths`) unchanged, so startup resolves the identical value.
 
 ### Live reload scope
 
@@ -96,7 +96,7 @@ Mac-safe xUnit (no GraphicsDevice), following the existing reflection-based
 
 - System category contains a "Skin" dropdown whose options come from discovery.
 - Successful switch: resource manager skin path updated **and** `Config.SkinPath`
-  persisted in relative form.
+  persisted as the effective absolute path.
 - Failed switch: config untouched, current skin unchanged.
 - `getValue` reflects the effective skin name (including "Default" for the base root).
 - Existing `SkinManager`/`SkinDiscoveryService` tests already cover discovery/validation;
