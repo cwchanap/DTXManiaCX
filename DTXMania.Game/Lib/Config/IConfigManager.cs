@@ -83,6 +83,13 @@ namespace DTXMania.Game.Lib.Config
         void SetVSync(bool value);
 
         /// <summary>
+        /// Sets the skin path (<see cref="ConfigData.SkinPath"/>, the directory the resource
+        /// manager loads skin assets from) and marks a deferred save pending. No event raised.
+        /// No-op when the value is null/whitespace or unchanged.
+        /// </summary>
+        void SetSkinPath(string configFilePath, string skinPath);
+
+        /// <summary>
         /// Flushes any deferred config changes to disk. Call this on stage exit
         /// or game shutdown to ensure pending writes are persisted.
         /// </summary>
