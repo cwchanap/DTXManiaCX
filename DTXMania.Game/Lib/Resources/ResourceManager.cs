@@ -482,7 +482,10 @@ namespace DTXMania.Game.Lib.Resources
 
         /// <summary>
         /// Finds Theme.ini using the same candidate order as texture resolution:
-        /// effective skin path, then fallback skin path.
+        /// effective skin path, then fallback skin path, then the read-only bundled
+        /// System skin root (macOS .app / portable build). This third tier is how a
+        /// release build — where CX Neon *is* System/ — picks up its Theme.ini even
+        /// when the writable app-data skin directory doesn't have one.
         /// </summary>
         private string ResolveThemeFilePath()
         {
@@ -490,7 +493,15 @@ namespace DTXMania.Game.Lib.Resources
             if (File.Exists(effectivePath))
                 return effectivePath;
 
-            return Path.Combine(_fallbackSkinPath ?? "", SkinTheme.ThemeFileName);
+            var fallbackPath = Path.Combine(_fallbackSkinPath ?? "", SkinTheme.ThemeFileName);
+            if (File.Exists(fallbackPath))
+                return fallbackPath;
+
+            var bundledPath = TryResolveFromBundledSkin(SkinTheme.ThemeFileName);
+            if (bundledPath != null && File.Exists(bundledPath))
+                return bundledPath;
+
+            return fallbackPath;
         }
 
         public void UnloadAll()
