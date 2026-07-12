@@ -18,13 +18,26 @@ order, in batches) and the validators tell you exactly what is still missing.
        python3 tools/skingen/skingen.py compose
        python3 tools/skingen/skingen.py validate
 
-   `validate` exits 0 when the pack is release-ready.
+   `validate` checks that every asset in `manifest.json` exists on disk with
+   the right dimensions — it is not the final release-readiness check. Some
+   assets the game code requires are marked `optional: true` in
+   `manifest.json` (genuine gaps in the NX reference pack), so `validate` can
+   exit 0 while the pack is still incomplete. The authoritative release gate
+   is the C# test `CxNeonPackTests`, run via `dotnet test`, which requires
+   every entry in `TexturePath.GetAllTexturePaths()` (except the background
+   video) — including the manifest-optional-but-code-referenced assets listed
+   in `PROMPTS.md`.
 4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
    `System/CXNeon/Graphics/` files together.
 
 Regenerating `PROMPTS.md` after editing `STYLE.md`/`descriptors.json`:
 
        python3 tools/skingen/skingen.py prompts
+
+Caveat: `skingen.py compose --only <pattern>` against a fresh/empty pack
+fails with `FileNotFoundError` if the pattern matches a hueshift-derived
+asset but not its base recipe (there's no dependency-aware filtering). Run a
+full `compose` first, then use `--only` for incremental rebuilds.
 
 ## Sounds (`tools/sfxgen/`)
 
