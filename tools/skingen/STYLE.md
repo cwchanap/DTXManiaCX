@@ -39,5 +39,8 @@ photorealistic, never Gitadora-glossy-metallic.
   the sheet. Never ask the generator to lay out a grid itself.
 - Digits/glyphs: geometric, Orbitron-like letterforms, uniform stroke weight,
   filled with `#F1F5F9` and a cyan outer glow.
-- Per-lane effect variants are NOT generated: one master is generated and
-  `compose` hue-shifts it (see recipes in `manifest.json`).
+- Per-lane effect variants are currently generated as individual masters (one
+  prompt per lane in `PROMPTS.md`) — no hueshift recipe is wired in
+  `manifest.json` yet. Once a hueshift recipe is added, `compose` will derive
+  the per-lane variants from a single master and they will drop out of
+  `PROMPTS.md` automatically.
