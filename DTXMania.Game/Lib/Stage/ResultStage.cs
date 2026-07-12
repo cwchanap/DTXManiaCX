@@ -54,10 +54,10 @@ namespace DTXMania.Game.Lib.Stage
         
         // Note: Using global stage transition debouncing from BaseGame
 
-        private const string StageClearSoundPath = "Sounds/Stage Clear.ogg";
-        private const string FullComboSoundPath = "Sounds/Full Combo.ogg";
-        private const string ExcellentSoundPath = "Sounds/Excellent.ogg";
-        private const string NewRecordSoundPath = "Sounds/New Record.ogg";
+        private const string StageClearSoundPath = SoundPath.StageClear;
+        private const string FullComboSoundPath = SoundPath.FullCombo;
+        private const string ExcellentSoundPath = SoundPath.Excellent;
+        private const string NewRecordSoundPath = SoundPath.NewRecord;
 
         #endregion
 
