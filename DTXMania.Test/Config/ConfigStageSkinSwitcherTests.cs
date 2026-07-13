@@ -16,19 +16,23 @@ namespace DTXMania.Test.Config
     [Trait("Category", "Unit")]
     public class ConfigStageSkinSwitcherTests : IDisposable
     {
+        private readonly string _tempBase;
         private readonly string _skinRoot;
 
         public ConfigStageSkinSwitcherTests()
         {
-            _skinRoot = Path.Combine(Path.GetTempPath(), "dtx-skinswitch-" + Guid.NewGuid().ToString("N"));
-            // The root itself is the "Default" skin; CXNeon is a custom skin under it.
+            _tempBase = Path.Combine(Path.GetTempPath(), "dtx-skinswitch-" + Guid.NewGuid().ToString("N"));
+            // The skin root's leaf must literally be "System" so SkinManager.GetSkinName maps the
+            // base root to "Default". The root itself is then the "Default" skin; CXNeon is a
+            // custom skin under it, so discovery yields the options ["Default", "CXNeon"].
+            _skinRoot = Path.Combine(_tempBase, "System");
             CreateSkin(_skinRoot);
             CreateSkin(Path.Combine(_skinRoot, "CXNeon"));
         }
 
         public void Dispose()
         {
-            try { Directory.Delete(_skinRoot, recursive: true); } catch { /* best effort */ }
+            try { Directory.Delete(_tempBase, recursive: true); } catch { /* best effort */ }
         }
 
         private static void CreateSkin(string dir)
