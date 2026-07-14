@@ -86,10 +86,18 @@ def main(argv=None):
         if not api_key:
             print("error: ELEVENLABS_API_KEY is not set", file=sys.stderr)
             return 2
+        failures = []
         for sound in load_sounds(args.manifest):
             if args.only and sound["file"] != args.only:
                 continue
-            generate_one(sound, api_key, out_dir)
+            try:
+                generate_one(sound, api_key, out_dir)
+            except Exception as exc:
+                print("error: failed to generate %s: %s" % (sound["file"], exc), file=sys.stderr)
+                failures.append(sound["file"])
+        if failures:
+            print("generate: %d sound(s) failed: %s" % (len(failures), ", ".join(failures)), file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "validate":
