@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Runtime.Serialization;
+using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -15,7 +15,7 @@ namespace DTXMania.Test.Resources
         private sealed class HeadlessResourceManager : ResourceManager
         {
             public HeadlessResourceManager()
-                : base((GraphicsDevice)FormatterServices.GetUninitializedObject(typeof(GraphicsDevice)))
+                : base((GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)))
             {
             }
         }

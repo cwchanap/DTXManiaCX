@@ -35,7 +35,7 @@ class ValidateTests(unittest.TestCase):
 
     def _manifest(self, assets):
         path = os.path.join(self.tmp.name, "manifest.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump({"assets": assets}, f)
         return path
 
@@ -83,7 +83,7 @@ class ComposeTests(unittest.TestCase):
 
     def _manifest(self, assets):
         path = os.path.join(self.tmp.name, "manifest.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump({"assets": assets}, f)
         return path
 
@@ -119,7 +119,7 @@ class ComposeTests(unittest.TestCase):
         })
         skingen.compose(manifest, self.source, self.out)
         with Image.open(os.path.join(self.out, "Graphics", "fire_HH.png")) as img:
-            r, g, b, a = img.getpixel((0, 0))
+            r, g, _b, a = img.getpixel((0, 0))
             self.assertEqual(a, 200)                # alpha preserved
             self.assertGreater(g, r)                # red rotated ~120deg toward green
 
@@ -140,7 +140,7 @@ class PromptsTests(unittest.TestCase):
 
     def _write(self, name, payload):
         path = os.path.join(self.tmp.name, name)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f)
         return path
 
@@ -153,7 +153,7 @@ class PromptsTests(unittest.TestCase):
         out = os.path.join(self.tmp.name, "PROMPTS.md")
         missing = skingen.render_prompts(manifest, descriptors, "BASE STYLE.", out)
         self.assertEqual(missing, [])
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("Graphics/a.png", text)
         self.assertIn("10x5", text)

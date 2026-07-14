@@ -31,7 +31,7 @@ PROMPTS_MD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "PROM
 
 LANE_CODES = ["LC", "HH", "LP", "SD", "HT", "BD", "LT", "FT", "CY", "RD"]
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
-KNOWN_EXTS = IMAGE_EXTS + (".mp4",)
+KNOWN_EXTS = (*IMAGE_EXTS, ".mp4")
 # Assets that exist in TexturePath but are not required in a shipping pack.
 ALWAYS_OPTIONAL = {
     "Graphics/7_background.mp4",  # background video: renderer falls back to 7_background.jpg
@@ -233,7 +233,7 @@ def render_prompts(manifest_path, descriptors_path, base_style, out_path):
         dims = ("%dx%d" % (entry["width"], entry["height"])) if entry.get("width") else "TBD by author"
         prompt = " ".join(part for part in [base_style, family_prompt, desc.get("desc", "")] if part)
         sections.append(
-            "### `%s`\n\n- **Target size:** %s (generate at 2x or larger)\n- **Prompt:**\n\n> %s\n"
+            "## `%s`\n\n- **Target size:** %s (generate at 2x or larger)\n- **Prompt:**\n\n> %s\n"
             % (rel, dims, prompt))
 
     with open(out_path, "w", encoding="utf-8") as f:
