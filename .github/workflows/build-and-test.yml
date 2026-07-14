@@ -218,6 +218,13 @@ jobs:
     - name: Validate CX Neon pack is complete
       shell: bash
       run: |
+        # Skip validation when the pack has not been produced yet (matches the
+        # vacuous-pass behavior of CxNeonPackTests). Once System/CXNeon/Graphics
+        # exists, the pack must be complete or this step fails.
+        if [ ! -d "System/CXNeon/Graphics" ]; then
+          echo "CX Neon pack not yet produced — skipping validation."
+          exit 0
+        fi
         pip install Pillow
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate

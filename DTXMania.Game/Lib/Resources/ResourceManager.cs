@@ -378,6 +378,26 @@ namespace DTXMania.Game.Lib.Resources
         /// preserved because they are not skin-specific. Stages that hold texture
         /// references reload them on their next OnActivate (the documented design).
         /// </summary>
+        /// <remarks>
+        /// Safety invariant: this method calls Dispose() directly on every cached
+        /// texture/sound, bypassing reference counting. ManagedTexture.Dispose()
+        /// unconditionally releases the underlying GPU texture regardless of the
+        /// current reference count, and RemoveReference() deliberately does NOT
+        /// auto-dispose (see ManagedTexture.RemoveReference). Decrementing refs
+        /// instead of disposing would therefore leave the old skin's textures
+        /// alive until CollectUnusedResources runs, defeating live reload.
+        ///
+        /// This is safe only because of two design invariants that callers must
+        /// preserve:
+        ///  1. Eviction runs inside SetSkinPath's lock, BEFORE OnSkinChanged is
+        ///     raised. Subscribers that react by reloading observe an empty cache.
+        ///  2. No stage draws a skin-dependent texture between SkinChanged and its
+        ///     own OnActivate (where it re-resolves and reloads). Stages holding
+        ///     disposed references must not touch them after the skin switch until
+        ///     they have reloaded. The game loop is single-threaded today, so this
+        ///     holds by construction; if draw and update ever run concurrently this
+        ///     contract must be revisited.
+        /// </remarks>
         private void EvictSkinDependentCache()
         {
             foreach (var texture in _textureCache.Values)
@@ -519,6 +539,11 @@ namespace DTXMania.Game.Lib.Resources
                 // Slow path: resolve the theme file path and parse it outside
                 // the lock so concurrent resource operations (ResolvePath, texture
                 // lookups, etc.) are not blocked on File.ReadAllLines disk I/O.
+                // Capture the effective skin path we are loading for so the second
+                // lock can detect a concurrent SetSkinPath/SetBoxDefSkinPath that
+                // invalidated the theme between the fast-path check and the publish
+                // (otherwise we would cache a stale theme for the old skin).
+                var loadedForSkinPath = GetCurrentEffectiveSkinPath();
                 var themePath = ResolveThemeFilePath();
                 var loaded = SkinTheme.Load(themePath);
 
@@ -526,9 +551,15 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     // Another caller may have loaded — or the skin may have been
                     // invalidated — between the fast-path check and now. Prefer
-                    // any already-cached instance; otherwise publish our load.
+                    // any already-cached instance. If the effective skin path
+                    // changed since we resolved the theme file, discard our load
+                    // without publishing so the next caller reloads for the new
+                    // skin.
                     if (_currentTheme != null)
                         return _currentTheme;
+                    if (!string.Equals(GetCurrentEffectiveSkinPath(), loadedForSkinPath,
+                                        StringComparison.Ordinal))
+                        return loaded;
                     _currentTheme = loaded;
                     return _currentTheme;
                 }
@@ -548,7 +579,7 @@ namespace DTXMania.Game.Lib.Resources
             if (File.Exists(effectivePath))
                 return effectivePath;
 
-            var fallbackPath = Path.Combine(_fallbackSkinPath ?? "", SkinTheme.ThemeFileName);
+            var fallbackPath = Path.Combine(_fallbackSkinPath, SkinTheme.ThemeFileName);
             if (File.Exists(fallbackPath))
                 return fallbackPath;
 
