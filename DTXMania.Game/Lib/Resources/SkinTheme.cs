@@ -43,7 +43,7 @@ namespace DTXMania.Game.Lib.Resources
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SkinTheme: Failed to read {themeFilePath}: {ex.Message}");
+                Trace.WriteLine($"SkinTheme: Failed to read {themeFilePath}: {ex.Message}");
                 return Empty;
             }
         }
@@ -54,7 +54,7 @@ namespace DTXMania.Game.Lib.Resources
             foreach (var rawLine in lines)
             {
                 var line = rawLine.Trim();
-                if (line.Length == 0 || line.StartsWith(";") || line.StartsWith("["))
+                if (line.Length == 0 || line.StartsWith(";", StringComparison.Ordinal) || line.StartsWith("[", StringComparison.Ordinal))
                     continue;
 
                 var separatorIndex = line.IndexOf('=');
@@ -74,7 +74,7 @@ namespace DTXMania.Game.Lib.Resources
                 return fallback;
 
             // #RRGGBB or #RRGGBBAA
-            if ((raw.Length != 7 && raw.Length != 9) || !raw.StartsWith("#"))
+            if ((raw.Length != 7 && raw.Length != 9) || !raw.StartsWith("#", StringComparison.Ordinal))
             {
                 WarnMalformed(key, raw);
                 return fallback;
@@ -141,7 +141,7 @@ namespace DTXMania.Game.Lib.Resources
 
         private static void WarnMalformed(string key, string raw)
         {
-            Debug.WriteLine($"SkinTheme: Malformed value for '{key}': '{raw}' — using fallback");
+            Trace.WriteLine($"SkinTheme: Malformed value for '{key}': '{raw}' — using fallback");
         }
     }
 }

@@ -472,12 +472,27 @@ namespace DTXMania.Game.Lib.Resources
         {
             get
             {
+                // Fast path: return the cached theme under the lock.
                 lock (_lockObject)
                 {
-                    if (_currentTheme == null)
-                    {
-                        _currentTheme = SkinTheme.Load(ResolveThemeFilePath());
-                    }
+                    if (_currentTheme != null)
+                        return _currentTheme;
+                }
+
+                // Slow path: resolve the theme file path and parse it outside
+                // the lock so concurrent resource operations (ResolvePath, texture
+                // lookups, etc.) are not blocked on File.ReadAllLines disk I/O.
+                var themePath = ResolveThemeFilePath();
+                var loaded = SkinTheme.Load(themePath);
+
+                lock (_lockObject)
+                {
+                    // Another caller may have loaded — or the skin may have been
+                    // invalidated — between the fast-path check and now. Prefer
+                    // any already-cached instance; otherwise publish our load.
+                    if (_currentTheme != null)
+                        return _currentTheme;
+                    _currentTheme = loaded;
                     return _currentTheme;
                 }
             }
