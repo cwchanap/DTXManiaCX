@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework;
@@ -85,6 +86,62 @@ namespace DTXMania.Test.Resources
 
             _resourceManager.SetUseBoxDefSkin(false);
             Assert.Equal(new Color(0x22, 0xD3, 0xEE), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+        }
+
+        /// <summary>
+        /// Sets a private field on the ResourceManager using reflection, searching up
+        /// the inheritance chain (the field may be declared on the base class).
+        /// </summary>
+        private static void SetPrivateField(object target, string fieldName, object? value)
+        {
+            var type = target.GetType();
+            FieldInfo? field = null;
+            while (type != null && field == null)
+            {
+                field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+                type = type.BaseType;
+            }
+            Assert.NotNull(field);
+            field!.SetValue(target, value);
+        }
+
+        [Fact]
+        public void CurrentTheme_WithFallbackSkinTheme_ShouldUseFallbackWhenEffectiveHasNone()
+        {
+            // Effective skin has no Theme.ini; the fallback skin path does.
+            // ResolveThemeFilePath should skip the effective path and load from fallback.
+            var skinWithoutTheme = Path.Combine(_testDataPath, "System", "NoTheme");
+            Directory.CreateDirectory(skinWithoutTheme);
+            _resourceManager.SetSkinPath(skinWithoutTheme);
+
+            var fallbackSkin = Path.Combine(_testDataPath, "System", "FallbackSkin");
+            Directory.CreateDirectory(fallbackSkin);
+            File.WriteAllText(Path.Combine(fallbackSkin, "Theme.ini"), "UI.Accent=#EF4444\n");
+            SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackSkin + Path.DirectorySeparatorChar);
+
+            Assert.Equal(new Color(0xEF, 0x44, 0x44), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+        }
+
+        [Fact]
+        public void CurrentTheme_WithBundledSkinTheme_ShouldUseBundledWhenNeitherEffectiveNorFallbackHasOne()
+        {
+            // Neither effective nor fallback skin has Theme.ini, but the bundled
+            // System skin root does. ResolveThemeFilePath should fall through both
+            // and load from the bundled tier.
+            var skinWithoutTheme = Path.Combine(_testDataPath, "System", "NoTheme");
+            Directory.CreateDirectory(skinWithoutTheme);
+            _resourceManager.SetSkinPath(skinWithoutTheme);
+
+            var fallbackWithoutTheme = Path.Combine(_testDataPath, "System", "FallbackEmpty");
+            Directory.CreateDirectory(fallbackWithoutTheme);
+            SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackWithoutTheme + Path.DirectorySeparatorChar);
+
+            var bundledSkin = Path.Combine(_testDataPath, "System", "BundledSkin");
+            Directory.CreateDirectory(bundledSkin);
+            File.WriteAllText(Path.Combine(bundledSkin, "Theme.ini"), "UI.Accent=#F59E0B\n");
+            SetPrivateField(_resourceManager, "_bundledSystemSkinRoot", bundledSkin + Path.DirectorySeparatorChar);
+
+            Assert.Equal(new Color(0xF5, 0x9E, 0x0B), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
         }
     }
 }

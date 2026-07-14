@@ -6,6 +6,7 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
@@ -124,6 +125,105 @@ namespace DTXMania.Test.Config
                 resourceManager.SetSkinPath(Path.Combine(_skinRoot, "CXNeon") + Path.DirectorySeparatorChar);
 
                 Assert.Equal("Skin: CXNeon", GetSkinItem(stage).GetDisplayText());
+            }
+        }
+
+        [Fact]
+        public void SwitchSkin_WithNullSkinManager_ShouldReturnEarly()
+        {
+            // Without SetupConfigItems, _skinManager is null. SwitchSkin should no-op
+            // rather than NRE.
+            var (stage, configManager, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                var skinBefore = resourceManager.GetCurrentEffectiveSkinPath();
+                var configBefore = configManager.Config.SkinPath;
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "CXNeon");
+
+                Assert.Equal(skinBefore, resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.Equal(configBefore, configManager.Config.SkinPath);
+            }
+        }
+
+        [Fact]
+        public void SetupConfigItems_WithoutResourceManager_ShouldOmitSkinItem()
+        {
+            // When the game has no ResourceManager (headless reflection path), the
+            // Skin dropdown is skipped entirely — the skinItem != null false branch.
+            var configManager = new ConfigManager();
+            configManager.Config.SystemSkinRoot = _skinRoot;
+            var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+            // ResourceManager deliberately NOT set — stays null
+
+            var stage = new ConfigStage(game);
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+
+                var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+                Assert.NotNull(categories);
+                var systemItems = categories![0].Items;
+                Assert.DoesNotContain(systemItems, i => i.Name == "Skin");
+            }
+        }
+
+        [Fact]
+        public void SwitchSkin_WithResourceManagerSet_ShouldLiveReloadTextures()
+        {
+            // Setting the private _resourceManager field simulates InitializeGraphics having
+            // run, so SwitchSkin takes the live-reload branch (ReleaseTextures + LoadSkinTextures).
+            var (stage, configManager, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+                // Simulate InitializeGraphics having set the resource manager field.
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager);
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "CXNeon");
+
+                // Skin was switched and persisted...
+                Assert.Contains("CXNeon", resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.Contains("CXNeon", configManager.Config.SkinPath);
+                // ...and the live-reload branch ran without throwing (textures stay null
+                // because MockResourceManager returns null for missing graphics device).
+                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_backgroundTexture"));
+            }
+        }
+
+        [Fact]
+        public void GetCurrentSkinName_WithUnresolvablePath_ShouldReturnDefault()
+        {
+            // When GetSkinName returns empty (e.g. a bare separator path), GetCurrentSkinName
+            // falls back to "Default".
+            var (stage, _, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+                // A path of just a separator yields no segments → GetSkinName returns "".
+                resourceManager.SetSkinPath(Path.DirectorySeparatorChar.ToString());
+
+                var name = ReflectionHelpers.InvokePrivateMethod<string>(stage, "GetCurrentSkinName");
+                Assert.Equal("Default", name);
+            }
+        }
+
+        [Fact]
+        public void OnDeactivate_AfterSetupConfigItems_ShouldDisposeSkinManager()
+        {
+            // OnDeactivate must dispose the SkinManager created by SetupConfigItems.
+            var (stage, _, _, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+                Assert.NotNull(ReflectionHelpers.GetPrivateField<SkinManager>(stage, "_skinManager"));
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+
+                Assert.Null(ReflectionHelpers.GetPrivateField<SkinManager>(stage, "_skinManager"));
             }
         }
     }
