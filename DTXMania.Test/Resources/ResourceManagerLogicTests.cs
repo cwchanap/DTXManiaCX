@@ -1135,6 +1135,44 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldEvictCacheBeforeRaisingSkinChanged()
+        {
+            // Invariant: EvictSkinDependentCache runs BEFORE OnSkinChanged so a
+            // synchronous SkinChanged handler that reloads textures observes an
+            // empty cache and resolves against the new skin, not a stale entry.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var customTexture = CreateTextureMock();
+            var defaultTexture = CreateTextureMock();
+            var customResolved = Path.GetFullPath(Path.Combine(_customSkinRoot, "Graphics", "1_background.jpg"));
+
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+                resolved == customResolved ? customTexture.Object : defaultTexture.Object;
+
+            // Prime the cache with the custom skin's texture.
+            resourceManager.LoadTexture("Graphics/1_background.jpg");
+            Assert.Single(textureCache);
+
+            // Inside the SkinChanged handler, reload the same relative path. If
+            // eviction ran before the event, the cache is empty and the reload
+            // resolves from the new (default) skin.
+            ITexture? textureObservedByHandler = null;
+            int cacheCountObservedByHandler = -1;
+            resourceManager.SkinChanged += (_, _) =>
+            {
+                cacheCountObservedByHandler = textureCache.Count;
+                textureObservedByHandler = resourceManager.LoadTexture("Graphics/1_background.jpg");
+            };
+
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            // The handler saw an already-evicted cache and got the new skin's texture.
+            Assert.Equal(0, cacheCountObservedByHandler);
+            Assert.Same(defaultTexture.Object, textureObservedByHandler);
+        }
+
+        [Fact]
         public void InitializeDefaultSkinPath_WhenValidationFails_ShouldStillUseDefaultPathAndCreateStructure()
         {
             var nonExistentRoot = Path.Combine(_testDataPath, "MissingSystem");
