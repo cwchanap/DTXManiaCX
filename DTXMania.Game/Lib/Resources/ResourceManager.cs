@@ -356,8 +356,45 @@ namespace DTXMania.Game.Lib.Resources
                 // synchronous SkinChanged handlers querying CurrentTheme observe
                 // the invalidated state and reload for the new skin.
                 _currentTheme = null;
+
+                // When the skin actually changes, evict all cached textures and sounds
+                // so subsequent LoadTexture/LoadSound calls resolve against the new skin.
+                // The cache is keyed by relative path (not resolved absolute path), so
+                // without eviction the old skin's assets would be served until a full
+                // restart. Fonts are not skin-specific (loaded from Fonts/, not Graphics/)
+                // so the font cache is intentionally preserved.
+                if (!string.Equals(oldSkinPath, _currentSkinPath, StringComparison.Ordinal))
+                {
+                    EvictSkinDependentCache();
+                }
+
                 OnSkinChanged(new SkinChangedEventArgs(oldSkinPath, _currentSkinPath));
             }
+        }
+
+        /// <summary>
+        /// Disposes and clears all cached textures and sounds. Called when the skin
+        /// path changes so subsequent loads resolve from the new skin. Fonts are
+        /// preserved because they are not skin-specific. Stages that hold texture
+        /// references reload them on their next OnActivate (the documented design).
+        /// </summary>
+        private void EvictSkinDependentCache()
+        {
+            foreach (var texture in _textureCache.Values)
+            {
+                try { texture.Dispose(); }
+                catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing texture during skin switch: {ex.Message}"); }
+            }
+            _textureCache.Clear();
+
+            foreach (var sound in _soundCache.Values)
+            {
+                try { sound.Dispose(); }
+                catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing sound during skin switch: {ex.Message}"); }
+            }
+            _soundCache.Clear();
+
+            Debug.WriteLine("ResourceManager: Evicted skin-dependent texture and sound caches");
         }
 
         public string ResolvePath(string relativePath)
