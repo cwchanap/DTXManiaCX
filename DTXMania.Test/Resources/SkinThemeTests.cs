@@ -128,5 +128,84 @@ namespace DTXMania.Test.Resources
             var theme = SkinTheme.Load(path);
             Assert.Equal(new Color(0xE8, 0x79, 0xF9), theme.GetColor("UI.Accent", Color.White));
         }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Load_WithNullOrWhitespacePath_ShouldReturnEmpty(string? path)
+        {
+            Assert.Same(SkinTheme.Empty, SkinTheme.Load(path!));
+        }
+
+        [Fact]
+        public void Load_WithUnreadableFile_ShouldReturnEmpty()
+        {
+            // File.Exists returns true for a locked file, but File.ReadAllLines throws
+            // because the stream is opened with FileShare.None. This exercises the catch
+            // branch that returns Empty on IO failure.
+            var path = Path.Combine(_tempDir, "Locked.ini");
+            File.WriteAllText(path, "UI.Accent=#22D3EE\n");
+            using var lockStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            Assert.Same(SkinTheme.Empty, SkinTheme.Load(path));
+        }
+
+        [Theory]
+        [InlineData("#FFF", 4)]   // too short
+        [InlineData("#FFFFFFF", 8)] // wrong length (not 7 or 9)
+        [InlineData("22D3EE", 6)]   // missing # prefix
+        public void GetColor_WithInvalidFormat_ShouldReturnFallback(string raw, int _)
+        {
+            var theme = SkinTheme.Parse(new[] { $"UI.Accent={raw}" });
+            Assert.Equal(Color.Magenta, theme.GetColor("UI.Accent", Color.Magenta));
+        }
+
+        [Fact]
+        public void GetColor_WithHashButNonHexDigits_ShouldReturnFallback()
+        {
+            var theme = SkinTheme.Parse(new[] { "UI.Accent=#GGGGGG" });
+            Assert.Equal(Color.Magenta, theme.GetColor("UI.Accent", Color.Magenta));
+        }
+
+        [Fact]
+        public void GetInt_WithMissingKey_ShouldReturnFallback()
+        {
+            Assert.Equal(42, SkinTheme.Empty.GetInt("Nope", 42));
+        }
+
+        [Fact]
+        public void GetFloat_WithMissingKey_ShouldReturnFallback()
+        {
+            Assert.Equal(2.5f, SkinTheme.Empty.GetFloat("Nope", 2.5f));
+        }
+
+        [Fact]
+        public void GetFloat_WithMalformedValue_ShouldReturnFallback()
+        {
+            var theme = SkinTheme.Parse(new[] { "K=not-a-float" });
+            Assert.Equal(1.0f, theme.GetFloat("K", 1.0f));
+        }
+
+        [Fact]
+        public void GetPoint_WithMissingKey_ShouldReturnFallback()
+        {
+            Assert.Equal(new Point(3, 4), SkinTheme.Empty.GetPoint("Nope", new Point(3, 4)));
+        }
+
+        [Fact]
+        public void Parse_WithLineStartingWithEquals_ShouldIgnore()
+        {
+            // separatorIndex == 0 (<= 0 guard) — a keyless "=value" line is skipped
+            var theme = SkinTheme.Parse(new[] { "=value", "K=1" });
+            Assert.Equal(1, theme.GetInt("K", 0));
+        }
+
+        [Fact]
+        public void Parse_WithLineWithoutEquals_ShouldIgnore()
+        {
+            // separatorIndex == -1 (<= 0 guard) — a bare word with no '=' is skipped
+            var theme = SkinTheme.Parse(new[] { "bareword", "K=1" });
+            Assert.Equal(1, theme.GetInt("K", 0));
+        }
     }
 }
