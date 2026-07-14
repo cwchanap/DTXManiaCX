@@ -29,3 +29,7 @@ CoverageReport*/
 screenshots/
 .worktrees/
 .superpowers/
+
+# Python
+__pycache__/
+*.py[cod]

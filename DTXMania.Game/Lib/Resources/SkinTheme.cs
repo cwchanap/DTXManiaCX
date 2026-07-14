@@ -74,7 +74,7 @@ namespace DTXMania.Game.Lib.Resources
                 return fallback;
 
             // #RRGGBB or #RRGGBBAA
-            if (raw.Length != 7 && raw.Length != 9 || !raw.StartsWith("#"))
+            if ((raw.Length != 7 && raw.Length != 9) || !raw.StartsWith("#"))
             {
                 WarnMalformed(key, raw);
                 return fallback;

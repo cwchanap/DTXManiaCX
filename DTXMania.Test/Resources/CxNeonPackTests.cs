@@ -19,7 +19,7 @@ namespace DTXMania.Test.Resources
     public class CxNeonPackTests
     {
         [Fact]
-        public void CxNeonPack_WhenPresent_ShouldContainEveryRequiredTextureAndSound()
+        public void CxNeonPack_WhenPresent_ShouldExpectEveryRequiredTextureAndSound()
         {
             var packRoot = Path.Combine(FindRepoRoot(), "System", "CXNeon");
             if (!Directory.Exists(Path.Combine(packRoot, "Graphics")))

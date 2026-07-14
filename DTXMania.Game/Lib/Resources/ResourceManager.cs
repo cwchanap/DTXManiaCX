@@ -352,8 +352,11 @@ namespace DTXMania.Game.Lib.Resources
                     Debug.WriteLine($"Warning: Skin path validation failed for {_currentSkinPath}");
                 }
 
-                OnSkinChanged(new SkinChangedEventArgs(oldSkinPath, _currentSkinPath));
+                // Invalidate the cached theme before notifying subscribers so
+                // synchronous SkinChanged handlers querying CurrentTheme observe
+                // the invalidated state and reload for the new skin.
                 _currentTheme = null;
+                OnSkinChanged(new SkinChangedEventArgs(oldSkinPath, _currentSkinPath));
             }
         }
 

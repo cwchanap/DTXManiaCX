@@ -53,7 +53,7 @@ def generate_one(sound, api_key, out_dir):
         API_URL, data=body,
         headers={"xi-api-key": api_key, "Content-Type": "application/json"})
     print("generating %s ..." % sound["file"])
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, timeout=120) as response:
         with open(raw_path, "wb") as f:
             f.write(response.read())
 
