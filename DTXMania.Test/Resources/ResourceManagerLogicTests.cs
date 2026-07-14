@@ -1023,6 +1023,118 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldEvictTextureCacheSoLiveReloadWorks()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var firstTexture = CreateTextureMock();
+            var secondTexture = CreateTextureMock();
+            var customResolved = Path.GetFullPath(Path.Combine(_customSkinRoot, "Graphics", "1_background.jpg"));
+            var defaultResolved = Path.GetFullPath(Path.Combine(_defaultSkinRoot, "Graphics", "1_background.jpg"));
+
+            var loadCallCount = 0;
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+            {
+                loadCallCount++;
+                return resolved == customResolved ? firstTexture.Object : secondTexture.Object;
+            };
+
+            // First load resolves from the custom skin.
+            var loaded1 = resourceManager.LoadTexture("Graphics/1_background.jpg");
+            Assert.Same(firstTexture.Object, loaded1);
+            Assert.Equal(1, loadCallCount);
+            Assert.Single(textureCache);
+
+            // Switch to the default skin.
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            // Cache must be evicted so the next load misses and resolves from the new skin.
+            Assert.Empty(textureCache);
+
+            // Second load should call CreateTextureCore again (cache miss) and return
+            // the new skin's texture, not the stale cached one.
+            var loaded2 = resourceManager.LoadTexture("Graphics/1_background.jpg");
+            Assert.Same(secondTexture.Object, loaded2);
+            Assert.Equal(2, loadCallCount);
+        }
+
+        [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldEvictSoundCache()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var soundCache = GetPrivateField<ConcurrentDictionary<string, ISound>>(resourceManager, "_soundCache");
+
+            // Create a sound file in both skin roots.
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Sounds"));
+            Directory.CreateDirectory(Path.Combine(_defaultSkinRoot, "Sounds"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Sounds", "test.wav"), "sound");
+            File.WriteAllText(Path.Combine(_defaultSkinRoot, "Sounds", "test.wav"), "sound");
+
+            var firstSound = CreateSoundMock();
+            var secondSound = CreateSoundMock();
+            var customResolved = Path.GetFullPath(Path.Combine(_customSkinRoot, "Sounds", "test.wav"));
+
+            var loadCallCount = 0;
+            resourceManager.CreateSoundCoreHandler = (resolved, _) =>
+            {
+                loadCallCount++;
+                return resolved == customResolved ? firstSound.Object : secondSound.Object;
+            };
+
+            var loaded1 = resourceManager.LoadSound("Sounds/test.wav");
+            Assert.Same(firstSound.Object, loaded1);
+            Assert.Equal(1, loadCallCount);
+            Assert.Single(soundCache);
+
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            Assert.Empty(soundCache);
+
+            var loaded2 = resourceManager.LoadSound("Sounds/test.wav");
+            Assert.Same(secondSound.Object, loaded2);
+            Assert.Equal(2, loadCallCount);
+        }
+
+        [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldNotEvictFontCache()
+        {
+            // Fonts are not skin-specific (loaded from Fonts/, not Graphics/) so the
+            // font cache should be preserved across skin switches.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var fontCache = GetPrivateField<ConcurrentDictionary<string, IFont>>(resourceManager, "_fontCache");
+
+            var mockFont = CreateFontMock();
+            resourceManager.CreateFontCoreHandler = (_, _, _) => mockFont.Object;
+
+            resourceManager.LoadFont("NotoSerifJP", 14);
+            Assert.Single(fontCache);
+
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            // Font cache should still have the entry.
+            Assert.Single(fontCache);
+        }
+
+        [Fact]
+        public void SetSkinPath_WhenSkinUnchanged_ShouldNotEvictCaches()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var mockTexture = CreateTextureMock();
+            resourceManager.CreateTextureCoreHandler = (_, _, _) => mockTexture.Object;
+
+            resourceManager.LoadTexture("Graphics/1_background.jpg");
+            Assert.Single(textureCache);
+
+            // Setting the same path (normalized) should not evict the cache.
+            resourceManager.SetSkinPath(_customSkinRoot);
+
+            Assert.Single(textureCache);
+        }
+
+        [Fact]
         public void InitializeDefaultSkinPath_WhenValidationFails_ShouldStillUseDefaultPathAndCreateStructure()
         {
             var nonExistentRoot = Path.Combine(_testDataPath, "MissingSystem");
