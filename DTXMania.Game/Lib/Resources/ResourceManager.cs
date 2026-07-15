@@ -650,7 +650,10 @@ namespace DTXMania.Game.Lib.Resources
             if (bundledPath != null && File.Exists(bundledPath))
                 return bundledPath;
 
-            return fallbackPath;
+            // No theme file on any tier. Return an empty string so
+            // SkinTheme.Load short-circuits on IsNullOrWhiteSpace and returns
+            // Empty without a redundant File.Exists stat on a known-missing path.
+            return string.Empty;
         }
 
         public void UnloadAll()
