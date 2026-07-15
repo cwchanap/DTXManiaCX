@@ -341,6 +341,7 @@ namespace DTXMania.Game.Lib.Resources
             if (string.IsNullOrEmpty(skinPath))
                 throw new ArgumentException("Skin path cannot be null or empty", nameof(skinPath));
 
+            SkinChangedEventArgs eventArgs;
             lock (_lockObject)
             {
                 var oldSkinPath = _currentSkinPath;
@@ -368,8 +369,15 @@ namespace DTXMania.Game.Lib.Resources
                     EvictSkinDependentCache();
                 }
 
-                OnSkinChanged(new SkinChangedEventArgs(oldSkinPath, _currentSkinPath));
+                eventArgs = new SkinChangedEventArgs(oldSkinPath, _currentSkinPath);
             }
+
+            // Raise the event outside _lockObject so subscribers that call back
+            // into ResourceManager (e.g. querying CurrentTheme, reloading
+            // textures) cannot deadlock. Eviction and theme invalidation have
+            // already completed under the lock, so handlers observe a
+            // consistent post-switch state.
+            OnSkinChanged(eventArgs);
         }
 
         /// <summary>
@@ -389,8 +397,9 @@ namespace DTXMania.Game.Lib.Resources
         ///
         /// This is safe only because of two design invariants that callers must
         /// preserve:
-        ///  1. Eviction runs inside SetSkinPath's lock, BEFORE OnSkinChanged is
-        ///     raised. Subscribers that react by reloading observe an empty cache.
+        ///  1. Eviction runs inside the caller's lock, BEFORE OnSkinChanged is
+        ///     raised (the event is raised outside the lock in SetSkinPath).
+        ///     Subscribers that react by reloading observe an empty cache.
         ///  2. No stage draws a skin-dependent texture between SkinChanged and its
         ///     own OnActivate (where it re-resolves and reloads). Stages holding
         ///     disposed references must not touch them after the skin switch until
@@ -460,6 +469,13 @@ namespace DTXMania.Game.Lib.Resources
             {
                 var oldPath = _boxDefSkinPath;
 
+                // Capture the effective skin before mutation so we can detect
+                // whether the switch actually changes which skin ResolvePath
+                // uses. The cache is keyed by relative path, so without
+                // eviction a box.def switch would serve the previous skin's
+                // textures until a restart.
+                var oldEffective = EffectiveSkinPathNoLock();
+
                 // Don't use NormalizePath for box.def skins - preserve relative paths
                 // so they resolve relative to the current working directory (song location)
                 var path = boxDefSkinPath ?? "";
@@ -491,6 +507,11 @@ namespace DTXMania.Game.Lib.Resources
                     Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
                 }
                 _currentTheme = null;
+
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.Ordinal))
+                {
+                    EvictSkinDependentCache();
+                }
             }
         }
 
@@ -502,9 +523,15 @@ namespace DTXMania.Game.Lib.Resources
         {
             lock (_lockObject)
             {
+                var oldEffective = EffectiveSkinPathNoLock();
                 _useBoxDefSkin = useBoxDefSkin;
                 Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
                 _currentTheme = null;
+
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.Ordinal))
+                {
+                    EvictSkinDependentCache();
+                }
             }
         }
 
@@ -512,7 +539,27 @@ namespace DTXMania.Game.Lib.Resources
         /// Get current effective skin path (considering box.def override)
         /// </summary>
         /// <returns>Current skin path being used</returns>
+        /// <remarks>
+        /// This read is intentionally lock-free. The game loop (update + draw)
+        /// is single-threaded today, and SetSkinPath / SetBoxDefSkinPath /
+        /// SetUseBoxDefSkin are only called from the update thread. The fields
+        /// read here (_boxDefSkinPath, _useBoxDefSkin, _currentSkinPath) are
+        /// references/bools, so reads are atomic at the CLR level. If draw and
+        /// update ever run concurrently, this method must be revisited.
+        /// </remarks>
         public string GetCurrentEffectiveSkinPath()
+        {
+            return EffectiveSkinPathNoLock();
+        }
+
+        /// <summary>
+        /// Computes the effective skin path from the current field state.
+        /// Callers must hold _lockObject when the fields may be mutating
+        /// (e.g. from SetBoxDefSkinPath / SetUseBoxDefSkin). The public
+        /// GetCurrentEffectiveSkinPath calls this without the lock — see its
+        /// remarks for the single-threaded rationale.
+        /// </summary>
+        private string EffectiveSkinPathNoLock()
         {
             if (!string.IsNullOrEmpty(_boxDefSkinPath) && _useBoxDefSkin)
             {
