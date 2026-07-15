@@ -643,11 +643,36 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets the skin path (<see cref="ConfigData.SkinPath"/>) and marks a deferred save pending. No event raised. No-op when null/whitespace or unchanged.</summary>
         public void SetSkinPath(string configFilePath, string skinPath)
         {
-            if (string.IsNullOrWhiteSpace(skinPath) || skinPath == Config.SkinPath)
+            if (string.IsNullOrWhiteSpace(skinPath))
+                return;
+
+            // Compare normalized forms rather than raw strings: the incoming
+            // value comes from ResourceManager.GetCurrentEffectiveSkinPath()
+            // (normalized with a trailing separator + forward slashes), while
+            // Config.SkinPath may have been loaded verbatim from Config.ini
+            // (no trailing separator, possibly backslashes on Windows). A raw
+            // equality check would miss equivalent paths and spuriously mark
+            // the config dirty (triggering a redundant write) on every switch.
+            if (string.Equals(NormalizeSkinPathForComparison(skinPath),
+                              NormalizeSkinPathForComparison(Config.SkinPath),
+                              StringComparison.OrdinalIgnoreCase))
                 return;
 
             Config.SkinPath = skinPath;
             MarkDirty(configFilePath);
+        }
+
+        /// <summary>
+        /// Reduces a skin path to a canonical form for equality comparison:
+        /// trims trailing directory separators and unifies separators to '/'.
+        /// Does not resolve relative paths or case — callers persist the
+        /// original string; this is only used to detect no-op writes.
+        /// </summary>
+        private static string NormalizeSkinPathForComparison(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return string.Empty;
+            return path.Replace('\\', '/').TrimEnd('/');
         }
 
         /// <inheritdoc/>
