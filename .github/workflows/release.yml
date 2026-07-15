@@ -74,21 +74,34 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Validate CX Neon pack completeness
+      - name: Setup Python for pack validation
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate CX Neon pack completeness and integrity
         shell: pwsh
         run: |
-          # The directory-existence check in the staging step below is not
-          # sufficient: some code-referenced assets are manifest-optional, so a
-          # partially generated pack would stage and ship with missing
-          # textures/sounds that render as white boxes with no fallback.
-          # CxNeonPackTests is the authoritative release gate (see
-          # tools/README.md): it requires every entry in
-          # TexturePath.GetAllTexturePaths() and SoundPath.GetAllSoundPaths().
-          # Run it before staging; the test self-skips when the pack is absent.
+          # Two complementary gates run before staging (see tools/README.md):
+          #
+          # 1. skingen/sfxgen validate — integrity: every manifest asset exists
+          #    on disk, decodes as an image/audio file, and matches the expected
+          #    dimensions. CxNeonPackTests only checks File.Exists, so without
+          #    this gate a corrupt or wrong-dimension image would ship and fall
+          #    back at runtime.
+          # 2. CxNeonPackTests — completeness: every entry in
+          #    TexturePath.GetAllTexturePaths() and SoundPath.GetAllSoundPaths()
+          #    exists, including manifest-optional-but-code-referenced assets
+          #    that skingen validate skips.
+          #
+          # Both self-skip when the pack is absent (no System/CXNeon/Graphics).
           if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
             Write-Host 'CX Neon pack not yet produced — skipping pack validation.'
             exit 0
           }
+          pip install "Pillow>=10,<12"
+          python tools/skingen/skingen.py validate
+          python tools/sfxgen/sfxgen.py validate
           dotnet test DTXMania.Test/DTXMania.Test.csproj `
             --configuration Release `
             --filter 'FullyQualifiedName~CxNeonPackTests' `
@@ -269,17 +282,34 @@ jobs:
             fi
           done
 
-      - name: Validate CX Neon pack completeness
+      - name: Setup Python for pack validation
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate CX Neon pack completeness and integrity
         run: |
-          # See the windows-installer job: CxNeonPackTests is the authoritative
-          # release gate (tools/README.md). The directory-existence check below
-          # is not sufficient because some code-referenced assets are
-          # manifest-optional. Run the inventory gate before staging; the test
-          # self-skips when the pack is absent.
+          # Two complementary gates run before staging (see tools/README.md):
+          #
+          # 1. skingen/sfxgen validate — integrity: every manifest asset exists
+          #    on disk, decodes as an image/audio file, and matches the expected
+          #    dimensions. CxNeonPackTests only checks File.Exists, so without
+          #    this gate a corrupt or wrong-dimension image would ship and fall
+          #    back at runtime.
+          # 2. CxNeonPackTests — completeness: every entry in
+          #    TexturePath.GetAllTexturePaths() and SoundPath.GetAllSoundPaths()
+          #    exists, including manifest-optional-but-code-referenced assets
+          #    that skingen validate skips.
+          #
+          # Both self-skip when the pack is absent (no System/CXNeon/Graphics).
+          # Mirrors the build-and-test.yml bundle leg.
           if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
             echo "CX Neon pack not yet produced — skipping pack validation."
             exit 0
           fi
+          pip install "Pillow>=10,<12"
+          python tools/skingen/skingen.py validate
+          python tools/sfxgen/sfxgen.py validate
           dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
             --configuration Release \
             --filter 'FullyQualifiedName~CxNeonPackTests' \
