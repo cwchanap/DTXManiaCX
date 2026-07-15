@@ -1173,6 +1173,123 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetBoxDefSkinPath_WhenEffectiveSkinChanges_ShouldEvictTextureCache()
+        {
+            // box.def skin switches must evict the cache just like SetSkinPath,
+            // because the cache is keyed by relative path and ResolvePath would
+            // otherwise serve the previous skin's textures.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var customTexture = CreateTextureMock();
+            var boxTexture = CreateTextureMock();
+            var customResolved = Path.GetFullPath(Path.Combine(_customSkinRoot, "Graphics", "current_only.png"));
+            var boxResolved = Path.GetFullPath(Path.Combine(_boxDefSkinRoot, "Graphics", "box_only.png"));
+
+            var loadCallCount = 0;
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+            {
+                loadCallCount++;
+                if (resolved == customResolved) return customTexture.Object;
+                if (resolved == boxResolved) return boxTexture.Object;
+                return CreateTextureMock().Object;
+            };
+            resourceManager.CreateFallbackTextureHandler = _ => CreateTextureMock().Object;
+
+            // Enable box.def usage first (effective skin is still custom because
+            // box.def path is empty).
+            resourceManager.SetUseBoxDefSkin(true);
+
+            // Load from the current (custom) skin.
+            resourceManager.LoadTexture("Graphics/current_only.png");
+            Assert.Single(textureCache);
+            Assert.Equal(1, loadCallCount);
+
+            // Setting the box.def path changes the effective skin → eviction.
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+
+            Assert.Empty(textureCache);
+
+            // Next load resolves from the box.def skin.
+            var loaded2 = resourceManager.LoadTexture("Graphics/box_only.png");
+            Assert.Same(boxTexture.Object, loaded2);
+            Assert.Equal(2, loadCallCount);
+        }
+
+        [Fact]
+        public void SetUseBoxDefSkin_WhenEffectiveSkinChanges_ShouldEvictTextureCache()
+        {
+            // Toggling box.def usage on when a box.def path is already set must
+            // evict the cache, since the effective skin switches from the
+            // current skin to the box.def skin.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var customTexture = CreateTextureMock();
+            var boxTexture = CreateTextureMock();
+            var customResolved = Path.GetFullPath(Path.Combine(_customSkinRoot, "Graphics", "current_only.png"));
+            var boxResolved = Path.GetFullPath(Path.Combine(_boxDefSkinRoot, "Graphics", "box_only.png"));
+
+            var loadCallCount = 0;
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+            {
+                loadCallCount++;
+                if (resolved == customResolved) return customTexture.Object;
+                if (resolved == boxResolved) return boxTexture.Object;
+                return CreateTextureMock().Object;
+            };
+            resourceManager.CreateFallbackTextureHandler = _ => CreateTextureMock().Object;
+
+            // Disable box.def usage first so the effective skin is the custom
+            // skin (the test helper defaults _useBoxDefSkin to true).
+            resourceManager.SetUseBoxDefSkin(false);
+
+            // Set box.def path while usage is disabled (effective skin = custom).
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+            Assert.Empty(textureCache);
+
+            // Load from the current (custom) skin.
+            resourceManager.LoadTexture("Graphics/current_only.png");
+            Assert.Single(textureCache);
+            Assert.Equal(1, loadCallCount);
+
+            // Enabling box.def usage changes the effective skin → eviction.
+            resourceManager.SetUseBoxDefSkin(true);
+
+            Assert.Empty(textureCache);
+
+            // Next load resolves from the box.def skin.
+            var loaded2 = resourceManager.LoadTexture("Graphics/box_only.png");
+            Assert.Same(boxTexture.Object, loaded2);
+            Assert.Equal(2, loadCallCount);
+        }
+
+        [Fact]
+        public void SetBoxDefSkinPath_WhenEffectiveSkinUnchanged_ShouldNotEvictCaches()
+        {
+            // When box.def usage is disabled, changing the box.def path does
+            // not change the effective skin, so the cache should be preserved.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            resourceManager.CreateTextureCoreHandler = (_, _, _) => CreateTextureMock().Object;
+            resourceManager.CreateFallbackTextureHandler = _ => CreateTextureMock().Object;
+
+            // Disable box.def usage so the effective skin is the custom skin
+            // (the test helper defaults _useBoxDefSkin to true).
+            resourceManager.SetUseBoxDefSkin(false);
+
+            resourceManager.LoadTexture("Graphics/current_only.png");
+            Assert.Single(textureCache);
+
+            // box.def usage is disabled, so changing the path is a no-op
+            // for the effective skin.
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+
+            Assert.Single(textureCache);
+        }
+
+        [Fact]
         public void InitializeDefaultSkinPath_WhenValidationFails_ShouldStillUseDefaultPathAndCreateStructure()
         {
             var nonExistentRoot = Path.Combine(_testDataPath, "MissingSystem");

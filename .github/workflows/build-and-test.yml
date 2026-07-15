@@ -232,6 +232,14 @@ jobs:
     - name: Bundle CX Neon skin as the base System skin
       shell: bash
       run: |
+        # Skip bundling when the pack has not been produced yet (matches the
+        # vacuous-pass behavior of CxNeonPackTests and the validate step above).
+        # Once System/CXNeon/Graphics exists, the bundle must succeed or this
+        # step fails.
+        if [ ! -d "System/CXNeon/Graphics" ]; then
+          echo "CX Neon pack not yet produced — skipping bundle."
+          exit 0
+        fi
         dest="./publish/${{ matrix.output }}/System"
         mkdir -p "$dest"
         cp -R System/CXNeon/Graphics "$dest/Graphics"
@@ -243,7 +251,13 @@ jobs:
       run: |
         # The only System content allowed in the artifact is what we just
         # copied from System/CXNeon. Fail if anything else snuck in.
-        unexpected=$(cd "./publish/${{ matrix.output }}/System" && find . -type f | while read -r f; do
+        # Skip when the CX Neon pack was not bundled (see previous step).
+        system_dir="./publish/${{ matrix.output }}/System"
+        if [ ! -d "$system_dir" ]; then
+          echo "No System dir in release artifact — skipping NX-asset assertion."
+          exit 0
+        fi
+        unexpected=$(cd "$system_dir" && find . -type f | while read -r f; do
           [ -f "$GITHUB_WORKSPACE/System/CXNeon/${f#./}" ] || echo "$f"
         done)
         if [ -n "$unexpected" ]; then
