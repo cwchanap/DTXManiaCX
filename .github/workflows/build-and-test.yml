@@ -274,8 +274,20 @@ jobs:
           echo "No System dir in release artifact — skipping NX-asset assertion."
           exit 0
         fi
+        # GITHUB_WORKSPACE is a Windows-style path (e.g. D:\a\...) on the
+        # windows-latest leg. Git Bash does not translate the backslash prefix
+        # when it is interpolated into a POSIX [ -f ] test, so every bundled
+        # CX Neon file would be reported as unexpected and the assertion would
+        # fail once the pack ships. cygpath -u converts to a POSIX path on
+        # Windows; on macOS GITHUB_WORKSPACE is already POSIX and cygpath is
+        # absent, so fall back to the raw value.
+        if command -v cygpath >/dev/null 2>&1; then
+          workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
+        else
+          workspace="$GITHUB_WORKSPACE"
+        fi
         unexpected=$(cd "$system_dir" && find . -type f | while read -r f; do
-          [ -f "$GITHUB_WORKSPACE/System/CXNeon/${f#./}" ] || echo "$f"
+          [ -f "$workspace/System/CXNeon/${f#./}" ] || echo "$f"
         done)
         if [ -n "$unexpected" ]; then
           echo "Unexpected System files in release artifact:"; echo "$unexpected"; exit 1

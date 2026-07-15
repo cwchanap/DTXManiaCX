@@ -74,6 +74,26 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
+      - name: Validate CX Neon pack completeness
+        shell: pwsh
+        run: |
+          # The directory-existence check in the staging step below is not
+          # sufficient: some code-referenced assets are manifest-optional, so a
+          # partially generated pack would stage and ship with missing
+          # textures/sounds that render as white boxes with no fallback.
+          # CxNeonPackTests is the authoritative release gate (see
+          # tools/README.md): it requires every entry in
+          # TexturePath.GetAllTexturePaths() and SoundPath.GetAllSoundPaths().
+          # Run it before staging; the test self-skips when the pack is absent.
+          if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
+            Write-Host 'CX Neon pack not yet produced — skipping pack validation.'
+            exit 0
+          }
+          dotnet test DTXMania.Test/DTXMania.Test.csproj `
+            --configuration Release `
+            --filter 'FullyQualifiedName~CxNeonPackTests' `
+            --verbosity normal
+
       - name: Stage base System skin (flatten CX Neon or fall back to repo System)
         shell: pwsh
         run: |
@@ -248,6 +268,22 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Validate CX Neon pack completeness
+        run: |
+          # See the windows-installer job: CxNeonPackTests is the authoritative
+          # release gate (tools/README.md). The directory-existence check below
+          # is not sufficient because some code-referenced assets are
+          # manifest-optional. Run the inventory gate before staging; the test
+          # self-skips when the pack is absent.
+          if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+            echo "CX Neon pack not yet produced — skipping pack validation."
+            exit 0
+          fi
+          dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+            --configuration Release \
+            --filter 'FullyQualifiedName~CxNeonPackTests' \
+            --verbosity normal
 
       - name: Stage base System skin (flatten CX Neon or fall back to repo System)
         run: |
