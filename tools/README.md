@@ -55,8 +55,16 @@ full `compose` first, then use `--only` for incremental rebuilds.
 
 ## In-game preview
 
-Point the dev build at the pack in `Config.ini`:
+Point the dev build at the pack in `Config.ini`. `ConfigManager` resolves a
+relative `SkinPath` under the app-data root (`AppPaths.GetAppDataRoot()`, e.g.
+`~/Library/Application Support/DTXManiaCX` on macOS or
+`%LOCALAPPDATA%\DTXManiaCX` on Windows) — **not** the repository checkout — so a
+relative value like `System/CXNeon/` would look in app data and miss the
+checked-out pack. Use an absolute path to the checkout instead:
 
-    SkinPath=System/CXNeon/
+    SkinPath=/Users/you/repos/DTXmaniaCX/System/CXNeon/
+
+(or copy `System/CXNeon/` into your app-data `System/` directory and keep the
+relative `SkinPath=System/CXNeon/`).
 
 Stages can be screenshotted through the dtxmania MCP flow for visual review.

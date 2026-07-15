@@ -97,6 +97,12 @@ def read_dims(file_path):
         return None, None
     try:
         with Image.open(file_path) as img:
+            # Force a full pixel decode. Image.open is lazy: it reads only the
+            # header, so img.size can be correct even when the pixel payload is
+            # truncated. Texture2D.FromStream decodes the whole image at load
+            # time and would then fail at runtime, falling back to a white box.
+            # img.load() raises on truncated/corrupt payloads.
+            img.load()
             return img.size
     except Exception:
         return None, None
@@ -140,18 +146,29 @@ def validate_pack(manifest_path, pack_root):
             if not entry.get("optional"):
                 errors.append("MISSING  %s" % rel)
             continue
-        if entry.get("width") is not None:
-            width, height = read_dims(target)
-            if width is None:
-                # The file exists but read_dims could not decode it (corrupt,
-                # truncated, or not actually an image). Without this guard the
-                # CI validator passes while the C# gate only checks file
-                # existence, letting a broken asset ship and fall back at
-                # runtime.
-                errors.append("UNREADABLE %s: exists but could not be decoded as an image" % rel)
-            elif (width, height) != (entry["width"], entry["height"]):
-                errors.append("DIMS     %s: expected %dx%d, found %dx%d"
-                              % (rel, entry["width"], entry["height"], width, height))
+        if os.path.isdir(target):
+            errors.append("NOTAFILE %s: expected a file, found a directory" % rel)
+            continue
+        # Only image assets can be decoded by Pillow; the .mp4 background is
+        # validated by existence only (the renderer falls back to a still).
+        if not target.lower().endswith(IMAGE_EXTS):
+            continue
+        # Decode every image even when the manifest has no target dimensions
+        # (width/height: null). A corrupt file with a valid header used to slip
+        # through because the dimension comparison was the only decode path,
+        # and the C# release gate checks existence only.
+        width, height = read_dims(target)
+        if width is None:
+            # The file exists but read_dims could not decode it (corrupt,
+            # truncated, or not actually an image). Without this guard the
+            # CI validator passes while the C# gate only checks file
+            # existence, letting a broken asset ship and fall back at
+            # runtime.
+            errors.append("UNREADABLE %s: exists but could not be decoded as an image" % rel)
+            continue
+        if entry.get("width") is not None and (width, height) != (entry["width"], entry["height"]):
+            errors.append("DIMS     %s: expected %dx%d, found %dx%d"
+                          % (rel, entry["width"], entry["height"], width, height))
     return errors
 
 

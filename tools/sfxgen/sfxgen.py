@@ -5,13 +5,17 @@ Commands:
   generate    Call ElevenLabs for each manifest sound (or --only NAME),
               save MP3 to raw/, then loudness-normalize + encode OGG/Vorbis
               into System/CXNeon/Sounds/. Requires ELEVENLABS_API_KEY and ffmpeg.
-  validate    Check that every manifest sound exists in the output directory.
+  validate    Check that every manifest sound exists in the output directory
+              and is a fully decodable OGG/Vorbis file (rejects missing,
+              empty, directory, and corrupt/truncated payloads that would
+              fall back to silent audio at runtime). Requires ffmpeg.
 
-Python 3.9+, stdlib only (urllib for HTTP).
+Python 3.9+, stdlib only except ffmpeg (external binary) for encode/decode.
 """
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -63,9 +67,40 @@ def generate_one(sound, api_key, out_dir):
     print("wrote %s" % ogg_path)
 
 
+def _decode_ok(path):
+    """Return True if path is a real, fully decodable audio file.
+
+    Rejects directories, empty files, and corrupt/truncated payloads. A
+    zero-byte or header-only OGG used to pass validate_pack because it only
+    checked os.path.exists; NVorbis then returns silent audio at runtime with
+    no error, so the broken asset ships unnoticed.
+    """
+    if os.path.isdir(path):
+        return False
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return False
+    if not shutil.which("ffmpeg"):
+        # Without ffmpeg we cannot verify the payload. Fail closed: report the
+        # file as unreadable rather than silently accepting it, so a missing
+        # decoder never lets a corrupt asset through the release gate.
+        return False
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30)
+    return result.returncode == 0
+
+
 def validate_pack(manifest_path, out_dir):
-    return [s["file"] for s in load_sounds(manifest_path)
-            if not os.path.exists(os.path.join(out_dir, s["file"]))]
+    """Return a list of error strings for manifest sounds that are missing or
+    not fully decodable. An empty list means the pack is sound."""
+    errors = []
+    for sound in load_sounds(manifest_path):
+        path = os.path.join(out_dir, sound["file"])
+        if not os.path.exists(path):
+            errors.append("MISSING  %s" % sound["file"])
+        elif not _decode_ok(path):
+            errors.append("UNREADABLE %s: exists but could not be decoded as audio" % sound["file"])
+    return errors
 
 
 def main(argv=None):
@@ -101,11 +136,11 @@ def main(argv=None):
         return 0
 
     if args.command == "validate":
-        missing = validate_pack(args.manifest, out_dir)
-        for name in missing:
-            print("MISSING  %s" % name)
-        print("validate: %d missing sound(s)" % len(missing))
-        return 1 if missing else 0
+        errors = validate_pack(args.manifest, out_dir)
+        for error in errors:
+            print(error)
+        print("validate: %d problem(s)" % len(errors))
+        return 1 if errors else 0
 
     return 2
 

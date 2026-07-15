@@ -88,6 +88,45 @@ class ValidateTests(unittest.TestCase):
         self.assertIn("UNREADABLE", errors[0])
         self.assertIn("broken.png", errors[0])
 
+    def test_validate_reports_truncated_image_with_valid_header(self):
+        # A PNG with a correct header but truncated pixel payload: Image.open
+        # reads the header lazily and img.size would match, but img.load()
+        # raises because the pixel data is incomplete. Texture2D.FromStream
+        # decodes the whole image and would fail at runtime.
+        src = os.path.join(self.pack, "truncated.png")
+        Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(src)
+        with open(src, "rb") as f:
+            data = f.read()
+        # Keep the PNG signature + IHDR (first 33 bytes) but drop most IDAT.
+        with open(src, "wb") as f:
+            f.write(data[:33])
+        manifest = self._manifest({"Graphics/truncated.png": {"width": 4, "height": 4, "optional": False, "recipe": None}})
+        errors = skingen.validate_pack(manifest, os.path.dirname(self.pack))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("UNREADABLE", errors[0])
+        self.assertIn("truncated.png", errors[0])
+
+    def test_validate_decodes_null_dim_image_and_flags_corrupt(self):
+        # A manifest entry with width/height: null must still be decoded: a
+        # corrupt file used to skip read_dims entirely and pass validation
+        # because the C# gate checks existence only.
+        with open(os.path.join(self.pack, "nodims_broken.png"), "wb") as f:
+            f.write(b"not a real png")
+        manifest = self._manifest({
+            "Graphics/nodims_broken.png": {"width": None, "height": None, "optional": False, "recipe": None},
+        })
+        errors = skingen.validate_pack(manifest, os.path.dirname(self.pack))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("UNREADABLE", errors[0])
+        self.assertIn("nodims_broken.png", errors[0])
+
+    def test_validate_rejects_directory_in_place_of_file(self):
+        os.makedirs(os.path.join(self.pack, "isdir.png"))
+        manifest = self._manifest({"Graphics/isdir.png": {"width": 4, "height": 2, "optional": False, "recipe": None}})
+        errors = skingen.validate_pack(manifest, os.path.dirname(self.pack))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("NOTAFILE", errors[0])
+
     def test_validate_skips_optional_and_null_dims(self):
         self._png("nodims.png", (3, 3))
         manifest = self._manifest({
