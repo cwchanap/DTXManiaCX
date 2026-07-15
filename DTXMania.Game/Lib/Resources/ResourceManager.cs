@@ -364,7 +364,13 @@ namespace DTXMania.Game.Lib.Resources
                 // without eviction the old skin's assets would be served until a full
                 // restart. Fonts are not skin-specific (loaded from Fonts/, not Graphics/)
                 // so the font cache is intentionally preserved.
-                if (!string.Equals(oldSkinPath, _currentSkinPath, StringComparison.Ordinal))
+                //
+                // OrdinalIgnoreCase matches ConfigManager.SetSkinPath's comparison so
+                // both layers agree on whether a path change is "real". A casing-only
+                // difference on a case-insensitive FS would otherwise evict the cache
+                // and raise SkinChanged here while ConfigManager treats it as a no-op,
+                // causing a restart to load the old path.
+                if (!string.Equals(oldSkinPath, _currentSkinPath, StringComparison.OrdinalIgnoreCase))
                 {
                     EvictSkinDependentCache();
                 }
@@ -381,9 +387,12 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Disposes and clears all cached textures and sounds. Called when the skin
-        /// path changes so subsequent loads resolve from the new skin. Fonts are
-        /// preserved because they are not skin-specific. Stages that hold texture
+        /// Disposes and clears all skin-dependent cached textures and sounds.
+        /// Called when the skin path changes so subsequent loads resolve from the
+        /// new skin. Fonts are preserved because they are not skin-specific
+        /// (loaded from Fonts/, not Graphics/). Color textures (keyed
+        /// "__Color|…") are also preserved because they are solid-color UI
+        /// primitives that do not vary by skin. Stages that hold texture
         /// references reload them on their next OnActivate (the documented design).
         /// </summary>
         /// <remarks>
@@ -409,13 +418,22 @@ namespace DTXMania.Game.Lib.Resources
         /// </remarks>
         private void EvictSkinDependentCache()
         {
-            var textureCount = _textureCache.Count;
-            foreach (var texture in _textureCache.Values)
+            // Color textures (keyed "__Color|…") are not skin-dependent — they
+            // are solid-color textures created by CreateTextureFromColor for UI
+            // elements. Preserve them across skin switches, same as fonts.
+            var skinDependentKeys = _textureCache.Keys
+                .Where(k => !k.StartsWith("__Color|", StringComparison.Ordinal))
+                .ToList();
+
+            var textureCount = skinDependentKeys.Count;
+            foreach (var key in skinDependentKeys)
             {
-                try { texture.Dispose(); }
-                catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing texture during skin switch: {ex.Message}"); }
+                if (_textureCache.TryRemove(key, out var texture))
+                {
+                    try { texture.Dispose(); }
+                    catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing texture during skin switch: {ex.Message}"); }
+                }
             }
-            _textureCache.Clear();
 
             var soundCount = _soundCache.Count;
             foreach (var sound in _soundCache.Values)
@@ -522,7 +540,7 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 _currentTheme = null;
 
-                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.Ordinal))
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.OrdinalIgnoreCase))
                 {
                     EvictSkinDependentCache();
                 }
@@ -544,7 +562,7 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
                 _currentTheme = null;
 
-                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.Ordinal))
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.OrdinalIgnoreCase))
                 {
                     EvictSkinDependentCache();
                 }
@@ -621,7 +639,7 @@ namespace DTXMania.Game.Lib.Resources
                     if (_currentTheme != null)
                         return _currentTheme;
                     if (!string.Equals(GetCurrentEffectiveSkinPath(), loadedForSkinPath,
-                                        StringComparison.Ordinal))
+                                        StringComparison.OrdinalIgnoreCase))
                         return loaded;
                     _currentTheme = loaded;
                     return _currentTheme;

@@ -142,8 +142,12 @@ namespace DTXMania.Test.Helpers
             // SkinChanged event and GetCurrentEffectiveSkinPath, not cache eviction
             // — eviction is covered by ResourceManagerLogicTests against the real
             // ResourceManager. If a test ever needs mock eviction, add it here.
+            //
+            // CurrentTheme is invalidated to match the real ResourceManager's
+            // _currentTheme = null on skin switch.
             var oldPath = _skinPath;
             _skinPath = skinPath ?? "System/";
+            _currentTheme = SkinTheme.Empty;
             SkinChanged?.Invoke(this, new SkinChangedEventArgs(oldPath, _skinPath));
         }
 
@@ -201,7 +205,12 @@ namespace DTXMania.Test.Helpers
             return _skinPath;
         }
 
-        public ISkinTheme CurrentTheme { get; set; } = SkinTheme.Empty;
+        private ISkinTheme _currentTheme = SkinTheme.Empty;
+        public ISkinTheme CurrentTheme
+        {
+            get => _currentTheme;
+            set => _currentTheme = value;
+        }
 
         public void UnloadAll()
         {

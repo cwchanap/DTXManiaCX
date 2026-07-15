@@ -95,5 +95,37 @@ namespace DTXMania.Test.Config
             Assert.Equal(current, manager.Config.SkinPath);
             Assert.False(File.Exists(ConfigPath)); // no-op detected, nothing written
         }
+
+        [Fact]
+        public void SkinPath_PersistedToConfigIni_ShouldRoundTripAcrossRestart()
+        {
+            // Simulate a full restart cycle: set SkinPath → flush → create a new
+            // ConfigManager (fresh process) → load the same Config.ini → verify
+            // the persisted SkinPath is read back. Then change it again, save,
+            // reload once more, and verify the second value survives too.
+            var skinA = Path.Combine(_tempDir, "System", "SkinA") + Path.DirectorySeparatorChar;
+            var skinB = Path.Combine(_tempDir, "System", "SkinB") + Path.DirectorySeparatorChar;
+
+            // --- First "session": set skin A and persist ---
+            var manager1 = new ConfigManager();
+            manager1.SetSkinPath(ConfigPath, skinA);
+            manager1.FlushPendingSave();
+            Assert.True(File.Exists(ConfigPath));
+            Assert.Contains($"SkinPath={skinA}", File.ReadAllText(ConfigPath));
+
+            // --- "Restart": new ConfigManager loads the persisted config ---
+            var manager2 = new ConfigManager();
+            manager2.LoadConfig(ConfigPath);
+            Assert.Equal(skinA, manager2.Config.SkinPath);
+
+            // --- Second "session": change to skin B and persist ---
+            manager2.SetSkinPath(ConfigPath, skinB);
+            manager2.FlushPendingSave();
+
+            // --- Second "restart": new ConfigManager loads the updated config ---
+            var manager3 = new ConfigManager();
+            manager3.LoadConfig(ConfigPath);
+            Assert.Equal(skinB, manager3.Config.SkinPath);
+        }
     }
 }

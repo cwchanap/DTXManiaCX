@@ -1117,6 +1117,34 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldNotEvictColorTextures()
+        {
+            // Color textures (keyed "__Color|…") are not skin-dependent — they
+            // are solid-color UI primitives that should survive a skin switch,
+            // same as fonts.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            var colorTexture = CreateTextureMock();
+            resourceManager.CreateColorTextureCoreHandler = (_, _) => colorTexture.Object;
+
+            var skinTexture = CreateTextureMock();
+            resourceManager.CreateTextureCoreHandler = (_, _, _) => skinTexture.Object;
+
+            // Prime the cache with one color texture and one skin-dependent texture.
+            resourceManager.CreateTextureFromColor(Color.CornflowerBlue);
+            resourceManager.LoadTexture("Graphics/1_background.jpg");
+            Assert.Equal(2, textureCache.Count);
+
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            // The color texture must still be cached; the skin-dependent one evicted.
+            var colorKey = $"__Color|{Color.CornflowerBlue.PackedValue}";
+            Assert.True(textureCache.ContainsKey(colorKey));
+            Assert.Single(textureCache); // only the color texture remains
+        }
+
+        [Fact]
         public void SetSkinPath_WhenSkinUnchanged_ShouldNotEvictCaches()
         {
             var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
