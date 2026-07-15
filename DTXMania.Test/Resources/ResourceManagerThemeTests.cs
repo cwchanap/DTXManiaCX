@@ -123,6 +123,39 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldInvalidateThemeBeforeRaisingSkinChanged()
+        {
+            // Invariant: _currentTheme is invalidated BEFORE OnSkinChanged is
+            // raised, so a synchronous SkinChanged handler that reads
+            // CurrentTheme observes the new skin's theme, not the cached one
+            // from the previous skin. Parallel to the texture-eviction
+            // ordering test in ResourceManagerLogicTests.
+            File.WriteAllText(Path.Combine(_skinRoot, "Theme.ini"), "UI.Accent=#22D3EE\n");
+            _resourceManager.SetSkinPath(_skinRoot);
+            // Prime the theme cache for the first skin.
+            Assert.Equal(new Color(0x22, 0xD3, 0xEE),
+                _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+
+            var otherSkin = Path.Combine(_testDataPath, "System", "Other");
+            Directory.CreateDirectory(otherSkin);
+            File.WriteAllText(Path.Combine(otherSkin, "Theme.ini"), "UI.Accent=#E879F9\n");
+
+            Color? colorObservedByHandler = null;
+            _resourceManager.SkinChanged += (_, _) =>
+            {
+                // Read CurrentTheme from within the handler. If theme
+                // invalidation ran before the event, this reloads for the new
+                // skin; if it didn't, the stale cached theme is returned.
+                colorObservedByHandler = _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White);
+            };
+
+            _resourceManager.SetSkinPath(otherSkin);
+
+            Assert.NotNull(colorObservedByHandler);
+            Assert.Equal(new Color(0xE8, 0x79, 0xF9), colorObservedByHandler!.Value);
+        }
+
+        [Fact]
         public void CurrentTheme_WithBundledSkinTheme_ShouldUseBundledWhenNeitherEffectiveNorFallbackHasOne()
         {
             // Neither effective nor fallback skin has Theme.ini, but the bundled
