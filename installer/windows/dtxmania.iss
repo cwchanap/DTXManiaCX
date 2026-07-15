@@ -14,6 +14,16 @@
   #error "SourceDir must be defined (pass an absolute /DSourceDir=<path\to\publish\win> to iscc; Inno Setup resolves Source: relative to this .iss file's directory)"
 #endif
 
+; SystemSkinDir is the absolute path to the base System skin shipped into
+; per-user app-data on first install. The release workflow flattens the CX Neon
+; pack (System/CXNeon/{Graphics,Sounds,Theme.ini}) into a staging dir and passes
+; it here so releases ship the layout ResourceManager expects, not the nested
+; System/CXNeon/ source tree. Defaults to the repo-root System\ for local/dev
+; builds that invoke iscc without the define.
+#ifndef SystemSkinDir
+  #define SystemSkinDir "..\..\System"
+#endif
+
 #define MyAppName      "DTXManiaCX"
 #define MyAppPublisher "DTXManiaCX"
 #define MyAppExeName   "DTXMania.Game.Windows.exe"
@@ -56,10 +66,13 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdi
 
 ; Default System skin → per-user app-data so the game finds it on first launch.
 ; {localappdata} resolves to %LOCALAPPDATA%, matching AppPaths.GetDefaultSystemSkinRoot().
-; Path is relative to this .iss file: installer\windows\..\..\System -> repo-root System\
+; SystemSkinDir is passed by the release workflow (absolute path to the flattened
+; CX Neon staging dir, or repo-root System\ for local builds). Inno Setup resolves
+; Source: relative to this .iss file's directory, so an absolute SystemSkinDir
+; avoids any cwd ambiguity in CI.
 ; onlyifdoesntexist: seed defaults on first install only; never overwrite a user's
 ; customized skin on upgrade. uninsneveruninstall: never wipe the user's skin dir.
-Source: "..\..\System\*"; DestDir: "{localappdata}\DTXManiaCX\System"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall onlyifdoesntexist
+Source: "{#SystemSkinDir}\*"; DestDir: "{localappdata}\DTXManiaCX\System"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall onlyifdoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

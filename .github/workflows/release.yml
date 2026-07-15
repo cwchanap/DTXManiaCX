@@ -74,6 +74,28 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
+      - name: Stage base System skin (flatten CX Neon or fall back to repo System)
+        shell: pwsh
+        run: |
+          # Flatten the CX Neon pack into the base System layout the
+          # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
+          # root) and pass the staging dir to Inno Setup via SystemSkinDir. When
+          # the pack has not been produced yet, fall back to the repo-root System\
+          # so releases keep shipping the legacy skin until CX Neon is ready.
+          # Mirrors the build-and-test.yml build-artifacts bundle step.
+          $dest = Join-Path $PWD 'publish\system-skin'
+          if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
+            Write-Host 'CX Neon pack not yet produced — shipping repo System\ as-is.'
+            "SYSTEM_SKIN_DIR=$(Join-Path $PWD 'System')" | Out-File -FilePath $env:GITHUB_ENV -Append
+            exit 0
+          }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -Path 'System/CXNeon/Graphics' -Destination "$dest/Graphics" -Recurse -Force
+          Copy-Item -Path 'System/CXNeon/Sounds'   -Destination "$dest/Sounds"   -Recurse -Force
+          Copy-Item -Path 'System/CXNeon/Theme.ini' -Destination "$dest/Theme.ini" -Force
+          "SYSTEM_SKIN_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Staged base System skin at: $dest"
+
       - name: Compile installer
         shell: pwsh
         run: |
@@ -81,8 +103,9 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
           # SourceDir MUST be absolute: Inno Setup resolves Source: paths relative
           # to the .iss file's directory (installer/windows/), not the ISCC cwd.
+          # SystemSkinDir is the staged base System skin (see previous step).
           $sourceDir = Join-Path $PWD "publish\win"
-          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
+          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "/DSystemSkinDir=$env:SYSTEM_SKIN_DIR" "installer\windows\dtxmania.iss"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -226,13 +249,34 @@ jobs:
             fi
           done
 
+      - name: Stage base System skin (flatten CX Neon or fall back to repo System)
+        run: |
+          # Flatten the CX Neon pack into the base System layout the
+          # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
+          # root) and pass the staging dir to build-dmg.sh. When the pack has not
+          # been produced yet, fall back to the repo-root System/ so releases keep
+          # shipping the legacy skin until CX Neon is ready. Mirrors the
+          # build-and-test.yml build-artifacts bundle step.
+          if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+            echo "CX Neon pack not yet produced — shipping repo System/ as-is."
+            echo "SYSTEM_SKIN_DIR=$PWD/System" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          dest="$PWD/publish/system-skin"
+          mkdir -p "$dest"
+          cp -R System/CXNeon/Graphics "$dest/Graphics"
+          cp -R System/CXNeon/Sounds   "$dest/Sounds"
+          cp System/CXNeon/Theme.ini   "$dest/Theme.ini"
+          echo "SYSTEM_SKIN_DIR=$dest" >> "$GITHUB_ENV"
+          echo "Staged base System skin at: $dest"
+
       - name: Build .app bundle and DMG
         run: |
           test -x ./publish/mac/runtimes/osx-arm64/MMTools/ffmpeg
           test -x ./publish/mac/runtimes/osx-arm64/MMTools/ffprobe
           bash installer/macos/build-dmg.sh \
             ./publish/mac \
-            ./System \
+            "$SYSTEM_SKIN_DIR" \
             "$APP_VERSION" \
             DTXMania.Game/Icon.ico \
             ./output

@@ -142,7 +142,14 @@ def validate_pack(manifest_path, pack_root):
             continue
         if entry.get("width") is not None:
             width, height = read_dims(target)
-            if width is not None and (width, height) != (entry["width"], entry["height"]):
+            if width is None:
+                # The file exists but read_dims could not decode it (corrupt,
+                # truncated, or not actually an image). Without this guard the
+                # CI validator passes while the C# gate only checks file
+                # existence, letting a broken asset ship and fall back at
+                # runtime.
+                errors.append("UNREADABLE %s: exists but could not be decoded as an image" % rel)
+            elif (width, height) != (entry["width"], entry["height"]):
                 errors.append("DIMS     %s: expected %dx%d, found %dx%d"
                               % (rel, entry["width"], entry["height"], width, height))
     return errors

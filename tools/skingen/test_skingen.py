@@ -76,6 +76,18 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("8x8", errors[0])
 
+    def test_validate_reports_unreadable_image(self):
+        # A file that exists but is not a decodable image must be flagged,
+        # otherwise the CI validator passes while the C# gate only checks
+        # file existence and the broken asset ships and falls back at runtime.
+        with open(os.path.join(self.pack, "broken.png"), "wb") as f:
+            f.write(b"not a real png")
+        manifest = self._manifest({"Graphics/broken.png": {"width": 4, "height": 2, "optional": False, "recipe": None}})
+        errors = skingen.validate_pack(manifest, os.path.dirname(self.pack))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("UNREADABLE", errors[0])
+        self.assertIn("broken.png", errors[0])
+
     def test_validate_skips_optional_and_null_dims(self):
         self._png("nodims.png", (3, 3))
         manifest = self._manifest({

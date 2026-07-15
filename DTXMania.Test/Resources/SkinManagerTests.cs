@@ -144,6 +144,30 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SwitchToSystemSkin_WithStaleDiscoveredSkin_ReturnsFalseAndDoesNotSwitch()
+        {
+            // Arrange: discover a skin, then delete its validation files so the
+            // cached _availableSystemSkins entry points at a directory that no
+            // longer validates. SwitchToSystemSkin must revalidate on disk and
+            // refuse the switch rather than persisting a stale path.
+            CreateTestSkin("StaleSkin");
+            System.Threading.Thread.Sleep(10);
+            _skinManager.RefreshAvailableSkins();
+            _mockResourceManager.Setup(x => x.SetSkinPath(It.IsAny<string>()));
+            _mockResourceManager.Setup(x => x.SetBoxDefSkinPath(""));
+
+            var stalePath = Path.Combine(_testSkinRoot, "StaleSkin");
+            try { Directory.Delete(stalePath, true); } catch { }
+
+            // Act
+            var result = _skinManager.SwitchToSystemSkin("StaleSkin");
+
+            // Assert
+            Assert.False(result);
+            _mockResourceManager.Verify(x => x.SetSkinPath(It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
         public void SetBoxDefSkin_WithValidPath_ReturnsTrue()
         {
             // Arrange
@@ -219,20 +243,79 @@ namespace DTXMania.Test.Resources
             Assert.Equal(expectedPath, result);
         }
 
+        #region Bundled Default Skin Discovery
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithValidatingCandidate_ReturnsNormalizedPath()
+        {
+            // Arrange: a bundled candidate that passes ValidateSkinPath (has the
+            // Graphics/1_background.jpg validation file). The leaf directory is
+            // named "System" so GetSkinName maps it to "Default", matching the
+            // real bundled layout (Contents/Resources/System).
+            var bundled = Path.Combine(_testSkinRoot, "BundledParent", "System");
+            CreateTestSkinAt(bundled);
+
+            // Act
+            var result = SkinManager.ResolveBundledSystemSkinRootFromCandidates(new[] { bundled });
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.EndsWith(Path.DirectorySeparatorChar.ToString(), result);
+            Assert.Equal("Default", SkinManager.GetSkinName(result!));
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_SkipsNonValidatingCandidate()
+        {
+            // Arrange: a candidate dir that exists but lacks validation files,
+            // followed by one that validates. The first-valid-wins iteration must
+            // skip the non-validating entry.
+            var invalid = Path.Combine(_testSkinRoot, "BundledInvalid");
+            Directory.CreateDirectory(invalid);
+            var valid = Path.Combine(_testSkinRoot, "BundledValid");
+            CreateTestSkinAt(valid);
+
+            // Act
+            var result = SkinManager.ResolveBundledSystemSkinRootFromCandidates(new[] { invalid, valid });
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Contains("BundledValid", result!);
+        }
+
+        [Fact]
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingCandidate_ReturnsNull()
+        {
+            // Arrange
+            var missing = Path.Combine(_testSkinRoot, "BundledMissing");
+
+            // Act
+            var result = SkinManager.ResolveBundledSystemSkinRootFromCandidates(new[] { missing });
+
+            // Assert
+            Assert.Null(result);
+        }
+
+        #endregion
+
         #region Helper Methods
 
         private string CreateTestSkin(string skinName)
         {
             var skinPath = Path.Combine(_testSkinRoot, skinName);
-            var graphicsPath = Path.Combine(skinPath, "Graphics");
+            CreateTestSkinAt(skinPath);
+            return skinPath + Path.DirectorySeparatorChar;
+        }
 
+        private static void CreateTestSkinAt(string skinPath)
+        {
+            var graphicsPath = Path.Combine(skinPath, "Graphics");
             Directory.CreateDirectory(graphicsPath);
 
-            // Create required validation files
+            // Create required validation files (PathValidator.IsValidSkinPath checks
+            // for at least one of Graphics/1_background.jpg or 2_background.jpg).
             File.WriteAllText(Path.Combine(graphicsPath, "1_background.jpg"), "test");
             File.WriteAllText(Path.Combine(graphicsPath, "2_background.jpg"), "test");
-
-            return skinPath + Path.DirectorySeparatorChar;
         }
 
         private string CreateInvalidTestSkin(string skinName)
