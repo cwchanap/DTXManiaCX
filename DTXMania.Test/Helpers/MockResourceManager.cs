@@ -136,6 +136,12 @@ namespace DTXMania.Test.Helpers
 
         public void SetSkinPath(string skinPath)
         {
+            // NOTE: Unlike the real ResourceManager, this mock does NOT evict its
+            // texture/sound caches on skin switch. Tests that exercise SetSkinPath
+            // (e.g. ConfigStageSkinSwitcherTests) assert switching behavior via the
+            // SkinChanged event and GetCurrentEffectiveSkinPath, not cache eviction
+            // — eviction is covered by ResourceManagerLogicTests against the real
+            // ResourceManager. If a test ever needs mock eviction, add it here.
             var oldPath = _skinPath;
             _skinPath = skinPath ?? "System/";
             SkinChanged?.Invoke(this, new SkinChangedEventArgs(oldPath, _skinPath));
