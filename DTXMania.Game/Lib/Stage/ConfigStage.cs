@@ -565,6 +565,10 @@ namespace DTXMania.Game.Lib.Stage
             // SetupConfigItems without InitializeGraphics, so _resourceManager is null there.
             if (_resourceManager != null)
             {
+                // ReleaseTextures() calls RemoveReference() on textures that
+                // EvictSkinDependentCache already disposed. RemoveReference() only
+                // decrements an int (no auto-dispose, no disposed check), so this is
+                // harmless — it just balances the ref count for bookkeeping.
                 ReleaseTextures();
                 LoadSkinTextures();
             }

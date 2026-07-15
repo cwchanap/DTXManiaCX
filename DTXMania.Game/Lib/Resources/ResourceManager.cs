@@ -409,6 +409,7 @@ namespace DTXMania.Game.Lib.Resources
         /// </remarks>
         private void EvictSkinDependentCache()
         {
+            var textureCount = _textureCache.Count;
             foreach (var texture in _textureCache.Values)
             {
                 try { texture.Dispose(); }
@@ -416,6 +417,7 @@ namespace DTXMania.Game.Lib.Resources
             }
             _textureCache.Clear();
 
+            var soundCount = _soundCache.Count;
             foreach (var sound in _soundCache.Values)
             {
                 try { sound.Dispose(); }
@@ -423,7 +425,12 @@ namespace DTXMania.Game.Lib.Resources
             }
             _soundCache.Clear();
 
-            Debug.WriteLine("ResourceManager: Evicted skin-dependent texture and sound caches");
+            // Only log when something was actually evicted. SwitchToSystemSkin
+            // calls SetBoxDefSkinPath("") then SetSkinPath, which can trigger
+            // eviction twice — the second call finds an empty cache and would
+            // produce a misleading "evicted" log line.
+            if (textureCount > 0 || soundCount > 0)
+                Debug.WriteLine($"ResourceManager: Evicted skin-dependent cache ({textureCount} textures, {soundCount} sounds)");
         }
 
         public string ResolvePath(string relativePath)

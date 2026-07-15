@@ -23,6 +23,21 @@ class ScanTexturePathTests(unittest.TestCase):
     def test_scan_marks_video_as_present(self):
         self.assertIn("Graphics/7_background.mp4", skingen.scan_texture_paths())
 
+    def test_manifest_covers_every_scanned_texture_path(self):
+        """Guard against bootstrap-forget drift: every path that
+        scan_texture_paths() discovers in TexturePath.cs must have a
+        corresponding entry in manifest.json. If a new texture constant is
+        added to TexturePath.cs but `skingen.py bootstrap` is not re-run,
+        the asset would be silently absent from the pack."""
+        manifest = skingen.load_manifest(skingen.MANIFEST_PATH)
+        manifest_keys = set(manifest.get("assets", {}).keys())
+        scanned = set(skingen.scan_texture_paths())
+        missing = sorted(scanned - manifest_keys)
+        self.assertEqual(missing, [],
+                         "TexturePath.cs has paths absent from manifest.json "
+                         "(run `python tools/skingen/skingen.py bootstrap`):\n  " +
+                         "\n  ".join(missing))
+
 
 class ValidateTests(unittest.TestCase):
     def setUp(self):
