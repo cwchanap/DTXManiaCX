@@ -547,6 +547,15 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
+            // SwitchToSystemSkin -> ResourceManager.SetSkinPath raises SkinChanged and
+            // calls EvictSkinDependentCache, which disposes every cached texture/sound.
+            // Invariant (documented on EvictSkinDependentCache): no stage may draw a
+            // skin-dependent texture between SkinChanged and its own OnActivate reload.
+            // This holds because skin switching only happens from ConfigStage — the
+            // only active stage — and we reload our own textures immediately below.
+            // Other stages reload on their next OnActivate when the player navigates
+            // to them, and their draw paths null-guard cached references.
+
             _configManager.SetSkinPath(AppPaths.GetConfigFilePath(),
                 _game.ResourceManager.GetCurrentEffectiveSkinPath());
 

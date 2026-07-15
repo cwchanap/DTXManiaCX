@@ -70,11 +70,13 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetSkinName_WithNullOrEmpty_ReturnsNull()
+        public void GetSkinName_WithNullOrEmpty_ReturnsEmptyString()
         {
-            // Act & Assert
-            Assert.Null(SkinManager.GetSkinName(null));
-            Assert.Null(SkinManager.GetSkinName(""));
+            // Act & Assert — GetSkinName normalizes all invalid inputs to ""
+            // (callers use string.IsNullOrEmpty, so null and "" are equivalent,
+            // but a single canonical empty return avoids null-propagation).
+            Assert.Equal("", SkinManager.GetSkinName(null));
+            Assert.Equal("", SkinManager.GetSkinName(""));
         }
 
         [Fact]
