@@ -19,6 +19,12 @@ namespace DTXMania.Game.Lib.Resources
 
         private readonly IResourceManager _resourceManager;
         private readonly string _systemSkinRoot; private string[] _availableSystemSkins = new string[0];
+        // The "Default" skin path selected during the last RefreshAvailableSkins:
+        // either the writable app-data System root (when it validates) or the
+        // read-only bundled System root. Pinned to the top of AvailableSystemSkins
+        // by the DiscoverSystemSkins sort comparator regardless of which root it
+        // came from, so the dropdown always lists Default first.
+        private string? _defaultSkinPath;
         private bool _disposed = false;
 
         #endregion
@@ -88,6 +94,18 @@ namespace DTXMania.Game.Lib.Resources
             if (skinPath == null)
             {
                 Debug.WriteLine($"SkinManager: Skin '{skinName}' not found");
+                return false;
+            }
+
+            // Revalidate on disk before mutating any state. The discovered list is
+            // cached at RefreshAvailableSkins time, so a skin deleted (or stripped of
+            // its validation files) between discovery and selection would otherwise
+            // pass here: SetSkinPath only logs validation failure, so without this
+            // guard ConfigStage.SwitchSkin would persist the stale path to Config.ini
+            // and force ResourceManager onto fallback assets.
+            if (!ValidateSkinPath(skinPath))
+            {
+                Debug.WriteLine($"SkinManager: Skin '{skinName}' no longer valid on disk: {skinPath}");
                 return false;
             }
 
@@ -191,56 +209,118 @@ namespace DTXMania.Game.Lib.Resources
         private string[] DiscoverSystemSkins()
         {
             var fullSystemSkinRoot = Path.GetFullPath(_systemSkinRoot);
+            var skinPaths = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (!Directory.Exists(fullSystemSkinRoot))
+            // The "Default" skin: prefer the writable app-data System root; fall
+            // back to the read-only bundled System skin (macOS .app
+            // Contents/Resources/System or portable System/ sibling) so a clean
+            // install still lists Default even when app-data is empty.
+            // ResourceManager uses the same bundled root as its ultimate fallback,
+            // so the dropdown stays consistent with runtime asset resolution.
+            string? defaultRoot = null;
+            if (ValidateSkinPath(fullSystemSkinRoot))
             {
-                Debug.WriteLine($"SkinManager: System skin root not found: {fullSystemSkinRoot}");
-                return new string[0];
+                defaultRoot = fullSystemSkinRoot;
+            }
+            else
+            {
+                defaultRoot = ResolveBundledSystemSkinRoot();
             }
 
-            var skinPaths = new List<string>();
-
-            try
+            if (defaultRoot != null)
             {
-                // Check for default skin (System/ directly)
-                if (ValidateSkinPath(_systemSkinRoot))
+                var normalizedDefault = NormalizePath(Path.GetFullPath(defaultRoot));
+                if (seen.Add(normalizedDefault))
                 {
-                    skinPaths.Add(_systemSkinRoot);
-                    Debug.WriteLine($"SkinManager: Found default skin: {_systemSkinRoot}");
+                    skinPaths.Add(normalizedDefault);
+                    Debug.WriteLine($"SkinManager: Found default skin: {normalizedDefault}");
                 }
+            }
+            _defaultSkinPath = defaultRoot != null ? NormalizePath(Path.GetFullPath(defaultRoot)) : null;
 
-                // Check for custom skins (System/{SkinName}/)
+            // Custom skins live under the writable app-data System root (the
+            // bundled root is read-only). Scan it even when it doesn't validate as
+            // a default on its own, since a user may have installed custom skins
+            // there without the default's validation files at the root.
+            if (Directory.Exists(fullSystemSkinRoot))
+            {
                 var directories = Directory.GetDirectories(fullSystemSkinRoot, "*", SearchOption.TopDirectoryOnly);
 
                 foreach (var directory in directories)
                 {
                     var normalizedPath = NormalizePath(Path.GetFullPath(directory));
 
+                    if (seen.Contains(normalizedPath))
+                        continue;
+
                     if (ValidateSkinPath(normalizedPath))
                     {
-                        skinPaths.Add(normalizedPath);
-                        Debug.WriteLine($"SkinManager: Found custom skin: {normalizedPath}");
+                        if (seen.Add(normalizedPath))
+                        {
+                            skinPaths.Add(normalizedPath);
+                            Debug.WriteLine($"SkinManager: Found custom skin: {normalizedPath}");
+                        }
                     }
                     else
                     {
                         Debug.WriteLine($"SkinManager: Invalid skin: {normalizedPath}");
                     }
                 }
+            }
 
-                // Sort for consistent ordering (default skin first)
-                skinPaths.Sort((a, b) =>
-                {
-                    if (a == _systemSkinRoot) return -1;
-                    if (b == _systemSkinRoot) return 1;
-                    return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
-                });
-            }
-            catch (Exception ex)
+            // Sort for consistent ordering (default skin first). The comparator
+            // pins _defaultSkinPath to the top regardless of whether it came from
+            // app-data or the bundled root, then falls back to ordinal name order.
+            skinPaths.Sort((a, b) =>
             {
-                Debug.WriteLine($"SkinManager: Error discovering skins: {ex.Message}");
-            }
+                if (a == _defaultSkinPath) return -1;
+                if (b == _defaultSkinPath) return 1;
+                return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+            });
 
             return skinPaths.ToArray();
+        }
+
+        /// <summary>
+        /// Resolve the read-only bundled System skin root from
+        /// <see cref="AppPaths.GetBundledSystemSkinRootCandidates"/>, returning the
+        /// first candidate that exists and validates as a skin, or null when none
+        /// does. Mirrors ResourceManager.ResolveBundledSystemSkinRoot so the
+        /// discovery list and the runtime fallback agree on the bundled root.
+        /// </summary>
+        private string? ResolveBundledSystemSkinRoot()
+        {
+            return ResolveBundledSystemSkinRootFromCandidates(AppPaths.GetBundledSystemSkinRootCandidates());
+        }
+
+        /// <summary>
+        /// Core logic of <see cref="ResolveBundledSystemSkinRoot"/> extracted as an
+        /// internal static method so the candidate iteration, validation, and
+        /// trailing-separator normalization are unit-testable without a real
+        /// assembly directory or files on disk.
+        /// </summary>
+        /// <param name="candidates">Ordered candidate bundled System skin root paths.</param>
+        /// <returns>The first existing, validating candidate with a trailing separator, or null.</returns>
+        internal static string? ResolveBundledSystemSkinRootFromCandidates(IEnumerable<string> candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (ValidateSkinPath(candidate))
+                    {
+                        var normalized = NormalizePath(Path.GetFullPath(candidate));
+                        Debug.WriteLine($"SkinManager: Using bundled System skin root: {normalized}");
+                        return normalized;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"SkinManager: Bundled candidate '{candidate}' check failed: {ex.Message}");
+                }
+            }
+            return null;
         }
         private string GetSkinPathFromName(string skinName)
         {
