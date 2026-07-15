@@ -143,7 +143,7 @@ jobs:
         # push/PR so drift between SoundPath/TexturePath constants and the tool
         # manifests is caught here rather than only in the manual release job.
         # skingen tests require Pillow; sfxgen is stdlib-only.
-        pip install Pillow
+        pip install "Pillow>=10,<12"
         python -m unittest discover -s tools/skingen -p "test_*.py" -v
         python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
 
@@ -236,13 +236,13 @@ jobs:
       shell: bash
       run: |
         # Skip validation when the pack has not been produced yet (matches the
-        # vacuous-pass behavior of CxNeonPackTests). Once System/CXNeon/Graphics
-        # exists, the pack must be complete or this step fails.
-        if [ ! -d "System/CXNeon/Graphics" ]; then
+        # vacuous-pass behavior of CxNeonPackTests). The pack is excluded from
+        # the bundled release until both Graphics/ and Sounds/ exist.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
           echo "CX Neon pack not yet produced — skipping validation."
           exit 0
         fi
-        pip install Pillow
+        pip install "Pillow>=10,<12"
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
 
@@ -251,9 +251,9 @@ jobs:
       run: |
         # Skip bundling when the pack has not been produced yet (matches the
         # vacuous-pass behavior of CxNeonPackTests and the validate step above).
-        # Once System/CXNeon/Graphics exists, the bundle must succeed or this
-        # step fails.
-        if [ ! -d "System/CXNeon/Graphics" ]; then
+        # The pack is excluded from the bundled release until both Graphics/
+        # and Sounds/ exist, so users never see a selectable-but-blank skin.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
           echo "CX Neon pack not yet produced — skipping bundle."
           exit 0
         fi

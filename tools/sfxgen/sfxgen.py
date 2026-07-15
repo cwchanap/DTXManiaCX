@@ -42,7 +42,7 @@ def postprocess_command(raw_path, ogg_path):
 
 
 def generate_one(sound, api_key, out_dir):
-    raw_path = os.path.join(RAW_DIR, sound["file"].replace(".ogg", ".mp3"))
+    raw_path = os.path.join(RAW_DIR, sound["file"].removesuffix(".ogg") + ".mp3")
     os.makedirs(RAW_DIR, exist_ok=True)
     body = json.dumps({
         "text": sound["prompt"],
