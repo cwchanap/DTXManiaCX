@@ -465,6 +465,13 @@ namespace DTXMania.Game.Lib.Resources
         /// <param name="boxDefSkinPath">Path to box.def skin directory</param>
         public void SetBoxDefSkinPath(string boxDefSkinPath)
         {
+            // NOTE: This evicts the skin-dependent cache (when the effective skin
+            // actually changes) but does NOT raise SkinChanged. box.def skins are
+            // per-song-set overrides, not a global skin selection — callers that
+            // need global reload notification subscribe to SkinChanged via
+            // SetSkinPath instead. The theme cache is always invalidated here
+            // regardless of whether eviction runs, so the next CurrentTheme read
+            // reloads for the (possibly) new effective skin.
             lock (_lockObject)
             {
                 var oldPath = _boxDefSkinPath;
@@ -521,6 +528,8 @@ namespace DTXMania.Game.Lib.Resources
         /// <param name="useBoxDefSkin">True to use box.def skins when available</param>
         public void SetUseBoxDefSkin(bool useBoxDefSkin)
         {
+            // NOTE: Same eviction-without-SkinChanged contract as SetBoxDefSkinPath
+            // above — box.def toggles are per-song-set, not a global skin change.
             lock (_lockObject)
             {
                 var oldEffective = EffectiveSkinPathNoLock();

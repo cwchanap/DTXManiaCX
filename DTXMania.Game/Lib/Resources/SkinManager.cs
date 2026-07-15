@@ -148,7 +148,7 @@ namespace DTXMania.Game.Lib.Resources
         public static string GetSkinName(string skinPathFullName)
         {
             if (string.IsNullOrEmpty(skinPathFullName))
-                return null;
+                return "";
 
             try
             {
