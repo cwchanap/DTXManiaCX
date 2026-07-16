@@ -356,9 +356,17 @@ namespace DTXMania.Game.Lib.Stage
         /// never throws for a missing/invalid texture — it returns a 1x1 white fallback (see
         /// <see cref="ResourceManager.CreateFallbackTexture"/>), which would stretch a single texel
         /// over the panel and wash the screen white. A real asset is always larger than 1x1, so a
-        /// 1x1 result is treated as "not present": its reference is released and null is returned so
+        /// 1x1 result is treated as "not present": the fallback is disposed and null is returned so
         /// each draw method takes its documented fallback-fill branch.
         /// </summary>
+        /// <remarks>
+        /// The 1x1 object returned for a missing asset is an <em>uncached</em> ManagedTexture created
+        /// fresh by <see cref="ResourceManager.CreateFallbackTexture"/> (it is never added to the
+        /// texture cache). <see cref="ManagedTexture.RemoveReference"/> deliberately does NOT
+        /// auto-dispose at zero refs (unlike ManagedSound), so calling RemoveReference here would
+        /// leak one GPU texture per missing asset on every Config re-entry / skin switch. Dispose it
+        /// explicitly instead — the object is uncached and freshly created, so nobody else holds it.
+        /// </remarks>
         private ITexture? TryLoadTexture(string path)
         {
             ITexture? texture = null;
@@ -368,7 +376,7 @@ namespace DTXMania.Game.Lib.Stage
             if (texture == null || texture.Width <= 1 || texture.Height <= 1)
             {
                 _logger.LogDebug("optional texture unavailable (asset missing or 1x1 fallback): {Path}", path);
-                texture?.RemoveReference();
+                texture?.Dispose();
                 return null;
             }
 

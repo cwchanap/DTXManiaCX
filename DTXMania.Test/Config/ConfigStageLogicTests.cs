@@ -1244,11 +1244,14 @@ public class ConfigStageLogicTests
     // fallback (see ResourceManager.CreateFallbackTexture). The old TryLoadTexture only caught
     // exceptions, so it returned that 1×1 texture, every draw took its texture branch, and a
     // single white texel was stretched across every panel (white-box rendering). The fix rejects
-    // Width/Height <= 1, releases the throwaway fallback's reference, and returns null so the
-    // documented fallback fills engage.
+    // Width/Height <= 1 and disposes the throwaway fallback so it isn't leaked, then returns
+    // null so the documented fallback fills engage. Disposing (rather than RemoveReference) is
+    // required because the 1×1 object is an UNCACHED ManagedTexture and ManagedTexture.
+    // RemoveReference deliberately does not auto-dispose at zero refs — so RemoveReference would
+    // leak one GPU texture per missing asset on every Config re-entry / skin switch.
 
     [Fact]
-    public void TryLoadTexture_WhenResourceManagerReturns1x1Fallback_ShouldReturnNullAndReleaseReference()
+    public void TryLoadTexture_WhenResourceManagerReturns1x1Fallback_ShouldReturnNullAndDisposeFallback()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
@@ -1266,8 +1269,9 @@ public class ConfigStageLogicTests
             var result = ReflectionHelpers.InvokePrivateMethod<ITexture>(stage, "TryLoadTexture", TexturePath.ConfigBackground);
 
             Assert.Null(result);
-            // The 1×1 fallback's reference must be released so it isn't leaked.
-            fallbackTexture.Verify(t => t.RemoveReference(), Times.Once);
+            // The uncached 1×1 fallback must be disposed so the GPU texture isn't
+            // leaked (RemoveReference does not auto-dispose ManagedTextures).
+            fallbackTexture.Verify(t => t.Dispose(), Times.Once);
         }
     }
 

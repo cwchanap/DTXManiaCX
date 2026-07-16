@@ -8,9 +8,11 @@ Commands:
   validate    Check that every manifest sound exists in the output directory
               and is a fully decodable OGG/Vorbis file (rejects missing,
               empty, directory, and corrupt/truncated payloads that would
-              fall back to silent audio at runtime). Requires ffmpeg.
+              fall back to silent audio at runtime). Also rejects Ogg
+              containers whose audio codec is not Vorbis (e.g. Opus), which
+              NVorbis cannot play at runtime. Requires ffmpeg and ffprobe.
 
-Python 3.9+, stdlib only except ffmpeg (external binary) for encode/decode.
+Python 3.9+, stdlib only except ffmpeg/ffprobe (external binaries) for encode/decode/probe.
 """
 import argparse
 import json
@@ -67,13 +69,38 @@ def generate_one(sound, api_key, out_dir):
     print("wrote %s" % ogg_path)
 
 
+def _codec_name(path):
+    """Return the lowercase ffmpeg codec name of the first audio stream, or None.
+
+    Uses ffprobe (shipped with full ffmpeg builds). Returns None when ffprobe is
+    unavailable or the file has no decodable audio stream, so callers can treat
+    an unknown codec as a validation failure (fail-closed).
+    """
+    if not shutil.which("ffprobe"):
+        return None
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode("utf-8", errors="replace").strip().lower() or None
+
+
 def _decode_ok(path):
-    """Return True if path is a real, fully decodable audio file.
+    """Return True if path is a real, fully decodable Ogg/Vorbis audio file.
 
     Rejects directories, empty files, and corrupt/truncated payloads. A
     zero-byte or header-only OGG used to pass validate_pack because it only
     checked os.path.exists; NVorbis then returns silent audio at runtime with
     no error, so the broken asset ships unnoticed.
+
+    The game loads .ogg exclusively through NVorbis.VorbisReader (see
+    ManagedSound.LoadOggFile), which understands ONLY the Vorbis codec. ffmpeg
+    happily decodes other Ogg-encapsulated codecs (Opus, FLAC, Speex), so the
+    codec is probed explicitly and anything other than "vorbis" is rejected —
+    otherwise an Ogg Opus asset would pass this gate and then fail (with a
+    silent fallback) the moment the game tries to play it.
     """
     if os.path.isdir(path):
         return False
@@ -87,7 +114,9 @@ def _decode_ok(path):
     result = subprocess.run(
         ["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30)
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+    return _codec_name(path) == "vorbis"
 
 
 def validate_pack(manifest_path, out_dir):

@@ -392,8 +392,13 @@ namespace DTXMania.Game.Lib.Resources
         /// new skin. Fonts are preserved because they are not skin-specific
         /// (loaded from Fonts/, not Graphics/). Color textures (keyed
         /// "__Color|…") are also preserved because they are solid-color UI
-        /// primitives that do not vary by skin. Stages that hold texture
-        /// references reload them on their next OnActivate (the documented design).
+        /// primitives that do not vary by skin. Absolute-path entries (song-local
+        /// chart previews and jacket images loaded via Path.GetFullPath) are
+        /// preserved too: they are not resolved through the skin, are held by
+        /// stages independently of the current skin, and disposing them here would
+        /// leave the owning stage with a disposed resource. Stages that hold
+        /// skin-relative texture references reload them on their next OnActivate
+        /// (the documented design).
         /// </summary>
         /// <remarks>
         /// Safety invariant: this method calls Dispose() directly on every cached
@@ -418,11 +423,18 @@ namespace DTXMania.Game.Lib.Resources
         /// </remarks>
         private void EvictSkinDependentCache()
         {
-            // Color textures (keyed "__Color|…") are not skin-dependent — they
-            // are solid-color textures created by CreateTextureFromColor for UI
-            // elements. Preserve them across skin switches, same as fonts.
+            // Preserve non-skin-dependent entries:
+            //  - "__Color|…" textures are solid-color UI primitives (CreateTextureFromColor).
+            //  - Absolute-path keys are song-local resources (chart preview audio, jacket
+            //    images) loaded via LoadSound/LoadTexture with Path.GetFullPath specifically
+            //    to bypass skin resolution (see SongSelectionStage.LoadPreviewSound). They are
+            //    held by stages independently of the current skin, so disposing them here
+            //    would leave the stage with a disposed ISound/ITexture and silently break
+            //    preview playback. Skin assets are always cached under RELATIVE keys
+            //    (TexturePath/SoundPath constants), so they are still evicted below.
             var skinDependentKeys = _textureCache.Keys
-                .Where(k => !k.StartsWith("__Color|", StringComparison.Ordinal))
+                .Where(k => !k.StartsWith("__Color|", StringComparison.Ordinal)
+                            && !IsAbsolutePathCacheKey(k))
                 .ToList();
 
             var textureCount = skinDependentKeys.Count;
@@ -435,13 +447,18 @@ namespace DTXMania.Game.Lib.Resources
                 }
             }
 
-            var soundCount = _soundCache.Count;
-            foreach (var sound in _soundCache.Values)
+            var soundKeys = _soundCache.Keys
+                .Where(k => !IsAbsolutePathCacheKey(k))
+                .ToList();
+            var soundCount = soundKeys.Count;
+            foreach (var key in soundKeys)
             {
-                try { sound.Dispose(); }
-                catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing sound during skin switch: {ex.Message}"); }
+                if (_soundCache.TryRemove(key, out var sound))
+                {
+                    try { sound.Dispose(); }
+                    catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing sound during skin switch: {ex.Message}"); }
+                }
             }
-            _soundCache.Clear();
 
             // Only log when something was actually evicted. SwitchToSystemSkin
             // calls SetBoxDefSkinPath("") then SetSkinPath, which can trigger
@@ -449,6 +466,21 @@ namespace DTXMania.Game.Lib.Resources
             // produce a misleading "evicted" log line.
             if (textureCount > 0 || soundCount > 0)
                 Debug.WriteLine($"ResourceManager: Evicted skin-dependent cache ({textureCount} textures, {soundCount} sounds)");
+        }
+
+        /// <summary>
+        /// Determines whether a cache key refers to an absolute (song-local) path
+        /// rather than a skin-relative one. Texture keys are "&lt;path&gt;|&lt;bool&gt;";
+        /// sound keys are the bare path. Skin assets are always cached under
+        /// relative keys (TexturePath/SoundPath constants), so a rooted path
+        /// indicates a song-local resource (chart preview, jacket) that a stage
+        /// still holds and which must therefore survive a skin switch.
+        /// </summary>
+        private static bool IsAbsolutePathCacheKey(string key)
+        {
+            int separator = key.LastIndexOf('|');
+            string pathPart = separator >= 0 ? key.Substring(0, separator) : key;
+            return Path.IsPathRooted(pathPart);
         }
 
         public string ResolvePath(string relativePath)
