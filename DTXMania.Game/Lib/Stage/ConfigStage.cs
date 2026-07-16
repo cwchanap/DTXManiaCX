@@ -45,6 +45,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private IConfigManager _configManager;
         private SkinManager? _skinManager;
+        // Full path of the active skin when it lives outside the discovered system
+        // skins (e.g. a dev-preview checkout). Captured during SetupConfigItems so
+        // SwitchSkin can re-select it by path after the player switches away —
+        // SwitchToSystemSkin only resolves names from the discovered system set.
+        private string? _externalSkinPath;
         private List<ConfigCategory> _categories = new();
         private int _currentCategoryIndex = 0;
         private bool _focusOnMenu = true;
@@ -461,11 +466,16 @@ namespace DTXMania.Game.Lib.Stage
                 // this, DropdownConfigItem defaults to index 0 while displaying the
                 // external skin, so the first left/right action silently switches away
                 // and the external skin cannot be re-selected from the dropdown.
-                var currentSkinName = GetCurrentSkinName();
+                _externalSkinPath = null;
+                var currentSkinPath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
+                var currentSkinName = SkinManager.GetSkinName(currentSkinPath);
                 if (!string.IsNullOrEmpty(currentSkinName)
                     && !skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase))
                 {
                     skinNames.Insert(0, currentSkinName);
+                    // Remember the full path so SwitchSkin can re-select this skin by
+                    // path — SwitchToSystemSkin only resolves discovered system skins.
+                    _externalSkinPath = currentSkinPath;
                 }
 
                 var skinNamesArray = skinNames.ToArray();
@@ -563,7 +573,21 @@ namespace DTXMania.Game.Lib.Stage
             if (_skinManager == null)
                 return;
 
-            if (!_skinManager.SwitchToSystemSkin(skinName))
+            // SwitchToSystemSkin resolves names only from the discovered system skins.
+            // When the dropdown includes an external skin (one living outside the
+            // system skin root), fall back to switching by its captured full path.
+            bool switched;
+            if (_externalSkinPath != null
+                && string.Equals(SkinManager.GetSkinName(_externalSkinPath), skinName, StringComparison.OrdinalIgnoreCase))
+            {
+                switched = _skinManager.SwitchToSkinPath(_externalSkinPath);
+            }
+            else
+            {
+                switched = _skinManager.SwitchToSystemSkin(skinName);
+            }
+
+            if (!switched)
             {
                 _logger.LogWarning("Skin switch to '{SkinName}' failed; keeping the current skin", skinName);
                 return;

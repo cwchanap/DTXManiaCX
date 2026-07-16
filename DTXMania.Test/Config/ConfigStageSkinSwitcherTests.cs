@@ -226,5 +226,44 @@ namespace DTXMania.Test.Config
                 Assert.Null(ReflectionHelpers.GetPrivateField<SkinManager>(stage, "_skinManager"));
             }
         }
+
+        [Fact]
+        public void SwitchSkin_WithExternalSkin_ShouldBeReSelectableAfterSwitchingAway()
+        {
+            // When the active skin lives outside the discovered system skins (e.g. a
+            // dev-preview checkout), SetupConfigItems inserts its leaf name into the
+            // dropdown. Switching to a system skin and back must re-select the external
+            // skin by its captured path, since SwitchToSystemSkin only resolves names
+            // from the discovered system set.
+            var externalSkinDir = Path.Combine(_tempBase, "ExternalSkins", "DevPreview");
+            CreateSkin(externalSkinDir);
+            var externalSkinPath = externalSkinDir + Path.DirectorySeparatorChar;
+
+            var (stage, configManager, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                // Start on the external skin so SetupConfigItems treats it as current.
+                resourceManager.SetSkinPath(externalSkinPath);
+                configManager.Config.SkinPath = externalSkinPath;
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+
+                // The external skin name must appear in the dropdown options.
+                var item = GetSkinItem(stage);
+                Assert.Contains("DevPreview", item.GetDisplayText());
+
+                // Switch away to the discovered "Default" system skin.
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "Default");
+                Assert.Contains("System", resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.DoesNotContain("DevPreview", resourceManager.GetCurrentEffectiveSkinPath());
+
+                // Switch back to the external skin by name — must resolve via the
+                // captured path, not the discovered system set.
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "DevPreview");
+                var effective = resourceManager.GetCurrentEffectiveSkinPath();
+                Assert.Contains("DevPreview", effective);
+                Assert.Equal(effective, configManager.Config.SkinPath);
+            }
+        }
     }
 }
