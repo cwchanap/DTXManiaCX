@@ -19,7 +19,7 @@ import re
 import sys
 import tempfile
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TEXTUREPATH_CS = os.path.join(REPO_ROOT, "DTXMania.Game", "Lib", "Resources", "TexturePath.cs")
@@ -182,6 +182,90 @@ def _save(img, target, width, height):
         img.save(target)
 
 
+# Procedural cell rendering (STYLE.md tokens). Text can never come from the AI
+# generator (every prompt says "no text"), so text-bearing sheet cells — menu
+# labels, judge strings, digits — are rendered here with the bundled Orbitron.
+LABEL_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "Orbitron.ttf")
+TEXT_FILL = (0xF1, 0xF5, 0xF9)       # UI.TextPrimary
+ACCENT_CYAN = "#22D3EE"              # UI.Accent
+_CELL_SUPERSAMPLE = 4
+
+
+def _hex_rgb(value):
+    value = value.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _load_label_font(pixel_size):
+    font = ImageFont.truetype(LABEL_FONT_PATH, pixel_size)
+    try:
+        font.set_variation_by_name("Bold")
+    except OSError:
+        pass  # static font or FreeType without variation support
+    return font
+
+
+def _render_text_cell(w, h, text, accent_hex):
+    """Neon label: near-white glyph core over a soft accent-colored halo,
+    centered in a transparent cell. Rendered supersampled, then downsized."""
+    s = _CELL_SUPERSAMPLE
+    big_w, big_h = w * s, h * s
+    img = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    measure = ImageDraw.Draw(img)
+
+    pad = max(2 * s, big_w // 24)
+    size = max(5, int(big_h * 0.60))
+    font = _load_label_font(size)
+    while size > 5:
+        left, top, right, bottom = measure.textbbox((0, 0), text, font=font)
+        if right - left <= big_w - 2 * pad and bottom - top <= int(big_h * 0.9):
+            break
+        size = int(size * 0.9)
+        font = _load_label_font(size)
+
+    left, top, right, bottom = measure.textbbox((0, 0), text, font=font)
+    tx = (big_w - (right - left)) // 2 - left
+    ty = (big_h - (bottom - top)) // 2 - top
+
+    glow = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).text((tx, ty), text, font=font, fill=_hex_rgb(accent_hex) + (255,))
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=2 * s))
+    img.alpha_composite(glow)
+    img.alpha_composite(glow)  # second pass strengthens the halo
+    ImageDraw.Draw(img).text((tx, ty), text, font=font, fill=TEXT_FILL + (255,))
+    return img.resize((w, h), Image.LANCZOS)
+
+
+def _render_cursor_cell(w, h, accent_hex):
+    """Selection bar: glowing accent frame around a translucent tint. The
+    cursor row is drawn over the label row in-game, so the fill must stay
+    see-through for the label to remain readable."""
+    s = _CELL_SUPERSAMPLE
+    big_w, big_h = w * s, h * s
+    accent = _hex_rgb(accent_hex)
+    inset = 2 * s
+    radius = 5 * s
+    box = [inset, inset, big_w - 1 - inset, big_h - 1 - inset]
+
+    frame = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    ImageDraw.Draw(frame).rounded_rectangle(box, radius=radius, outline=accent + (255,), width=2 * s)
+    img = frame.filter(ImageFilter.GaussianBlur(radius=2 * s))  # halo
+    ImageDraw.Draw(img).rounded_rectangle(box, radius=radius, fill=accent + (56,))
+    img.alpha_composite(frame)  # crisp frame back on top of fill + halo
+    return img.resize((w, h), Image.LANCZOS)
+
+
+def _build_sheet_cell(cell, source_root):
+    if "source" in cell:
+        with Image.open(os.path.join(source_root, cell["source"])) as glyph:
+            return glyph.convert("RGBA").resize((cell["w"], cell["h"]), Image.LANCZOS)
+    if "text" in cell:
+        return _render_text_cell(cell["w"], cell["h"], cell["text"], cell.get("color", ACCENT_CYAN))
+    if cell.get("cursor"):
+        return _render_cursor_cell(cell["w"], cell["h"], cell.get("color", ACCENT_CYAN))
+    raise ValueError(f"sheet cell needs 'source', 'text' or 'cursor': {cell}")
+
+
 def _hueshift(img, degrees):
     offset = int(degrees / 360.0 * 255) % 256
     rgba = img.convert("RGBA")
@@ -218,9 +302,8 @@ def compose(manifest_path, source_root, pack_root, only=None):
         elif recipe["type"] == "sheet":
             canvas = Image.new("RGBA", (entry["width"], entry["height"]), (0, 0, 0, 0))
             for cell in recipe["cells"]:
-                with Image.open(os.path.join(source_root, cell["source"])) as glyph:
-                    glyph = glyph.convert("RGBA").resize((cell["w"], cell["h"]), Image.LANCZOS)
-                    canvas.paste(glyph, (cell["x"], cell["y"]), glyph)
+                glyph = _build_sheet_cell(cell, source_root)
+                canvas.paste(glyph, (cell["x"], cell["y"]), glyph)
             _save(canvas, target, entry.get("width"), entry.get("height"))
 
     # Pass 2: hueshift derivations.

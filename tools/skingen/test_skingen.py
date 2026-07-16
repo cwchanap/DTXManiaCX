@@ -196,6 +196,53 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(skipped, ["Graphics/todo.png"])
         self.assertFalse(os.path.exists(os.path.join(self.out, "Graphics", "todo.png")))
 
+    def test_sheet_text_cell_renders_label_glyphs(self):
+        # Text-bearing sheet cells (menu labels, judge strings) are rendered
+        # procedurally by compose — the AI generator is prompted "no text" so
+        # glyphs can never come from generated art.
+        manifest = self._manifest({"Graphics/menu.png": {
+            "width": 128, "height": 32, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"text": "EXIT", "x": 0, "y": 0, "w": 128, "h": 32}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "menu.png")) as img:
+            self.assertEqual(img.size, (128, 32))
+            alphas = [img.getpixel((x, y))[3] for x in range(128) for y in range(32)]
+            # glyph core pixels are essentially opaque...
+            self.assertGreater(max(alphas), 200)
+            # ...but the cell is not a filled box: most of it stays transparent
+            self.assertGreater(sum(1 for a in alphas if a < 16), len(alphas) // 2)
+
+    def test_sheet_text_cell_honours_accent_color(self):
+        manifest = self._manifest({"Graphics/judge.png": {
+            "width": 96, "height": 24, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"text": "MISS", "x": 0, "y": 0, "w": 96, "h": 24, "color": "#EF4444"}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "judge.png")) as img:
+            # the glow halo must carry the requested accent: some visible pixel
+            # is red-dominant (default cyan accent would be blue/green-dominant)
+            red_dominant = any(
+                px[0] > px[2] + 20 and px[3] > 60
+                for px in img.getdata())
+            self.assertTrue(red_dominant)
+
+    def test_sheet_cursor_cell_keeps_center_translucent(self):
+        # The title menu cursor row is drawn ON TOP of the label row at the
+        # same position, so its fill must stay translucent enough for the
+        # label text to read through, while the frame stays clearly visible.
+        manifest = self._manifest({"Graphics/cursor.png": {
+            "width": 128, "height": 32, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"cursor": True, "x": 0, "y": 0, "w": 128, "h": 32}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "cursor.png")) as img:
+            center_alpha = img.getpixel((64, 16))[3]
+            self.assertGreater(center_alpha, 0)      # tint present
+            self.assertLess(center_alpha, 160)       # label still reads through
+            edge_alpha = max(img.getpixel((x, 16))[3] for x in range(6))
+            self.assertGreater(edge_alpha, center_alpha)  # frame brighter than fill
+
 
 class PromptsTests(unittest.TestCase):
     def setUp(self):

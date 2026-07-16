@@ -103,6 +103,16 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Color SelectedValueText = new(168, 52, 0);
         // Selected menu label sits on the light menu cursor bar -> dark text.
         private static readonly Color SelectedMenuText = new(36, 24, 72);
+
+        /// <summary>
+        /// Resolves the item value text color against the active skin theme. The NX defaults
+        /// assume the itembox art's white value cell; skins with dark value cells (CX Neon)
+        /// override via Theme.ini — the specific Config.* key wins, then the generic palette
+        /// token, then the NX default so themeless skins stay byte-identical.
+        /// </summary>
+        internal static Color ResolveValueColor(bool selected, ISkinTheme theme) => selected
+            ? theme.GetColor("Config.SelectedValueText", theme.GetColor("UI.Accent", SelectedValueText))
+            : theme.GetColor("Config.ValueText", theme.GetColor("UI.TextPrimary", ValueDarkText));
         // Description title sits on the panel's white upper region -> dark text.
         private static readonly Color DescriptionTitleText = new(24, 24, 32);
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
@@ -1003,8 +1013,9 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         var displayValue = TextHelper.TruncateToWidth(value, ConfigUILayout.ItemValueMaxWidth, font);
                         var valuePos = ConfigUILayout.ItemValuePos(rowTopY);
-                        // Every value (including the nav ">" marker) sits on the itembox white cell -> dark.
-                        Color valueColor = selected ? SelectedValueText : ValueDarkText;
+                        // Every value (including the nav ">" marker) sits on the itembox value cell;
+                        // the color is theme-resolved (NX: dark on the white cell, CX Neon: light on dark).
+                        Color valueColor = ResolveValueColor(selected, _resourceManager?.CurrentTheme ?? SkinTheme.Empty);
                         font.DrawString(_spriteBatch, displayValue, valuePos, valueColor);
                     }
                 }
