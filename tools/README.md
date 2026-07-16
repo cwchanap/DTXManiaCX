@@ -6,6 +6,23 @@ order, in batches) and the validators tell you exactly what is still missing.
 
 ## Images (`tools/skingen/`)
 
+### Fast path (procedural baseline + optional AI polish)
+
+A complete original pack can be produced without an external image API:
+
+```bash
+python3 tools/skingen/generate_source.py   # writes source/ + wires copy recipes
+python3 tools/skingen/skingen.py compose   # builds System/CXNeon/Graphics/
+python3 tools/skingen/skingen.py validate
+```
+
+`generate_source.py` draws neon UI chrome, bitmap fonts, chips, ranks, and
+effects to STYLE.md tokens and NX sheet metrics. Stage backgrounds can be
+replaced later by dropping AI art over the matching files in
+`tools/skingen/source/` (e.g. `2_background.jpg`) and re-running `compose`.
+
+### Delegated AI path
+
 1. Open `tools/skingen/PROMPTS.md`. Each entry has the target file, the target
    size, and a complete prompt for your image-generation AI.
 2. Generate each image (at 2x target size or larger) and save it under
@@ -53,18 +70,37 @@ full `compose` first, then use `--only` for incremental rebuilds.
 4. Commit `System/CXNeon/Sounds/*.ogg` (raw MP3s in `tools/sfxgen/raw/` are
    gitignored intermediates).
 
-## In-game preview
+## In-game preview / skin switcher
 
-Point the dev build at the pack in `Config.ini`. `ConfigManager` resolves a
-relative `SkinPath` under the app-data root (`AppPaths.GetAppDataRoot()`, e.g.
-`~/Library/Application Support/DTXManiaCX` on macOS or
-`%LOCALAPPDATA%\DTXManiaCX` on Windows) — **not** the repository checkout — so a
-relative value like `System/CXNeon/` would look in app data and miss the
-checked-out pack. Use an absolute path to the checkout instead:
+The config **Skin** dropdown discovers skins under `SystemSkinRoot` (default:
+app-data `System/`). Subfolders that pass validation (`Graphics/1_background.jpg`
+or `2_background.jpg`) appear as named skins (e.g. `CXNeon`); the root itself
+is `Default`.
 
-    SkinPath=/Users/you/repos/DTXmaniaCX/System/CXNeon/
+Recommended local install (symlink so pack regenerations are live):
 
-(or copy `System/CXNeon/` into your app-data `System/` directory and keep the
-relative `SkinPath=System/CXNeon/`).
+```bash
+# macOS / Linux
+just install-cx-neon
+
+# or manually:
+APP_SYSTEM="$HOME/Library/Application Support/DTXManiaCX/System"   # macOS
+# APP_SYSTEM="$LOCALAPPDATA/DTXManiaCX/System"                     # Windows
+ln -sfn "$(pwd)/System/CXNeon" "$APP_SYSTEM/CXNeon"
+```
+
+Then either:
+
+- Launch the game and switch **System → Skin → CXNeon** in the config menu
+  (persists `SkinPath` on change), or
+- Set `SkinPath` in `Config.ini` to the installed folder:
+
+      SkinPath=/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/
+
+`ConfigManager` resolves a *relative* `SkinPath` under the app-data root — not
+the repository checkout — so a bare `System/CXNeon/` only works after the pack
+is installed under app-data as above. An absolute path to the worktree
+`System/CXNeon/` also works for a one-off preview, but that skin only stays in
+the dropdown while it is the active external skin.
 
 Stages can be screenshotted through the dtxmania MCP flow for visual review.

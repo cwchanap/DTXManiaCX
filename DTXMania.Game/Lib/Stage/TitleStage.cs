@@ -25,6 +25,7 @@ namespace DTXMania.Game.Lib.Stage
         private ITexture _menuTexture;
         private Texture2D _whitePixel;
         private IResourceManager _resourceManager;
+        private IFont _versionFont;
 
         // Sound effects
         private ISound _cursorMoveSound;
@@ -95,6 +96,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Load menu texture (DTXManiaNX uses 2_menu.png)
             LoadMenuTexture();
+
+            // Load the font used for the version info line
+            LoadVersionFont();
 
             // Load sound effects
             LoadSoundEffects();
@@ -216,6 +220,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 _menuTexture?.RemoveReference();
+                _versionFont?.RemoveReference();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
                 _resourceManager?.Dispose();
@@ -226,6 +231,7 @@ namespace DTXMania.Game.Lib.Stage
                 _gameStartSound?.Dispose();
 
                 _menuTexture = null;
+                _versionFont = null;
                 _whitePixel = null;
                 _spriteBatch = null;
                 _resourceManager = null;
@@ -266,6 +272,20 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load menu texture: {ex.Message}");
                 // Menu texture is optional - we'll draw text-based menu as fallback
+            }
+        }
+
+        private void LoadVersionFont()
+        {
+            try
+            {
+                _versionFont = _resourceManager.LoadFont("NotoSerifJP", 14);
+                System.Diagnostics.Debug.WriteLine("Loaded version info font using ResourceManager");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load version font: {ex.Message}");
+                // Font is optional - version info simply isn't drawn without it
             }
         }
 
@@ -578,11 +598,8 @@ namespace DTXMania.Game.Lib.Stage
             // Draw version info in top-left corner (DTXMania pattern)
             const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
 
-            if (_whitePixel != null)
-            {
-                // Draw text as rectangles (since we don't have fonts loaded yet)
-                DrawTextRect(2, 2, versionText.Length * 8, 16, Color.White);
-            }
+            // Optional: skipped entirely when the font isn't available.
+            _versionFont?.DrawString(_spriteBatch, versionText, new Vector2(4, 4), Color.White);
         }
 
         private void DrawMenu()

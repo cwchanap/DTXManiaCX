@@ -12,6 +12,54 @@ mcp_project     := "MCP/MCP.csproj"
 default:
     @just --list
 
+# ── CX Neon skin (local install for config switcher) ──────────
+
+# Symlink System/CXNeon into app-data System/ so the in-game Skin dropdown
+# lists "CXNeon". Regenerating Graphics/ under the worktree is live.
+# Optional: just install-cx-neon activate=true  to also set SkinPath in Config.ini
+install-cx-neon activate="false":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_skin="$(pwd)/System/CXNeon"
+    if [[ ! -d "$repo_skin/Graphics" ]]; then
+      echo "error: $repo_skin/Graphics missing — run skingen first" >&2
+      exit 1
+    fi
+    if [[ "{{ os() }}" == "windows" ]]; then
+      app_system="${LOCALAPPDATA}/DTXManiaCX/System"
+    else
+      app_system="${HOME}/Library/Application Support/DTXManiaCX/System"
+    fi
+    mkdir -p "$app_system"
+    target="$app_system/CXNeon"
+    if [[ -e "$target" && ! -L "$target" ]]; then
+      echo "error: $target exists and is not a symlink — move it aside first" >&2
+      exit 1
+    fi
+    rm -f "$target"
+    ln -sfn "$repo_skin" "$target"
+    echo "installed: $target -> $repo_skin"
+    if [[ "{{ activate }}" == "true" ]]; then
+      config="$(dirname "$app_system")/Config.ini"
+      skin_path="$target/"
+      if [[ -f "$config" ]]; then
+        if grep -q '^SkinPath=' "$config"; then
+          # portable in-place edit
+          tmp="$(mktemp)"
+          sed "s|^SkinPath=.*|SkinPath=${skin_path}|" "$config" > "$tmp" && mv "$tmp" "$config"
+        else
+          printf '\nSkinPath=%s\n' "$skin_path" >> "$config"
+        fi
+        if grep -q '^LastUsedSkin=' "$config"; then
+          tmp="$(mktemp)"
+          sed "s|^LastUsedSkin=.*|LastUsedSkin=CXNeon|" "$config" > "$tmp" && mv "$tmp" "$config"
+        fi
+        echo "activated: SkinPath=$skin_path in $config"
+      else
+        echo "warning: $config not found — launch the game once to create it, then re-run with activate=true" >&2
+      fi
+    fi
+
 # ── Run the game ──────────────────────────────────────────────
 
 # Run the game on the current platform (macOS/Linux -> Mac, Windows -> Windows)
