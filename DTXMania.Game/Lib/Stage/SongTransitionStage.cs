@@ -214,9 +214,11 @@ namespace DTXMania.Game.Lib.Stage
                 _nowLoadingSound?.RemoveReference();
                 _nowLoadingSound = null;
             }
-            
-            _currentPhase = StagePhase.Inactive;
-            
+
+            // base.Deactivate() sets _currentPhase = Inactive after running
+            // CleanupStageBackground(). Setting it here first would short-circuit
+            // the base guard and skip background cleanup, leaving a disposed
+            // texture reference after a skin switch.
             base.Deactivate();
         }
 
