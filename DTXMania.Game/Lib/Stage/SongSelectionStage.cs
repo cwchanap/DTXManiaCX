@@ -417,9 +417,13 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up stage RenderTargets
             CleanupStageRenderTargets();
 
-            _currentPhase = StagePhase.Inactive;
             _selectionPhase = SongSelectionPhase.Inactive;
 
+            // base.Deactivate() sets _currentPhase = Inactive after running
+            // CleanupStageBackground(). Setting it here first would short-circuit
+            // the base guard (if (_currentPhase == Inactive) return) and skip
+            // background cleanup, leaving a disposed texture reference that breaks
+            // SongSelect after a skin switch from Config.
             base.Deactivate();
         }
 
