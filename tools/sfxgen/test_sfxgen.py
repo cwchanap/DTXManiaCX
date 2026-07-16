@@ -7,31 +7,37 @@ import sfxgen
 
 
 def _make_silent_ogg(path, seconds=0.1):
-    """Generate a tiny valid Ogg file via ffmpeg for test fixtures.
+    """Generate a tiny valid Ogg/Vorbis file via ffmpeg for test fixtures.
 
-    Prefers libvorbis (the encoder the production pipeline uses); falls back
-    to libopus in an Ogg container when libvorbis is unavailable (some minimal
-    ffmpeg builds omit it). Either way the result is a valid Ogg file that
-    ffmpeg can fully decode, which is what _decode_ok verifies. Raises
-    unittest.SkipTest only when neither encoder nor ffmpeg is present.
+    The production pipeline always encodes with libvorbis (see
+    sfxgen.postprocess_command), and the game plays .ogg through NVorbis, which
+    only understands Vorbis — so test fixtures must be Vorbis too. Raises
+    unittest.SkipTest when ffmpeg or libvorbis is unavailable.
     """
-    candidates = (
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
-         "-t", str(seconds), "-c:a", "libvorbis", "-qscale:a", "0", path],
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
-         "-t", str(seconds), "-c:a", "libopus", "-b:a", "32k", path],
-    )
-    last_error = None
-    for cmd in candidates:
-        try:
-            subprocess.run(cmd, check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            last_error = exc
-            continue
-    raise unittest.SkipTest(
-        "ffmpeg with libvorbis or libopus is required to build OGG fixtures: %s" % last_error)
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
+           "-t", str(seconds), "-c:a", "libvorbis", "-qscale:a", "0", path]
+    try:
+        subprocess.run(cmd, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise unittest.SkipTest(
+            "ffmpeg with libvorbis is required to build OGG/Vorbis fixtures: %s" % exc)
+
+
+def _make_silent_ogg_opus(path, seconds=0.1):
+    """Generate a tiny valid Ogg/Opus file via ffmpeg, or skip if unavailable.
+
+    Used to verify the validator rejects non-Vorbis Ogg containers that ffmpeg
+    can decode but NVorbis cannot play at runtime.
+    """
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
+           "-t", str(seconds), "-c:a", "libopus", "-b:a", "32k", path]
+    try:
+        subprocess.run(cmd, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise unittest.SkipTest(
+            "ffmpeg with libopus is required for this test: %s" % exc)
 
 
 class ManifestTests(unittest.TestCase):
@@ -84,6 +90,18 @@ class ValidateTests(unittest.TestCase):
             # Valid OGG header bytes but truncated/corrupt payload.
             with open(os.path.join(tmp, "Decide.ogg"), "wb") as f:
                 f.write(b"OggS\x00\x02\x00\x00" + b"\x00" * 64)
+            errors = sfxgen.validate_pack(sfxgen.MANIFEST_PATH, tmp)
+        unreadable = [e for e in errors if e.startswith("UNREADABLE") and "Decide.ogg" in e]
+        self.assertEqual(len(unreadable), 1)
+        self.assertFalse(any("Move.ogg" in e for e in errors))
+
+    def test_validate_rejects_ogg_opus_not_vorbis(self):
+        # ffmpeg decodes Ogg Opus fine, but the game plays .ogg via NVorbis,
+        # which only supports Vorbis. validate must reject Opus (and any other
+        # non-Vorbis Ogg codec) so it never ships a silent-at-runtime asset.
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_silent_ogg(os.path.join(tmp, "Move.ogg"))
+            _make_silent_ogg_opus(os.path.join(tmp, "Decide.ogg"))
             errors = sfxgen.validate_pack(sfxgen.MANIFEST_PATH, tmp)
         unreadable = [e for e in errors if e.startswith("UNREADABLE") and "Decide.ogg" in e]
         self.assertEqual(len(unreadable), 1)

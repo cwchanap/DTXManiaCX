@@ -100,6 +100,9 @@ jobs:
             exit 0
           }
           pip install "Pillow>=10,<12"
+          # sfxgen validate decodes every OGG via ffmpeg; ensure a full
+          # OGG/Vorbis-capable build is on PATH before running it.
+          choco install ffmpeg -y --no-progress
           python tools/skingen/skingen.py validate
           python tools/sfxgen/sfxgen.py validate
           dotnet test DTXMania.Test/DTXMania.Test.csproj `
@@ -308,6 +311,11 @@ jobs:
             exit 0
           fi
           pip install "Pillow>=10,<12"
+          # sfxgen validate decodes every OGG via ffmpeg. The arm64 ffmpeg built
+          # earlier for the .app is MP3-only (--disable-everything) and ships to
+          # publish/mac/... off PATH, so install a full OGG/Vorbis-capable ffmpeg
+          # here. Without it, _decode_ok fail-closes and every sound is rejected.
+          brew install ffmpeg
           python tools/skingen/skingen.py validate
           python tools/sfxgen/sfxgen.py validate
           dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \

@@ -243,6 +243,11 @@ jobs:
           exit 0
         fi
         pip install "Pillow>=10,<12"
+        # sfxgen validate decodes every OGG via ffmpeg, which is not guaranteed
+        # to be on PATH on either runner. Install a full OGG/Vorbis-capable build
+        # before running it so _decode_ok doesn't fail-close every sound.
+        if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
 

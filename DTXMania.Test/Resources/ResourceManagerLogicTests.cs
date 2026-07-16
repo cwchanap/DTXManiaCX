@@ -1145,6 +1145,44 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WhenSkinChanges_ShouldNotEvictAbsolutePreviewSounds()
+        {
+            // Song-local resources (chart previews, jacket images) are loaded with
+            // absolute paths to bypass skin resolution (see SongSelectionStage.
+            // LoadPreviewSound's Path.GetFullPath), and the stage holds them
+            // independently of the current skin. Evicting them on a skin switch
+            // would dispose an object the stage still references, silently breaking
+            // preview playback — so they must be preserved while skin-relative
+            // (relative-keyed) entries are still evicted.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var soundCache = GetPrivateField<ConcurrentDictionary<string, ISound>>(resourceManager, "_soundCache");
+
+            // Absolute (song-local) preview file — must exist so LoadSound resolves it.
+            var previewPath = Path.GetFullPath(Path.Combine(_testDataPath, "preview.ogg"));
+            File.WriteAllText(previewPath, "preview");
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Sounds"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Sounds", "test.wav"), "sound");
+
+            var previewSound = CreateSoundMock();
+            var skinSound = CreateSoundMock();
+            resourceManager.CreateSoundCoreHandler = (resolved, _) =>
+                resolved == previewPath ? previewSound.Object : skinSound.Object;
+
+            // Load one absolute (song-local) and one relative (skin) sound.
+            resourceManager.LoadSound(previewPath);
+            resourceManager.LoadSound("Sounds/test.wav");
+            Assert.Equal(2, soundCache.Count);
+
+            resourceManager.SetSkinPath(_defaultSkinRoot);
+
+            // The absolute preview survives and is not disposed; the skin-relative entry is evicted.
+            Assert.Single(soundCache);
+            Assert.Same(previewSound.Object, soundCache.Values.Single());
+            previewSound.Verify(s => s.Dispose(), Times.Never);
+            skinSound.Verify(s => s.Dispose(), Times.Once);
+        }
+
+        [Fact]
         public void SetSkinPath_WhenSkinUnchanged_ShouldNotEvictCaches()
         {
             var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
