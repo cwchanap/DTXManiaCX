@@ -971,19 +971,25 @@ namespace DTXMania.Game.Lib.Resources
 
         /// <summary>
         /// Core logic of <see cref="ResolveBundledSystemSkinRoot"/> extracted as an
-        /// internal static method so the candidate iteration, trailing-separator
-        /// normalization, and exception handling are unit-testable without a real
+        /// internal static method so the candidate iteration, validation, and
+        /// trailing-separator normalization are unit-testable without a real
         /// assembly directory or files on disk.
         /// </summary>
         /// <param name="candidates">Ordered candidate bundled System skin root paths.</param>
-        /// <returns>The first existing candidate with a trailing separator, or null.</returns>
+        /// <returns>The first existing, validating candidate with a trailing separator, or null.</returns>
         internal static string ResolveBundledSystemSkinRootFromCandidates(IEnumerable<string> candidates)
         {
             foreach (var candidate in candidates)
             {
                 try
                 {
-                    if (Directory.Exists(candidate))
+                    // Use ValidateSkinPath (not just Directory.Exists) so the bundled
+                    // root picked here matches the one SkinManager advertises as Default.
+                    // A candidate that exists but lacks the validation files (e.g. a
+                    // partial macOS .app bundle) would otherwise become the runtime
+                    // fallback while the dropdown advertises a different, validating
+                    // candidate — leaving the initial skin rendering white/silent.
+                    if (PathValidator.IsValidSkinPath(candidate))
                     {
                         var normalized = candidate.EndsWith(Path.DirectorySeparatorChar.ToString())
                             ? candidate

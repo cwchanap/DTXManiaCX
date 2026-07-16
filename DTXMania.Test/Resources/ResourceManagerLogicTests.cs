@@ -591,10 +591,10 @@ namespace DTXMania.Test.Resources
         #region ResolveBundledSystemSkinRootFromCandidates
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_WithExistingDirectory_ShouldReturnNormalizedPath()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithValidatingDirectory_ShouldReturnNormalizedPath()
         {
             var existingDir = Path.Combine(_testDataPath, "BundledCandidate_Exists");
-            Directory.CreateDirectory(existingDir);
+            CreateSkinRoot(existingDir);
 
             var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { existingDir });
 
@@ -605,7 +605,7 @@ namespace DTXMania.Test.Resources
         public void ResolveBundledSystemSkinRootFromCandidates_WithAlreadyNormalizedPath_ShouldNotDoubleAppendSeparator()
         {
             var existingDir = NormalizeDirectory(Path.Combine(_testDataPath, "BundledCandidate_Normalized"));
-            Directory.CreateDirectory(existingDir);
+            CreateSkinRoot(existingDir);
 
             var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { existingDir });
 
@@ -613,7 +613,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_WithNoExistingDirectory_ShouldReturnNull()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingDirectory_ShouldReturnNull()
         {
             var missingDir = Path.Combine(_testDataPath, "BundledCandidate_Missing");
 
@@ -623,15 +623,19 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_WithFirstMissingSecondExisting_ShouldReturnSecond()
+        public void ResolveBundledSystemSkinRootFromCandidates_SkipsNonValidatingCandidate_ReturnsValidating()
         {
-            var missingDir = Path.Combine(_testDataPath, "BundledCandidate_FirstMissing");
-            var existingDir = Path.Combine(_testDataPath, "BundledCandidate_SecondExists");
-            Directory.CreateDirectory(existingDir);
+            // A candidate that exists but lacks validation files must be skipped,
+            // aligning with SkinManager's ValidateSkinPath-based discovery.
+            var nonValidatingDir = Path.Combine(_testDataPath, "BundledCandidate_NonValidating");
+            Directory.CreateDirectory(nonValidatingDir);
+            var validatingDir = Path.Combine(_testDataPath, "BundledCandidate_Validating");
+            CreateSkinRoot(validatingDir);
 
-            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(new[] { missingDir, existingDir });
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(
+                new[] { nonValidatingDir, validatingDir });
 
-            Assert.Equal(NormalizeDirectory(existingDir), result);
+            Assert.Equal(NormalizeDirectory(validatingDir), result);
         }
 
         [Fact]
