@@ -128,6 +128,41 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
+        /// Switch to a skin by absolute path rather than by discovered name.
+        /// Used for skins that live outside the system skin root (e.g. a dev-preview
+        /// checkout) so they remain selectable from the config dropdown after the
+        /// player switches away from them. Validates the path on disk before
+        /// mutating state, mirroring <see cref="SwitchToSystemSkin"/>.
+        /// </summary>
+        /// <param name="skinPath">Absolute path to the skin directory to switch to.</param>
+        /// <returns>True if successful, false if the path is invalid or switching failed.</returns>
+        public bool SwitchToSkinPath(string skinPath)
+        {
+            if (string.IsNullOrEmpty(skinPath))
+                return false;
+
+            if (!ValidateSkinPath(skinPath))
+            {
+                Debug.WriteLine($"SkinManager: External skin path no longer valid on disk: {skinPath}");
+                return false;
+            }
+
+            try
+            {
+                _resourceManager.SetBoxDefSkinPath("");
+                _resourceManager.SetSkinPath(skinPath);
+
+                Debug.WriteLine($"SkinManager: Switched to skin at {skinPath}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SkinManager: Error switching to skin path '{skinPath}': {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Set a box.def skin path for temporary override
         /// </summary>
         /// <param name="boxDefSkinPath">Path to box.def skin</param>
