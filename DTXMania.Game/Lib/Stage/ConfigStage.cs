@@ -454,13 +454,27 @@ namespace DTXMania.Game.Lib.Stage
                 var skinNames = _skinManager.AvailableSystemSkins
                     .Select(SkinManager.GetSkinName)
                     .Where(name => !string.IsNullOrEmpty(name))
-                    .ToArray();
+                    .ToList();
+
+                // Include the current skin when it lives outside the discovered system
+                // skins (e.g. a dev-preview checkout path like System/CXNeon). Without
+                // this, DropdownConfigItem defaults to index 0 while displaying the
+                // external skin, so the first left/right action silently switches away
+                // and the external skin cannot be re-selected from the dropdown.
+                var currentSkinName = GetCurrentSkinName();
+                if (!string.IsNullOrEmpty(currentSkinName)
+                    && !skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase))
+                {
+                    skinNames.Insert(0, currentSkinName);
+                }
+
+                var skinNamesArray = skinNames.ToArray();
                 skinItem = new DropdownConfigItem(
                     "Skin",
                     GetCurrentSkinName,
                     // DropdownConfigItem rejects an empty options array; with nothing discovered,
                     // fall back to the current name so the item is a harmless no-op.
-                    skinNames.Length > 0 ? skinNames : new[] { GetCurrentSkinName() },
+                    skinNamesArray.Length > 0 ? skinNamesArray : new[] { GetCurrentSkinName() },
                     value => SwitchSkin(value))
                 { Description = "Switches the UI skin. Applies immediately; other screens update on entry." };
             }
