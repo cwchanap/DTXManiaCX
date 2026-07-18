@@ -189,6 +189,26 @@ class ComposeTests(unittest.TestCase):
             self.assertEqual(a, 200)                # alpha preserved
             self.assertGreater(g, r)                # red rotated ~120deg toward green
 
+    def test_compose_only_hueshift_builds_base_into_empty_pack(self):
+        # --only fire_HH must pull the LC base through pass 1 so an empty pack
+        # can still emit the derived asset.
+        base = Image.new("RGBA", (4, 4), (255, 0, 0, 200))
+        base.save(os.path.join(self.source, "fire.png"))
+        manifest = self._manifest({
+            "Graphics/fire_LC.png": {"width": 4, "height": 4, "optional": False,
+                                     "recipe": {"type": "copy", "source": "fire.png"}},
+            "Graphics/fire_HH.png": {"width": 4, "height": 4, "optional": False,
+                                     "recipe": {"type": "hueshift", "base": "Graphics/fire_LC.png", "degrees": 120}},
+            "Graphics/other.png": {"width": 2, "height": 2, "optional": False,
+                                   "recipe": {"type": "copy", "source": "fire.png"}},
+        })
+        empty_out = os.path.join(self.tmp.name, "empty_out")
+        os.makedirs(empty_out, exist_ok=True)
+        skingen.compose(manifest, self.source, empty_out, only="fire_HH")
+        self.assertTrue(os.path.exists(os.path.join(empty_out, "Graphics", "fire_LC.png")))
+        self.assertTrue(os.path.exists(os.path.join(empty_out, "Graphics", "fire_HH.png")))
+        self.assertFalse(os.path.exists(os.path.join(empty_out, "Graphics", "other.png")))
+
     def test_compose_skips_assets_without_recipe(self):
         manifest = self._manifest({"Graphics/todo.png": {
             "width": 4, "height": 4, "optional": False, "recipe": None}})

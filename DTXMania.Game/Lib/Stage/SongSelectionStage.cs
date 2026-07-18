@@ -1237,7 +1237,9 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Draw the tab bar (skip while the search modal is open to avoid overlap).
-            if (_font != null && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            // Prefer the shared body font, but still draw when only the tab face loaded.
+            if ((_font != null || _tabFont != null)
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 DrawTabBar();
             }

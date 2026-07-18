@@ -30,10 +30,12 @@ replaced later by dropping AI art over the matching files in
    For an asset whose manifest `recipe` is still `null`, add a recipe first —
    usually `{"type": "copy", "source": "<where you saved it>"}` for whole
    images, or a `sheet` recipe for glyph/sprite sheets (see existing entries).
-3. Build and check the pack:
+  3. Build and check the pack:
 
-       python3 tools/skingen/skingen.py compose
-       python3 tools/skingen/skingen.py validate
+   ```bash
+   python3 tools/skingen/skingen.py compose
+   python3 tools/skingen/skingen.py validate
+   ```
 
    `validate` checks that every asset in `manifest.json` exists on disk with
    the right dimensions — it is not the final release-readiness check. Some
@@ -44,29 +46,36 @@ replaced later by dropping AI art over the matching files in
    every entry in `TexturePath.GetAllTexturePaths()` (except the background
    video) — including the manifest-optional-but-code-referenced assets listed
    in `PROMPTS.md`.
-4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
+  4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
    `System/CXNeon/Graphics/` files together.
 
 Regenerating `PROMPTS.md` after editing `STYLE.md`/`descriptors.json`:
 
-       python3 tools/skingen/skingen.py prompts
+```bash
+python3 tools/skingen/skingen.py prompts
+```
 
-Caveat: `skingen.py compose --only <pattern>` against a fresh/empty pack
-fails with `FileNotFoundError` if the pattern matches a hueshift-derived
-asset but not its base recipe (there's no dependency-aware filtering). Run a
-full `compose` first, then use `--only` for incremental rebuilds.
+`skingen.py compose --only <pattern>` pulls in hueshift base assets automatically
+when the pattern matches a derived asset, so a fresh/empty pack can build a
+single derived file (e.g. `fire_HH.png`) without a prior full compose.
 
 ## Sounds (`tools/sfxgen/`)
 
 1. Set your API key: `export ELEVENLABS_API_KEY=...` (ffmpeg must be on PATH).
-2. Generate everything, or one file at a time while auditioning:
+  2. Generate everything, or one file at a time while auditioning:
 
-       python3 tools/sfxgen/sfxgen.py generate
-       python3 tools/sfxgen/sfxgen.py generate --only "Decide.ogg"
+   ```bash
+   python3 tools/sfxgen/sfxgen.py generate
+   python3 tools/sfxgen/sfxgen.py generate --only "Decide.ogg"
+   ```
 
    Prompts live in `tools/sfxgen/manifest.json` — tweak and re-run per file
    until it sounds right in-game.
-3. Check completeness: `python3 tools/sfxgen/sfxgen.py validate`
+  3. Check completeness:
+
+   ```bash
+   python3 tools/sfxgen/sfxgen.py validate
+   ```
 4. Commit `System/CXNeon/Sounds/*.ogg` (raw MP3s in `tools/sfxgen/raw/` are
    gitignored intermediates).
 
@@ -95,7 +104,9 @@ Then either:
   (persists `SkinPath` on change), or
 - Set `SkinPath` in `Config.ini` to the installed folder:
 
-      SkinPath=/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/
+  ```ini
+  SkinPath=/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/
+  ```
 
 `ConfigManager` resolves a *relative* `SkinPath` under the app-data root — not
 the repository checkout — so a bare `System/CXNeon/` only works after the pack

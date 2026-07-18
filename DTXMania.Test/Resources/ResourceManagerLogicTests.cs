@@ -623,7 +623,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_SkipsNonValidatingCandidate_ReturnsValidating()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNonValidatingFirstCandidate_ShouldReturnValidatingCandidate()
         {
             // A candidate that exists but lacks validation files must be skipped,
             // aligning with SkinManager's ValidateSkinPath-based discovery.

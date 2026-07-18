@@ -392,19 +392,27 @@ namespace DTXMania.Game.Lib.Stage
             _artistDisplayFont = null;
 
             var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+
             try
             {
                 var titleFamily = ResolveTitleFontFamily(theme);
                 if (titleFamily.Length > 0)
                     _titleDisplayFont = _resourceManager.LoadFont(titleFamily, ResolveTitleFontSize(theme));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title display font: {ex.GetType().Name}: {ex.Message}");
+            }
 
+            try
+            {
                 var artistFamily = ResolveArtistFontFamily(theme);
                 if (artistFamily.Length > 0)
                     _artistDisplayFont = _resourceManager.LoadFont(artistFamily, ResolveArtistFontSize(theme));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load display fonts: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist display font: {ex.GetType().Name}: {ex.Message}");
             }
         }
         

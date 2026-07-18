@@ -141,6 +141,14 @@ namespace DTXMania.Game.Lib.Resources
             if (string.IsNullOrEmpty(skinPath))
                 return false;
 
+            // Only absolute paths are accepted — relative paths would resolve
+            // differently depending on the process working directory.
+            if (!Path.IsPathRooted(skinPath))
+            {
+                Debug.WriteLine($"SkinManager: External skin path must be absolute: {skinPath}");
+                return false;
+            }
+
             if (!ValidateSkinPath(skinPath))
             {
                 Debug.WriteLine($"SkinManager: External skin path no longer valid on disk: {skinPath}");

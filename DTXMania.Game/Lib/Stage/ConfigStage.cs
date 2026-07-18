@@ -16,6 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -50,6 +51,9 @@ namespace DTXMania.Game.Lib.Stage
         // SwitchSkin can re-select it by path after the player switches away —
         // SwitchToSystemSkin only resolves names from the discovered system set.
         private string? _externalSkinPath;
+        // Dropdown label for the external skin (may be disambiguated when a system
+        // skin shares the same leaf name).
+        private string? _externalSkinLabel;
         private List<ConfigCategory> _categories = new();
         private int _currentCategoryIndex = 0;
         private bool _focusOnMenu = true;
@@ -474,26 +478,41 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _skinManager?.Dispose();
                 _skinManager = new SkinManager(_game.ResourceManager, _configManager.Config.SystemSkinRoot);
-                var skinNames = _skinManager.AvailableSystemSkins
+                var availableSkinPaths = _skinManager.AvailableSystemSkins.ToList();
+                var skinNames = availableSkinPaths
                     .Select(SkinManager.GetSkinName)
                     .Where(name => !string.IsNullOrEmpty(name))
                     .ToList();
 
                 // Include the current skin when it lives outside the discovered system
-                // skins (e.g. a dev-preview checkout path like System/CXNeon). Without
+                // skins (e.g. a dev-preview checkout path like System/CXNeon). Detect
+                // by comparing normalized full paths — not leaf names — so an external
+                // skin whose leaf matches a system skin is still captured. Without
                 // this, DropdownConfigItem defaults to index 0 while displaying the
                 // external skin, so the first left/right action silently switches away
                 // and the external skin cannot be re-selected from the dropdown.
                 _externalSkinPath = null;
+                _externalSkinLabel = null;
                 var currentSkinPath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
                 var currentSkinName = SkinManager.GetSkinName(currentSkinPath);
-                if (!string.IsNullOrEmpty(currentSkinName)
-                    && !skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase))
+                // Absolute paths: compare full paths so an external checkout that
+                // shares a leaf name with a system skin is still treated as external.
+                // Relative placeholders (e.g. mock "System/") fall back to leaf-name
+                // membership so they do not spuriously look external.
+                var isKnownSkin = IsSameSkinPath(currentSkinPath, availableSkinPaths)
+                    || (!Path.IsPathRooted(currentSkinPath ?? string.Empty)
+                        && !string.IsNullOrEmpty(currentSkinName)
+                        && skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(currentSkinName) && !isKnownSkin)
                 {
-                    skinNames.Insert(0, currentSkinName);
+                    var label = currentSkinName;
+                    if (skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase))
+                        label = currentSkinName + " (external)";
+                    skinNames.Insert(0, label);
                     // Remember the full path so SwitchSkin can re-select this skin by
                     // path — SwitchToSystemSkin only resolves discovered system skins.
                     _externalSkinPath = currentSkinPath;
+                    _externalSkinLabel = label;
                 }
 
                 var skinNamesArray = skinNames.ToArray();
@@ -582,8 +601,45 @@ namespace DTXMania.Game.Lib.Stage
 
         private string GetCurrentSkinName()
         {
-            var name = SkinManager.GetSkinName(_game.ResourceManager.GetCurrentEffectiveSkinPath());
+            var path = _game.ResourceManager.GetCurrentEffectiveSkinPath();
+            if (_externalSkinPath != null
+                && _externalSkinLabel != null
+                && IsSameSkinPath(path, new[] { _externalSkinPath }))
+            {
+                return _externalSkinLabel;
+            }
+
+            var name = SkinManager.GetSkinName(path);
             return string.IsNullOrEmpty(name) ? "Default" : name;
+        }
+
+        private static bool IsSameSkinPath(string candidate, IEnumerable<string> knownPaths)
+        {
+            if (string.IsNullOrEmpty(candidate))
+                return false;
+
+            string Normalize(string path)
+            {
+                try
+                {
+                    return Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                }
+                catch
+                {
+                    return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+            }
+
+            var normalizedCandidate = Normalize(candidate);
+            foreach (var known in knownPaths)
+            {
+                if (string.IsNullOrEmpty(known))
+                    continue;
+                if (string.Equals(normalizedCandidate, Normalize(known), StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
         }
 
         private void SwitchSkin(string skinName)
@@ -596,7 +652,8 @@ namespace DTXMania.Game.Lib.Stage
             // system skin root), fall back to switching by its captured full path.
             bool switched;
             if (_externalSkinPath != null
-                && string.Equals(SkinManager.GetSkinName(_externalSkinPath), skinName, StringComparison.OrdinalIgnoreCase))
+                && _externalSkinLabel != null
+                && string.Equals(_externalSkinLabel, skinName, StringComparison.OrdinalIgnoreCase))
             {
                 switched = _skinManager.SwitchToSkinPath(_externalSkinPath);
             }

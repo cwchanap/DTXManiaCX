@@ -42,17 +42,21 @@ install-cx-neon activate="false":
     if [[ "{{ activate }}" == "true" ]]; then
       config="$(dirname "$app_system")/Config.ini"
       skin_path="$target/"
+      # Escape \, &, and | so Windows paths survive sed replacement unchanged.
+      esc_skin_path=$(printf '%s' "$skin_path" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g')
       if [[ -f "$config" ]]; then
         if grep -q '^SkinPath=' "$config"; then
           # portable in-place edit
           tmp="$(mktemp)"
-          sed "s|^SkinPath=.*|SkinPath=${skin_path}|" "$config" > "$tmp" && mv "$tmp" "$config"
+          sed "s|^SkinPath=.*|SkinPath=${esc_skin_path}|" "$config" > "$tmp" && mv "$tmp" "$config"
         else
           printf '\nSkinPath=%s\n' "$skin_path" >> "$config"
         fi
         if grep -q '^LastUsedSkin=' "$config"; then
           tmp="$(mktemp)"
           sed "s|^LastUsedSkin=.*|LastUsedSkin=CXNeon|" "$config" > "$tmp" && mv "$tmp" "$config"
+        else
+          printf '\nLastUsedSkin=CXNeon\n' >> "$config"
         fi
         echo "activated: SkinPath=$skin_path in $config"
       else

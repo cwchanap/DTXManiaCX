@@ -385,11 +385,21 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// <summary>
         /// Jacket preview position (the NX 245x245 size is kept):
         /// "Result.JacketPreviewX" / "Result.JacketPreviewY" → NX (519, 338).
-        /// Moves together with the jacket panel.
+        /// When preview overrides are absent, falls back to the resolved jacket
+        /// panel position plus the NX panel→preview offset so the preview stays
+        /// aligned when only the panel is relocated.
         /// </summary>
-        internal static Vector2 ResolveJacketPreviewPosition(ISkinTheme theme) => new(
-            theme.GetInt("Result.JacketPreviewX", ResultUILayout.Jacket.PreviewDestination.X),
-            theme.GetInt("Result.JacketPreviewY", ResultUILayout.Jacket.PreviewDestination.Y));
+        internal static Vector2 ResolveJacketPreviewPosition(ISkinTheme theme)
+        {
+            var panel = ResolveJacketPanelPosition(theme);
+            var defaultOffsetX = ResultUILayout.Jacket.PreviewDestination.X
+                - (int)ResultUILayout.Jacket.PanelPosition.X;
+            var defaultOffsetY = ResultUILayout.Jacket.PreviewDestination.Y
+                - (int)ResultUILayout.Jacket.PanelPosition.Y;
+            return new Vector2(
+                theme.GetInt("Result.JacketPreviewX", (int)panel.X + defaultOffsetX),
+                theme.GetInt("Result.JacketPreviewY", (int)panel.Y + defaultOffsetY));
+        }
 
         /// <summary>
         /// NEW RECORD badge position: "Result.NewRecordX" / "Result.NewRecordY"

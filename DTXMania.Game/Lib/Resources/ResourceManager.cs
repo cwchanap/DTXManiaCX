@@ -652,29 +652,30 @@ namespace DTXMania.Game.Lib.Resources
                 // Slow path: resolve the theme file path and parse it outside
                 // the lock so concurrent resource operations (ResolvePath, texture
                 // lookups, etc.) are not blocked on File.ReadAllLines disk I/O.
-                // Capture the effective skin path we are loading for so the second
-                // lock can detect a concurrent SetSkinPath/SetBoxDefSkinPath that
-                // invalidated the theme between the fast-path check and the publish
-                // (otherwise we would cache a stale theme for the old skin).
-                var loadedForSkinPath = GetCurrentEffectiveSkinPath();
-                var themePath = ResolveThemeFilePath();
-                var loaded = SkinTheme.Load(themePath);
-
-                lock (_lockObject)
+                // Capture one effective-skin snapshot used for both path resolution
+                // and the post-load publish check. If the skin changes before we
+                // publish, discard the stale load and retry rather than returning it.
+                while (true)
                 {
-                    // Another caller may have loaded — or the skin may have been
-                    // invalidated — between the fast-path check and now. Prefer
-                    // any already-cached instance. If the effective skin path
-                    // changed since we resolved the theme file, discard our load
-                    // without publishing so the next caller reloads for the new
-                    // skin.
-                    if (_currentTheme != null)
+                    var loadedForSkinPath = GetCurrentEffectiveSkinPath();
+                    var themePath = ResolveThemeFilePath(loadedForSkinPath);
+                    var loaded = SkinTheme.Load(themePath);
+
+                    lock (_lockObject)
+                    {
+                        // Another caller may have loaded — or the skin may have been
+                        // invalidated — between the fast-path check and now. Prefer
+                        // any already-cached instance. If the effective skin path
+                        // changed since we resolved the theme file, discard our load
+                        // and retry for the new skin.
+                        if (_currentTheme != null)
+                            return _currentTheme;
+                        if (!string.Equals(GetCurrentEffectiveSkinPath(), loadedForSkinPath,
+                                            StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        _currentTheme = loaded;
                         return _currentTheme;
-                    if (!string.Equals(GetCurrentEffectiveSkinPath(), loadedForSkinPath,
-                                        StringComparison.OrdinalIgnoreCase))
-                        return loaded;
-                    _currentTheme = loaded;
-                    return _currentTheme;
+                    }
                 }
             }
         }
@@ -686,9 +687,13 @@ namespace DTXMania.Game.Lib.Resources
         /// release build — where CX Neon *is* System/ — picks up its Theme.ini even
         /// when the writable app-data skin directory doesn't have one.
         /// </summary>
-        private string ResolveThemeFilePath()
+        /// <param name="effectiveSkinPath">
+        /// Snapshot of the effective skin path from the caller so resolution and
+        /// the subsequent publish check share one consistent value.
+        /// </param>
+        private string ResolveThemeFilePath(string effectiveSkinPath)
         {
-            var effectivePath = Path.Combine(GetCurrentEffectiveSkinPath(), SkinTheme.ThemeFileName);
+            var effectivePath = Path.Combine(effectiveSkinPath ?? string.Empty, SkinTheme.ThemeFileName);
             if (File.Exists(effectivePath))
                 return effectivePath;
 
