@@ -762,7 +762,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
 
             var stage = new StartupStage(game);
-            var result = ReflectionHelpers.InvokePrivateMethod(stage, "CreateFontCore", resourceManager.Object, 14, FontStyle.Bold);
+            var result = ReflectionHelpers.InvokePrivateMethod(stage, "CreateFontCore", resourceManager.Object, string.Empty, 14, FontStyle.Bold);
 
             Assert.Same(expectedFont.Object, result);
             resourceManager.Verify(r => r.LoadFont("NotoSerifJP", 14, FontStyle.Bold), Times.Once);
@@ -1113,7 +1113,7 @@ namespace DTXMania.Test.Stage
                 return WhitePixelStub;
             }
 
-            protected override IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
+            protected override IFont CreateFontCore(IResourceManager resourceManager, string fontFamily, int size, FontStyle style)
             {
                 return null!;
             }
@@ -1146,7 +1146,7 @@ namespace DTXMania.Test.Stage
 
             public bool ThrowOnBoldFont { get; set; }
 
-            protected override IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
+            protected override IFont CreateFontCore(IResourceManager resourceManager, string fontFamily, int size, FontStyle style)
             {
                 if (style == FontStyle.Bold && ThrowOnBoldFont)
                 {

@@ -532,6 +532,20 @@ namespace DTXMania.Game.Lib.Stage.Result
         internal static int ResolveCountYOffset(ISkinTheme theme) =>
             theme.GetInt("Result.CountYOffset", 0);
 
+        /// <summary>
+        /// Right edge for the difficulty-tier name ("BASIC", "MASTER", ...) on
+        /// the level row: "Result.LevelLabelRightX" → 0 = not drawn (NX shows
+        /// only the numeric level).
+        /// </summary>
+        internal static int ResolveLevelLabelRightX(ISkinTheme theme) =>
+            theme.GetInt("Result.LevelLabelRightX", 0);
+
+        /// <summary>
+        /// Color for the difficulty-tier name: "Result.LevelLabelText" → light gray.
+        /// </summary>
+        internal static Color ResolveLevelLabelColor(ISkinTheme theme) =>
+            theme.GetColor("Result.LevelLabelText", Color.LightGray);
+
         [ExcludeFromCodeCoverage]
         private void DrawModelText(SpriteBatch spriteBatch, ResultScreenModel model)
         {
@@ -570,6 +584,17 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             DrawValue(spriteBatch, valueFont, model.ChartLevelText, ResolveLevelPosition(theme),
                 valueRightX, Color.White, valueScale);
+
+            // Difficulty-tier name ("BASIC"/"MASTER"/...) beside the level value,
+            // in the count font so it reads as an annotation of the number.
+            var levelLabelRightX = ResolveLevelLabelRightX(theme);
+            if (levelLabelRightX > 0 && model.DifficultyLabelText.Length > 0)
+            {
+                var labelPosition = ResolveLevelPosition(theme);
+                labelPosition.Y += countYOffset;
+                DrawValue(spriteBatch, countFont, model.DifficultyLabelText, labelPosition,
+                    levelLabelRightX, ResolveLevelLabelColor(theme), 1.0f);
+            }
             DrawValue(spriteBatch, valueFont, model.PlayingSkillText, ResolvePlayingSkillPosition(theme),
                 valueRightX, Color.White, valueScale);
             DrawValue(spriteBatch, valueFont, model.GameSkillText, ResolveGameSkillPosition(theme),

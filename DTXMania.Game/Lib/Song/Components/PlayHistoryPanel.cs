@@ -29,6 +29,17 @@ namespace DTXMania.Game.Lib.Song.Components
             theme.GetColor("SongSelect.HistoryText",
                 theme.GetColor("UI.TextPrimary", DTXManiaVisualTheme.FontEffects.DefaultTextColor));
 
+        /// <summary>
+        /// Whether a song with no recorded plays hides the panel entirely. NX
+        /// leaves the empty frame on screen; skins can drop it so the song wheel
+        /// isn't covered by a caption with nothing under it.
+        /// </summary>
+        internal static bool ResolveHideWhenEmpty(ISkinTheme theme) =>
+            bool.TryParse(theme.GetString("SongSelect.HideEmptyHistoryPanel", "false"), out var hide) && hide;
+
+        internal static bool ShouldShowPanel(int rowCount, bool hideWhenEmpty) =>
+            rowCount > 0 || !hideWhenEmpty;
+
         public PlayHistoryPanel()
         {
             Position = SongSelectionUILayout.PlayHistoryPanel.Position;
@@ -101,7 +112,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 .Take(SongSelectionUILayout.PlayHistoryPanel.MaxRows)
                 .ToArray() ?? Array.Empty<string>();
 
-            Visible = true;
+            Visible = ShouldShowPanel(_historyLines.Length,
+                ResolveHideWhenEmpty(_resourceManager?.CurrentTheme ?? SkinTheme.Empty));
         }
 
         protected override void Dispose(bool disposing)

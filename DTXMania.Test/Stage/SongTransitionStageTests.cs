@@ -178,6 +178,180 @@ namespace DTXMania.Test.Stage
             Assert.Equal(430, SongTransitionStage.ResolveTitleMaxWidth(theme));
         }
 
+        [Fact]
+        public void ResolveTitleFontFamily_WithEmptyTheme_ShouldBeEmpty()
+        {
+            Assert.Equal(string.Empty, SongTransitionStage.ResolveTitleFontFamily(
+                DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveTitleFontFamily_WithThemedFamily_ShouldUseThemedValue()
+        {
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.TitleFontFamily=Orbitron" });
+
+            Assert.Equal("Orbitron", SongTransitionStage.ResolveTitleFontFamily(theme));
+        }
+
+        [Fact]
+        public void ResolveTitleFontSize_WithEmptyTheme_ShouldKeepNxSize()
+        {
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.SongTransitionUILayout.SongTitle.FontSize,
+                SongTransitionStage.ResolveTitleFontSize(
+                    DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveArtistFontFamilyAndSize_WithThemedValues_ShouldUseThemedValues()
+        {
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.ArtistFontFamily=Orbitron", "Transition.ArtistFontSize=24" });
+
+            Assert.Equal("Orbitron", SongTransitionStage.ResolveArtistFontFamily(theme));
+            Assert.Equal(24, SongTransitionStage.ResolveArtistFontSize(theme));
+        }
+
+        [Fact]
+        public void ResolveArtistFontSize_WithEmptyTheme_ShouldKeepNxSize()
+        {
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.SongTransitionUILayout.Artist.FontSize,
+                SongTransitionStage.ResolveArtistFontSize(
+                    DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveLevelFontFamilyAndSize_WithEmptyTheme_ShouldKeepNxSerif()
+        {
+            Assert.Equal("NotoSerifJP", SongTransitionStage.ResolveLevelFontFamily(
+                DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+            Assert.Equal(24, SongTransitionStage.ResolveLevelFontSize(
+                DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveLevelFontFamilyAndSize_WithThemedValues_ShouldUseThemedValues()
+        {
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.LevelFontFamily=Orbitron", "Transition.LevelFontSize=24" });
+
+            Assert.Equal("Orbitron", SongTransitionStage.ResolveLevelFontFamily(theme));
+            Assert.Equal(24, SongTransitionStage.ResolveLevelFontSize(theme));
+        }
+
+        #endregion
+
+        #region Display Font Eligibility Tests
+
+        [Theory]
+        [InlineData("My Hope Is Gone", true)]
+        [InlineData("AC/DC - T.N.T. (Live '77)", true)]
+        [InlineData("蒼穹への翔歌", false)]
+        [InlineData("NPC feat.ねんね", false)]
+        public void IsAsciiDisplayable_ShouldDetectLatinOnlyText(string text, bool expected)
+        {
+            Assert.Equal(expected, SongTransitionStage.IsAsciiDisplayable(text));
+        }
+
+        #endregion
+
+        #region Title Layout Tests
+
+        // measure: 10px per character — keeps the expected widths easy to derive.
+        private static float MeasureTenPerChar(string s) => s.Length * 10f;
+
+        [Fact]
+        public void ComputeTitleLayout_TitleFitting_ShouldReturnSingleLineFullScale()
+        {
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, "Short", 430);
+
+            Assert.Equal(new[] { "Short" }, lines);
+            Assert.Equal(1f, scale);
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_NoWidthLimit_ShouldReturnSingleLineFullScale()
+        {
+            var longTitle = new string('x', 200);
+
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, longTitle, 0);
+
+            Assert.Equal(new[] { longTitle }, lines);
+            Assert.Equal(1f, scale);
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_SlightlyWide_ShouldShrinkSingleLine()
+        {
+            // 50 chars = 500px into 430px → scale 0.86, above the 0.75 single-line floor.
+            var title = new string('a', 50);
+
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, title, 430);
+
+            Assert.Equal(new[] { title }, lines);
+            Assert.Equal(0.86f, scale, 2);
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_TooWideForShrink_ShouldWrapToTwoFullScaleLines()
+        {
+            // 60 chars = 600px → single-line scale 0.716 < 0.75 floor → word wrap.
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 430);
+
+            Assert.Equal(2, lines.Length);
+            Assert.Equal(1f, scale);
+            Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaa", lines[0]);
+            Assert.Equal("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", lines[1]);
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_NoSpaces_ShouldWrapByCharacters()
+        {
+            // CJK-style titles have no spaces; the wrap must fall back to
+            // character breaking and preserve every character.
+            var title = new string('字', 60);
+
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, title, 430);
+
+            Assert.True(lines.Length >= 2);
+            Assert.Equal(title, string.Concat(lines));
+            Assert.All(lines, line => Assert.True(MeasureTenPerChar(line) * scale <= 430f));
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_ManyWords_ShouldShrinkSharedScaleToStayWithinTwoLines()
+        {
+            // Three 25-char words (250px each) wrap to three lines at full scale,
+            // so the layout shrinks the shared scale until two lines suffice
+            // instead of spilling to a third row.
+            var title = "aaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbb ccccccccccccccccccccccccc";
+
+            var (lines, scale) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, title, 430);
+
+            Assert.Equal(2, lines.Length);
+            Assert.True(scale < 1f);
+            Assert.True(scale >= 0.5f);
+            Assert.All(lines, line => Assert.True(MeasureTenPerChar(line) * scale <= 430f + 0.01f));
+        }
+
+        [Fact]
+        public void ComputeTitleLayout_AlwaysPreservesEveryCharacter()
+        {
+            var title = "The Quick Brown Fox Jumps Over The Lazy Dog And Keeps On Running Forever";
+
+            var (lines, _) = SongTransitionStage.ComputeTitleLayout(
+                MeasureTenPerChar, title, 430);
+
+            Assert.Equal(title.Replace(" ", string.Empty),
+                string.Concat(lines).Replace(" ", string.Empty));
+        }
+
         #endregion
     }
 }

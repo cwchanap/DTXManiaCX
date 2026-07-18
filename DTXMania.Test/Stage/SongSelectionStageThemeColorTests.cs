@@ -61,5 +61,57 @@ namespace DTXMania.Test.Stage
             Assert.Equal(new Color(0x94, 0xA3, 0xB8),
                 SongSelectionStage.ResolveStatusTextColor(theme));
         }
+
+        [Fact]
+        public void ResolveTabFontFamily_WithEmptyTheme_ShouldBeEmpty()
+        {
+            // Empty = use the shared UI font, exactly as NX does.
+            Assert.Equal(string.Empty,
+                SongSelectionStage.ResolveTabFontFamily(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveTabFontFamilyAndSize_WithThemedValues_ShouldUseThemedValues()
+        {
+            var theme = SkinTheme.Parse(
+                new[] { "SongSelect.TabFontFamily=Orbitron", "SongSelect.TabFontSize=18" });
+
+            Assert.Equal("Orbitron", SongSelectionStage.ResolveTabFontFamily(theme));
+            Assert.Equal(18, SongSelectionStage.ResolveTabFontSize(theme));
+        }
+
+        [Fact]
+        public void ResolveTabFontSize_WithEmptyTheme_ShouldKeepSharedUiFontSize()
+        {
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.Background.DefaultFontSize,
+                SongSelectionStage.ResolveTabFontSize(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveHistoryFont_WithEmptyTheme_ShouldKeepSharedUiFontAndNxScale()
+        {
+            Assert.Equal(string.Empty, SongSelectionStage.ResolveHistoryFontFamily(SkinTheme.Empty));
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.Background.DefaultFontSize,
+                SongSelectionStage.ResolveHistoryFontSize(SkinTheme.Empty));
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.PlayHistoryPanel.FontScale,
+                SongSelectionStage.ResolveHistoryTextScale(SkinTheme.Empty), 3);
+        }
+
+        [Fact]
+        public void ResolveHistoryFont_WithThemedValues_ShouldUseThemedValues()
+        {
+            // The recent-plays rows are tabular, so skins can hand them a
+            // monospace face at its native size instead of the scaled UI serif.
+            var theme = SkinTheme.Parse(new[]
+            {
+                "SongSelect.HistoryFontFamily=ShareTechMono",
+                "SongSelect.HistoryFontSize=14",
+                "SongSelect.HistoryTextScale=1.0"
+            });
+
+            Assert.Equal("ShareTechMono", SongSelectionStage.ResolveHistoryFontFamily(theme));
+            Assert.Equal(14, SongSelectionStage.ResolveHistoryFontSize(theme));
+            Assert.Equal(1.0f, SongSelectionStage.ResolveHistoryTextScale(theme), 3);
+        }
     }
 }

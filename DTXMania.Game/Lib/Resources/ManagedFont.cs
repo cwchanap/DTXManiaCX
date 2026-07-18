@@ -137,8 +137,9 @@ namespace DTXMania.Game.Lib.Resources
 
         /// <summary>
         /// Pick the closest available SpriteFont asset for the requested
-        /// (family, size, style). "Orbitron" selects the Latin display family
-        /// (14/18px, no Bold); every other path uses the CJK-capable
+        /// (family, size, style). "ShareTechMono" selects the Latin monospace
+        /// telemetry family (14/18px, no Bold) and "Orbitron" the Latin display
+        /// family (14/18/24/32/40px, no Bold); every other path uses the CJK-capable
         /// NotoSerifJP family (14/24/48px, Bold only at 14), so pre-existing
         /// callers keep their behavior. When no Bold asset is closer than the
         /// closest Regular one, the Regular asset wins and the returned style
@@ -149,12 +150,24 @@ namespace DTXMania.Game.Lib.Resources
             (int size, string assetName)[] availableRegular;
             (int size, string assetName)[] boldVariants;
 
-            if (string.Equals(fontPath, "Orbitron", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(fontPath, "ShareTechMono", StringComparison.OrdinalIgnoreCase))
+            {
+                availableRegular = new[]
+                {
+                    (size: 14, assetName: "ShareTechMono-14"),
+                    (size: 18, assetName: "ShareTechMono-18")
+                };
+                boldVariants = Array.Empty<(int, string)>();
+            }
+            else if (string.Equals(fontPath, "Orbitron", StringComparison.OrdinalIgnoreCase))
             {
                 availableRegular = new[]
                 {
                     (size: 14, assetName: "Orbitron-14"),
-                    (size: 18, assetName: "Orbitron-18")
+                    (size: 18, assetName: "Orbitron-18"),
+                    (size: 24, assetName: "Orbitron-24"),
+                    (size: 32, assetName: "Orbitron-32"),
+                    (size: 40, assetName: "Orbitron-40")
                 };
                 boldVariants = Array.Empty<(int, string)>();
             }
