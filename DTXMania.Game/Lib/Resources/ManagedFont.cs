@@ -150,7 +150,13 @@ namespace DTXMania.Game.Lib.Resources
             (int size, string assetName)[] availableRegular;
             (int size, string assetName)[] boldVariants;
 
-            if (string.Equals(fontPath, "ShareTechMono", StringComparison.OrdinalIgnoreCase))
+            // Normalize bare names and path-form requests (e.g. "Orbitron.ttf",
+            // "fonts/ShareTechMono.ttf") so family matching is identical.
+            var familyKey = string.IsNullOrEmpty(fontPath)
+                ? string.Empty
+                : Path.GetFileNameWithoutExtension(fontPath);
+
+            if (string.Equals(familyKey, "ShareTechMono", StringComparison.OrdinalIgnoreCase))
             {
                 availableRegular = new[]
                 {
@@ -159,7 +165,7 @@ namespace DTXMania.Game.Lib.Resources
                 };
                 boldVariants = Array.Empty<(int, string)>();
             }
-            else if (string.Equals(fontPath, "Orbitron", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(familyKey, "Orbitron", StringComparison.OrdinalIgnoreCase))
             {
                 availableRegular = new[]
                 {

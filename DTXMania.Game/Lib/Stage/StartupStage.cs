@@ -299,6 +299,16 @@ namespace DTXMania.Game.Lib.Stage
             return resourceManager.LoadFont(fontFamily.Length > 0 ? fontFamily : "NotoSerifJP", size, style);
         }
 
+        private void ReleaseStartupFonts()
+        {
+            _font?.RemoveReference();
+            _font = null;
+            _boldFont?.RemoveReference();
+            _boldFont = null;
+            _statusFallbackFont?.RemoveReference();
+            _statusFallbackFont = null;
+        }
+
         /// <summary>
         /// Loads the serif face used when the status text leaves ASCII. Only needed
         /// when the skin swapped in a Latin-only display face; themeless skins are
@@ -349,20 +359,42 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
-                _font = CreateFontCore(_resourceManager, ResolveTextFontFamily(theme),
-                    ResolveTextFontSize(theme), FontStyle.Regular);
-                _boldFont = CreateFontCore(_resourceManager, ResolveStatusFontFamily(theme),
-                    ResolveStatusFontSize(theme), FontStyle.Bold);
-                _statusFallbackFont = CreateStatusFallbackFontCore(_resourceManager, ResolveStatusFontSize(theme));
+                var themedFamily = ResolveTextFontFamily(theme);
+                var statusFamily = ResolveStatusFontFamily(theme);
+                var usedThemedFaces = themedFamily.Length > 0 || statusFamily.Length > 0;
+
+                try
+                {
+                    _font = CreateFontCore(_resourceManager, themedFamily,
+                        ResolveTextFontSize(theme), FontStyle.Regular);
+                    _boldFont = CreateFontCore(_resourceManager, statusFamily,
+                        ResolveStatusFontSize(theme), FontStyle.Bold);
+                }
+                catch when (usedThemedFaces)
+                {
+                    // Themed faces failed — drop partials and fall back to NotoSerifJP.
+                    ReleaseStartupFonts();
+
+                    _font = CreateFontCore(_resourceManager, "NotoSerifJP",
+                        ResolveTextFontSize(theme), FontStyle.Regular);
+                    _boldFont = CreateFontCore(_resourceManager, "NotoSerifJP",
+                        ResolveStatusFontSize(theme), FontStyle.Bold);
+                }
+
+                // Best-effort CJK fallback for Latin-only status faces; never fatal.
+                try
+                {
+                    _statusFallbackFont = CreateStatusFallbackFontCore(_resourceManager, ResolveStatusFontSize(theme));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"StartupStage: status fallback font unavailable: {ex.Message}");
+                    _statusFallbackFont = null;
+                }
             }
             catch
             {
-                _font?.RemoveReference();
-                _font = null;
-                _boldFont?.RemoveReference();
-                _boldFont = null;
-                _statusFallbackFont?.RemoveReference();
-                _statusFallbackFont = null;
+                ReleaseStartupFonts();
                 _whitePixel?.Dispose();
                 _whitePixel = null;
                 _spriteBatch?.Dispose();

@@ -1151,6 +1151,22 @@
             "w": 35,
             "x": 280,
             "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#F472B6",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "EX",
+            "w": 35,
+            "x": 315,
+            "y": 0
           }
         ],
         "type": "sheet"
@@ -1354,8 +1370,8 @@
       "height": 342,
       "optional": false,
       "recipe": {
-        "cells": [],
-        "type": "sheet"
+        "source": "5_status panel.png",
+        "type": "copy"
       },
       "width": 561
     },

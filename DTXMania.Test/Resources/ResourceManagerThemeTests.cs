@@ -41,6 +41,15 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void CurrentTheme_WithNoThemeFile_ShouldReturnEmptyBehavior()
         {
+            // Isolate from host-installed fallback / bundled skins so a Theme.ini
+            // outside this test's temp tree cannot satisfy ResolveThemeFilePath.
+            typeof(ResourceManager)
+                .GetField("_fallbackSkinPath", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(_resourceManager, string.Empty);
+            typeof(ResourceManager)
+                .GetField("_bundledSystemSkinRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(_resourceManager, null);
+
             _resourceManager.SetSkinPath(_skinRoot);
             Assert.Equal(Color.Red, _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.Red));
         }

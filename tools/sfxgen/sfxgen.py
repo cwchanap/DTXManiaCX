@@ -151,14 +151,20 @@ def main(argv=None):
             print("error: ELEVENLABS_API_KEY is not set", file=sys.stderr)
             return 2
         failures = []
+        only_matched = args.only is None
         for sound in load_sounds(args.manifest):
             if args.only and sound["file"] != args.only:
                 continue
+            if args.only:
+                only_matched = True
             try:
                 generate_one(sound, api_key, out_dir)
             except Exception as exc:
                 print("error: failed to generate %s: %s" % (sound["file"], exc), file=sys.stderr)
                 failures.append(sound["file"])
+        if args.only and not only_matched:
+            print("error: --only %r matched no manifest entry" % args.only, file=sys.stderr)
+            return 1
         if failures:
             print("generate: %d sound(s) failed: %s" % (len(failures), ", ".join(failures)), file=sys.stderr)
             return 1

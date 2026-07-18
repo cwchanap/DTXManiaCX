@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Test.Resources
 {
+    [Trait("Category", "Unit")]
     public class SkinManagerTests : IDisposable
     {
         private readonly Mock<IResourceManager> _mockResourceManager;
@@ -57,7 +58,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetSkinName_WithValidPath_ReturnsCorrectName()
+        public void GetSkinName_WithValidPath_ShouldReturnCorrectName()
         {
             // Arrange
             var skinPath = @"C:\Games\DTXMania\System\MyCustomSkin\";
@@ -70,7 +71,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetSkinName_WithNullOrEmpty_ReturnsEmptyString()
+        public void GetSkinName_WithNullOrEmpty_ShouldReturnEmptyString()
         {
             // Act & Assert — GetSkinName normalizes all invalid inputs to ""
             // (callers use string.IsNullOrEmpty, so null and "" are equivalent,
@@ -80,7 +81,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ValidateSkinPath_WithValidSkin_ReturnsTrue()
+        public void ValidateSkinPath_WithValidSkin_ShouldReturnTrue()
         {
             // Arrange
             var skinPath = CreateTestSkin("ValidSkin");
@@ -93,7 +94,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ValidateSkinPath_WithInvalidSkin_ReturnsFalse()
+        public void ValidateSkinPath_WithInvalidSkin_ShouldReturnFalse()
         {
             // Arrange
             var skinPath = Path.Combine(_testSkinRoot, "InvalidSkin");
@@ -107,7 +108,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SwitchToSystemSkin_WithValidSkin_ReturnsTrue()
+        public void SwitchToSystemSkin_WithValidSkin_ShouldReturnTrue()
         {
             // Arrange
             CreateTestSkin("TestSkin");
@@ -134,7 +135,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SwitchToSystemSkin_WithInvalidSkin_ReturnsFalse()
+        public void SwitchToSystemSkin_WithInvalidSkin_ShouldReturnFalse()
         {
             // Act
             var result = _skinManager.SwitchToSystemSkin("NonExistentSkin");
@@ -144,7 +145,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SwitchToSystemSkin_WithStaleDiscoveredSkin_ReturnsFalseAndDoesNotSwitch()
+        public void SwitchToSystemSkin_WithStaleDiscoveredSkin_ShouldReturnFalseAndNotSwitch()
         {
             // Arrange: discover a skin, then delete its validation files so the
             // cached _availableSystemSkins entry points at a directory that no
@@ -168,7 +169,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkin_WithValidPath_ReturnsTrue()
+        public void SetBoxDefSkin_WithValidPath_ShouldReturnTrue()
         {
             // Arrange
             var boxDefSkinPath = CreateTestSkin("BoxDefSkin");
@@ -183,7 +184,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkin_WithEmptyPath_ClearsBoxDefSkin()
+        public void SetBoxDefSkin_WithEmptyPath_ShouldClearBoxDefSkin()
         {
             // Arrange
             _mockResourceManager.Setup(x => x.SetBoxDefSkinPath(""));
@@ -197,7 +198,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetBoxDefSkin_WithInvalidPath_ReturnsFalse()
+        public void SetBoxDefSkin_WithInvalidPath_ShouldReturnFalse()
         {
             // Arrange
             var invalidPath = Path.Combine(_testSkinRoot, "InvalidBoxDefSkin");
@@ -230,7 +231,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void CurrentSkinPath_ReturnsResourceManagerPath()
+        public void CurrentSkinPath_ShouldReturnResourceManagerPath()
         {
             // Arrange
             var expectedPath = "System/CustomSkin/";
@@ -246,7 +247,7 @@ namespace DTXMania.Test.Resources
         #region Bundled Default Skin Discovery
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_WithValidatingCandidate_ReturnsNormalizedPath()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithValidatingCandidate_ShouldReturnNormalizedPath()
         {
             // Arrange: a bundled candidate that passes ValidateSkinPath (has the
             // Graphics/1_background.jpg validation file). The leaf directory is
@@ -265,7 +266,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_SkipsNonValidatingCandidate()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNonValidatingFirstCandidate_ShouldSkipAndReturnValidating()
         {
             // Arrange: a candidate dir that exists but lacks validation files,
             // followed by one that validates. The first-valid-wins iteration must
@@ -284,7 +285,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingCandidate_ReturnsNull()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingCandidate_ShouldReturnNull()
         {
             // Arrange
             var missing = Path.Combine(_testSkinRoot, "BundledMissing");

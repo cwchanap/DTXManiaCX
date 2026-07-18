@@ -73,7 +73,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetBestSpriteFontAssetName_ShareTechMonoFamilyIsCaseInsensitive()
+        public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldBeCaseInsensitive()
         {
             var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("sharetechmono", 14, FontStyle.Regular);
 
@@ -81,11 +81,25 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void GetBestSpriteFontAssetName_OrbitronFamilyIsCaseInsensitive()
+        public void GetBestSpriteFontAssetName_OrbitronFamily_ShouldBeCaseInsensitive()
         {
             var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("orbitron", 18, FontStyle.Regular);
 
             Assert.Equal("Orbitron-18", asset);
+        }
+
+        [Theory]
+        [InlineData("Orbitron.ttf", 18, "Orbitron-18")]
+        [InlineData("fonts/Orbitron.ttf", 24, "Orbitron-24")]
+        [InlineData("ShareTechMono.ttf", 14, "ShareTechMono-14")]
+        [InlineData("path/to/ShareTechMono.otf", 18, "ShareTechMono-18")]
+        public void GetBestSpriteFontAssetName_PathFormRequest_ShouldResolveFamily(
+            string fontPath, int size, string expectedAsset)
+        {
+            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName(fontPath, size, FontStyle.Regular);
+
+            Assert.Equal(expectedAsset, asset);
+            Assert.Equal(FontStyle.Regular, style);
         }
 
         [Fact]

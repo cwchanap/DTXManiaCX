@@ -92,6 +92,14 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
 FORCE_OVERWRITE = False
 
 
+# Always regenerate these layout-sensitive sheets even when FORCE_OVERWRITE is
+# off — corrected digit placement must not be skipped by a stale AI/hand file.
+_ALWAYS_REGENERATE = frozenset({
+    "5_bpm font.png",
+    "7_lag numbers.png",
+})
+
+
 def _save(img: Image.Image, rel: str) -> str:
     """Save under SOURCE_ROOT using a path that mirrors Graphics/ for copy recipes."""
     # strip Graphics/ prefix for source path cleanliness
@@ -99,7 +107,7 @@ def _save(img: Image.Image, rel: str) -> str:
     out_rel = rel[len("Graphics/"):]
     path = os.path.join(SOURCE_ROOT, out_rel)
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else SOURCE_ROOT, exist_ok=True)
-    if os.path.isfile(path) and not FORCE_OVERWRITE:
+    if os.path.isfile(path) and not FORCE_OVERWRITE and out_rel not in _ALWAYS_REGENERATE:
         return out_rel
     # Ensure parent for nested? all are flat under Graphics/
     if img.mode != "RGBA" and not rel.lower().endswith((".jpg", ".jpeg")):
@@ -641,7 +649,7 @@ def build_all() -> Dict[str, str]:
     put("Graphics/7_progress_fill.png", prog)
 
     put("Graphics/7_SkillPanel.png", panel(257, 439))
-    put("Graphics/7_Graph_main.png", panel(56, 1024, chamfer=4))
+    put("Graphics/7_Graph_main.png", panel(562, 1024, chamfer=4))
     gfill = new_rgba(256, 512)
     gfd = ImageDraw.Draw(gfill)
     for y in range(512):
@@ -758,11 +766,11 @@ def build_all() -> Dict[str, str]:
     put("Graphics/Console font 8x16.png", console_font(False))
     put("Graphics/Console font 2 8x16.png", console_font(True))
 
-    # Hit bar
-    hit = new_rgba(88, 8)
+    # Hit bar — 8x8 source strip; renderer samples SourceWidth=8 x Height=6.
+    hit = new_rgba(8, 8)
     hd = ImageDraw.Draw(hit)
-    for x in range(88):
-        t = abs(x - 44) / 44
+    for x in range(8):
+        t = abs(x - 3.5) / 3.5
         a = int(255 * (1 - t) ** 0.5)
         col = _blend_color(WHITE, CYAN, t)
         hd.line([(x, 0), (x, 7)], fill=(*col[:3], a))
@@ -776,12 +784,11 @@ def build_all() -> Dict[str, str]:
     put("Graphics/7_Bonus_100.png", word_plate(117, 88, "100", color=CYAN))
     put("Graphics/7_explosion.png", effect_burst(256, 256, CYAN, "radial"))
 
-    # Wailing fire tall plume
-    wf = new_rgba(268, 8720)
-    # draw a repeating flame motif so tall texture still has content
-    flame = effect_burst(268, 400, MAGENTA, "flame")
-    for y in range(0, 8720, 400):
-        wf.paste(flame, (0, y), flame)
+    # Wailing fire atlas — runtime expects 2688×720 (wide horizontal strip).
+    wf = new_rgba(2688, 720)
+    flame = effect_burst(336, 720, MAGENTA, "flame")
+    for x in range(0, 2688, 336):
+        wf.paste(flame, (x, 0), flame)
     put("Graphics/7_WailingFire.png", wf)
 
     # Combobomb: 14 frames of 360x340
@@ -906,7 +913,9 @@ def wire_recipes(sources: Dict[str, str]) -> None:
         manifest = json.load(f)
     for rel, entry in manifest["assets"].items():
         if rel in sources:
-            entry["recipe"] = {"type": "copy", "source": sources[rel]}
+            # Preserve authored sheet/hueshift recipes; only fill missing ones.
+            if not entry.get("recipe"):
+                entry["recipe"] = {"type": "copy", "source": sources[rel]}
         elif not entry.get("optional"):
             # leave null; validate will catch missing
             pass

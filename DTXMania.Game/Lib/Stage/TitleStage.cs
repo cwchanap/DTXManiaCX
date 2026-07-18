@@ -279,6 +279,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                _versionFont?.RemoveReference();
+                _versionFont = null;
                 _versionFont = _resourceManager.LoadFont("NotoSerifJP", 14);
                 System.Diagnostics.Debug.WriteLine("Loaded version info font using ResourceManager");
             }

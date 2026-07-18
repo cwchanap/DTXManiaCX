@@ -5,7 +5,7 @@ judgement counts and percentages. ASCII only - CJK text stays on NotoSerifJP.
 -->
 <XnaContent xmlns:Graphics="Microsoft.Xna.Framework.Content.Pipeline.Graphics">
   <Asset Type="Graphics:FontDescription">
-    <FontName>Orbitron</FontName>
+    <FontName>Orbitron.ttf</FontName>
     <Size>14</Size>
     <Spacing>0</Spacing>
     <UseKerning>true</UseKerning>

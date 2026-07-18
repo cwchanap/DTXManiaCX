@@ -173,8 +173,19 @@ def validate_pack(manifest_path, pack_root):
 
 
 def _save(img, target, width, height):
-    if width is not None and img.size != (width, height):
+    if width is not None and height is not None and img.size != (width, height):
+        iw, ih = img.size
+        # Reject aspect-ratio changes — they usually mean a wrong source atlas
+        # rather than an intentional scale (e.g. 268×8720 vs 2688×720).
+        if iw > 0 and ih > 0 and width > 0 and height > 0 and iw * height != ih * width:
+            raise ValueError(
+                "aspect-ratio-changing resize refused for %s: source %dx%d -> target %dx%d"
+                % (target, iw, ih, width, height))
         img = img.resize((width, height), Image.LANCZOS)
+    elif width is not None and height is None and img.size[0] != width:
+        img = img.resize((width, img.size[1]), Image.LANCZOS)
+    elif height is not None and width is None and img.size[1] != height:
+        img = img.resize((img.size[0], height), Image.LANCZOS)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     if target.lower().endswith((".jpg", ".jpeg")):
         img.convert("RGB").save(target, quality=90)
@@ -408,17 +419,33 @@ def compose(manifest_path, source_root, pack_root, only=None):
     assets = manifest.get("assets", {})
     skipped = []
 
-    def matches(rel):
+    # When --only selects a hueshift-derived asset, pass 1 must still build its
+    # base so pass 2 can read the composed base from pack_root.
+    hueshift_bases = set()
+    if only is not None:
+        for rel, entry in assets.items():
+            if only not in rel:
+                continue
+            recipe = entry.get("recipe") or {}
+            if recipe.get("type") == "hueshift" and recipe.get("base"):
+                hueshift_bases.add(recipe["base"])
+
+    def matches_pass1(rel):
+        return only is None or only in rel or rel in hueshift_bases
+
+    def matches_pass2(rel):
         return only is None or only in rel
 
     # Pass 1: everything except hueshift (hueshift reads composed outputs).
     for rel, entry in sorted(assets.items()):
-        if not matches(rel):
+        if not matches_pass1(rel):
             continue
         recipe = entry.get("recipe")
         if recipe is None:
-            if not entry.get("optional"):
+            if not entry.get("optional") and matches_pass2(rel):
                 skipped.append(rel)
+            continue
+        if recipe.get("type") == "hueshift":
             continue
         target = os.path.join(pack_root, rel.replace("/", os.sep))
         if recipe["type"] == "copy":
@@ -431,9 +458,9 @@ def compose(manifest_path, source_root, pack_root, only=None):
                 canvas.paste(glyph, (cell["x"], cell["y"]), glyph)
             _save(canvas, target, entry.get("width"), entry.get("height"))
 
-    # Pass 2: hueshift derivations.
+    # Pass 2: hueshift derivations (requested outputs only).
     for rel, entry in sorted(assets.items()):
-        if not matches(rel):
+        if not matches_pass2(rel):
             continue
         recipe = entry.get("recipe")
         if recipe is None or recipe["type"] != "hueshift":
