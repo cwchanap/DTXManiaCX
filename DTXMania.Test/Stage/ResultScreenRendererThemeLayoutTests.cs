@@ -404,6 +404,22 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ResolveValueColor_WithEmptyTheme_ShouldKeepNxWhite()
+        {
+            Assert.Equal(Color.White, ResultScreenRenderer.ResolveValueColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveValueColor_WithThemedColor_ShouldUseThemedValue()
+        {
+            // Level / play / skill were hardcoded white, which outshines a themed
+            // primary step and makes them louder than the score.
+            var theme = SkinTheme.Parse(new[] { "Result.ValueText=#DBEBF0" });
+
+            Assert.Equal(new Color(0xDB, 0xEB, 0xF0), ResultScreenRenderer.ResolveValueColor(theme));
+        }
+
+        [Fact]
         public void ResolveTitleColor_WithEmptyTheme_ShouldKeepNxWhite()
         {
             Assert.Equal(Color.White, ResultScreenRenderer.ResolveTitleColor(SkinTheme.Empty));

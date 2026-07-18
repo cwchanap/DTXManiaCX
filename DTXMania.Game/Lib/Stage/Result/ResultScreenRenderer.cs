@@ -491,6 +491,14 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// <summary>
         /// Song title color: "Result.TitleText" → NX white.
         /// </summary>
+        /// <summary>
+        /// Colour for the numeric values that are not judgement counts (level,
+        /// play %, skill). NX draws them plain white; skins with their own
+        /// neutral ramp keep them on the same step as the rest of the screen.
+        /// </summary>
+        internal static Color ResolveValueColor(ISkinTheme theme) =>
+            theme.GetColor("Result.ValueText", Color.White);
+
         internal static Color ResolveTitleColor(ISkinTheme theme) =>
             theme.GetColor("Result.TitleText", Color.White);
 
@@ -583,7 +591,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             DrawText(spriteBatch, _smallFont, model.Artist, artistPosition, ResolveArtistColor(theme));
 
             DrawValue(spriteBatch, valueFont, model.ChartLevelText, ResolveLevelPosition(theme),
-                valueRightX, Color.White, valueScale);
+                valueRightX, ResolveValueColor(theme), valueScale);
 
             // Difficulty-tier name ("BASIC"/"MASTER"/...) beside the level value,
             // in the count font so it reads as an annotation of the number.
@@ -596,9 +604,9 @@ namespace DTXMania.Game.Lib.Stage.Result
                     levelLabelRightX, ResolveLevelLabelColor(theme), 1.0f);
             }
             DrawValue(spriteBatch, valueFont, model.PlayingSkillText, ResolvePlayingSkillPosition(theme),
-                valueRightX, Color.White, valueScale);
+                valueRightX, ResolveValueColor(theme), valueScale);
             DrawValue(spriteBatch, valueFont, model.GameSkillText, ResolveGameSkillPosition(theme),
-                valueRightX, Color.White, valueScale);
+                valueRightX, ResolveValueColor(theme), valueScale);
 
             var countRows = new[]
             {
