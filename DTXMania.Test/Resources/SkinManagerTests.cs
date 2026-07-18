@@ -251,8 +251,9 @@ namespace DTXMania.Test.Resources
         {
             // Arrange: a bundled candidate that passes ValidateSkinPath (has the
             // Graphics/1_background.jpg validation file). The leaf directory is
-            // named "System" so GetSkinName maps it to "Default", matching the
-            // real bundled layout (Contents/Resources/System).
+            // named "System" so GetSkinName maps it to "Default" when the path
+            // is passed as the default root, matching the real bundled layout
+            // (Contents/Resources/System).
             var bundled = Path.Combine(_testSkinRoot, "BundledParent", "System");
             CreateTestSkinAt(bundled);
 
@@ -262,7 +263,51 @@ namespace DTXMania.Test.Resources
             // Assert
             Assert.NotNull(result);
             Assert.EndsWith(Path.DirectorySeparatorChar.ToString(), result);
-            Assert.Equal("Default", SkinManager.GetSkinName(result!));
+            // Pass the bundled root as the default root so GetSkinName labels it
+            // "Default" by path equality rather than by the old literal-"System"
+            // segment check (which over-mapped any path ending in "System").
+            Assert.Equal("Default", SkinManager.GetSkinName(result!, result));
+        }
+
+        [Fact]
+        public void GetSkinName_WithPathEndingInSystemButNotDefaultRoot_ShouldReturnSegmentNotDefault()
+        {
+            // Regression guard for the over-mapping bug where GetSkinName
+            // previously returned "Default" for ANY path whose last segment was
+            // "System" — e.g. a custom skin at .../MySkins/System/ would have
+            // been mislabeled "Default", and SwitchToSystemSkin("Default") could
+            // then resolve to the wrong path. With the defaultSkinPath
+            // parameter, "Default" is returned only on a real path match.
+            // Arrange: a custom skin whose leaf directory is literally "System"
+            // but is NOT the default skin root.
+            var customSystemLeaf = Path.Combine(_testSkinRoot, "MySkins", "System");
+            Directory.CreateDirectory(customSystemLeaf);
+
+            // Act — no defaultSkinPath, so GetSkinName returns the segment.
+            var resultWithoutDefault = SkinManager.GetSkinName(customSystemLeaf);
+            // Act — a different default root, so the path doesn't match.
+            var differentDefault = Path.Combine(_testSkinRoot, "RealDefault", "System");
+            Directory.CreateDirectory(differentDefault);
+            var resultWithDifferentDefault = SkinManager.GetSkinName(customSystemLeaf, differentDefault);
+
+            // Assert — both return the literal segment, not "Default".
+            Assert.Equal("System", resultWithoutDefault);
+            Assert.Equal("System", resultWithDifferentDefault);
+        }
+
+        [Fact]
+        public void GetSkinName_WithDefaultRootMatchingPath_ShouldReturnDefault()
+        {
+            // Positive counterpart to the over-mapping regression test: when the
+            // path IS the default root, GetSkinName returns "Default" regardless
+            // of the leaf segment name. Covers default roots whose leaf is not
+            // "System" (e.g. a renamed bundled root).
+            var defaultRoot = Path.Combine(_testSkinRoot, "MyDefaultRoot");
+            CreateTestSkinAt(defaultRoot);
+
+            var result = SkinManager.GetSkinName(defaultRoot, defaultRoot);
+
+            Assert.Equal("Default", result);
         }
 
         [Fact]

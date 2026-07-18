@@ -114,12 +114,15 @@ namespace DTXMania.Game.Lib.Resources
         /// Reloaded automatically when the skin path changes.
         /// </summary>
         /// <remarks>
-        /// DEFERRED: This property and the SkinTheme parser are infrastructure
-        /// only — no stage or draw site reads CurrentTheme yet. The plumbing
-        /// (lazy load, invalidation on skin switch) lands now so a follow-up PR
-        /// can wire theme-driven coloring into stage rendering without touching
-        /// ResourceManager again. Until a consumer exists, Theme.ini values are
-        /// parsed and cached but have no effect on rendering.
+        /// Consumed by stage renderers and song-list components for theme-driven
+        /// typography, color, and layout overrides. Current consumers include
+        /// StartupStage, ConfigStage, SongSelectionStage, SongTransitionStage,
+        /// PerformanceStage, ResultStage / ResultScreenRenderer, and the
+        /// PlayHistoryPanel / SongStatusPanel / SongListDisplay components. The
+        /// implementation lazily loads Theme.ini for the effective skin and
+        /// invalidates the cache when the skin path, box.def path, or box.def
+        /// usage changes (see ResourceManager.SetSkinPath / SetBoxDefSkinPath /
+        /// SetUseBoxDefSkin).
         /// </remarks>
         ISkinTheme CurrentTheme { get; }
 

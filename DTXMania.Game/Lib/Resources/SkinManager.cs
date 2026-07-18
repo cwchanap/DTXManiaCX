@@ -53,6 +53,18 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public string CurrentSkinPath => _resourceManager.GetCurrentEffectiveSkinPath();
 
+        /// <summary>
+        /// The "Default" skin path selected during the last
+        /// <see cref="RefreshAvailableSkins"/>: either the writable app-data
+        /// System root (when it validates) or the read-only bundled System
+        /// root. Exposed so callers can pass it to
+        /// <see cref="GetSkinName(string, string?)"/> for accurate
+        /// "Default"-vs-custom labeling — without it, GetSkinName can only
+        /// return the path's last segment, which mislabels any skin whose
+        /// leaf directory is literally "System".
+        /// </summary>
+        public string? DefaultSkinPath => _defaultSkinPath;
+
         #endregion
 
         #region Public Methods
@@ -70,7 +82,7 @@ namespace DTXMania.Game.Lib.Resources
 
                 foreach (var skin in _availableSystemSkins)
                 {
-                    Debug.WriteLine($"  - {GetSkinName(skin)}");
+                    Debug.WriteLine($"  - {GetSkinName(skin, _defaultSkinPath)}");
                 }
             }
             catch (Exception ex)
@@ -205,8 +217,17 @@ namespace DTXMania.Game.Lib.Resources
                  /// Based on DTXMania's GetSkinName() method
                  /// </summary>
                  /// <param name="skinPathFullName">Full path to skin directory</param>
+                 /// <param name="defaultSkinPath">
+                 /// Optional: the runtime default skin root (e.g.
+                 /// <see cref="DefaultSkinPath"/>). When provided, the path is
+                 /// compared against it by full-path equality and labeled
+                 /// "Default" on a match. When omitted, the method returns the
+                 /// last path segment with no special-casing — callers that
+                 /// need "Default" labeling for the system skin must pass the
+                 /// real default root.
+                 /// </param>
                  /// <returns>Skin name or empty string if invalid</returns>
-        public static string GetSkinName(string skinPathFullName)
+        public static string GetSkinName(string skinPathFullName, string? defaultSkinPath = null)
         {
             if (string.IsNullOrEmpty(skinPathFullName))
                 return "";
@@ -215,16 +236,34 @@ namespace DTXMania.Game.Lib.Resources
             {
                 var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
 
-                // Handle default skin case (System/ -> "Default")
                 // Split by both forward and backward slashes and get the last non-empty part
                 var parts = normalizedPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 0)
                     return "";
 
                 var lastSegment = parts[parts.Length - 1];
-                if (lastSegment.Equals("System", StringComparison.OrdinalIgnoreCase))
+
+                // Label as "Default" only when the path matches the actual
+                // default skin root (passed by the caller). The previous
+                // literal-segment check (lastSegment == "System") over-mapped
+                // ANY path ending in "System" to "Default" — e.g. a custom
+                // skin at .../MySkin/System/ would have been mislabeled, and
+                // SwitchToSystemSkin("Default") could then resolve to the wrong
+                // path. Comparing against the real default root eliminates the
+                // over-mapping while preserving "Default" for the actual
+                // system skin. Path.GetFullPath normalizes both sides so
+                // trailing-separator and relative/absolute differences don't
+                // cause a false mismatch.
+                if (!string.IsNullOrEmpty(defaultSkinPath))
                 {
-                    return "Default";
+                    var normalizedDefault = defaultSkinPath.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+                    if (string.Equals(
+                        Path.GetFullPath(normalizedPath),
+                        Path.GetFullPath(normalizedDefault),
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        return "Default";
+                    }
                 }
 
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
@@ -368,7 +407,7 @@ namespace DTXMania.Game.Lib.Resources
         private string GetSkinPathFromName(string skinName)
         {
             return _availableSystemSkins.FirstOrDefault(path =>
-                string.Equals(GetSkinName(path), skinName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(GetSkinName(path, _defaultSkinPath), skinName, StringComparison.OrdinalIgnoreCase));
         }
 
         private static string NormalizePath(string path)

@@ -520,16 +520,16 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         /// <summary>
         /// Font family for numeric values (score/counts/percents/level/skills):
-        /// "Result.ValueFontFamily", empty = disabled (NX draws every text with
+        /// "Result.FontValueFamily", empty = disabled (NX draws every text with
         /// NotoSerifJP). Values are ASCII, so skins can render them with a
         /// Latin display family while titles keep the CJK-capable serif.
         /// </summary>
         internal static string ResolveValueFontFamily(ISkinTheme theme) =>
-            theme.GetString("Result.ValueFontFamily", string.Empty);
+            theme.GetString("Result.FontValueFamily", string.Empty);
 
         /// <summary>
         /// Point size for the value font (score/level/play/skill): "Result.FontValue" → 18.
-        /// Only consulted when "Result.ValueFontFamily" is set.
+        /// Only consulted when "Result.FontValueFamily" is set.
         /// </summary>
         internal static int ResolveValueFontSize(ISkinTheme theme) =>
             theme.GetInt("Result.FontValue", 18);
@@ -537,7 +537,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// <summary>
         /// Point size for the count font (judgement counts/percents):
         /// "Result.FontValueSmall" → 14. Only consulted when
-        /// "Result.ValueFontFamily" is set.
+        /// "Result.FontValueFamily" is set.
         /// </summary>
         internal static int ResolveCountFontSize(ISkinTheme theme) =>
             theme.GetInt("Result.FontValueSmall", 14);

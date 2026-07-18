@@ -456,7 +456,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ResolveValueFontFamily_WithThemedFamily_ShouldUseThemedValue()
         {
-            var theme = SkinTheme.Parse(new[] { "Result.ValueFontFamily=Orbitron" });
+            var theme = SkinTheme.Parse(new[] { "Result.FontValueFamily=Orbitron" });
 
             Assert.Equal("Orbitron", ResultScreenRenderer.ResolveValueFontFamily(theme));
         }

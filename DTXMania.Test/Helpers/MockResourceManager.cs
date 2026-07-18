@@ -15,6 +15,7 @@ namespace DTXMania.Test.Helpers
         private readonly GraphicsDevice _graphicsDevice;        private readonly CacheManager<string, ITexture> _textureCache;
         private readonly CacheManager<string, IFont> _fontCache;
         private readonly CacheManager<string, ISound> _soundCache;
+        private readonly object _lockObject = new object();
         private string _skinPath = "System/";
         private string _boxDefSkinPath = "";
         private bool _useBoxDefSkin = false;        public event EventHandler<ResourceLoadFailedEventArgs>? ResourceLoadFailed;
@@ -145,10 +146,25 @@ namespace DTXMania.Test.Helpers
             //
             // CurrentTheme is invalidated to match the real ResourceManager's
             // _currentTheme = null on skin switch.
-            var oldPath = _skinPath;
-            _skinPath = skinPath ?? "System/";
-            _currentTheme = SkinTheme.Empty;
-            SkinChanged?.Invoke(this, new SkinChangedEventArgs(oldPath, _skinPath));
+            //
+            // Lock + raise-outside mirrors the real ResourceManager.SetSkinPath
+            // (see ResourceManager.cs:339-387): state mutation happens under the
+            // lock and SkinChanged is raised OUTSIDE so subscribers that call
+            // back into the mock (e.g. querying GetCurrentEffectiveSkinPath or
+            // CurrentTheme) cannot deadlock. Without this ordering the mock
+            // cannot catch reentrancy regressions that the production ordering
+            // was designed to prevent — a test that subscribes and calls back
+            // would hang under the old inline-raise pattern only if the mock
+            // had a lock, so the lock and the deferred raise must ship together.
+            SkinChangedEventArgs eventArgs;
+            lock (_lockObject)
+            {
+                var oldPath = _skinPath;
+                _skinPath = skinPath ?? "System/";
+                _currentTheme = SkinTheme.Empty;
+                eventArgs = new SkinChangedEventArgs(oldPath, _skinPath);
+            }
+            SkinChanged?.Invoke(this, eventArgs);
         }
 
         public string ResolvePath(string relativePath)

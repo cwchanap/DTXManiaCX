@@ -211,14 +211,14 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetString_WithMissingKey_ShouldReturnFallback()
         {
-            Assert.Equal("fallback", SkinTheme.Empty.GetString("Result.ValueFontFamily", "fallback"));
+            Assert.Equal("fallback", SkinTheme.Empty.GetString("Result.FontValueFamily", "fallback"));
         }
 
         [Fact]
         public void GetString_WithPresentKey_ShouldReturnValue()
         {
-            var theme = SkinTheme.Parse(new[] { "Result.ValueFontFamily=Orbitron" });
-            Assert.Equal("Orbitron", theme.GetString("Result.ValueFontFamily", string.Empty));
+            var theme = SkinTheme.Parse(new[] { "Result.FontValueFamily=Orbitron" });
+            Assert.Equal("Orbitron", theme.GetString("Result.FontValueFamily", string.Empty));
         }
     }
 }
