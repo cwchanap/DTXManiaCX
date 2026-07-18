@@ -141,5 +141,43 @@ namespace DTXMania.Test.Stage
         }
 
         #endregion
+
+        #region Theme Layout Tests
+
+        [Fact]
+        public void ResolveDifficultyPanelColor_WithEmptyTheme_ShouldKeepNxGray()
+        {
+            Assert.Equal(Microsoft.Xna.Framework.Color.Gray,
+                SongTransitionStage.ResolveDifficultyPanelColor(DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveDifficultyPanelColor_WithThemedColor_ShouldUseThemedValue()
+        {
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.DifficultyPanel=#0F172AB4" });
+
+            Assert.Equal(new Microsoft.Xna.Framework.Color(0x0F, 0x17, 0x2A, 0xB4),
+                SongTransitionStage.ResolveDifficultyPanelColor(theme));
+        }
+
+        [Fact]
+        public void ResolveTitleMaxWidth_WithEmptyTheme_ShouldBeUnlimited()
+        {
+            Assert.Equal(0, SongTransitionStage.ResolveTitleMaxWidth(
+                DTXMania.Game.Lib.Resources.SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveTitleMaxWidth_WithThemedWidth_ShouldUseThemedValue()
+        {
+            // CX Neon caps the title short of the rotated jacket art at x~620.
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.TitleMaxWidth=430" });
+
+            Assert.Equal(430, SongTransitionStage.ResolveTitleMaxWidth(theme));
+        }
+
+        #endregion
     }
 }

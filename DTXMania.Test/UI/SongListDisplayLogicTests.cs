@@ -1062,12 +1062,11 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void CalculateArtistNamePosition_ShouldUseAbsoluteNXCoordinates()
+    public void ResolveArtistNamePosition_ShouldUseAbsoluteNXCoordinates()
     {
-        var display = new SongListDisplay();
         float textWidth = 150f;
 
-        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+        var pos = SongListDisplay.ResolveArtistNamePosition(textWidth, SkinTheme.Empty);
 
         // NX: x = 1260 - 25 - textWidth = 1235 - textWidth
         Assert.Equal(SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth, pos.X);
@@ -1075,12 +1074,11 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void CalculateArtistNamePosition_WhenTextWouldOverflow_ShouldClampToZero()
+    public void ResolveArtistNamePosition_WhenTextWouldOverflow_ShouldClampToZero()
     {
-        var display = new SongListDisplay();
         float textWidth = 1400f;
 
-        var pos = InvokePrivate<Vector2>(display, "CalculateArtistNamePosition", textWidth);
+        var pos = SongListDisplay.ResolveArtistNamePosition(textWidth, SkinTheme.Empty);
 
         Assert.Equal(0f, pos.X);
     }

@@ -122,6 +122,11 @@ namespace DTXMania.Game.Lib.Resources
             return fallback;
         }
 
+        public string GetString(string key, string fallback)
+        {
+            return _values.TryGetValue(key, out var raw) ? raw : fallback;
+        }
+
         public Point GetPoint(string key, Point fallback)
         {
             if (!_values.TryGetValue(key, out var raw))

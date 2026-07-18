@@ -60,6 +60,10 @@ namespace DTXMania.Game.Lib.Stage
         private CancellationTokenSource _cancellationTokenSource;
         private string[] _songPaths = Constants.SongPaths.Default;
 
+        // Which phase's kick-off has already run (each phase's operation runs once,
+        // no matter how late the first update of that phase arrives).
+        private StartupPhase? _operationPerformedForPhase;
+
         // Filesystem change detection result (cached to avoid duplicate checks)
         private bool? _needsEnumeration = null;
 
@@ -428,8 +432,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PerformPhaseOperationSync(StartupPhase phase, double phaseElapsed)
         {
-            // Only perform operation once per phase (at the beginning)
-            if (phaseElapsed > 0.1) return;
+            // Only perform the operation once per phase — keyed by phase, not by a
+            // time window. Gating on "phaseElapsed <= 0.1s" wedged startup forever
+            // when a single slow frame straddled a phase boundary: the async
+            // kick-off was skipped, and async phases never complete with a null task.
+            if (_operationPerformedForPhase == phase) return;
+            _operationPerformedForPhase = phase;
 
             switch (phase)
             {

@@ -18,7 +18,16 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture? _panelTexture;
         private SpriteFont? _font;
         private IFont? _managedFont;
+        private IResourceManager? _resourceManager;
         private string[] _historyLines = Array.Empty<string>();
+
+        /// <summary>
+        /// Row text color: "SongSelect.HistoryText" → "UI.TextPrimary" → the NX
+        /// default (yellow), so themeless skins render exactly as before.
+        /// </summary>
+        internal static Color ResolveHistoryTextColor(ISkinTheme theme) =>
+            theme.GetColor("SongSelect.HistoryText",
+                theme.GetColor("UI.TextPrimary", DTXManiaVisualTheme.FontEffects.DefaultTextColor));
 
         public PlayHistoryPanel()
         {
@@ -49,6 +58,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public void Initialize(IResourceManager resourceManager)
         {
             ReleaseTexture();
+            _resourceManager = resourceManager;
 
             if (resourceManager == null)
                 return;
@@ -163,18 +173,19 @@ namespace DTXMania.Game.Lib.Song.Components
 
             var shadow = position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset;
             var scale = new Vector2(TextScale);
+            var textColor = ResolveHistoryTextColor(_resourceManager?.CurrentTheme ?? SkinTheme.Empty);
             if (_font != null)
             {
                 spriteBatch.DrawString(_font, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor,
                     0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                spriteBatch.DrawString(_font, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor,
+                spriteBatch.DrawString(_font, text, position, textColor,
                     0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
             else if (_managedFont != null)
             {
                 _managedFont.DrawString(spriteBatch, text, shadow, DTXManiaVisualTheme.FontEffects.DefaultShadowColor,
                     0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
-                _managedFont.DrawString(spriteBatch, text, position, DTXManiaVisualTheme.FontEffects.DefaultTextColor,
+                _managedFont.DrawString(spriteBatch, text, position, textColor,
                     0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
             }
         }

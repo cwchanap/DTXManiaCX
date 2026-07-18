@@ -41,3 +41,17 @@
 /processorParam:TextureFormat=Compressed
 /build:NotoSerifJP-Bold.spritefont
 
+#begin Orbitron-14.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:Orbitron-14.spritefont
+
+#begin Orbitron-18.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Compressed
+/build:Orbitron-18.spritefont
+

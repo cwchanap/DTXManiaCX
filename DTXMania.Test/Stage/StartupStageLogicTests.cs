@@ -190,11 +190,37 @@ namespace DTXMania.Test.Stage
                 phase: StartupPhase.EnumerateSongs,
                 elapsedTime: 2.0,
                 phaseStartTime: 0.0);
+            // The kick-off for this phase has already run (otherwise UpdateCurrentPhase
+            // would now perform it, however late); it just hasn't produced a task yet.
+            ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase",
+                (StartupPhase?)StartupPhase.EnumerateSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
             Assert.Equal(StartupPhase.EnumerateSongs, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+        }
+
+        [Fact]
+        public void UpdateCurrentPhase_WhenFirstUpdateArrivesAfterPhaseWindow_ShouldStillRunPhaseOperation()
+        {
+            // Regression: the per-phase kick-off used to be gated by
+            // "phaseElapsed <= 0.1s". A single slow frame at a phase boundary
+            // (background launch, load hitch) skipped the kick-off entirely, so
+            // async phases waited forever on a task that was never started —
+            // startup wedged at 0% CPU. The operation must run however late the
+            // first update of the phase arrives.
+            var config = new ConfigData { DTXPath = "LateKickoffSongs" };
+            var stage = CreateStage(
+                phase: StartupPhase.ConfigValidation,
+                elapsedTime: 5.0,   // far past the old 0.1s window
+                phaseStartTime: 0.0,
+                configData: config);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            var songPaths = ReflectionHelpers.GetPrivateField<string[]>(stage, "_songPaths");
+            Assert.Equal(new[] { "LateKickoffSongs" }, songPaths);
         }
 
         [Fact]

@@ -1197,7 +1197,7 @@ namespace DTXMania.Game.Lib.Stage
                 string msg = "No songs match this filter";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
-                    Microsoft.Xna.Framework.Color.LightGray);
+                    ResolveStatusTextColor(CurrentTheme));
             }
 
             // Draw the tab bar (skip while the search modal is open to avoid overlap).
@@ -1218,7 +1218,7 @@ namespace DTXMania.Game.Lib.Stage
                     : "No recent plays yet";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + SongSelectionUILayout.SongBars.EmptyMessageOffsetX, SongSelectionUILayout.SongBars.SelectedBarY),
-                    Microsoft.Xna.Framework.Color.LightGray);
+                    ResolveStatusTextColor(CurrentTheme));
             }
 
             // Draw status message for the Bookmarks tab: distinct text for load failure vs.
@@ -1232,7 +1232,7 @@ namespace DTXMania.Game.Lib.Stage
                     : "No bookmarks yet";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + SongSelectionUILayout.SongBars.EmptyMessageOffsetX, SongSelectionUILayout.SongBars.SelectedBarY),
-                    Microsoft.Xna.Framework.Color.LightGray);
+                    ResolveStatusTextColor(CurrentTheme));
             }
 
             _spriteBatch.End();
@@ -1613,17 +1613,34 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>
+        /// Tab-bar label color: active resolves "SongSelect.TabActive" → "UI.Accent"
+        /// → NX white; inactive resolves "SongSelect.TabInactive" → NX gray.
+        /// </summary>
+        internal static Color ResolveTabColor(bool active, ISkinTheme theme) => active
+            ? theme.GetColor("SongSelect.TabActive",
+                theme.GetColor("UI.Accent", SongSelectionUILayout.Tabs.ActiveColor))
+            : theme.GetColor("SongSelect.TabInactive", SongSelectionUILayout.Tabs.InactiveColor);
+
+        /// <summary>
+        /// Color for transient status/empty-state messages ("No bookmarks yet",
+        /// "No songs match this filter", ...): "SongSelect.StatusText" → NX LightGray.
+        /// </summary>
+        internal static Color ResolveStatusTextColor(ISkinTheme theme) =>
+            theme.GetColor("SongSelect.StatusText", Color.LightGray);
+
+        private ISkinTheme CurrentTheme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+
         private void DrawTabBar()
         {
             float x = SongSelectionUILayout.Tabs.X;
             float y = SongSelectionUILayout.Tabs.Y;
+            var theme = CurrentTheme;
 
             foreach (SongSelectionTab tab in AllTabs)
             {
                 string label = tab.DisplayLabel();
-                var color = tab == _activeTab
-                    ? SongSelectionUILayout.Tabs.ActiveColor
-                    : SongSelectionUILayout.Tabs.InactiveColor;
+                var color = ResolveTabColor(tab == _activeTab, theme);
 
                 _font.DrawString(_spriteBatch, label, new Vector2(x, y), color);
 

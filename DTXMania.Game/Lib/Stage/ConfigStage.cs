@@ -113,6 +113,14 @@ namespace DTXMania.Game.Lib.Stage
         internal static Color ResolveValueColor(bool selected, ISkinTheme theme) => selected
             ? theme.GetColor("Config.SelectedValueText", theme.GetColor("UI.Accent", SelectedValueText))
             : theme.GetColor("Config.ValueText", theme.GetColor("UI.TextPrimary", ValueDarkText));
+
+        /// <summary>
+        /// X of the NX vertical separator strip (4_item bar.png): "Config.ItemBarX"
+        /// → NX 400. At NX x=400 the strip crosses the CX Neon menu panel's right
+        /// border, so that skin parks it off-screen.
+        /// </summary>
+        internal static int ResolveItemBarX(ISkinTheme theme) =>
+            theme.GetInt("Config.ItemBarX", ConfigUILayout.ItemBarRect.X);
         // Description title sits on the panel's white upper region -> dark text.
         private static readonly Color DescriptionTitleText = new(24, 24, 32);
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
@@ -907,10 +915,15 @@ namespace DTXMania.Game.Lib.Stage
 
         protected virtual void DrawItemBar()
         {
+            var rect = ConfigUILayout.ItemBarRect;
+            rect.X = ResolveItemBarX(_resourceManager?.CurrentTheme ?? SkinTheme.Empty);
+            if (rect.Right <= 0)
+                return;
+
             if (_itemBarTexture?.Texture != null)
-                _spriteBatch.Draw(_itemBarTexture.Texture, ConfigUILayout.ItemBarRect, Color.White);
+                _spriteBatch.Draw(_itemBarTexture.Texture, rect, Color.White);
             else
-                DrawFilledRectangle(ConfigUILayout.ItemBarRect, PanelFallbackColor);
+                DrawFilledRectangle(rect, PanelFallbackColor);
         }
 
         protected virtual void DrawCategoryMenu()

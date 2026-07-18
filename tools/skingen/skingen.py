@@ -205,45 +205,105 @@ def _load_label_font(pixel_size):
     return font
 
 
-def _render_text_cell(w, h, text, accent_hex):
-    """Neon label: near-white glyph core over a soft accent-colored halo,
-    centered in a transparent cell. Rendered supersampled, then downsized."""
+def _render_text_cell(w, h, text, accent_hex, size_fraction=0.6, anchor="center", fit=None,
+                      ink=False):
+    """Neon label: near-white glyph core over a soft accent-colored halo in a
+    transparent cell. size_fraction is the target glyph height as a fraction of
+    the cell height (digits that must fill their cell use ~0.85); anchor places
+    the glyph vertically ("center", "top" to leave the lower cell free, or
+    "bottom" for baseline glyphs like '.'). fit gives reference characters the
+    size is computed against, so every cell of a digit strip renders at ONE
+    size — without it, wide digits shrink to the cell width while a narrow '1'
+    keeps the full size fraction and looks oversized.
+    Rendered supersampled, then downsized."""
     s = _CELL_SUPERSAMPLE
     big_w, big_h = w * s, h * s
     img = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
     measure = ImageDraw.Draw(img)
 
     pad = max(2 * s, big_w // 24)
-    size = max(5, int(big_h * 0.60))
+
+    def fits(f):
+        # With fit: every reference glyph must fit the cell individually.
+        # Without: the actual text (possibly multi-glyph) must fit as one line.
+        for probe in (fit or [text]):
+            left, top, right, bottom = measure.textbbox((0, 0), probe, font=f)
+            if right - left > big_w - 2 * pad or bottom - top > int(big_h * 0.92):
+                return False
+        return True
+
+    size = max(5, int(big_h * size_fraction))
     font = _load_label_font(size)
-    while size > 5:
-        left, top, right, bottom = measure.textbbox((0, 0), text, font=font)
-        if right - left <= big_w - 2 * pad and bottom - top <= int(big_h * 0.9):
-            break
+    while size > 5 and not fits(font):
         size = int(size * 0.9)
         font = _load_label_font(size)
 
     left, top, right, bottom = measure.textbbox((0, 0), text, font=font)
     tx = (big_w - (right - left)) // 2 - left
-    ty = (big_h - (bottom - top)) // 2 - top
+    if anchor == "top":
+        ty = pad - top
+    elif anchor == "bottom":
+        ty = big_h - pad - bottom
+    else:
+        ty = (big_h - (bottom - top)) // 2 - top
 
     glow = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
     ImageDraw.Draw(glow).text((tx, ty), text, font=font, fill=_hex_rgb(accent_hex) + (255,))
     glow = glow.filter(ImageFilter.GaussianBlur(radius=2 * s))
     img.alpha_composite(glow)
     img.alpha_composite(glow)  # second pass strengthens the halo
-    ImageDraw.Draw(img).text((tx, ty), text, font=font, fill=TEXT_FILL + (255,))
+    # ink=True tints the glyph core toward the accent (for color-coded digit
+    # strips); the default near-white core reads as plain white at small sizes.
+    if ink:
+        accent = _hex_rgb(accent_hex)
+        core = tuple((a * 3 + t) // 4 for a, t in zip(accent, TEXT_FILL))
+    else:
+        core = TEXT_FILL
+    ImageDraw.Draw(img).text((tx, ty), text, font=font, fill=core + (255,))
     return img.resize((w, h), Image.LANCZOS)
 
 
-def _render_cursor_cell(w, h, accent_hex):
-    """Selection bar: glowing accent frame around a translucent tint. The
-    cursor row is drawn over the label row in-game, so the fill must stay
-    see-through for the label to remain readable."""
+PANEL_FILL = (0x0B, 0x12, 0x20)      # dark slate panel body
+
+
+def _render_panel_cell(w, h, accent_hex, fill_alpha=216, border=True):
+    """Solid panel body: near-opaque dark fill, optionally framed by a glowing
+    accent border. Unlike cursor cells (translucent tint drawn OVER labels),
+    panels sit UNDER white text — bar bodies, grid cells — so the fill must be
+    dark and near-opaque. border=False yields a plain dark number well."""
     s = _CELL_SUPERSAMPLE
     big_w, big_h = w * s, h * s
     accent = _hex_rgb(accent_hex)
     inset = 2 * s
+    radius = 5 * s
+    box = [inset, inset, big_w - 1 - inset, big_h - 1 - inset]
+
+    img = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    if border:
+        frame = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).rounded_rectangle(box, radius=radius, outline=accent + (255,), width=2 * s)
+        img = frame.filter(ImageFilter.GaussianBlur(radius=2 * s))  # halo
+    ImageDraw.Draw(img).rounded_rectangle(box, radius=radius, fill=PANEL_FILL + (fill_alpha,))
+    if border:
+        frame = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).rounded_rectangle(box, radius=radius, outline=accent + (255,), width=2 * s)
+        img.alpha_composite(frame)  # crisp frame back on top of the fill
+    return img.resize((w, h), Image.LANCZOS)
+
+
+def _render_cursor_cell(w, h, accent_hex, inset_fraction=None):
+    """Selection bar / cap panel: glowing accent frame around a translucent
+    tint. The cursor row is drawn over the label row in-game, so the fill must
+    stay see-through for the label to remain readable. inset_fraction shrinks
+    the panel inside the cell (transparent margin) for cells whose in-game
+    destination rects overlap their neighbours (pad caps)."""
+    s = _CELL_SUPERSAMPLE
+    big_w, big_h = w * s, h * s
+    accent = _hex_rgb(accent_hex)
+    if inset_fraction is None:
+        inset = 2 * s
+    else:
+        inset = int(min(big_w, big_h) * inset_fraction)
     radius = 5 * s
     box = [inset, inset, big_w - 1 - inset, big_h - 1 - inset]
 
@@ -255,15 +315,80 @@ def _render_cursor_cell(w, h, accent_hex):
     return img.resize((w, h), Image.LANCZOS)
 
 
+def _render_glyph_cell(w, h, kind, accent_hex):
+    """Neon drum icon for pad indicators (per design: icons, not lane text).
+    Shapes are sized ~55% of the cell so the overlapping in-game destination
+    rects keep transparent margins: "cymbal"/"ride" are hollow rings, "hihat"
+    is two stacked flattened rings, "drum" is a filled head with a rim, and
+    "pedal" is an upright pedal plate."""
+    s = _CELL_SUPERSAMPLE
+    big_w, big_h = w * s, h * s
+    accent = _hex_rgb(accent_hex)
+    cx, cy = big_w // 2, big_h // 2
+    stroke = 2 * s
+
+    shape = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(shape)
+    if kind in ("cymbal", "ride"):
+        rx = int(big_w * (0.30 if kind == "cymbal" else 0.24))
+        ry = int(rx * 0.55)
+        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], outline=accent + (255,), width=stroke)
+        d.ellipse([cx - stroke, cy - stroke, cx + stroke, cy + stroke], fill=accent + (255,))
+    elif kind == "hihat":
+        rx, ry = int(big_w * 0.26), int(big_w * 0.10)
+        for dy in (-int(ry * 0.9), int(ry * 0.9)):
+            d.ellipse([cx - rx, cy + dy - ry, cx + rx, cy + dy + ry],
+                      outline=accent + (255,), width=stroke)
+    elif kind == "drum":
+        rx, ry = int(big_w * 0.26), int(big_w * 0.20)
+        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=accent + (96,))
+        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], outline=accent + (255,), width=stroke)
+    elif kind == "pedal":
+        pw, ph = int(big_w * 0.16), int(big_h * 0.30)
+        box = [cx - pw, cy - ph, cx + pw, cy + ph]
+        d.rounded_rectangle(box, radius=3 * s, fill=accent + (96,))
+        d.rounded_rectangle(box, radius=3 * s, outline=accent + (255,), width=stroke)
+    else:
+        raise ValueError(f"unknown glyph kind: {kind}")
+
+    img = shape.filter(ImageFilter.GaussianBlur(radius=2 * s))  # halo
+    img.alpha_composite(shape)
+    return img.resize((w, h), Image.LANCZOS)
+
+
 def _build_sheet_cell(cell, source_root):
     if "source" in cell:
         with Image.open(os.path.join(source_root, cell["source"])) as glyph:
             return glyph.convert("RGBA").resize((cell["w"], cell["h"]), Image.LANCZOS)
+    color = cell.get("color", ACCENT_CYAN)
+    # "box" confines the visible content to a sub-rect of the cell (transparent
+    # elsewhere) — for textures drawn offset over neighbours (selected bars) or
+    # content that must stay clear of an in-game overdraw region (rank icons).
+    box = cell.get("box")
+    w, h = (box[2], box[3]) if box else (cell["w"], cell["h"])
+    if cell.get("panel"):
+        panel = _render_panel_cell(w, h, color, cell.get("fill_alpha", 216), cell.get("border", True))
+    elif cell.get("cursor"):
+        panel = _render_cursor_cell(w, h, color, cell.get("inset"))
+    elif "glyph" in cell:
+        panel = _render_glyph_cell(w, h, cell["glyph"], color)
+    else:
+        panel = None
     if "text" in cell:
-        return _render_text_cell(cell["w"], cell["h"], cell["text"], cell.get("color", ACCENT_CYAN))
-    if cell.get("cursor"):
-        return _render_cursor_cell(cell["w"], cell["h"], cell.get("color", ACCENT_CYAN))
-    raise ValueError(f"sheet cell needs 'source', 'text' or 'cursor': {cell}")
+        label = _render_text_cell(w, h, cell["text"], color,
+                                  cell.get("size", 0.6), cell.get("anchor", "center"),
+                                  cell.get("fit"), cell.get("ink", False))
+        if panel is None:
+            panel = label
+        else:
+            panel.alpha_composite(label)
+    if panel is None:
+        raise ValueError(f"sheet cell needs 'source', 'text', 'cursor' or 'panel': {cell}")
+    if box:
+        full = Image.new("RGBA", (cell["w"], cell["h"]), (0, 0, 0, 0))
+        full.paste(panel, (box[0], box[1]), panel)
+        return full
+    return panel
 
 
 def _hueshift(img, degrees):

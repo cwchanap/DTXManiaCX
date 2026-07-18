@@ -674,13 +674,22 @@ namespace DTXMania.Game.Lib.Song.Components
             float progress = (float)actualIndex / Math.Max(1, _currentList.Count - 1);
             int indicatorY = scrollbarY + (int)(progress * (scrollbarHeight - indicatorSize));
 
-            // Draw indicator
+            // Draw indicator (theme-resolved: NX stays white, CX Neon shows its accent)
             if (_whitePixel != null)
             {
                 var indicatorRect = new Rectangle(scrollbarX, indicatorY, indicatorSize, indicatorSize);
-                spriteBatch.Draw(_whitePixel, indicatorRect, Color.White);
+                spriteBatch.Draw(_whitePixel, indicatorRect,
+                    ResolveScrollbarIndicatorColor(_resourceManager?.CurrentTheme ?? SkinTheme.Empty));
             }
         }
+
+        /// <summary>
+        /// Resolves the scrollbar indicator color against the active skin theme: the
+        /// specific SongSelect key wins, then the generic accent token, then white
+        /// (the NX default whitePixel square) so themeless skins are unchanged.
+        /// </summary>
+        internal static Color ResolveScrollbarIndicatorColor(ISkinTheme theme) =>
+            theme.GetColor("SongSelect.ScrollbarIndicator", theme.GetColor("UI.Accent", Color.White));
 
         private void UpdateScrollTarget()
         {
@@ -1137,15 +1146,29 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
-        /// Calculate the absolute NX-authentic position for the artist name.
-        /// NX: x = 1260 - 25 - textWidth, y = 320 (right-aligned at absolute coordinate).
+        /// Calculate the absolute position for the artist name. NX-authentic default:
+        /// x = 1260 - 25 - textWidth, y = 320 (right-aligned at absolute coordinate).
+        /// Skins whose selected-bar art ends higher than NX's move it via the
+        /// Theme.ini layout key "SongSelect.ArtistNameY"; themeless skins keep 320.
         /// </summary>
-        private Vector2 CalculateArtistNamePosition(float textWidth)
+        internal static Vector2 ResolveArtistNamePosition(float textWidth, ISkinTheme theme)
         {
             return new Vector2(
                 Math.Max(0f, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge - textWidth),
-                SongSelectionUILayout.SongBars.ArtistNameAbsoluteY);
+                theme.GetInt("SongSelect.ArtistNameY", SongSelectionUILayout.SongBars.ArtistNameAbsoluteY));
         }
+
+        /// <summary>
+        /// Extra scale applied to the artist name ("SongSelect.ArtistNameScale",
+        /// default 1.0 = NX behavior) so a skin can shrink the text to fit the
+        /// area its selected-bar art leaves for it.
+        /// </summary>
+        internal static float ResolveArtistNameScale(ISkinTheme theme)
+        {
+            return theme.GetFloat("SongSelect.ArtistNameScale", 1f);
+        }
+
+        private ISkinTheme CurrentTheme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
 
         /// <summary>
         /// Draw artist name for the currently selected song using SpriteFont
@@ -1155,10 +1178,12 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(artistName) || _font == null)
                 return;
 
+            var theme = CurrentTheme;
+            textScale *= ResolveArtistNameScale(theme);
             float maxTextWidth = SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge / Math.Max(textScale.X, 0.001f);
             var displayArtistName = TextHelper.TruncateToWidth(artistName, maxTextWidth, _font);
             var artistTextSize = _font.MeasureString(displayArtistName);
-            var artistPos = CalculateArtistNamePosition(artistTextSize.X * textScale.X);
+            var artistPos = ResolveArtistNamePosition(artistTextSize.X * textScale.X, theme);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
             spriteBatch.DrawString(_font, displayArtistName, artistPos, artistColor, 0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
@@ -1166,6 +1191,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Draw artist name for the currently selected song using ManagedFont
+        /// (no scaling support — the themed Y still applies).
         /// </summary>
         private void DrawArtistNameWithManagedFont(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
         {
@@ -1174,7 +1200,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             var displayArtistName = TextHelper.TruncateToWidth(artistName, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge, _managedFont);
             var artistTextSize = _managedFont.MeasureString(displayArtistName);
-            var artistPos = CalculateArtistNamePosition(artistTextSize.X);
+            var artistPos = ResolveArtistNamePosition(artistTextSize.X, CurrentTheme);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
             _managedFont.DrawString(spriteBatch, displayArtistName, artistPos, artistColor);
