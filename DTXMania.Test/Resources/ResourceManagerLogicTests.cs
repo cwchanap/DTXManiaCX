@@ -1360,6 +1360,116 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetBoxDefSkinPath_WhenEffectiveSkinChanges_ShouldNotRaiseSkinChanged()
+        {
+            // Regression guard for the contract documented in
+            // ResourceManager.SetBoxDefSkinPath: box.def skin switches evict
+            // the cache (covered by the eviction tests above) but must NOT raise
+            // SkinChanged, because box.def skins are per-song-set overrides, not
+            // a global skin selection. Callers that need global reload
+            // notification subscribe via SetSkinPath. If SetBoxDefSkinPath ever
+            // raises SkinChanged, downstream subscribers (e.g. ConfigStage) would
+            // treat a per-song override as a global skin switch and persist the
+            // box.def path to Config.ini.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var skinChangedRaised = false;
+            resourceManager.SkinChanged += (_, _) => skinChangedRaised = true;
+
+            // Enable box.def usage so the subsequent SetBoxDefSkinPath actually
+            // changes the effective skin (the eviction test above confirms this
+            // combination changes the effective skin — without that, the
+            // non-raise assertion would be vacuously true).
+            resourceManager.SetUseBoxDefSkin(true);
+            Assert.False(skinChangedRaised, "SetUseBoxDefSkin must not raise SkinChanged");
+
+            var effectiveBefore = resourceManager.GetCurrentEffectiveSkinPath();
+
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+
+            Assert.False(skinChangedRaised,
+                "SetBoxDefSkinPath must not raise SkinChanged even when the effective skin changes. " +
+                "box.def skins are per-song-set overrides; global skin switch notification is SetSkinPath's responsibility.");
+
+            // Confirm the effective skin actually changed so the non-raise
+            // assertion above isn't vacuously true (a no-op switch wouldn't
+            // raise SkinChanged in any reasonable implementation).
+            var effectiveAfter = resourceManager.GetCurrentEffectiveSkinPath();
+            Assert.NotEqual(effectiveBefore, effectiveAfter);
+        }
+
+        [Fact]
+        public void SetUseBoxDefSkin_WhenEffectiveSkinChanges_ShouldNotRaiseSkinChanged()
+        {
+            // Companion to SetBoxDefSkinPath_WhenEffectiveSkinChanges_ShouldNotRaiseSkinChanged:
+            // SetUseBoxDefSkin shares the same eviction-without-SkinChanged
+            // contract (documented in ResourceManager.SetUseBoxDefSkin). Toggling
+            // box.def usage on when a box.def path is already set changes the
+            // effective skin but must not notify global-skin subscribers.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var skinChangedRaised = false;
+            resourceManager.SkinChanged += (_, _) => skinChangedRaised = true;
+
+            // Disable usage first so setting the box.def path doesn't change the
+            // effective skin (the test helper defaults _useBoxDefSkin to true).
+            resourceManager.SetUseBoxDefSkin(false);
+            Assert.False(skinChangedRaised, "SetUseBoxDefSkin(false) must not raise SkinChanged");
+
+            // Set the box.def path while usage is disabled (effective = custom).
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
+            Assert.False(skinChangedRaised, "SetBoxDefSkinPath must not raise SkinChanged");
+
+            var effectiveBefore = resourceManager.GetCurrentEffectiveSkinPath();
+
+            // Enabling box.def usage switches the effective skin from custom to
+            // the box.def skin — but must not raise SkinChanged.
+            resourceManager.SetUseBoxDefSkin(true);
+
+            Assert.False(skinChangedRaised,
+                "SetUseBoxDefSkin must not raise SkinChanged even when the effective skin changes. " +
+                "box.def toggles are per-song-set; global skin switch notification is SetSkinPath's responsibility.");
+
+            var effectiveAfter = resourceManager.GetCurrentEffectiveSkinPath();
+            Assert.NotEqual(effectiveBefore, effectiveAfter);
+        }
+
+        [Fact]
+        public void SetSkinPath_SkinChangedSubscriberCallingBackIntoResourceManager_ShouldNotDeadlock()
+        {
+            // Regression guard for the production ordering documented in
+            // ResourceManager.SetSkinPath (cf4ac6f): SkinChanged must be raised
+            // OUTSIDE _lockObject so subscribers that call back into
+            // ResourceManager (e.g. querying GetCurrentEffectiveSkinPath,
+            // CurrentTheme, or reloading textures) cannot deadlock. If the raise
+            // ever moves back inside the lock, this test will hang and be killed
+            // by xUnit's default test timeout.
+            //
+            // Companion to MockResourceManager.SetSkinPath's lock + raise-outside
+            // pattern: the mock mirrors the ordering so tests using the mock can
+            // also catch reentrancy regressions, but this test against the real
+            // ResourceManager is the authoritative guard.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            string? callbackObservedPath = null;
+            resourceManager.SkinChanged += (_, _) =>
+            {
+                // Call back into ResourceManager during the raise. This would
+                // deadlock if the raise held _lockObject, because
+                // GetCurrentEffectiveSkinPath reads fields that SetSkinPath
+                // mutates under the lock (the real RM's GetCurrentEffectiveSkinPath
+                // is intentionally lock-free, but a regressed SetSkinPath that
+                // raised inside the lock would still block any callback that
+                // touched the lock, e.g. CurrentTheme's slow path).
+                callbackObservedPath = resourceManager.GetCurrentEffectiveSkinPath();
+            };
+
+            // Switch to a different skin so the raise is observable. SetSkinPath
+            // raises SkinChanged unconditionally (the raise is not guarded by the
+            // path-change check — only eviction is), so any path works.
+            resourceManager.SetSkinPath(_boxDefSkinRoot);
+
+            Assert.Equal(NormalizeDirectory(_boxDefSkinRoot), callbackObservedPath);
+        }
+
+        [Fact]
         public void InitializeDefaultSkinPath_WhenValidationFails_ShouldStillUseDefaultPathAndCreateStructure()
         {
             var nonExistentRoot = Path.Combine(_testDataPath, "MissingSystem");

@@ -121,7 +121,14 @@ jobs:
           # Mirrors the build-and-test.yml build-artifacts bundle step.
           $dest = Join-Path $PWD 'publish\system-skin'
           if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
-            Write-Host 'CX Neon pack not yet produced — shipping repo System\ as-is.'
+            # ::warning:: surfaces as a GitHub Actions annotation on this step
+            # so the release isn't silently shipping NX/GITADORA-derived assets.
+            # The fallback is intentional (interim) per the spec decision; this
+            # annotation makes the gap visible on every release that hits it.
+            $missing = @()
+            if (-not (Test-Path 'System/CXNeon/Graphics')) { $missing += 'Graphics' }
+            if (-not (Test-Path 'System/CXNeon/Sounds'))   { $missing += 'Sounds' }
+            Write-Host "::warning::CX Neon pack incomplete ($($missing -join ', ') missing under System/CXNeon/). Shipping repo-root System\ as-is, which contains NX/GITADORA-derived assets. Produce the CX Neon pack via tools/skingen/ and tools/sfxgen/ to ship the CX Neon skin in releases."
             "SYSTEM_SKIN_DIR=$(Join-Path $PWD 'System')" | Out-File -FilePath $env:GITHUB_ENV -Append
             exit 0
           }
@@ -332,7 +339,14 @@ jobs:
           # shipping the legacy skin until CX Neon is ready. Mirrors the
           # build-and-test.yml build-artifacts bundle step.
           if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-            echo "CX Neon pack not yet produced — shipping repo System/ as-is."
+            # ::warning:: surfaces as a GitHub Actions annotation on this step
+            # so the release isn't silently shipping NX/GITADORA-derived assets.
+            # The fallback is intentional (interim) per the spec decision; this
+            # annotation makes the gap visible on every release that hits it.
+            missing=""
+            [ ! -d "System/CXNeon/Graphics" ] && missing="Graphics"
+            [ ! -d "System/CXNeon/Sounds" ]   && missing="${missing:+$missing, }Sounds"
+            echo "::warning::CX Neon pack incomplete (${missing:-unknown} missing under System/CXNeon/). Shipping repo-root System/ as-is, which contains NX/GITADORA-derived assets. Produce the CX Neon pack via tools/skingen/ and tools/sfxgen/ to ship the CX Neon skin in releases."
             echo "SYSTEM_SKIN_DIR=$PWD/System" >> "$GITHUB_ENV"
             exit 0
           fi

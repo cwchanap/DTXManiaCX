@@ -479,8 +479,9 @@ namespace DTXMania.Game.Lib.Stage
                 _skinManager?.Dispose();
                 _skinManager = new SkinManager(_game.ResourceManager, _configManager.Config.SystemSkinRoot);
                 var availableSkinPaths = _skinManager.AvailableSystemSkins.ToList();
+                var defaultSkinPath = _skinManager.DefaultSkinPath;
                 var skinNames = availableSkinPaths
-                    .Select(SkinManager.GetSkinName)
+                    .Select(path => SkinManager.GetSkinName(path, defaultSkinPath))
                     .Where(name => !string.IsNullOrEmpty(name))
                     .ToList();
 
@@ -494,7 +495,7 @@ namespace DTXMania.Game.Lib.Stage
                 _externalSkinPath = null;
                 _externalSkinLabel = null;
                 var currentSkinPath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
-                var currentSkinName = SkinManager.GetSkinName(currentSkinPath);
+                var currentSkinName = SkinManager.GetSkinName(currentSkinPath, _skinManager?.DefaultSkinPath);
                 // Absolute paths: compare full paths so an external checkout that
                 // shares a leaf name with a system skin is still treated as external.
                 // Relative placeholders (e.g. mock "System/") fall back to leaf-name
@@ -609,7 +610,7 @@ namespace DTXMania.Game.Lib.Stage
                 return _externalSkinLabel;
             }
 
-            var name = SkinManager.GetSkinName(path);
+            var name = SkinManager.GetSkinName(path, _skinManager?.DefaultSkinPath);
             return string.IsNullOrEmpty(name) ? "Default" : name;
         }
 

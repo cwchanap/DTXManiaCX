@@ -50,6 +50,16 @@ namespace DTXMania.Test.Config
             configManager.Config.SystemSkinRoot = _skinRoot;
             var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
             var resourceManager = new MockResourceManager();
+            // Simulate the real ResourceManager's initialized state: the
+            // effective skin path is the absolute default System root, not the
+            // relative "System/" placeholder the mock defaults to. Without this,
+            // SkinManager.GetSkinName's path-equality check (which replaced the
+            // old literal-"System" segment check) can't match the mock's
+            // relative path against SkinManager._defaultSkinPath, and the
+            // dropdown mislabels the default skin as "System" instead of
+            // "Default". Tests that need a non-default starting skin override
+            // this by calling SetSkinPath again after CreateStage.
+            resourceManager.SetSkinPath(_skinRoot + Path.DirectorySeparatorChar);
             var game = ReflectionHelpers.CreateGame();
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
