@@ -642,10 +642,11 @@ namespace DTXMania.Game.Lib.Song.Components
             // Preferred path: NX bitmap font (5_bpm font.png, 20px tall) centered in the dark boxes.
             if (_bpmNumberTexture != null)
             {
+                float numberHeight = 20f * StatusNumberScale;
                 float lengthBitmapY = bpmOrigin.Y + SongSelectionUILayout.BPMSection.LengthBoxTop
-                                      + (SongSelectionUILayout.BPMSection.DarkBoxHeight - 20) / 2f;
+                                      + (SongSelectionUILayout.BPMSection.DarkBoxHeight - numberHeight) / 2f;
                 float bpmBitmapY = bpmOrigin.Y + SongSelectionUILayout.BPMSection.BPMBoxTop
-                                   + (SongSelectionUILayout.BPMSection.DarkBoxHeight - 20) / 2f;
+                                   + (SongSelectionUILayout.BPMSection.DarkBoxHeight - numberHeight) / 2f;
 
                 DrawBpmNumberBitmap(spriteBatch, textX, lengthBitmapY, formattedDuration);
 
@@ -1264,7 +1265,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // NX: nGraphBaseX + 66 - (len-1)*(charWidth/2); position.X already equals nGraphBaseX + 66.
                 // Source the per-character advance from the shared table so a width change can't drift
                 // away from the unit-tested MeasureBpmNumberWidth helper.
-                float halfAdvance = BpmNumberAdvance('0') / 2f;
+                float halfAdvance = BpmNumberAdvance('0') * StatusNumberScale / 2f;
                 float startX = position.X - (digits.Length - 1) * halfAdvance;
                 DrawBpmNumberBitmap(spriteBatch, startX, position.Y, digits);
                 return;
@@ -1363,14 +1364,42 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        /// <summary>
+        /// Themed scale for the panel's bitmap numbers (BPM, song length, total
+        /// notes): "SongSelect.StatusNumberScale" → 1.0 (NX pixel-identical).
+        /// </summary>
+        internal static float ResolveStatusNumberScale(ISkinTheme theme) =>
+            theme.GetFloat("SongSelect.StatusNumberScale", 1f);
+
+        private float StatusNumberScale =>
+            ResolveStatusNumberScale(_resourceManager?.CurrentTheme ?? SkinTheme.Empty);
+
         private void DrawBpmNumberBitmap(SpriteBatch spriteBatch, float x, float y, string text)
         {
+            // The skin may author the digit sheet at an integer multiple of the
+            // NX 20px cell height (e.g. 2x) so scaled-up numbers stay crisp;
+            // source rects grow by that factor while layout advances stay in
+            // NX units times the themed draw scale.
+            float sourceFactor = _bpmNumberTexture.Height / 20f;
+            float scale = StatusNumberScale;
             foreach (var c in text)
             {
                 var rect = GetBpmNumberRect(c);
                 if (rect.HasValue)
-                    _bpmNumberTexture.Draw(spriteBatch, new Vector2(x, y), rect.Value);
-                x += BpmNumberAdvance(c);
+                {
+                    var source = new Rectangle(
+                        (int)Math.Round(rect.Value.X * sourceFactor),
+                        (int)Math.Round(rect.Value.Y * sourceFactor),
+                        (int)Math.Round(rect.Value.Width * sourceFactor),
+                        (int)Math.Round(rect.Value.Height * sourceFactor));
+                    var destination = new Rectangle(
+                        (int)Math.Round(x), (int)Math.Round(y),
+                        (int)Math.Round(rect.Value.Width * scale),
+                        (int)Math.Round(rect.Value.Height * scale));
+                    _bpmNumberTexture.Draw(spriteBatch, destination, source,
+                        Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                }
+                x += BpmNumberAdvance(c) * scale;
             }
         }
 

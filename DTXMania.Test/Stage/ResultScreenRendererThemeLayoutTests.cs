@@ -486,5 +486,36 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(3, ResultScreenRenderer.ResolveCountYOffset(theme));
         }
+
+        [Fact]
+        public void ResolveLevelLabelRightX_WithEmptyTheme_ShouldBeHidden()
+        {
+            // 0 = the difficulty-tier name is not drawn (NX behavior).
+            Assert.Equal(0, ResultScreenRenderer.ResolveLevelLabelRightX(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveLevelLabelRightX_WithThemedEdge_ShouldUseThemedValue()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.LevelLabelRightX=360" });
+
+            Assert.Equal(360, ResultScreenRenderer.ResolveLevelLabelRightX(theme));
+        }
+
+        [Fact]
+        public void ResolveLevelLabelColor_WithEmptyTheme_ShouldBeLightGray()
+        {
+            Assert.Equal(Color.LightGray,
+                ResultScreenRenderer.ResolveLevelLabelColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveLevelLabelColor_WithThemedColor_ShouldUseThemedValue()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.LevelLabelText=#94A3B8" });
+
+            Assert.Equal(new Color(0x94, 0xA3, 0xB8),
+                ResultScreenRenderer.ResolveLevelLabelColor(theme));
+        }
     }
 }

@@ -473,4 +473,26 @@ public class ResultScreenModelTests
             ChartLevelDec = levelDec
         };
     }
+
+    [Theory]
+    [InlineData("MASTER", null, "MASTER")]
+    [InlineData("basic", null, "BASIC")]
+    [InlineData("DRUMS Lv.36", "EXTREME", "EXTREME")]
+    [InlineData("DRUMS Lv.36", null, "")]
+    [InlineData(null, "advanced", "ADVANCED")]
+    [InlineData(null, null, "")]
+    public void ResolveDifficultyLabelText_ShouldPreferKnownTierNames(
+        string slotLabel, string chartLabel, string expected)
+    {
+        Assert.Equal(expected,
+            ResultScreenModel.ResolveDifficultyLabelText(slotLabel, chartLabel));
+    }
+
+    [Fact]
+    public void Create_WithoutSong_ShouldLeaveDifficultyLabelEmpty()
+    {
+        var model = ResultScreenModel.Create(null, null, 0, null, null);
+
+        Assert.Equal(string.Empty, model.DifficultyLabelText);
+    }
 }

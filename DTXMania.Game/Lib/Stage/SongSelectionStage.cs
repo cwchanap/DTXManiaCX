@@ -35,6 +35,9 @@ namespace DTXMania.Game.Lib.Stage
         private SpriteBatch _spriteBatch;
         private IResourceManager _resourceManager;
         private IFont _font;
+        // Themed display font for the tab bar; null = draw tabs with _font (NX).
+        private IFont _tabFont;
+        private IFont _historyFont;
         private Texture2D _whitePixel;
 
         // DTXManiaNX Background Graphics (Phase 3) - Main background now handled by BaseStage
@@ -293,6 +296,20 @@ namespace DTXMania.Game.Lib.Stage
             // Retain the loaded font for direct draw paths (scroll-speed label, empty-filter message)
             _font = uiFont;
 
+            // Optional themed display font for the tab bar; null keeps the shared UI font.
+            try
+            {
+                var theme = CurrentTheme;
+                var tabFamily = ResolveTabFontFamily(theme);
+                if (tabFamily.Length > 0)
+                    _tabFont = _resourceManager.LoadFont(tabFamily, ResolveTabFontSize(theme));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load tab font: {ex.Message}");
+                _tabFont = null;
+            }
+
             // Initialize UI
             InitializeUI(uiFont);
 
@@ -392,6 +409,10 @@ namespace DTXMania.Game.Lib.Stage
             // Release font reference loaded in Activate for direct-draw paths
             _font?.RemoveReference();
             _font = null;
+            _tabFont?.RemoveReference();
+            _tabFont = null;
+            _historyFont?.RemoveReference();
+            _historyFont = null;
 
             // Clean up DTXManiaNX background graphics (Phase 3) - using reference counting
             _headerPanelTexture?.RemoveReference();
@@ -594,9 +615,24 @@ namespace DTXMania.Game.Lib.Stage
             // Status panel starts hidden and will be shown when a song is selected
             _statusPanel.Visible = false;
 
+            // Optional themed face for the recent-plays rows; null keeps the shared UI font.
+            var historyTheme = CurrentTheme;
+            try
+            {
+                var historyFamily = ResolveHistoryFontFamily(historyTheme);
+                if (historyFamily.Length > 0)
+                    _historyFont = _resourceManager.LoadFont(historyFamily, ResolveHistoryFontSize(historyTheme));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load history font: {ex.Message}");
+                _historyFont = null;
+            }
+
             _playHistoryPanel = new PlayHistoryPanel
             {
-                ManagedFont = uiFont
+                ManagedFont = _historyFont ?? uiFont,
+                TextScale = ResolveHistoryTextScale(historyTheme)
             };
             _playHistoryPanel.Initialize(_resourceManager);
 
@@ -1623,6 +1659,38 @@ namespace DTXMania.Game.Lib.Stage
             : theme.GetColor("SongSelect.TabInactive", SongSelectionUILayout.Tabs.InactiveColor);
 
         /// <summary>
+        /// Optional display font family for the tab-bar labels
+        /// ("All Songs" / "Recent" / "Bookmarks"): "SongSelect.TabFontFamily",
+        /// empty = the shared UI font (NX behavior).
+        /// </summary>
+        internal static string ResolveTabFontFamily(ISkinTheme theme) =>
+            theme.GetString("SongSelect.TabFontFamily", string.Empty);
+
+        /// <summary>
+        /// Point size for the tab font: "SongSelect.TabFontSize" → shared UI size.
+        /// </summary>
+        internal static int ResolveTabFontSize(ISkinTheme theme) =>
+            theme.GetInt("SongSelect.TabFontSize", SongSelectionUILayout.Background.DefaultFontSize);
+
+        /// <summary>
+        /// Face for the recent-plays rows: "SongSelect.HistoryFontFamily" → empty,
+        /// i.e. the shared UI font, as NX does. Those rows are date/result/score
+        /// columns, so a monospace face keeps them aligned.
+        /// </summary>
+        internal static string ResolveHistoryFontFamily(ISkinTheme theme) =>
+            theme.GetString("SongSelect.HistoryFontFamily", string.Empty);
+
+        internal static int ResolveHistoryFontSize(ISkinTheme theme) =>
+            theme.GetInt("SongSelect.HistoryFontSize", SongSelectionUILayout.Background.DefaultFontSize);
+
+        /// <summary>
+        /// Draw scale for the rows. NX shrinks the shared UI font to 0.8; a skin
+        /// supplying a font baked at the right size draws it at 1.0.
+        /// </summary>
+        internal static float ResolveHistoryTextScale(ISkinTheme theme) =>
+            theme.GetFloat("SongSelect.HistoryTextScale", SongSelectionUILayout.PlayHistoryPanel.FontScale);
+
+        /// <summary>
         /// Color for transient status/empty-state messages ("No bookmarks yet",
         /// "No songs match this filter", ...): "SongSelect.StatusText" → NX LightGray.
         /// </summary>
@@ -1636,15 +1704,16 @@ namespace DTXMania.Game.Lib.Stage
             float x = SongSelectionUILayout.Tabs.X;
             float y = SongSelectionUILayout.Tabs.Y;
             var theme = CurrentTheme;
+            var font = _tabFont ?? _font;
 
             foreach (SongSelectionTab tab in AllTabs)
             {
                 string label = tab.DisplayLabel();
                 var color = ResolveTabColor(tab == _activeTab, theme);
 
-                _font.DrawString(_spriteBatch, label, new Vector2(x, y), color);
+                font.DrawString(_spriteBatch, label, new Vector2(x, y), color);
 
-                var size = _font.MeasureString(label);
+                var size = font.MeasureString(label);
                 x += size.X + SongSelectionUILayout.Tabs.Spacing;
             }
         }

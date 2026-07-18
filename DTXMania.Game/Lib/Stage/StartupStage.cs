@@ -26,6 +26,7 @@ namespace DTXMania.Game.Lib.Stage
         private const int MARGIN_EDGE = 10;
         private const int MARGIN_TOP = 2;
         private const int LINE_HEIGHT = 18;
+        private const int DefaultFontSize = 14;
         private const int FALLBACK_CHAR_WIDTH = 8;
         private const int FALLBACK_FONT_HEIGHT = 16;
         private const int FALLBACK_SMALL_FONT_HEIGHT = 12;
@@ -45,6 +46,9 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private IFont _font;
         private IFont _boldFont;
+        // Serif stand-in for the status line, loaded only when the skin supplies a
+        // Latin-only display face (see SelectStatusFont).
+        private IFont _statusFallbackFont;
 
         // DTXMania pattern: progress tracking
         private readonly List<string> _progressMessages;
@@ -79,6 +83,159 @@ namespace DTXMania.Game.Lib.Stage
         #region Properties
 
         public override StageType Type => StageType.Startup;
+
+        private ISkinTheme Theme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+
+        #endregion
+
+        #region Theme Resolution
+
+        // The startup screen is a corner-anchored console in NX: white 14px serif
+        // log in the top-left, version line in the top-right, and a 400x20
+        // gray/green bar 120px above the bottom edge with the raw phase name
+        // spelled out beside it. Every key below defaults to those values, so a
+        // themeless skin renders exactly as before; skins opt into a centered
+        // composition by setting the "0 means NX" anchors.
+
+        internal static string ResolveTextFontFamily(ISkinTheme theme)
+            => theme.GetString("Startup.TextFontFamily", string.Empty);
+
+        /// <summary>
+        /// Face for the live status line. Defaults to the body family, so a skin
+        /// naming one face uses it throughout; naming both pairs a display face
+        /// against the body/telemetry face.
+        /// </summary>
+        internal static string ResolveStatusFontFamily(ISkinTheme theme)
+            => theme.GetString("Startup.StatusFontFamily", ResolveTextFontFamily(theme));
+
+        internal static int ResolveTextFontSize(ISkinTheme theme)
+            => theme.GetInt("Startup.TextFontSize", DefaultFontSize);
+
+        /// <summary>
+        /// Size of the emphasised (live status) face. Follows the body size unless
+        /// the skin asks for its own step up, keeping the type scale shallow.
+        /// </summary>
+        internal static int ResolveStatusFontSize(ISkinTheme theme)
+            => theme.GetInt("Startup.StatusFontSize", ResolveTextFontSize(theme));
+
+        internal static int ResolveLogX(ISkinTheme theme) => theme.GetInt("Startup.LogX", MARGIN_EDGE);
+
+        internal static int ResolveLogY(ISkinTheme theme) => theme.GetInt("Startup.LogY", MARGIN_EDGE);
+
+        internal static int ResolveLogLineHeight(ISkinTheme theme)
+            => theme.GetInt("Startup.LogLineHeight", LINE_HEIGHT);
+
+        internal static Color ResolveLogColor(ISkinTheme theme)
+            => theme.GetColor("Startup.LogText", Color.White);
+
+        /// <summary>
+        /// Horizontal centre of the live status line. 0 (NX) keeps the message
+        /// trailing the log instead of standing on its own.
+        /// </summary>
+        internal static int ResolveStatusCenterX(ISkinTheme theme)
+            => theme.GetInt("Startup.StatusCenterX", 0);
+
+        internal static int ResolveStatusY(ISkinTheme theme) => theme.GetInt("Startup.StatusY", 0);
+
+        internal static Color ResolveStatusColor(ISkinTheme theme)
+            => theme.GetColor("Startup.StatusText", Color.Yellow);
+
+        /// <summary>
+        /// Width the status line is held inside. 0 (NX) lets it run as wide as it
+        /// likes; a centred layout ties it to the progress rail so the block below
+        /// the horizon keeps one silhouette.
+        /// </summary>
+        internal static int ResolveStatusMaxWidth(ISkinTheme theme)
+            => theme.GetInt("Startup.StatusMaxWidth", 0);
+
+        // Enumeration streams "[n processed, m songs] <filename>" through the
+        // status line, which is far wider than the phase captions. Shrink it back
+        // inside the cap, but not so far that it stops being readable.
+        internal const float StatusMinScale = 0.65f;
+
+        internal static float ComputeStatusScale(Func<string, float> measure, string text, int maxWidth)
+        {
+            if (maxWidth <= 0 || string.IsNullOrEmpty(text))
+                return 1f;
+
+            float width = measure(text);
+            if (width <= maxWidth)
+                return 1f;
+
+            return Math.Max(maxWidth / width, StatusMinScale);
+        }
+
+        internal static int ResolveProgressBarWidth(ISkinTheme theme)
+            => theme.GetInt("Startup.ProgressBarWidth", PROGRESS_BAR_WIDTH);
+
+        internal static int ResolveProgressBarHeight(ISkinTheme theme)
+            => theme.GetInt("Startup.ProgressBarHeight", PROGRESS_BAR_HEIGHT);
+
+        /// <summary>
+        /// Absolute top of the bar. 0 (NX) means "measured up from the bottom edge".
+        /// </summary>
+        internal static int ResolveProgressBarY(ISkinTheme theme)
+            => theme.GetInt("Startup.ProgressBarY", 0);
+
+        internal static int ResolveProgressBarTop(ISkinTheme theme, int viewportHeight)
+        {
+            int themedY = ResolveProgressBarY(theme);
+            return themedY > 0 ? themedY : viewportHeight - PROGRESS_BAR_BOTTOM_MARGIN;
+        }
+
+        internal static Color ResolveProgressBarBackColor(ISkinTheme theme)
+            => theme.GetColor("Startup.ProgressBarBack", Color.DarkGray);
+
+        internal static Color ResolveProgressBarFillColor(ISkinTheme theme)
+            => theme.GetColor("Startup.ProgressBarFill", Color.LightGreen);
+
+        /// <summary>
+        /// Baseline of the step/percent ledger under the bar. 0 (NX) keeps the
+        /// single phase-name readout hanging off the bar's right end.
+        /// </summary>
+        internal static int ResolveProgressReadoutY(ISkinTheme theme)
+            => theme.GetInt("Startup.ProgressReadoutY", 0);
+
+        internal static Color ResolveProgressReadoutColor(ISkinTheme theme)
+            => theme.GetColor("Startup.ProgressReadoutText", Color.White);
+
+        internal static int ResolveVersionY(ISkinTheme theme)
+            => theme.GetInt("Startup.VersionY", MARGIN_TOP);
+
+        /// <summary>
+        /// Right edge the version line is aligned to. 0 (NX) means "one edge
+        /// margin in from the right side of the viewport".
+        /// </summary>
+        internal static int ResolveVersionRightEdge(ISkinTheme theme, int viewportWidth)
+        {
+            int themedX = theme.GetInt("Startup.VersionRightX", 0);
+            return themedX > 0 ? themedX : viewportWidth - MARGIN_EDGE;
+        }
+
+        internal static Color ResolveVersionColor(ISkinTheme theme)
+            => theme.GetColor("Startup.VersionText", Color.White);
+
+        /// <summary>
+        /// The status line carries live song filenames during enumeration, so it
+        /// drops back to the CJK-capable face whenever the text leaves ASCII.
+        /// </summary>
+        internal static IFont SelectStatusFont(string text, IFont displayFont, IFont fallbackFont)
+            => displayFont != null && DTXMania.Game.Lib.UI.DisplayText.IsAsciiDisplayable(text)
+                ? displayFont
+                : fallbackFont;
+
+        /// <summary>
+        /// "STEP 04 / 10" — how far through the boot sequence, without leaking the
+        /// internal phase name to the player.
+        /// </summary>
+        internal static string FormatStepReadout(StartupPhase phase, int totalPhases)
+            => $"STEP {(int)phase + 1:00} / {totalPhases:00}";
+
+        internal static string FormatPercentReadout(double overallProgress)
+            => $"{(Math.Clamp(overallProgress, 0, 1) * 100):F0}%";
+
+        internal static string FormatPhaseReadout(StartupPhase phase, double overallProgress)
+            => $"{phase} ({(overallProgress * 100):F1}%)";
 
         #endregion
 
@@ -137,9 +294,25 @@ namespace DTXMania.Game.Lib.Stage
             return whitePixel;
         }
 
-        protected virtual IFont CreateFontCore(IResourceManager resourceManager, int size, FontStyle style)
+        protected virtual IFont CreateFontCore(IResourceManager resourceManager, string fontFamily, int size, FontStyle style)
         {
-            return resourceManager.LoadFont("NotoSerifJP", size, style);
+            return resourceManager.LoadFont(fontFamily.Length > 0 ? fontFamily : "NotoSerifJP", size, style);
+        }
+
+        /// <summary>
+        /// Loads the serif face used when the status text leaves ASCII. Only needed
+        /// when the skin swapped in a Latin-only display face; themeless skins are
+        /// already drawing in the serif.
+        /// </summary>
+        protected virtual IFont CreateStatusFallbackFontCore(IResourceManager resourceManager, int size)
+        {
+            if (resourceManager == null ||
+                ResolveStatusFontFamily(resourceManager.CurrentTheme ?? SkinTheme.Empty).Length == 0)
+            {
+                return null;
+            }
+
+            return resourceManager.LoadFont("NotoSerifJP", size, FontStyle.Bold);
         }
 
         protected virtual void BeginSpriteBatchCore(SpriteBatch spriteBatch)
@@ -175,8 +348,12 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                _font = CreateFontCore(_resourceManager, 14, FontStyle.Regular);
-                _boldFont = CreateFontCore(_resourceManager, 14, FontStyle.Bold);
+                var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+                _font = CreateFontCore(_resourceManager, ResolveTextFontFamily(theme),
+                    ResolveTextFontSize(theme), FontStyle.Regular);
+                _boldFont = CreateFontCore(_resourceManager, ResolveStatusFontFamily(theme),
+                    ResolveStatusFontSize(theme), FontStyle.Bold);
+                _statusFallbackFont = CreateStatusFallbackFontCore(_resourceManager, ResolveStatusFontSize(theme));
             }
             catch
             {
@@ -184,6 +361,8 @@ namespace DTXMania.Game.Lib.Stage
                 _font = null;
                 _boldFont?.RemoveReference();
                 _boldFont = null;
+                _statusFallbackFont?.RemoveReference();
+                _statusFallbackFont = null;
                 _whitePixel?.Dispose();
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
@@ -248,6 +427,9 @@ namespace DTXMania.Game.Lib.Stage
             // Draw progress messages (DTXMania pattern)
             DrawProgressMessages();
 
+            // Draw the live status line (themed layouts only)
+            DrawStatusLine();
+
             // Draw current progress
             DrawCurrentProgress();
 
@@ -263,6 +445,8 @@ namespace DTXMania.Game.Lib.Stage
             _font = null;
             _boldFont?.RemoveReference();
             _boldFont = null;
+            _statusFallbackFont?.RemoveReference();
+            _statusFallbackFont = null;
         }
 
         #endregion
@@ -325,11 +509,13 @@ namespace DTXMania.Game.Lib.Stage
                 // but guard against disposal without deactivation
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
+                _statusFallbackFont?.RemoveReference();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
 
                 _font = null;
                 _boldFont = null;
+                _statusFallbackFont = null;
                 _whitePixel = null;
                 _spriteBatch = null;
                 _resourceManager = null;
@@ -389,11 +575,13 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     else if (_currentAsyncTask.IsCompletedSuccessfully)
                     {
-                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} ✓ Complete";
+                        // ASCII only: the bundled font faces have no check/warning
+                        // glyph, so those characters rendered as the '*' fallback.
+                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} - Complete";
                     }
                     else if (_currentAsyncTask.IsFaulted)
                     {
-                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} ⚠ Error";
+                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} - Error";
                         System.Diagnostics.Debug.WriteLine($"{_startupPhase} task failed: {_currentAsyncTask.Exception?.InnerException?.Message}");
                         // Continue to next phase even on error after minimum duration
                         phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
@@ -413,8 +601,8 @@ namespace DTXMania.Game.Lib.Stage
 
             if (phaseComplete)
             {
-                // Add completion message
-                _progressMessages.Add($"✓ {currentPhaseInfo.message.Replace("...", "")}");
+                // Add completion message (no marker glyph: see the note above)
+                _progressMessages.Add(currentPhaseInfo.message.Replace("...", ""));
 
                 // Reset async task for the next phase
                 _currentAsyncTask = null;
@@ -773,63 +961,118 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Private Methods - Drawing
 
-        private void DrawTextWithFallback(string text, int x, int y, bool bold = false, Color? fallbackColor = null)
+        private void DrawTextWithFallback(string text, int x, int y, bool bold = false, Color? color = null)
         {
             var font = bold ? _boldFont : _font;
             if (font != null)
             {
-                font.DrawString(_spriteBatch, text, new Vector2(x, y), fallbackColor ?? Color.White);
+                font.DrawString(_spriteBatch, text, new Vector2(x, y), color ?? Color.White);
             }
             else
             {
                 int fallbackHeight = bold ? FALLBACK_SMALL_FONT_HEIGHT : FALLBACK_FONT_HEIGHT;
-                Color color = fallbackColor ?? Color.White;
-                DrawTextRect(x, y, text.Length * FALLBACK_CHAR_WIDTH, fallbackHeight, color);
+                DrawTextRect(x, y, text.Length * FALLBACK_CHAR_WIDTH, fallbackHeight, color ?? Color.White);
             }
+        }
+
+        /// <summary>
+        /// Measured width of <paramref name="text"/>, falling back to the block
+        /// metrics used when no font is available.
+        /// </summary>
+        private float MeasureTextWidth(string text, bool bold)
+        {
+            var font = bold ? _boldFont : _font;
+            return font != null ? font.MeasureString(text).X : text.Length * FALLBACK_CHAR_WIDTH;
+        }
+
+        private void DrawRightAlignedTextWithFallback(string text, int rightX, int y, bool bold, Color color)
+        {
+            // Truncating (not rounding) the measured width keeps the NX version
+            // line on exactly the pixel it has always used.
+            int x = rightX - (int)MeasureTextWidth(text, bold);
+            DrawTextWithFallback(text, x, y, bold, color);
         }
 
         // Background drawing is now handled by BaseStage
 
         private void DrawVersionInfo()
         {
-            // Draw version info in top-right corner (DTXMania pattern)
+            // Draw version info right-aligned against the edge margin (DTXMania pattern)
             const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
             var viewport = GetViewportCore();
+            var theme = Theme;
 
-            if (_font != null)
-            {
-                var textSize = _font.MeasureString(versionText);
-                int x = viewport.Width - (int)textSize.X - MARGIN_EDGE;
-                int y = MARGIN_TOP;
-
-                _font.DrawString(_spriteBatch, versionText, new Vector2(x, y), Color.White);
-            }
-            else
-            {
-                int x = viewport.Width - (versionText.Length * FALLBACK_CHAR_WIDTH) - MARGIN_EDGE;
-                int y = MARGIN_TOP;
-                DrawTextRect(x, y, versionText.Length * FALLBACK_CHAR_WIDTH, FALLBACK_FONT_HEIGHT, Color.White);
-            }
+            DrawRightAlignedTextWithFallback(versionText, ResolveVersionRightEdge(theme, viewport.Width),
+                ResolveVersionY(theme), bold: false, color: ResolveVersionColor(theme));
         }
 
         private void DrawProgressMessages()
         {
-            int x = MARGIN_EDGE;
-            int y = MARGIN_EDGE;
+            var theme = Theme;
+            int x = ResolveLogX(theme);
+            int y = ResolveLogY(theme);
+            int lineHeight = ResolveLogLineHeight(theme);
+            var logColor = ResolveLogColor(theme);
+            bool statusIsSeparate = ResolveStatusCenterX(theme) > 0;
 
             lock (_progressMessages)
             {
                 foreach (string message in _progressMessages)
                 {
-                    DrawTextWithFallback(message, x, y);
-                    y += LINE_HEIGHT;
+                    DrawTextWithFallback(message, x, y, color: logColor);
+                    y += lineHeight;
                 }
 
-                // Draw current progress message in different color/style
-                if (!string.IsNullOrEmpty(_currentProgressMessage))
+                // NX trails the live message under the log. Skins that give the
+                // status its own centred line drop it here so it is not said twice.
+                if (!statusIsSeparate && !string.IsNullOrEmpty(_currentProgressMessage))
                 {
-                    DrawTextWithFallback(_currentProgressMessage, x, y, bold: true, fallbackColor: Color.Yellow);
+                    DrawTextWithFallback(_currentProgressMessage, x, y, bold: true, color: ResolveStatusColor(theme));
                 }
+            }
+        }
+
+        private void DrawStatusLine()
+        {
+            var theme = Theme;
+            int centerX = ResolveStatusCenterX(theme);
+            if (centerX <= 0)
+                return;
+
+            string message;
+            lock (_progressMessages)
+            {
+                message = _currentProgressMessage;
+            }
+
+            if (string.IsNullOrEmpty(message))
+                return;
+
+            int y = ResolveStatusY(theme);
+            var color = ResolveStatusColor(theme);
+            var font = SelectStatusFont(message, _boldFont, _statusFallbackFont ?? _boldFont);
+
+            if (font != null)
+            {
+                float scale = ComputeStatusScale(
+                    text => font.MeasureString(text).X, message, ResolveStatusMaxWidth(theme));
+                int x = centerX - (int)Math.Round(font.MeasureString(message).X * scale / 2f);
+                var position = new Vector2(x, y);
+
+                if (scale >= 1f)
+                {
+                    font.DrawString(_spriteBatch, message, position, color);
+                }
+                else
+                {
+                    font.DrawString(_spriteBatch, message, position, color, 0f, Vector2.Zero,
+                        new Vector2(scale, scale), SpriteEffects.None, 0f);
+                }
+            }
+            else
+            {
+                int width = message.Length * FALLBACK_CHAR_WIDTH;
+                DrawTextRect(centerX - width / 2, y, width, FALLBACK_SMALL_FONT_HEIGHT, color);
             }
         }
 
@@ -847,22 +1090,40 @@ namespace DTXMania.Game.Lib.Stage
             double phaseProgress = Math.Clamp(phaseElapsed / currentPhaseDuration, 0, 1);
             double overallProgress = (currentPhaseIndex + phaseProgress) / totalPhases;
 
-            string progressText = $"{_startupPhase} ({(overallProgress * 100):F1}%)";
-
             // Draw progress bar
+            var theme = Theme;
             var viewport = GetViewportCore();
-            int progressBarX = (viewport.Width - PROGRESS_BAR_WIDTH) / 2; // Center horizontally
-            int progressBarY = viewport.Height - PROGRESS_BAR_BOTTOM_MARGIN;
+            int barWidth = ResolveProgressBarWidth(theme);
+            int barHeight = ResolveProgressBarHeight(theme);
+            int progressBarX = (viewport.Width - barWidth) / 2; // Center horizontally
+            int progressBarY = ResolveProgressBarTop(theme, viewport.Height);
 
             // Draw progress bar background
-            DrawTextRect(progressBarX, progressBarY, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, Color.DarkGray);
+            DrawTextRect(progressBarX, progressBarY, barWidth, barHeight, ResolveProgressBarBackColor(theme));
 
             // Draw progress bar foreground
-            int progressWidth = (int)(PROGRESS_BAR_WIDTH * overallProgress);
-            DrawTextRect(progressBarX, progressBarY, progressWidth, PROGRESS_BAR_HEIGHT, Color.LightGreen);
+            int progressWidth = (int)(barWidth * overallProgress);
+            DrawTextRect(progressBarX, progressBarY, progressWidth, barHeight, ResolveProgressBarFillColor(theme));
 
-            // Draw progress text next to the bar
-            DrawTextWithFallback(progressText, progressBarX + PROGRESS_BAR_WIDTH + MARGIN_EDGE, progressBarY + MARGIN_TOP);
+            int readoutY = ResolveProgressReadoutY(theme);
+            var readoutColor = ResolveProgressReadoutColor(theme);
+
+            if (readoutY > 0)
+            {
+                // Ledger row under the rail: the step counter hangs off the bar's
+                // left edge and the percentage off its right, so both readouts are
+                // tied to the bar rather than floating beside it.
+                DrawTextWithFallback(FormatStepReadout(_startupPhase, totalPhases),
+                    progressBarX, readoutY, color: readoutColor);
+                DrawRightAlignedTextWithFallback(FormatPercentReadout(overallProgress),
+                    progressBarX + barWidth, readoutY, bold: false, color: readoutColor);
+            }
+            else
+            {
+                // Draw progress text next to the bar
+                DrawTextWithFallback(FormatPhaseReadout(_startupPhase, overallProgress),
+                    progressBarX + barWidth + MARGIN_EDGE, progressBarY + MARGIN_TOP, color: readoutColor);
+            }
         }
 
         private void DrawTextRect(int x, int y, int width, int height, Color color)

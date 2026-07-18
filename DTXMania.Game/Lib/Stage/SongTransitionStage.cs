@@ -43,6 +43,9 @@ namespace DTXMania.Game.Lib.Stage
         // Font rendering
         private IFont _titleFont;
         private IFont _artistFont;
+        // Latin-only display faces (theme-driven); null when the theme names none.
+        private IFont _titleDisplayFont;
+        private IFont _artistDisplayFont;
         
         // Text content
         private string _songTitle;
@@ -207,6 +210,10 @@ namespace DTXMania.Game.Lib.Stage
                 _artistFont?.RemoveReference();
                 _artistFont = null;
             }
+            _titleDisplayFont?.RemoveReference();
+            _titleDisplayFont = null;
+            _artistDisplayFont?.RemoveReference();
+            _artistDisplayFont = null;
             
             // Clean up sounds
             if (_nowLoadingSound != null)
@@ -359,7 +366,7 @@ namespace DTXMania.Game.Lib.Stage
                     _artistFont.RemoveReference();
                     _artistFont = null;
                 }
-                
+
                 // Load artist font using layout configuration
                 _artistFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize);
             }
@@ -367,6 +374,37 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Artist font load failed, continue without it
                 System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist font: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            LoadDisplayFonts();
+        }
+
+        /// <summary>
+        /// Loads the theme's Latin display faces for the title/artist. The serif
+        /// fonts above stay loaded as the CJK fallback, so a failure here (or an
+        /// unthemed skin) simply keeps NX rendering.
+        /// </summary>
+        private void LoadDisplayFonts()
+        {
+            _titleDisplayFont?.RemoveReference();
+            _titleDisplayFont = null;
+            _artistDisplayFont?.RemoveReference();
+            _artistDisplayFont = null;
+
+            var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+            try
+            {
+                var titleFamily = ResolveTitleFontFamily(theme);
+                if (titleFamily.Length > 0)
+                    _titleDisplayFont = _resourceManager.LoadFont(titleFamily, ResolveTitleFontSize(theme));
+
+                var artistFamily = ResolveArtistFontFamily(theme);
+                if (artistFamily.Length > 0)
+                    _artistDisplayFont = _resourceManager.LoadFont(artistFamily, ResolveArtistFontSize(theme));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load display fonts: {ex.GetType().Name}: {ex.Message}");
             }
         }
         
@@ -487,7 +525,9 @@ namespace DTXMania.Game.Lib.Stage
             _levelNumberFont = null;
             try
             {
-                _levelNumberFont = _resourceManager.LoadFont("NotoSerifJP", 24);
+                var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+                _levelNumberFont = _resourceManager.LoadFont(
+                    ResolveLevelFontFamily(theme), ResolveLevelFontSize(theme));
             }
             catch (Exception ex)
             {
@@ -647,43 +687,75 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Draw song title using layout configuration
-                if (_titleFont != null && !string.IsNullOrEmpty(_songTitle))
+                // Draw song title using layout configuration. The theme's display
+                // face is Latin-only, so CJK titles keep the serif font.
+                var titleFont = _titleDisplayFont != null && IsAsciiDisplayable(_songTitle ?? string.Empty)
+                    ? _titleDisplayFont
+                    : _titleFont;
+                if (titleFont != null && !string.IsNullOrEmpty(_songTitle))
                 {
-                    var titlePosition = SongTransitionUILayout.SongTitle.Position;
                     var titleColor = SongTransitionUILayout.SongTitle.TextColor;
-                    var titleText = _songTitle;
-                    // The preview jacket draws after (over) the title; a themed
-                    // cap keeps long titles from running underneath it.
+                    // The preview jacket draws after (over) the title; the themed
+                    // cap keeps long titles from running underneath it. Instead of
+                    // truncating, the full title shrinks and/or wraps to fit.
                     var maxWidth = ResolveTitleMaxWidth(
                         _resourceManager?.CurrentTheme ?? DTXMania.Game.Lib.Resources.SkinTheme.Empty);
-                    if (maxWidth > 0)
-                        titleText = DTXMania.Game.Lib.Utilities.TextHelper.TruncateToWidth(
-                            titleText, maxWidth, _titleFont);
+                    var (lines, scale) = ComputeTitleLayout(
+                        text => titleFont.MeasureString(text).X, _songTitle, maxWidth);
 
-                    // Draw with shadow for better visibility
-                    _titleFont.DrawStringWithShadow(_spriteBatch, titleText, titlePosition,
-                        titleColor, Color.Black * 0.8f, new Vector2(2, 2));
+                    var lineHeight = titleFont.LineSpacing * scale;
+                    var position = SongTransitionUILayout.SongTitle.Position;
+                    // Anchor multi-row titles around the single-row position so the
+                    // block stays visually centered between the header and artist.
+                    position.Y -= (lines.Length - 1) * lineHeight / 2f;
+                    foreach (var line in lines)
+                    {
+                        DrawScaledTextWithShadow(titleFont, line, position, titleColor,
+                            scale, new Vector2(2, 2));
+                        position.Y += lineHeight;
+                    }
                 }
-                
+
                 // Draw artist name using layout configuration
-                if (_artistFont != null && !string.IsNullOrEmpty(_artistName))
+                var artistFont = _artistDisplayFont != null && IsAsciiDisplayable(_artistName ?? string.Empty)
+                    ? _artistDisplayFont
+                    : _artistFont;
+                if (artistFont != null && !string.IsNullOrEmpty(_artistName))
                 {
                     var artistPosition = SongTransitionUILayout.Artist.Position;
                     var artistColor = SongTransitionUILayout.Artist.TextColor;
-                    var artistText = _artistName;
-                    
+
                     // Draw with shadow for better visibility
-                    _artistFont.DrawStringWithShadow(_spriteBatch, artistText, artistPosition,
+                    artistFont.DrawStringWithShadow(_spriteBatch, _artistName, artistPosition,
                         artistColor, Color.Black * 0.8f, new Vector2(1, 1));
                 }
-                
+
                 // Note: Difficulty is now drawn as sprite in DrawDifficultySprite method
             }
             catch (Exception)
             {
                 // Text drawing failed, continue without text
             }
+        }
+
+        [ExcludeFromCodeCoverage]
+        private void DrawScaledTextWithShadow(IFont font, string text, Vector2 position,
+            Color color, float scale, Vector2 shadowOffset)
+        {
+            if (scale >= 1f)
+            {
+                font.DrawStringWithShadow(_spriteBatch, text, position, color,
+                    Color.Black * 0.8f, shadowOffset);
+                return;
+            }
+
+            var scaleVector = new Vector2(scale, scale);
+            font.DrawString(_spriteBatch, text, position + shadowOffset, Color.Black * 0.8f,
+                rotation: 0f, origin: Vector2.Zero, scale: scaleVector,
+                effects: SpriteEffects.None, layerDepth: 0f);
+            font.DrawString(_spriteBatch, text, position, color,
+                rotation: 0f, origin: Vector2.Zero, scale: scaleVector,
+                effects: SpriteEffects.None, layerDepth: 0f);
         }
         
         [ExcludeFromCodeCoverage]
@@ -702,6 +774,135 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal static int ResolveTitleMaxWidth(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
             theme.GetInt("Transition.TitleMaxWidth", 0);
+
+        /// <summary>
+        /// Optional display font family for the title/artist (e.g. "Orbitron").
+        /// Only applied to Latin-only text — the display faces carry no CJK
+        /// glyphs, so non-ASCII strings keep the serif font. Empty = NX serif.
+        /// </summary>
+        internal static string ResolveTitleFontFamily(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetString("Transition.TitleFontFamily", string.Empty);
+
+        internal static int ResolveTitleFontSize(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetInt("Transition.TitleFontSize", SongTransitionUILayout.SongTitle.FontSize);
+
+        internal static string ResolveArtistFontFamily(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetString("Transition.ArtistFontFamily", string.Empty);
+
+        internal static int ResolveArtistFontSize(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetInt("Transition.ArtistFontSize", SongTransitionUILayout.Artist.FontSize);
+
+        /// <summary>
+        /// Font for the numeric level beside the difficulty plate (always ASCII
+        /// digits): "Transition.LevelFontFamily"/"Transition.LevelFontSize" →
+        /// NX NotoSerifJP 24.
+        /// </summary>
+        internal static string ResolveLevelFontFamily(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetString("Transition.LevelFontFamily", "NotoSerifJP");
+
+        internal static int ResolveLevelFontSize(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetInt("Transition.LevelFontSize", 24);
+
+        /// <summary>
+        /// True when every character is printable ASCII, i.e. the text can be
+        /// rendered by a Latin-only display SpriteFont without glyph fallback.
+        /// </summary>
+        internal static bool IsAsciiDisplayable(string text)
+            => DTXMania.Game.Lib.UI.DisplayText.IsAsciiDisplayable(text);
+
+        // Single-line shrink is preferred until the scale would drop below this;
+        // beyond that the title wraps to extra rows instead of getting tiny.
+        private const float TitleMinSingleLineScale = 0.75f;
+        // Hard floor for the shared scale once wrapping is in play.
+        private const float TitleMinScale = 0.6f;
+        private const int TitleMaxLines = 2;
+
+        /// <summary>
+        /// Lays out the full song title inside <paramref name="maxWidth"/> without
+        /// ever dropping characters: a fitting title stays one full-size line, a
+        /// slightly-wide title shrinks in place, and anything wider wraps to up
+        /// to two rows (shrinking the shared scale when even that is not enough).
+        /// </summary>
+        internal static (string[] lines, float scale) ComputeTitleLayout(
+            Func<string, float> measure, string title, int maxWidth)
+        {
+            if (string.IsNullOrEmpty(title) || maxWidth <= 0)
+                return (new[] { title ?? string.Empty }, 1f);
+
+            float width = measure(title);
+            if (width <= maxWidth)
+                return (new[] { title }, 1f);
+
+            float singleLineScale = maxWidth / width;
+            if (singleLineScale >= TitleMinSingleLineScale)
+                return (new[] { title }, singleLineScale);
+
+            var lines = WrapToWidth(measure, title, maxWidth);
+            if (lines.Length <= TitleMaxLines)
+                return (lines, 1f);
+
+            // Too many rows at full scale: shrink the shared scale (widening the
+            // effective per-row budget) until the wrap fits the row cap.
+            for (float scale = 0.95f; scale >= TitleMinScale - 0.001f; scale -= 0.05f)
+            {
+                lines = WrapToWidth(measure, title, maxWidth / scale);
+                if (lines.Length <= TitleMaxLines)
+                    return (lines, scale);
+            }
+
+            // Pathological title: keep every character at the floor scale even if
+            // that needs more rows than the cap.
+            return (WrapToWidth(measure, title, maxWidth / TitleMinScale), TitleMinScale);
+        }
+
+        /// <summary>
+        /// Greedy word wrap; words wider than the limit (and spaceless CJK text)
+        /// fall back to per-character breaking. Never drops characters.
+        /// </summary>
+        internal static string[] WrapToWidth(Func<string, float> measure, string text, float limit)
+        {
+            var lines = new List<string>();
+            var current = new System.Text.StringBuilder();
+
+            foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var candidate = current.Length == 0 ? word : current + " " + word;
+                if (measure(candidate) <= limit)
+                {
+                    current.Clear();
+                    current.Append(candidate);
+                    continue;
+                }
+
+                if (current.Length > 0)
+                {
+                    lines.Add(current.ToString());
+                    current.Clear();
+                }
+
+                if (measure(word) <= limit)
+                {
+                    current.Append(word);
+                    continue;
+                }
+
+                // Word alone exceeds the limit — break it by characters.
+                foreach (var ch in word)
+                {
+                    if (current.Length > 0 && measure(current.ToString() + ch) > limit)
+                    {
+                        lines.Add(current.ToString());
+                        current.Clear();
+                    }
+                    current.Append(ch);
+                }
+            }
+
+            if (current.Length > 0)
+                lines.Add(current.ToString());
+
+            return lines.Count == 0 ? new[] { string.Empty } : lines.ToArray();
+        }
 
         private void DrawDifficultyBackground()
         {

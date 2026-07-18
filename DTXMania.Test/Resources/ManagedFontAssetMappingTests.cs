@@ -7,7 +7,7 @@ namespace DTXMania.Test.Resources
     /// SpriteFont asset selection: requested (family, size, style) snaps to the
     /// nearest baked asset. NotoSerifJP is the CJK-capable default family
     /// (14/24/48px, Bold only at 14); Orbitron is a Latin display family
-    /// (14/18px, no Bold) used by skins for numeric text.
+    /// (14/18/24/32/40px, no Bold) used by skins for numeric and display text.
     /// </summary>
     [Trait("Category", "Unit")]
     public class ManagedFontAssetMappingTests
@@ -31,7 +31,11 @@ namespace DTXMania.Test.Resources
         [InlineData(14, "Orbitron-14")]
         [InlineData(16, "Orbitron-14")]
         [InlineData(18, "Orbitron-18")]
-        [InlineData(24, "Orbitron-18")]
+        [InlineData(24, "Orbitron-24")]
+        [InlineData(30, "Orbitron-32")]
+        [InlineData(32, "Orbitron-32")]
+        [InlineData(40, "Orbitron-40")]
+        [InlineData(50, "Orbitron-40")]
         public void GetBestSpriteFontAssetName_OrbitronFamily_ShouldSnapToOrbitron(
             int size, string expectedAsset)
         {
@@ -39,6 +43,41 @@ namespace DTXMania.Test.Resources
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
+        }
+
+        [Theory]
+        [InlineData(12, "ShareTechMono-14")]
+        [InlineData(14, "ShareTechMono-14")]
+        // A tie snaps to the smaller asset, as it does for Orbitron.
+        [InlineData(16, "ShareTechMono-14")]
+        [InlineData(17, "ShareTechMono-18")]
+        [InlineData(18, "ShareTechMono-18")]
+        [InlineData(30, "ShareTechMono-18")]
+        public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldSnapToShareTechMono(
+            int size, string expectedAsset)
+        {
+            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", size, FontStyle.Regular);
+
+            Assert.Equal(expectedAsset, asset);
+            Assert.Equal(FontStyle.Regular, style);
+        }
+
+        [Fact]
+        public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldIgnoreBoldRequest()
+        {
+            // The mono telemetry face ships Regular only.
+            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", 14, FontStyle.Bold);
+
+            Assert.Equal("ShareTechMono-14", asset);
+            Assert.Equal(FontStyle.Regular, style);
+        }
+
+        [Fact]
+        public void GetBestSpriteFontAssetName_ShareTechMonoFamilyIsCaseInsensitive()
+        {
+            var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("sharetechmono", 14, FontStyle.Regular);
+
+            Assert.Equal("ShareTechMono-14", asset);
         }
 
         [Fact]

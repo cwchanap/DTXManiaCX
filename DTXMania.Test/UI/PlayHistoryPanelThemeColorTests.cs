@@ -41,5 +41,31 @@ namespace DTXMania.Test.UI
             Assert.Equal(new Color(0x22, 0xD3, 0xEE),
                 PlayHistoryPanel.ResolveHistoryTextColor(theme));
         }
+
+        [Fact]
+        public void ResolveHideWhenEmpty_WithEmptyTheme_ShouldKeepNxAlwaysVisiblePanel()
+        {
+            Assert.False(PlayHistoryPanel.ResolveHideWhenEmpty(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveHideWhenEmpty_WhenThemed_ShouldHideTheCaptionOnlyFrame()
+        {
+            // A never-played song otherwise leaves an empty titled frame parked
+            // over the song wheel.
+            var theme = SkinTheme.Parse(new[] { "SongSelect.HideEmptyHistoryPanel=true" });
+
+            Assert.True(PlayHistoryPanel.ResolveHideWhenEmpty(theme));
+        }
+
+        [Theory]
+        [InlineData(0, false, true)]   // NX: empty panel still shows
+        [InlineData(0, true, false)]   // themed: empty panel hidden
+        [InlineData(3, true, true)]    // rows present: always shows
+        [InlineData(3, false, true)]
+        public void ShouldShowPanel_ShouldDependOnRowsAndTheme(int rowCount, bool hideWhenEmpty, bool expected)
+        {
+            Assert.Equal(expected, PlayHistoryPanel.ShouldShowPanel(rowCount, hideWhenEmpty));
+        }
     }
 }

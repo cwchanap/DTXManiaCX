@@ -887,7 +887,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                _readyFont = _resourceManager.LoadFont("NotoSerifJP", 24);
+                // Themed skins may style the centered LOADING.../READY... text
+                // with a Latin display family; NX keeps the serif.
+                var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+                var stateFamily = ResolveStateFontFamily(theme);
+                _readyFont = stateFamily.Length > 0
+                    ? _resourceManager.LoadFont(stateFamily, ResolveStateFontSize(theme))
+                    : _resourceManager.LoadFont("NotoSerifJP", 24);
                 _scrollSpeedFont = _resourceManager.LoadFont("NotoSerifJP", 14);
                 _scrollSpeedIndicator = new ScrollSpeedIndicator(_scrollSpeedFont);
             }
@@ -950,9 +956,32 @@ namespace DTXMania.Game.Lib.Stage
             _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
             _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
 
-            // Load skill panel texture using TexturePath constant
-            _skillPanelTexture = TryLoadTexture(TexturePath.SkillPanel);
+            // Load skill panel texture. Themed skins may point this at a
+            // performance-specific sheet (the shared NX art bakes labels laid
+            // out for the result screen).
+            _skillPanelTexture = TryLoadTexture(ResolveSkillPanelTexturePath(
+                _resourceManager?.CurrentTheme ?? SkinTheme.Empty));
         }
+
+        /// <summary>
+        /// Skill-panel art for the performance stage: "Performance.SkillPanelTexture"
+        /// → NX 7_SkillPanel.png (shared with the result screen).
+        /// </summary>
+        internal static string ResolveSkillPanelTexturePath(ISkinTheme theme) =>
+            theme.GetString("Performance.SkillPanelTexture", TexturePath.SkillPanel);
+
+        /// <summary>
+        /// Optional display font family for the centered LOADING.../READY...
+        /// text: "Performance.StateFontFamily", empty = NX serif.
+        /// </summary>
+        internal static string ResolveStateFontFamily(ISkinTheme theme) =>
+            theme.GetString("Performance.StateFontFamily", string.Empty);
+
+        /// <summary>
+        /// Point size for the state text: "Performance.StateFontSize" → NX 24.
+        /// </summary>
+        internal static int ResolveStateFontSize(ISkinTheme theme) =>
+            theme.GetInt("Performance.StateFontSize", 24);
         
         /// <summary>
         /// Safely tries to load a texture, returning null on failure

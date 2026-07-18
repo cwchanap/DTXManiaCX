@@ -58,6 +58,12 @@ namespace DTXMania.Game.Lib.Stage.Result
         public string PlayingSkillText { get; private init; } = "0.00";
         public string GameSkillText { get; private init; } = "0.00";
         public string ChartLevelText { get; private init; } = "--";
+        /// <summary>
+        /// Difficulty-tier name for the played chart ("BASIC", "MASTER", ...);
+        /// empty when neither the song-select slot nor the chart carries a real
+        /// tier name (synthetic labels like "DRUMS Lv.36" are ignored).
+        /// </summary>
+        public string DifficultyLabelText { get; private init; } = string.Empty;
         public string Title { get; private init; } = UnknownSongTitle;
         public string Artist { get; private init; } = UnknownArtistName;
         public string PreviewImagePath { get; private init; } = TexturePath.ResultDefaultPreview;
@@ -98,6 +104,9 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ChartLevelText = FormatLevel(
                     resolvedChart?.DrumLevel ?? safeSummary.ChartLevel,
                     resolvedChart?.DrumLevelDec ?? safeSummary.ChartLevelDec),
+                DifficultyLabelText = ResolveDifficultyLabelText(
+                    GetSlotLabel(selectedSong, selectedDifficulty),
+                    resolvedChart?.DifficultyLabel),
                 Title = ResolveTitle(selectedSong),
                 Artist = ResolveArtist(selectedSong),
                 PreviewImagePath = ResolvePreviewImagePath(resolvedChart),
@@ -188,6 +197,29 @@ namespace DTXMania.Game.Lib.Stage.Result
                 : (level / 10.0) + (Math.Max(0, levelDec) / 100.0);
 
             return actualLevel.ToString("0.00", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Picks the difficulty-tier name to show next to the level value. Mirrors
+        /// the performance-stage badge logic: prefer a song-select slot label that
+        /// names a real tier, else the chart's persisted SET.def label; synthetic
+        /// display strings ("DRUMS Lv.36") yield an empty result.
+        /// </summary>
+        public static string ResolveDifficultyLabelText(string? slotLabel, string? chartLabel)
+        {
+            if (SkillPanelDisplay.IsKnownDifficultyTier(slotLabel))
+                return slotLabel!.Trim().ToUpperInvariant();
+            if (SkillPanelDisplay.IsKnownDifficultyTier(chartLabel))
+                return chartLabel!.Trim().ToUpperInvariant();
+            return string.Empty;
+        }
+
+        private static string? GetSlotLabel(SongListNode? selectedSong, int selectedDifficulty)
+        {
+            var labels = selectedSong?.DifficultyLabels;
+            return labels != null && selectedDifficulty >= 0 && selectedDifficulty < labels.Length
+                ? labels[selectedDifficulty]
+                : null;
         }
 
         private static bool IsExcellent(PerformanceSummary summary)
