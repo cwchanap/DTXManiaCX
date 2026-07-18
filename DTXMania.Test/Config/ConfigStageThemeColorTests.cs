@@ -49,5 +49,22 @@ namespace DTXMania.Test.Config
             Assert.Equal(new Color(0xAA, 0xBB, 0xCC), ConfigStage.ResolveValueColor(selected: false, theme));
             Assert.Equal(new Color(0xDD, 0xEE, 0xFF), ConfigStage.ResolveValueColor(selected: true, theme));
         }
+
+        [Fact]
+        public void ResolveItemBarX_WithEmptyTheme_ShouldKeepNxPosition()
+        {
+            Assert.Equal(DTXMania.Game.Lib.UI.Layout.ConfigUILayout.ItemBarRect.X,
+                ConfigStage.ResolveItemBarX(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveItemBarX_WithThemedX_ShouldUseThemedValue()
+        {
+            // CX Neon parks the NX separator strip off-screen: at NX x=400 it
+            // crosses the CX menu panel's right border.
+            var theme = SkinTheme.Parse(new[] { "Config.ItemBarX=-100" });
+
+            Assert.Equal(-100, ConfigStage.ResolveItemBarX(theme));
+        }
     }
 }

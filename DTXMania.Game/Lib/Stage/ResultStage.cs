@@ -40,6 +40,8 @@ namespace DTXMania.Game.Lib.Stage
         private IFont _resultFont;
         private IFont _smallResultFont;
         private IFont _largeResultFont;
+        private IFont _valueResultFont;
+        private IFont _countResultFont;
         private ResultScreenModel _resultModel;
         private ResultRevealState _revealState;
         private ResultScreenRenderer _resultRenderer;
@@ -218,6 +220,8 @@ namespace DTXMania.Game.Lib.Stage
                 _resultFont = CreateResultFont();
                 _smallResultFont = CreateSmallResultFont();
                 _largeResultFont = CreateLargeResultFont();
+                _valueResultFont = CreateValueFont();
+                _countResultFont = CreateCountFont();
                 _resultRenderer = CreateResultRenderer();
                 _resultRenderer?.Load(_resultModel);
             }
@@ -227,10 +231,14 @@ namespace DTXMania.Game.Lib.Stage
                 _resultFont?.RemoveReference();
                 _smallResultFont?.RemoveReference();
                 _largeResultFont?.RemoveReference();
+                _valueResultFont?.RemoveReference();
+                _countResultFont?.RemoveReference();
                 _resultRenderer?.Dispose();
                 _resultFont = null;
                 _smallResultFont = null;
                 _largeResultFont = null;
+                _valueResultFont = null;
+                _countResultFont = null;
                 _resultRenderer = null;
             }
 
@@ -259,7 +267,9 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         internal virtual IFont CreateResultFont()
         {
-            return _resourceManager.LoadFont("NotoSerifJP", ResultUILayout.Fonts.Normal);
+            var theme = _resourceManager.CurrentTheme ?? SkinTheme.Empty;
+            return _resourceManager.LoadFont(
+                "NotoSerifJP", ResultScreenRenderer.ResolveNormalFontSize(theme));
         }
 
         [ExcludeFromCodeCoverage]
@@ -271,12 +281,43 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         internal virtual IFont CreateLargeResultFont()
         {
-            return _resourceManager.LoadFont("NotoSerifJP", ResultUILayout.Fonts.Large, FontStyle.Bold);
+            var theme = _resourceManager.CurrentTheme ?? SkinTheme.Empty;
+            return _resourceManager.LoadFont(
+                "NotoSerifJP", ResultScreenRenderer.ResolveLargeFontSize(theme), FontStyle.Bold);
+        }
+
+        /// <summary>
+        /// Optional Latin display font for numeric values; null (NX) keeps the
+        /// serif fonts for every text.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        internal virtual IFont CreateValueFont()
+        {
+            var theme = _resourceManager.CurrentTheme ?? SkinTheme.Empty;
+            var family = ResultScreenRenderer.ResolveValueFontFamily(theme);
+            return family.Length == 0
+                ? null
+                : _resourceManager.LoadFont(family, ResultScreenRenderer.ResolveValueFontSize(theme));
+        }
+
+        /// <summary>
+        /// Smaller companion of <see cref="CreateValueFont"/> for judgement
+        /// counts and percentages.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        internal virtual IFont CreateCountFont()
+        {
+            var theme = _resourceManager.CurrentTheme ?? SkinTheme.Empty;
+            var family = ResultScreenRenderer.ResolveValueFontFamily(theme);
+            return family.Length == 0
+                ? null
+                : _resourceManager.LoadFont(family, ResultScreenRenderer.ResolveCountFontSize(theme));
         }
 
         internal virtual ResultScreenRenderer CreateResultRenderer()
         {
-            return new ResultScreenRenderer(_resourceManager, _smallResultFont, _resultFont, _largeResultFont);
+            return new ResultScreenRenderer(_resourceManager, _smallResultFont, _resultFont, _largeResultFont,
+                _valueResultFont, _countResultFont);
         }
 
         private void CleanupComponents()
@@ -288,6 +329,10 @@ namespace DTXMania.Game.Lib.Stage
             _resultFont = null;
             _smallResultFont?.RemoveReference();
             _smallResultFont = null;
+            _valueResultFont?.RemoveReference();
+            _valueResultFont = null;
+            _countResultFont?.RemoveReference();
+            _countResultFont = null;
             _largeResultFont?.RemoveReference();
             _largeResultFont = null;
             _resultRenderer?.Dispose();

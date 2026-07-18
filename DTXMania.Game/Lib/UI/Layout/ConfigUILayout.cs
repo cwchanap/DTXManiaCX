@@ -36,7 +36,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int TitleY = 40;
         public const string InstructionsText =
             "UP/DOWN select   LEFT/RIGHT change   ENTER choose   ESC back (saves automatically)";
-        public static Vector2 InstructionsPos => new(16, 696);
+        // 692 (not the centered 696): the serif descenders reach ~24px below the
+        // draw point, and at 696 they clip on the 720px frame edge.
+        public static Vector2 InstructionsPos => new(16, 692);
         public static Vector2 ImportStatusPos => new(430, 600);
 
         // Left category menu.

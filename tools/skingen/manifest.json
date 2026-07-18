@@ -156,8 +156,48 @@
       "height": 67,
       "optional": false,
       "recipe": {
-        "source": "5_BPM.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 67,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "border": false,
+            "h": 23,
+            "panel": true,
+            "w": 112,
+            "x": 63,
+            "y": 8
+          },
+          {
+            "border": false,
+            "h": 23,
+            "panel": true,
+            "w": 112,
+            "x": 63,
+            "y": 38
+          },
+          {
+            "h": 23,
+            "size": 0.55,
+            "text": "TIME",
+            "w": 59,
+            "x": 2,
+            "y": 8
+          },
+          {
+            "h": 23,
+            "size": 0.55,
+            "text": "BPM",
+            "w": 59,
+            "x": 2,
+            "y": 38
+          }
+        ],
+        "type": "sheet"
       },
       "width": 187
     },
@@ -174,8 +214,22 @@
       "height": 150,
       "optional": false,
       "recipe": {
-        "source": "5_bar box selected.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              0,
+              20,
+              640,
+              100
+            ],
+            "h": 150,
+            "panel": true,
+            "w": 640,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 640
     },
@@ -183,8 +237,22 @@
       "height": 60,
       "optional": false,
       "recipe": {
-        "source": "5_bar box.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              0,
+              2,
+              709,
+              47
+            ],
+            "h": 60,
+            "panel": true,
+            "w": 709,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 709
     },
@@ -192,8 +260,22 @@
       "height": 96,
       "optional": false,
       "recipe": {
-        "source": "5_bar other selected.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              0,
+              20,
+              640,
+              76
+            ],
+            "h": 96,
+            "panel": true,
+            "w": 640,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 640
     },
@@ -210,8 +292,22 @@
       "height": 96,
       "optional": false,
       "recipe": {
-        "source": "5_bar score selected.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              0,
+              20,
+              640,
+              76
+            ],
+            "h": 96,
+            "panel": true,
+            "w": 640,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 640
     },
@@ -228,8 +324,107 @@
       "height": 20,
       "optional": false,
       "recipe": {
-        "source": "5_bpm font.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "0",
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "1",
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "2",
+            "w": 12,
+            "x": 24,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "3",
+            "w": 12,
+            "x": 36,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "4",
+            "w": 12,
+            "x": 48,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "5",
+            "w": 12,
+            "x": 60,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "6",
+            "w": 12,
+            "x": 72,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "7",
+            "w": 12,
+            "x": 84,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "8",
+            "w": 12,
+            "x": 96,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 20,
+            "size": 0.88,
+            "text": "9",
+            "w": 12,
+            "x": 108,
+            "y": 0
+          },
+          {
+            "h": 20,
+            "size": 0.88,
+            "text": ":",
+            "w": 6,
+            "x": 123,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 132
     },
@@ -256,8 +451,17 @@
       "height": 60,
       "optional": false,
       "recipe": {
-        "source": "5_difficulty frame.png",
-        "type": "copy"
+        "cells": [
+          {
+            "color": "#E879F9",
+            "cursor": true,
+            "h": 60,
+            "w": 187,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 187
     },
@@ -265,8 +469,288 @@
       "height": 321,
       "optional": false,
       "recipe": {
-        "source": "5_difficulty panel.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 21,
+            "size": 0.62,
+            "text": "DRUMS",
+            "w": 187,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 21,
+            "size": 0.62,
+            "text": "BASS",
+            "w": 187,
+            "x": 187,
+            "y": 0
+          },
+          {
+            "h": 21,
+            "size": 0.62,
+            "text": "GUITAR",
+            "w": 187,
+            "x": 374,
+            "y": 0
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 21
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 106,
+            "y": 43
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 187,
+            "y": 21
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 293,
+            "y": 43
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 374,
+            "y": 21
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 480,
+            "y": 43
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 81
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 106,
+            "y": 103
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 187,
+            "y": 81
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 293,
+            "y": 103
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 374,
+            "y": 81
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 480,
+            "y": 103
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 141
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 106,
+            "y": 163
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 187,
+            "y": 141
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 293,
+            "y": 163
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 374,
+            "y": 141
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 480,
+            "y": 163
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 201
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 106,
+            "y": 223
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 187,
+            "y": 201
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 293,
+            "y": 223
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 374,
+            "y": 201
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 480,
+            "y": 223
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 261
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 106,
+            "y": 283
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 187,
+            "y": 261
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 293,
+            "y": 283
+          },
+          {
+            "color": "#164E63",
+            "fill_alpha": 200,
+            "h": 60,
+            "panel": true,
+            "w": 187,
+            "x": 374,
+            "y": 261
+          },
+          {
+            "border": false,
+            "h": 36,
+            "panel": true,
+            "w": 78,
+            "x": 480,
+            "y": 283
+          }
+        ],
+        "type": "sheet"
       },
       "width": 561
     },
@@ -310,8 +794,150 @@
       "height": 28,
       "optional": false,
       "recipe": {
-        "source": "5_level number.png",
-        "type": "copy"
+        "cells": [
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "0",
+            "w": 20,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "1",
+            "w": 20,
+            "x": 20,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "2",
+            "w": 20,
+            "x": 40,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "3",
+            "w": 20,
+            "x": 60,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "4",
+            "w": 20,
+            "x": 80,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "5",
+            "w": 20,
+            "x": 100,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "6",
+            "w": 20,
+            "x": 120,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "7",
+            "w": 20,
+            "x": 140,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "8",
+            "w": 20,
+            "x": 160,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "fit": "0123456789",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "9",
+            "w": 20,
+            "x": 180,
+            "y": 0
+          },
+          {
+            "anchor": "bottom",
+            "color": "#FACC15",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": ".",
+            "w": 10,
+            "x": 200,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "-",
+            "w": 20,
+            "x": 210,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "h": 28,
+            "ink": true,
+            "size": 0.88,
+            "text": "?",
+            "w": 20,
+            "x": 230,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 250
     },
@@ -319,8 +945,34 @@
       "height": 151,
       "optional": false,
       "recipe": {
-        "source": "5_play history panel.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fill_alpha": 250,
+            "h": 151,
+            "panel": true,
+            "w": 458,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "border": false,
+            "fill_alpha": 250,
+            "h": 115,
+            "panel": true,
+            "w": 438,
+            "x": 10,
+            "y": 28
+          },
+          {
+            "h": 22,
+            "size": 0.6,
+            "text": "RECENT PLAYS",
+            "w": 170,
+            "x": 14,
+            "y": 5
+          }
+        ],
+        "type": "sheet"
       },
       "width": 458
     },
@@ -355,8 +1007,153 @@
       "height": 53,
       "optional": false,
       "recipe": {
-        "source": "5_skill icon.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#FACC15",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "SS",
+            "w": 35,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#F1F5F9",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "S",
+            "w": 35,
+            "x": 35,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#22C55E",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "A",
+            "w": 35,
+            "x": 70,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#3B82F6",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "B",
+            "w": 35,
+            "x": 105,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#A78BFA",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "C",
+            "w": 35,
+            "x": 140,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#FB923C",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "D",
+            "w": 35,
+            "x": 175,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#64748B",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "E",
+            "w": 35,
+            "x": 210,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#EF4444",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "F",
+            "w": 35,
+            "x": 245,
+            "y": 0
+          },
+          {
+            "box": [
+              2,
+              2,
+              31,
+              28
+            ],
+            "color": "#E879F9",
+            "h": 53,
+            "panel": true,
+            "size": 0.62,
+            "text": "FC",
+            "w": 35,
+            "x": 280,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 350
     },
@@ -364,8 +1161,18 @@
       "height": 20,
       "optional": false,
       "recipe": {
-        "source": "5_skill max.png",
-        "type": "copy"
+        "cells": [
+          {
+            "color": "#FACC15",
+            "h": 20,
+            "size": 0.8,
+            "text": "MAX",
+            "w": 53,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 53
     },
@@ -373,8 +1180,140 @@
       "height": 20,
       "optional": false,
       "recipe": {
-        "source": "5_skill number.png",
-        "type": "copy"
+        "cells": [
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "0",
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "1",
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "2",
+            "w": 12,
+            "x": 24,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "3",
+            "w": 12,
+            "x": 36,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "4",
+            "w": 12,
+            "x": 48,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "5",
+            "w": 12,
+            "x": 60,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "6",
+            "w": 12,
+            "x": 72,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "7",
+            "w": 12,
+            "x": 84,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "8",
+            "w": 12,
+            "x": 96,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "fit": "0123456789",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "9",
+            "w": 12,
+            "x": 108,
+            "y": 0
+          },
+          {
+            "anchor": "bottom",
+            "color": "#22C55E",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": ".",
+            "w": 6,
+            "x": 120,
+            "y": 0
+          },
+          {
+            "color": "#22C55E",
+            "h": 20,
+            "ink": true,
+            "size": 0.88,
+            "text": "%",
+            "w": 12,
+            "x": 126,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 138
     },
@@ -382,8 +1321,32 @@
       "height": 64,
       "optional": false,
       "recipe": {
-        "source": "5_skill point panel.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 64,
+            "panel": true,
+            "w": 187,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "border": false,
+            "h": 45,
+            "panel": true,
+            "w": 120,
+            "x": 56,
+            "y": 11
+          },
+          {
+            "h": 45,
+            "size": 0.3,
+            "text": "SKILL",
+            "w": 54,
+            "x": 2,
+            "y": 11
+          }
+        ],
+        "type": "sheet"
       },
       "width": 187
     },
@@ -391,8 +1354,8 @@
       "height": 342,
       "optional": false,
       "recipe": {
-        "source": "5_status panel.png",
-        "type": "copy"
+        "cells": [],
+        "type": "sheet"
       },
       "width": 561
     },
@@ -400,8 +1363,201 @@
       "height": 600,
       "optional": false,
       "recipe": {
-        "source": "6_Difficulty.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#22D3EE",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "DTX",
+            "w": 262,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#22C55E",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "DEBUT",
+            "w": 262,
+            "x": 0,
+            "y": 50
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#3B82F6",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "NOVICE",
+            "w": 262,
+            "x": 0,
+            "y": 100
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#FACC15",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "REGULAR",
+            "w": 262,
+            "x": 0,
+            "y": 150
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#EF4444",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "EXPERT",
+            "w": 262,
+            "x": 0,
+            "y": 200
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#E879F9",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "MASTER",
+            "w": 262,
+            "x": 0,
+            "y": 250
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#3B82F6",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "BASIC",
+            "w": 262,
+            "x": 0,
+            "y": 300
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#FACC15",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "ADVANCED",
+            "w": 262,
+            "x": 0,
+            "y": 350
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#EF4444",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "EXTREME",
+            "w": 262,
+            "x": 0,
+            "y": 400
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#E879F9",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "RAW",
+            "w": 262,
+            "x": 0,
+            "y": 450
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#E879F9",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "RWS",
+            "w": 262,
+            "x": 0,
+            "y": 500
+          },
+          {
+            "box": [
+              4,
+              4,
+              254,
+              42
+            ],
+            "color": "#E879F9",
+            "h": 50,
+            "panel": true,
+            "size": 0.5,
+            "text": "REAL",
+            "w": 262,
+            "x": 0,
+            "y": 550
+          }
+        ],
+        "type": "sheet"
       },
       "width": 262
     },
@@ -454,8 +1610,201 @@
       "height": 720,
       "optional": false,
       "recipe": {
-        "source": "7_Difficulty.png",
-        "type": "copy"
+        "cells": [
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#22D3EE",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "DTX",
+            "w": 60,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#22C55E",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "DEBUT",
+            "w": 60,
+            "x": 0,
+            "y": 60
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#3B82F6",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "NOVICE",
+            "w": 60,
+            "x": 0,
+            "y": 120
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#FACC15",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "REGULAR",
+            "w": 60,
+            "x": 0,
+            "y": 180
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#EF4444",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "EXPERT",
+            "w": 60,
+            "x": 0,
+            "y": 240
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#E879F9",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "MASTER",
+            "w": 60,
+            "x": 0,
+            "y": 300
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#3B82F6",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "BASIC",
+            "w": 60,
+            "x": 0,
+            "y": 360
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#FACC15",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "ADVANCED",
+            "w": 60,
+            "x": 0,
+            "y": 420
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#EF4444",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "EXTREME",
+            "w": 60,
+            "x": 0,
+            "y": 480
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#E879F9",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "RAW",
+            "w": 60,
+            "x": 0,
+            "y": 540
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#E879F9",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "RWS",
+            "w": 60,
+            "x": 0,
+            "y": 600
+          },
+          {
+            "box": [
+              1,
+              2,
+              58,
+              20
+            ],
+            "color": "#E879F9",
+            "h": 60,
+            "panel": true,
+            "size": 0.55,
+            "text": "REAL",
+            "w": 60,
+            "x": 0,
+            "y": 660
+          }
+        ],
+        "type": "sheet"
       },
       "width": 60
     },
@@ -505,11 +1854,20 @@
       "width": 562
     },
     "Graphics/7_JacketPanel.png": {
-      "height": 347,
+      "height": 380,
       "optional": false,
       "recipe": {
-        "source": "7_JacketPanel.png",
-        "type": "copy"
+        "cells": [
+          {
+            "border": false,
+            "h": 380,
+            "panel": true,
+            "w": 349,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 349
     },
@@ -591,8 +1949,107 @@
       "height": 32,
       "optional": false,
       "recipe": {
-        "source": "7_LevelNumber.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "0",
+            "w": 16,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "1",
+            "w": 16,
+            "x": 16,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "2",
+            "w": 16,
+            "x": 32,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "3",
+            "w": 16,
+            "x": 48,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "4",
+            "w": 16,
+            "x": 64,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "5",
+            "w": 16,
+            "x": 80,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "6",
+            "w": 16,
+            "x": 96,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "7",
+            "w": 16,
+            "x": 112,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "8",
+            "w": 16,
+            "x": 128,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 32,
+            "size": 0.85,
+            "text": "9",
+            "w": 16,
+            "x": 144,
+            "y": 0
+          },
+          {
+            "h": 32,
+            "size": 0.85,
+            "text": ".",
+            "w": 5,
+            "x": 160,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 165
     },
@@ -609,8 +2066,17 @@
       "height": 32,
       "optional": false,
       "recipe": {
-        "source": "7_RatePercent_l.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 32,
+            "size": 0.7,
+            "text": "%",
+            "w": 28,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 28
     },
@@ -618,8 +2084,107 @@
       "height": 42,
       "optional": false,
       "recipe": {
-        "source": "7_Ratenumber_l.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "0",
+            "w": 28,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "1",
+            "w": 28,
+            "x": 28,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "2",
+            "w": 28,
+            "x": 56,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "3",
+            "w": 28,
+            "x": 84,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "4",
+            "w": 28,
+            "x": 112,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "5",
+            "w": 28,
+            "x": 140,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "6",
+            "w": 28,
+            "x": 168,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "7",
+            "w": 28,
+            "x": 196,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "8",
+            "w": 28,
+            "x": 224,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 42,
+            "size": 0.85,
+            "text": "9",
+            "w": 28,
+            "x": 252,
+            "y": 0
+          },
+          {
+            "h": 42,
+            "size": 0.85,
+            "text": ".",
+            "w": 10,
+            "x": 280,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 290
     },
@@ -627,8 +2192,115 @@
       "height": 26,
       "optional": false,
       "recipe": {
-        "source": "7_Ratenumber_s.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "0",
+            "w": 20,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "1",
+            "w": 20,
+            "x": 20,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "2",
+            "w": 20,
+            "x": 40,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "3",
+            "w": 20,
+            "x": 60,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "4",
+            "w": 20,
+            "x": 80,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "5",
+            "w": 20,
+            "x": 100,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "6",
+            "w": 20,
+            "x": 120,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "7",
+            "w": 20,
+            "x": 140,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "8",
+            "w": 20,
+            "x": 160,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 26,
+            "size": 0.85,
+            "text": "9",
+            "w": 20,
+            "x": 180,
+            "y": 0
+          },
+          {
+            "h": 26,
+            "size": 0.7,
+            "text": "%",
+            "w": 20,
+            "x": 200,
+            "y": 0
+          },
+          {
+            "h": 26,
+            "size": 0.85,
+            "text": ".",
+            "w": 10,
+            "x": 210,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
       "width": 220
     },
@@ -636,8 +2308,103 @@
       "height": 439,
       "optional": false,
       "recipe": {
-        "source": "7_SkillPanel.png",
-        "type": "copy"
+        "cells": [
+          {
+            "border": false,
+            "h": 439,
+            "panel": true,
+            "w": 257,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "color": "#FACC15",
+            "h": 22,
+            "size": 0.62,
+            "text": "PERFECT",
+            "w": 66,
+            "x": 8,
+            "y": 76
+          },
+          {
+            "color": "#22C55E",
+            "h": 22,
+            "size": 0.62,
+            "text": "GREAT",
+            "w": 66,
+            "x": 8,
+            "y": 106
+          },
+          {
+            "color": "#3B82F6",
+            "h": 22,
+            "size": 0.62,
+            "text": "GOOD",
+            "w": 66,
+            "x": 8,
+            "y": 136
+          },
+          {
+            "color": "#E879F9",
+            "h": 22,
+            "size": 0.62,
+            "text": "POOR",
+            "w": 66,
+            "x": 8,
+            "y": 166
+          },
+          {
+            "color": "#EF4444",
+            "h": 22,
+            "size": 0.62,
+            "text": "MISS",
+            "w": 66,
+            "x": 8,
+            "y": 196
+          },
+          {
+            "color": "#22D3EE",
+            "h": 22,
+            "size": 0.62,
+            "text": "COMBO",
+            "w": 66,
+            "x": 8,
+            "y": 226
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "SKILL",
+            "w": 70,
+            "x": 10,
+            "y": 377
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "LEVEL",
+            "w": 70,
+            "x": 10,
+            "y": 270
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "PLAY",
+            "w": 70,
+            "x": 10,
+            "y": 300
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "SCORE",
+            "w": 70,
+            "x": 10,
+            "y": 22
+          }
+        ],
+        "type": "sheet"
       },
       "width": 257
     },
@@ -772,8 +2539,89 @@
       "height": 288,
       "optional": false,
       "recipe": {
-        "source": "7_pads.png",
-        "type": "copy"
+        "cells": [
+          {
+            "color": "#A78BFA",
+            "glyph": "cymbal",
+            "h": 96,
+            "w": 96,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "color": "#67E8F9",
+            "glyph": "hihat",
+            "h": 96,
+            "w": 96,
+            "x": 96,
+            "y": 0
+          },
+          {
+            "color": "#22D3EE",
+            "glyph": "cymbal",
+            "h": 96,
+            "w": 96,
+            "x": 192,
+            "y": 0
+          },
+          {
+            "color": "#3B82F6",
+            "glyph": "ride",
+            "h": 96,
+            "w": 96,
+            "x": 288,
+            "y": 0
+          },
+          {
+            "color": "#FDE047",
+            "glyph": "drum",
+            "h": 96,
+            "w": 96,
+            "x": 0,
+            "y": 96
+          },
+          {
+            "color": "#4ADE80",
+            "glyph": "drum",
+            "h": 96,
+            "w": 96,
+            "x": 96,
+            "y": 96
+          },
+          {
+            "color": "#F87171",
+            "glyph": "drum",
+            "h": 96,
+            "w": 96,
+            "x": 192,
+            "y": 96
+          },
+          {
+            "color": "#FB923C",
+            "glyph": "drum",
+            "h": 96,
+            "w": 96,
+            "x": 288,
+            "y": 96
+          },
+          {
+            "color": "#F472B6",
+            "glyph": "pedal",
+            "h": 96,
+            "w": 96,
+            "x": 0,
+            "y": 192
+          },
+          {
+            "color": "#60A5FA",
+            "glyph": "pedal",
+            "h": 96,
+            "w": 96,
+            "x": 96,
+            "y": 192
+          }
+        ],
+        "type": "sheet"
       },
       "width": 384
     },
@@ -1226,8 +3074,107 @@
       "height": 380,
       "optional": false,
       "recipe": {
-        "source": "ScreenPlayDrums combo.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "0",
+            "w": 120,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "1",
+            "w": 120,
+            "x": 120,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "2",
+            "w": 120,
+            "x": 240,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "3",
+            "w": 120,
+            "x": 360,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "4",
+            "w": 120,
+            "x": 480,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "5",
+            "w": 120,
+            "x": 0,
+            "y": 160
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "6",
+            "w": 120,
+            "x": 120,
+            "y": 160
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "7",
+            "w": 120,
+            "x": 240,
+            "y": 160
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "8",
+            "w": 120,
+            "x": 360,
+            "y": 160
+          },
+          {
+            "fit": "0123456789",
+            "h": 160,
+            "size": 0.85,
+            "text": "9",
+            "w": 120,
+            "x": 480,
+            "y": 160
+          },
+          {
+            "h": 60,
+            "size": 0.5,
+            "text": "COMBO",
+            "w": 250,
+            "x": 0,
+            "y": 320
+          }
+        ],
+        "type": "sheet"
       },
       "width": 600
     },
@@ -1235,8 +3182,99 @@
       "height": 316,
       "optional": false,
       "recipe": {
-        "source": "ScreenPlayDrums combo_2.png",
-        "type": "copy"
+        "cells": [
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "0",
+            "w": 96,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "1",
+            "w": 96,
+            "x": 96,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "2",
+            "w": 96,
+            "x": 192,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "3",
+            "w": 96,
+            "x": 288,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "4",
+            "w": 96,
+            "x": 384,
+            "y": 0
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "5",
+            "w": 96,
+            "x": 0,
+            "y": 128
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "6",
+            "w": 96,
+            "x": 96,
+            "y": 128
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "7",
+            "w": 96,
+            "x": 192,
+            "y": 128
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "8",
+            "w": 96,
+            "x": 288,
+            "y": 128
+          },
+          {
+            "fit": "0123456789",
+            "h": 128,
+            "size": 0.85,
+            "text": "9",
+            "w": 96,
+            "x": 384,
+            "y": 128
+          }
+        ],
+        "type": "sheet"
       },
       "width": 480
     },
@@ -1253,10 +3291,18 @@
       "height": 190,
       "optional": false,
       "recipe": {
-        "source": "ScreenResult Excellent.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 190,
+            "source": "ScreenResult Excellent.png",
+            "w": 520,
+            "x": 40,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
-      "width": 520
+      "width": 600
     },
     "Graphics/ScreenResult StageCleared.png": {
       "height": 190,
@@ -1271,10 +3317,18 @@
       "height": 190,
       "optional": false,
       "recipe": {
-        "source": "ScreenResult fullcombo.png",
-        "type": "copy"
+        "cells": [
+          {
+            "h": 190,
+            "source": "ScreenResult fullcombo.png",
+            "w": 520,
+            "x": 40,
+            "y": 0
+          }
+        ],
+        "type": "sheet"
       },
-      "width": 520
+      "width": 600
     },
     "Graphics/drumkit_cymbal.png": {
       "height": 453,

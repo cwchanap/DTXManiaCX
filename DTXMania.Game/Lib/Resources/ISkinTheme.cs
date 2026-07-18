@@ -16,5 +16,6 @@ namespace DTXMania.Game.Lib.Resources
         int GetInt(string key, int fallback);
         float GetFloat(string key, float fallback);
         Point GetPoint(string key, Point fallback);
+        string GetString(string key, string fallback);
     }
 }

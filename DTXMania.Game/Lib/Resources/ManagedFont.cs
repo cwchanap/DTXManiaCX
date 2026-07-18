@@ -87,8 +87,8 @@ namespace DTXMania.Game.Lib.Resources
                 if (_contentManager == null)
                     throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
-                var (_, resolvedStyle) = GetBestSpriteFontAssetName(size, style);
-                var spriteFont = GetBestSizeSpriteFont(size, style);
+                var (_, resolvedStyle) = GetBestSpriteFontAssetName(fontPath, size, style);
+                var spriteFont = GetBestSizeSpriteFont(fontPath, size, style);
                 return new ManagedFont(spriteFont, fontPath, size, resolvedStyle);
             }
         }
@@ -98,9 +98,9 @@ namespace DTXMania.Game.Lib.Resources
         /// Prefers a Bold-variant asset when style=Bold and one exists at that size.
         /// Falls back to the closest Regular-size asset otherwise.
         /// </summary>
-        private static SpriteFont GetBestSizeSpriteFont(int requestedSize, FontStyle style)
+        private static SpriteFont GetBestSizeSpriteFont(string fontPath, int requestedSize, FontStyle style)
         {
-            var (assetName, _) = GetBestSpriteFontAssetName(requestedSize, style);
+            var (assetName, _) = GetBestSpriteFontAssetName(fontPath, requestedSize, style);
 
             if (!_loadedFonts.TryGetValue(assetName, out var spriteFont))
             {
@@ -136,31 +136,49 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Pick the closest available SpriteFont asset for the requested (size, style).
-        /// Bold variant is only available at size 14; for other sizes Bold falls back to Regular.
-        /// Returns a tuple of (assetName, resolvedStyle) so callers know the actual style.
+        /// Pick the closest available SpriteFont asset for the requested
+        /// (family, size, style). "Orbitron" selects the Latin display family
+        /// (14/18px, no Bold); every other path uses the CJK-capable
+        /// NotoSerifJP family (14/24/48px, Bold only at 14), so pre-existing
+        /// callers keep their behavior. When no Bold asset is closer than the
+        /// closest Regular one, the Regular asset wins and the returned style
+        /// reflects the downgrade.
         /// </summary>
-        private static (string assetName, FontStyle resolvedStyle) GetBestSpriteFontAssetName(int requestedSize, FontStyle style)
+        internal static (string assetName, FontStyle resolvedStyle) GetBestSpriteFontAssetName(string fontPath, int requestedSize, FontStyle style)
         {
-            var availableRegular = new[]
-            {
-                (size: 14, assetName: "NotoSerifJP"),
-                (size: 24, assetName: "NotoSerifJP-24"),
-                (size: 48, assetName: "NotoSerifJP-48")
-            };
+            (int size, string assetName)[] availableRegular;
+            (int size, string assetName)[] boldVariants;
 
-            if (style == FontStyle.Bold)
+            if (string.Equals(fontPath, "Orbitron", StringComparison.OrdinalIgnoreCase))
             {
-                var boldVariants = new[]
+                availableRegular = new[]
+                {
+                    (size: 14, assetName: "Orbitron-14"),
+                    (size: 18, assetName: "Orbitron-18")
+                };
+                boldVariants = Array.Empty<(int, string)>();
+            }
+            else
+            {
+                availableRegular = new[]
+                {
+                    (size: 14, assetName: "NotoSerifJP"),
+                    (size: 24, assetName: "NotoSerifJP-24"),
+                    (size: 48, assetName: "NotoSerifJP-48")
+                };
+                boldVariants = new[]
                 {
                     (size: 14, assetName: "NotoSerifJP-Bold")
                 };
+            }
 
+            var closestRegular = availableRegular
+                .OrderBy(x => Math.Abs(x.size - requestedSize))
+                .First();
+
+            if (style == FontStyle.Bold && boldVariants.Length > 0)
+            {
                 var closestBold = boldVariants
-                    .OrderBy(x => Math.Abs(x.size - requestedSize))
-                    .First();
-
-                var closestRegular = availableRegular
                     .OrderBy(x => Math.Abs(x.size - requestedSize))
                     .First();
 
@@ -170,13 +188,9 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     return (closestBold.assetName, FontStyle.Bold);
                 }
-                return (closestRegular.assetName, FontStyle.Regular);
             }
 
-            return (availableRegular
-                .OrderBy(x => Math.Abs(x.size - requestedSize))
-                .First()
-                .assetName, FontStyle.Regular);
+            return (closestRegular.assetName, FontStyle.Regular);
         }
 
         /// <summary>

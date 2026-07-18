@@ -10,16 +10,9 @@ namespace DTXMania.Test.Resources
     {
         private static (string assetName, FontStyle resolvedStyle) InvokeGetBestSpriteFontAssetName(int size, FontStyle style)
         {
-            var method = typeof(ManagedFont).GetMethod(
-                "GetBestSpriteFontAssetName",
-                BindingFlags.NonPublic | BindingFlags.Static);
-
-            Assert.NotNull(method);
-
-            var result = method!.Invoke(null, new object[] { size, style });
-            // The method returns a ValueTuple<string, FontStyle> which boxes to ValueTuple<string, FontStyle>
-            var tuple = ((string, FontStyle))result!;
-            return tuple;
+            // These tests pin the default (NotoSerifJP) family behavior; the
+            // Orbitron family is covered by ManagedFontAssetMappingTests.
+            return ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", size, style);
         }
 
         [Fact]

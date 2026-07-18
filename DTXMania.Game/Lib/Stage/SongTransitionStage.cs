@@ -652,9 +652,17 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     var titlePosition = SongTransitionUILayout.SongTitle.Position;
                     var titleColor = SongTransitionUILayout.SongTitle.TextColor;
-                    
+                    var titleText = _songTitle;
+                    // The preview jacket draws after (over) the title; a themed
+                    // cap keeps long titles from running underneath it.
+                    var maxWidth = ResolveTitleMaxWidth(
+                        _resourceManager?.CurrentTheme ?? DTXMania.Game.Lib.Resources.SkinTheme.Empty);
+                    if (maxWidth > 0)
+                        titleText = DTXMania.Game.Lib.Utilities.TextHelper.TruncateToWidth(
+                            titleText, maxWidth, _titleFont);
+
                     // Draw with shadow for better visibility
-                    _titleFont.DrawStringWithShadow(_spriteBatch, _songTitle, titlePosition, 
+                    _titleFont.DrawStringWithShadow(_spriteBatch, titleText, titlePosition,
                         titleColor, Color.Black * 0.8f, new Vector2(2, 2));
                 }
                 
@@ -679,6 +687,22 @@ namespace DTXMania.Game.Lib.Stage
         }
         
         [ExcludeFromCodeCoverage]
+        /// <summary>
+        /// Difficulty plate backdrop color: "Transition.DifficultyPanel" → NX
+        /// opaque gray. Skins with dark panel styling (CX Neon) substitute a
+        /// translucent panel tone so the plate matches their other panels.
+        /// </summary>
+        internal static Color ResolveDifficultyPanelColor(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetColor("Transition.DifficultyPanel", Color.Gray);
+
+        /// <summary>
+        /// Max pixel width for the song title (0 = unlimited, NX). The rotated
+        /// jacket art starts at x~620 and draws over the title, so skins cap
+        /// the title to keep long names from running underneath it.
+        /// </summary>
+        internal static int ResolveTitleMaxWidth(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
+            theme.GetInt("Transition.TitleMaxWidth", 0);
+
         private void DrawDifficultyBackground()
         {
             if (_whitePixel == null)
@@ -686,13 +710,14 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                // Draw grey background rectangle using layout configuration
+                // Backdrop rectangle behind the tier plate + level number.
                 var position = SongTransitionUILayout.DifficultySprite.Position;
                 var size = SongTransitionUILayout.DifficultySprite.BackgroundSize;
                 var rectangle = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
-                var greyColor = Color.Gray;
-                
-                _spriteBatch.Draw(_whitePixel, rectangle, greyColor);
+                var panelColor = ResolveDifficultyPanelColor(
+                    _resourceManager?.CurrentTheme ?? DTXMania.Game.Lib.Resources.SkinTheme.Empty);
+
+                _spriteBatch.Draw(_whitePixel, rectangle, panelColor);
             }
             catch (Exception)
             {

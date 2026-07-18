@@ -227,6 +227,54 @@ class ComposeTests(unittest.TestCase):
                 for px in img.getdata())
             self.assertTrue(red_dominant)
 
+    def test_sheet_text_cell_size_option_scales_glyph(self):
+        # Digit strips (combo, rate numbers) must nearly fill their cell so the
+        # renderers' fixed per-digit advance leaves no gaps; "size" raises the
+        # target glyph height from the 0.6 default.
+        def rows_with_ink(name, cell):
+            manifest = self._manifest({f"Graphics/{name}": {
+                "width": 64, "height": 64, "optional": False,
+                "recipe": {"type": "sheet", "cells": [cell]}}})
+            skingen.compose(manifest, self.source, self.out)
+            with Image.open(os.path.join(self.out, "Graphics", name)) as img:
+                return sum(
+                    1 for y in range(64)
+                    if any(img.getpixel((x, y))[3] > 100 for x in range(64)))
+
+        small = rows_with_ink("d_small.png", {"text": "8", "x": 0, "y": 0, "w": 64, "h": 64})
+        large = rows_with_ink("d_large.png", {"text": "8", "x": 0, "y": 0, "w": 64, "h": 64, "size": 0.9})
+        self.assertGreater(large, small)
+
+    def test_sheet_text_cell_anchor_top_moves_glyph_up(self):
+        # Difficulty badges draw the level number over the badge's lower half,
+        # so the tier label must sit at the top of the cell, not centered.
+        manifest = self._manifest({"Graphics/badge.png": {
+            "width": 60, "height": 60, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"text": "BASIC", "x": 0, "y": 0, "w": 60, "h": 60, "size": 0.25, "anchor": "top"}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "badge.png")) as img:
+            top_ink = sum(1 for y in range(30) for x in range(60) if img.getpixel((x, y))[3] > 100)
+            bottom_ink = sum(1 for y in range(30, 60) for x in range(60) if img.getpixel((x, y))[3] > 100)
+            self.assertGreater(top_ink, 0)
+            self.assertEqual(bottom_ink, 0)  # lower half stays free for the level number
+
+    def test_sheet_combined_cursor_text_cell_renders_panel_with_label(self):
+        # Pad caps combine a framed panel with a label; "inset" shrinks the
+        # panel inside the cell so overlapping destination rects in-game leave
+        # neighbours' labels visible through the transparent margin.
+        manifest = self._manifest({"Graphics/pad.png": {
+            "width": 96, "height": 96, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"cursor": True, "text": "LC", "x": 0, "y": 0, "w": 96, "h": 96,
+                 "inset": 0.2, "size": 0.3}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "pad.png")) as img:
+            self.assertEqual(img.getpixel((2, 2))[3], 0)          # margin transparent
+            self.assertGreater(img.getpixel((48, 48))[3], 0)      # label/fill present at center
+            frame_alpha = max(img.getpixel((x, 48))[3] for x in range(18, 26))
+            self.assertGreater(frame_alpha, 150)                  # frame visible inside inset
+
     def test_sheet_cursor_cell_keeps_center_translucent(self):
         # The title menu cursor row is drawn ON TOP of the label row at the
         # same position, so its fill must stay translucent enough for the
@@ -242,6 +290,135 @@ class ComposeTests(unittest.TestCase):
             self.assertLess(center_alpha, 160)       # label still reads through
             edge_alpha = max(img.getpixel((x, 16))[3] for x in range(6))
             self.assertGreater(edge_alpha, center_alpha)  # frame brighter than fill
+
+    def test_sheet_panel_cell_renders_dark_body_with_accent_border(self):
+        # Bar bodies and grid cells are near-opaque dark panels (unlike cursor
+        # cells, whose fill must stay see-through): white titles need a solid
+        # dark backdrop to read against changing backgrounds.
+        manifest = self._manifest({"Graphics/bar.png": {
+            "width": 128, "height": 48, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"panel": True, "x": 0, "y": 0, "w": 128, "h": 48}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "bar.png")) as img:
+            r, g, b, a = img.getpixel((64, 24))
+            self.assertGreater(a, 180)               # body is near-opaque...
+            self.assertLess(max(r, g, b), 60)        # ...and dark
+            edge = max((img.getpixel((x, 24)) for x in range(6)),
+                       key=lambda px: px[3])
+            self.assertGreater(max(edge[:3]), 90)    # accent frame at the edge
+
+    def test_sheet_panel_cell_box_confines_content_to_subrect(self):
+        # Selected-bar textures are drawn 30px above the bar bounds and would
+        # chop the neighbouring bars; "box" confines the visible body to a
+        # sub-rect of the cell, leaving the rest of the canvas transparent.
+        manifest = self._manifest({"Graphics/selbar.png": {
+            "width": 64, "height": 64, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"panel": True, "text": "SS", "x": 0, "y": 0, "w": 64, "h": 64,
+                 "box": [0, 20, 64, 30]}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "selbar.png")) as img:
+            top_ink = sum(1 for y in range(18) for x in range(64) if img.getpixel((x, y))[3] > 0)
+            bottom_ink = sum(1 for y in range(52, 64) for x in range(64) if img.getpixel((x, y))[3] > 0)
+            self.assertEqual(top_ink, 0)             # above the box: transparent
+            self.assertEqual(bottom_ink, 0)          # below the box: transparent
+            self.assertGreater(img.getpixel((32, 35))[3], 180)  # body inside the box
+
+    def test_sheet_panel_cell_borderless_is_plain_dark_box(self):
+        # The number boxes inside the BPM/skill panels are plain dark wells —
+        # no accent frame — so bitmap digits sit in a quiet inset area.
+        manifest = self._manifest({"Graphics/well.png": {
+            "width": 64, "height": 32, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"panel": True, "border": False, "x": 0, "y": 0, "w": 64, "h": 32}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "well.png")) as img:
+            self.assertGreater(img.getpixel((32, 16))[3], 180)  # dark body present
+            for px in img.getdata():
+                if px[3] > 0:
+                    self.assertLess(max(px[:3]), 60)  # nowhere an accent-bright pixel
+
+    def test_sheet_glyph_cell_renders_drum_icon_with_transparent_margins(self):
+        # Pad indicators are drawn as icons, not text (per design feedback):
+        # "glyph" cells render simple neon drum shapes. Cells overlap in-game,
+        # so margins must stay transparent; a "drum" head is a filled shape.
+        manifest = self._manifest({"Graphics/pad.png": {
+            "width": 96, "height": 96, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"glyph": "drum", "color": "#FDE047", "x": 0, "y": 0, "w": 96, "h": 96}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "pad.png")) as img:
+            self.assertEqual(img.getpixel((4, 4))[3], 0)         # corner transparent
+            self.assertEqual(img.getpixel((4, 48))[3], 0)        # side margin transparent
+            self.assertGreater(img.getpixel((48, 48))[3], 60)    # filled head at center
+            colored = any(px[0] > 150 and px[1] > 150 and px[2] < 130 and px[3] > 150
+                          for px in img.getdata())
+            self.assertTrue(colored)                             # yellow accent present
+
+    def test_sheet_glyph_cell_cymbal_is_hollow_ring(self):
+        manifest = self._manifest({"Graphics/cym.png": {
+            "width": 96, "height": 96, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"glyph": "cymbal", "x": 0, "y": 0, "w": 96, "h": 96}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "cym.png")) as img:
+            center = img.getpixel((48, 48))[3]
+            ring = max(img.getpixel((x, 48))[3] for x in range(16, 40))
+            self.assertGreater(ring, 150)          # ring stroke clearly visible
+            self.assertLess(center, ring)          # middle stays dimmer than the ring
+
+    def test_sheet_text_cell_ink_option_colors_the_glyph_core(self):
+        # Status-panel digit strips need visible color hierarchy (levels gold,
+        # rates green). The default near-white core with a soft halo reads as
+        # plain white at small sizes; "ink" tints the glyph core itself.
+        manifest = self._manifest({"Graphics/gold.png": {
+            "width": 40, "height": 40, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"text": "8", "x": 0, "y": 0, "w": 40, "h": 40, "size": 0.85,
+                 "color": "#FACC15", "ink": True}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "gold.png")) as img:
+            core = max((px for px in img.getdata() if px[3] > 200),
+                       key=lambda px: sum(px[:3]))
+            self.assertGreater(core[0], 180)            # bright...
+            self.assertGreater(core[0] - core[2], 60)   # ...and clearly gold, not white
+
+    def test_sheet_text_cell_fit_option_gives_uniform_digit_size(self):
+        # Digit strips must render every digit at the SAME size. Without a
+        # shared reference, the fitting loop shrinks wide digits ('8') to the
+        # cell width while narrow '1' keeps the full size fraction — a visibly
+        # oversized '1'. "fit" sizes the glyph against reference characters.
+        def ink_rows(name, cell):
+            manifest = self._manifest({f"Graphics/{name}": {
+                "width": 12, "height": 20, "optional": False,
+                "recipe": {"type": "sheet", "cells": [cell]}}})
+            skingen.compose(manifest, self.source, self.out)
+            with Image.open(os.path.join(self.out, "Graphics", name)) as img:
+                return sum(
+                    1 for y in range(20)
+                    if any(img.getpixel((x, y))[3] > 100 for x in range(12)))
+
+        digits = "0123456789"
+        one = ink_rows("fit_one.png", {"text": "1", "x": 0, "y": 0, "w": 12, "h": 20,
+                                       "size": 0.88, "fit": digits})
+        eight = ink_rows("fit_eight.png", {"text": "8", "x": 0, "y": 0, "w": 12, "h": 20,
+                                           "size": 0.88, "fit": digits})
+        self.assertLessEqual(abs(one - eight), 1)
+
+    def test_sheet_text_cell_anchor_bottom_sits_glyph_on_baseline(self):
+        # The '.' glyph in digit strips must sit at the bottom of its cell —
+        # centered it renders as a floating middle dot ("8·70").
+        manifest = self._manifest({"Graphics/dot.png": {
+            "width": 20, "height": 56, "optional": False,
+            "recipe": {"type": "sheet", "cells": [
+                {"text": ".", "x": 0, "y": 0, "w": 20, "h": 56, "anchor": "bottom"}]}}})
+        skingen.compose(manifest, self.source, self.out)
+        with Image.open(os.path.join(self.out, "Graphics", "dot.png")) as img:
+            top_ink = sum(1 for y in range(28) for x in range(20) if img.getpixel((x, y))[3] > 100)
+            bottom_ink = sum(1 for y in range(28, 56) for x in range(20) if img.getpixel((x, y))[3] > 100)
+            self.assertEqual(top_ink, 0)             # upper half stays empty
+            self.assertGreater(bottom_ink, 0)        # dot sits near the baseline
 
 
 class PromptsTests(unittest.TestCase):

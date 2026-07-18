@@ -207,5 +207,18 @@ namespace DTXMania.Test.Resources
             var theme = SkinTheme.Parse(new[] { "bareword", "K=1" });
             Assert.Equal(1, theme.GetInt("K", 0));
         }
+
+        [Fact]
+        public void GetString_WithMissingKey_ShouldReturnFallback()
+        {
+            Assert.Equal("fallback", SkinTheme.Empty.GetString("Result.ValueFontFamily", "fallback"));
+        }
+
+        [Fact]
+        public void GetString_WithPresentKey_ShouldReturnValue()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.ValueFontFamily=Orbitron" });
+            Assert.Equal("Orbitron", theme.GetString("Result.ValueFontFamily", string.Empty));
+        }
     }
 }
