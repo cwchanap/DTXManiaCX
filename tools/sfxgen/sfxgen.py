@@ -27,6 +27,14 @@ MANIFEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manife
 RAW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "raw")
 API_URL = "https://api.elevenlabs.io/v1/sound-generation"
 
+# Hard cap on a single sound-generation response. The manifest caps
+# duration_seconds at 22s, and ElevenLabs sound-generation MP3 output is well
+# under 1 MB at that duration — so 50 MB is far above any legitimate response
+# and exists only to fail fast if the API ever returns a malformed/huge payload
+# instead of buffering it all into memory. Without this cap, response.read()
+# would allocate the entire body before any code could abort.
+MAX_RESPONSE_BYTES = 50 * 1024 * 1024
+
 
 def load_sounds(manifest_path):
     with open(manifest_path, encoding="utf-8") as f:
@@ -47,6 +55,36 @@ def postprocess_command(raw_path, ogg_path):
     ]
 
 
+def _stream_response_to_file(response, raw_path, max_bytes=MAX_RESPONSE_BYTES):
+    """Stream an HTTP response body to disk in fixed-size chunks.
+
+    Aborts if the body exceeds max_bytes, deleting the partial file and raising
+    ValueError. Streaming avoids buffering the entire MP3 into memory before
+    any size check can run; the cap fails fast on a malformed/huge response
+    instead of allocating it all.
+    """
+    written = 0
+    try:
+        with open(raw_path, "wb") as f:
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise ValueError(
+                        "response exceeded %d bytes (cap=%d); aborting" % (written, max_bytes))
+                f.write(chunk)
+    except Exception:
+        # Don't leave a partial file behind — ffmpeg would then try to
+        # postprocess a truncated MP3 and emit a confusing error.
+        try:
+            os.remove(raw_path)
+        except OSError:
+            pass
+        raise
+
+
 def generate_one(sound, api_key, out_dir):
     raw_path = os.path.join(RAW_DIR, sound["file"].removesuffix(".ogg") + ".mp3")
     os.makedirs(RAW_DIR, exist_ok=True)
@@ -60,8 +98,7 @@ def generate_one(sound, api_key, out_dir):
         headers={"xi-api-key": api_key, "Content-Type": "application/json"})
     print("generating %s ..." % sound["file"])
     with urllib.request.urlopen(request, timeout=120) as response:
-        with open(raw_path, "wb") as f:
-            f.write(response.read())
+        _stream_response_to_file(response, raw_path)
 
     os.makedirs(out_dir, exist_ok=True)
     ogg_path = os.path.join(out_dir, sound["file"])

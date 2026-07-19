@@ -80,6 +80,34 @@ namespace DTXMania.Test.Resources
             Assert.Equal("", SkinManager.GetSkinName(""));
         }
 
+        [Theory]
+        // Paths with illegal characters that Path.GetFullPath rejects with
+        // ArgumentException on Windows. GetSkinName must return "" (its
+        // documented contract for invalid input) rather than throwing —
+        // callers like ConfigStage depend on the empty-string fallback.
+        // Skipped on macOS/Unix: Path.GetFullPath does not validate path
+        // characters there, so no exception is thrown and the last segment
+        // is legitimately returned.
+        [InlineData("|<>")]
+        [InlineData("foo\u0000bar")]
+        public void GetSkinName_WithMalformedPath_ShouldReturnEmptyString(string malformed)
+        {
+            if (!OperatingSystem.IsWindows())
+                return;
+            Assert.Equal("", SkinManager.GetSkinName(malformed));
+        }
+
+        [Fact]
+        public void GetSkinName_WithMalformedPathAndDefault_ShouldReturnEmptyString()
+        {
+            // The default-skin comparison branch also runs Path.GetFullPath;
+            // a malformed defaultSkinPath must not escape the catch. Windows-
+            // only for the same reason as the theory above.
+            if (!OperatingSystem.IsWindows())
+                return;
+            Assert.Equal("", SkinManager.GetSkinName("ok/path", "|baddefault|"));
+        }
+
         [Fact]
         public void ValidateSkinPath_WithValidSkin_ShouldReturnTrue()
         {

@@ -124,5 +124,38 @@ class FfmpegCommandTests(unittest.TestCase):
         self.assertEqual(cmd[-1], "out.ogg")
 
 
+class _FakeResponse:
+    """Minimal file-like object standing in for an HTTP response body."""
+
+    def __init__(self, data):
+        self._data = data
+
+    def read(self, size=-1):
+        if size is None or size < 0:
+            chunk, self._data = self._data, b""
+            return chunk
+        chunk, self._data = self._data[:size], self._data[size:]
+        return chunk
+
+
+class StreamResponseTests(unittest.TestCase):
+    def test_streams_full_body_to_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "out.mp3")
+            sfxgen._stream_response_to_file(_FakeResponse(b"MP3DATA"), path)
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(), b"MP3DATA")
+
+    def test_aborts_when_body_exceeds_cap(self):
+        # 1 KB cap, 4 KB body → must abort and delete the partial file.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "out.mp3")
+            with self.assertRaises(ValueError):
+                sfxgen._stream_response_to_file(
+                    _FakeResponse(b"\x00" * 4096), path, max_bytes=1024)
+            self.assertFalse(os.path.exists(path),
+                             "partial file must be removed on cap overflow")
+
+
 if __name__ == "__main__":
     unittest.main()

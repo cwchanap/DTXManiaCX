@@ -269,8 +269,26 @@ namespace DTXMania.Game.Lib.Resources
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
                 return lastSegment;
             }
-            catch
+            catch (ArgumentException ex)
             {
+                // Path.GetFullPath throws ArgumentException for malformed
+                // paths (illegal characters, invalid drive, null/empty
+                // segments after the empty guard above). Returning "" is the
+                // documented contract for invalid inputs; log so a malformed
+                // skin path is observable instead of silently relabeled.
+                Debug.WriteLine($"SkinManager: GetSkinName could not normalize '{skinPathFullName}': {ex.Message}");
+                return "";
+            }
+            catch (PathTooLongException ex)
+            {
+                // Path.GetFullPath throws PathTooLongException on Windows for
+                // paths exceeding MAX_PATH. Same contract as above.
+                Debug.WriteLine($"SkinManager: GetSkinName path too long '{skinPathFullName}': {ex.Message}");
+                return "";
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                Debug.WriteLine($"SkinManager: GetSkinName access denied for '{skinPathFullName}': {ex.Message}");
                 return "";
             }
         }/// <summary>
