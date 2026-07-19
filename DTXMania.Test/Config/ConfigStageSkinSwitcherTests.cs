@@ -205,6 +205,44 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void SwitchSkin_ShouldRouteThroughResourceManagerSetSkinPathBeforeSkinChangedFires()
+        {
+            // Load-bearing invariant: ConfigStage.SwitchSkin must route through
+            // ResourceManager.SetSkinPath (which evicts the skin-dependent cache
+            // and raises SkinChanged) BEFORE its own ReleaseTextures/LoadSkinTextures
+            // reload. If the ordering ever breaks — e.g. LoadSkinTextures runs before
+            // SetSkinPath — the stage would reload from the OLD skin's paths while the
+            // cache still holds stale entries, silently shipping the wrong art.
+            //
+            // The eviction itself is unit-tested at the ResourceManager level
+            // (SetSkinPath_WhenSkinChanges_ShouldEvictCacheBeforeRaisingSkinChanged).
+            // This test guards the integration contract: by the time SkinChanged fires
+            // (synchronously, inside SetSkinPath), the effective skin path must already
+            // be the NEW skin — proving SetSkinPath ran to completion before any
+            // SkinChanged subscriber (including ConfigStage's own reload) can act.
+            var (stage, _, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+                ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager);
+
+                string? effectivePathAtSkinChanged = null;
+                resourceManager.SkinChanged += (_, args) =>
+                {
+                    effectivePathAtSkinChanged = resourceManager.GetCurrentEffectiveSkinPath();
+                };
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "CXNeon");
+
+                // The handler ran (SetSkinPath was reached) and at that moment the
+                // effective path was already CXNeon — SetSkinPath completed before
+                // SkinChanged was raised, so a synchronous reload resolves new-skin paths.
+                Assert.NotNull(effectivePathAtSkinChanged);
+                Assert.Contains("CXNeon", effectivePathAtSkinChanged);
+            }
+        }
+
+        [Fact]
         public void GetCurrentSkinName_WithUnresolvablePath_ShouldReturnDefault()
         {
             // When GetSkinName returns empty (e.g. a bare separator path), GetCurrentSkinName

@@ -470,7 +470,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ResolveValueFontSize_WithThemedSize_ShouldUseThemedValue()
         {
-            var theme = SkinTheme.Parse(new[] { "Result.FontValue=20" });
+            var theme = SkinTheme.Parse(new[] { "Result.FontValueSize=20" });
 
             Assert.Equal(20, ResultScreenRenderer.ResolveValueFontSize(theme));
         }
@@ -484,7 +484,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ResolveCountFontSize_WithThemedSize_ShouldUseThemedValue()
         {
-            var theme = SkinTheme.Parse(new[] { "Result.FontValueSmall=13" });
+            var theme = SkinTheme.Parse(new[] { "Result.FontValueSmallSize=13" });
 
             Assert.Equal(13, ResultScreenRenderer.ResolveCountFontSize(theme));
         }

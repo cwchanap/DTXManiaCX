@@ -9,6 +9,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Test.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -1467,7 +1468,12 @@ public class SongListDisplayLogicTests
         scoreBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Rectangle>(), It.IsAny<Rectangle?>(), It.IsAny<Color>(), It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.AtLeastOnce);
         commentBarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
         scrollbarTexture.Verify(x => x.Draw(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<Vector2>()), Times.Once);
-        managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeast(14));
+        managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.AtLeast(13));
+        // The selected song's artist name uses the scaled 9-arg DrawString
+        // overload (theme-aware ArtistNameScale); the 4-arg overload covers the
+        // remaining song-title draws.
+        managedFont.Verify(x => x.DrawString(It.IsAny<Microsoft.Xna.Framework.Graphics.SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>(),
+            It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -1931,11 +1937,14 @@ public class SongListDisplayLogicTests
         var managedFont = CreateManagedFont();
         var itemBounds = new Rectangle(665, 269, 510, 48);
         string? drawnText = null;
+        Vector2 drawnScale = Vector2.Zero;
 
         managedFont.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string text) => new Vector2(text.Length * 24, 16));
         managedFont
-            .Setup(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()))
-            .Callback<SpriteBatch, string, Vector2, Color>((_, text, _, _) => drawnText = text);
+            .Setup(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>(),
+                It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Callback<SpriteBatch, string, Vector2, Color, float, Vector2, Vector2, SpriteEffects, float>(
+                (_, text, _, _, _, _, scale, _, _) => { drawnText = text; drawnScale = scale; });
         display.ManagedFont = managedFont.Object;
 
         InvokePrivate<object?>(
@@ -1948,9 +1957,52 @@ public class SongListDisplayLogicTests
             1f);
 
         managedFont.Verify(x => x.MeasureString(It.IsAny<string>()), Times.AtLeastOnce);
-        managedFont.Verify(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Once);
+        managedFont.Verify(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>(),
+            It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()), Times.Once);
         Assert.NotNull(drawnText);
         Assert.EndsWith("...", drawnText);
+        // Empty theme → ResolveArtistNameScale defaults to 1.0, so the incoming
+        // Vector2.One scale passes through unchanged. This guards against the
+        // old "no scaling support" regression where the scale was dropped.
+        Assert.Equal(1f, drawnScale.X);
+        Assert.Equal(1f, drawnScale.Y);
+    }
+
+    [Fact]
+    public void DrawArtistNameWithManagedFont_WithThemedArtistNameScale_ShouldApplyScaleToDrawCall()
+    {
+        // Regression guard for I1: the managed-font path must honour
+        // "SongSelect.ArtistNameScale" exactly as the SpriteFont path does.
+        // CX Neon sets 0.75; before the fix the managed-font path dropped it.
+        var display = new SongListDisplay();
+        var managedFont = CreateManagedFont();
+        var itemBounds = new Rectangle(665, 269, 510, 48);
+        Vector2 drawnScale = Vector2.Zero;
+
+        managedFont.Setup(x => x.MeasureString(It.IsAny<string>())).Returns((string text) => new Vector2(text.Length * 24, 16));
+        managedFont
+            .Setup(x => x.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>(),
+                It.IsAny<float>(), It.IsAny<Vector2>(), It.IsAny<Vector2>(), It.IsAny<SpriteEffects>(), It.IsAny<float>()))
+            .Callback<SpriteBatch, string, Vector2, Color, float, Vector2, Vector2, SpriteEffects, float>(
+                (_, _, _, _, _, _, scale, _, _) => drawnScale = scale);
+        display.ManagedFont = managedFont.Object;
+
+        var resourceManager = new MockResourceManager();
+        resourceManager.CurrentTheme = SkinTheme.Parse(new[] { "SongSelect.ArtistNameScale=0.75" });
+        display.SetResourceManager(resourceManager);
+
+        InvokePrivate<object?>(
+            display,
+            "DrawArtistNameWithManagedFont",
+            (SpriteBatch)null!,
+            "Artist",
+            itemBounds,
+            Vector2.One,
+            1f);
+
+        // Incoming Vector2.One * 0.75 themed scale = 0.75 on both axes.
+        Assert.Equal(0.75f, drawnScale.X);
+        Assert.Equal(0.75f, drawnScale.Y);
     }
 
     [Fact]
