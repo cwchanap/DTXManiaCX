@@ -638,6 +638,19 @@ namespace DTXMania.Game.Lib.Resources
         /// Theme for the effective skin. Lazily loaded; invalidated whenever the
         /// skin path, box.def path, or box.def usage changes.
         /// </summary>
+        /// <remarks>
+        /// Same single-threaded invariant as
+        /// <see cref="GetCurrentEffectiveSkinPath"/>: the game loop (update +
+        /// draw) is single-threaded today, and the theme invalidation sites
+        /// (<see cref="SetSkinPath"/>, <see cref="SetBoxDefSkinPath"/>,
+        /// <see cref="SetUseBoxDefSkin"/>) are only called from the update
+        /// thread. The lazy-load loop below calls
+        /// <see cref="GetCurrentEffectiveSkinPath"/> (lock-free) to snapshot
+        /// the effective skin; if the skin changes mid-load the loop discards
+        /// the stale result and retries. This retry loop is safe only because
+        /// no other thread mutates the skin state concurrently. If draw and
+        /// update ever run concurrently, this property must be revisited.
+        /// </remarks>
         public ISkinTheme CurrentTheme
         {
             get
