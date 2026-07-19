@@ -83,6 +83,24 @@ jobs:
         fail_ci_if_error: false
         verbose: true
 
+    - name: Setup Python for tool tests
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Run skingen/sfxgen tool unit tests
+      shell: bash
+      run: |
+        # Mirror the macOS job: the CX Neon asset pipelines (tools/skingen,
+        # tools/sfxgen) ship Python unit tests that guard manifest/inventory
+        # consistency. Running them on Windows too catches platform-specific
+        # path drift (backslash vs forward slash) and ensures the TexturePath/
+        # SoundPath constants stay in sync with the tool manifests on both
+        # platforms. skingen tests require Pillow; sfxgen is stdlib-only.
+        pip install "Pillow>=10,<12"
+        python -m unittest discover -s tools/skingen -p "test_*.py" -v
+        python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+
   build-and-test-macos:
     runs-on: macos-latest
     
