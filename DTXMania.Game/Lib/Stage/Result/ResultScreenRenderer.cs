@@ -528,19 +528,19 @@ namespace DTXMania.Game.Lib.Stage.Result
             theme.GetString("Result.FontValueFamily", string.Empty);
 
         /// <summary>
-        /// Point size for the value font (score/level/play/skill): "Result.FontValue" → 18.
+        /// Point size for the value font (score/level/play/skill): "Result.FontValueSize" → 18.
         /// Only consulted when "Result.FontValueFamily" is set.
         /// </summary>
         internal static int ResolveValueFontSize(ISkinTheme theme) =>
-            theme.GetInt("Result.FontValue", 18);
+            theme.GetInt("Result.FontValueSize", 18);
 
         /// <summary>
         /// Point size for the count font (judgement counts/percents):
-        /// "Result.FontValueSmall" → 14. Only consulted when
+        /// "Result.FontValueSmallSize" → 14. Only consulted when
         /// "Result.FontValueFamily" is set.
         /// </summary>
         internal static int ResolveCountFontSize(ISkinTheme theme) =>
-            theme.GetInt("Result.FontValueSmall", 14);
+            theme.GetInt("Result.FontValueSmallSize", 14);
 
         /// <summary>
         /// Y offset added to every judgement count/percent row:

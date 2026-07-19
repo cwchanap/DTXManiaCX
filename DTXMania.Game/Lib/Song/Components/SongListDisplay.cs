@@ -1190,20 +1190,26 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
-        /// Draw artist name for the currently selected song using ManagedFont
-        /// (no scaling support — the themed Y still applies).
+        /// Draw artist name for the currently selected song using ManagedFont.
+        /// Mirrors <see cref="DrawArtistName"/>'s theme handling: the themed
+        /// artist Y applies, and "SongSelect.ArtistNameScale" shrinks the text
+        /// to fit the area a skin's selected-bar art leaves for it.
         /// </summary>
         private void DrawArtistNameWithManagedFont(SpriteBatch spriteBatch, string artistName, Rectangle itemBounds, Vector2 textScale, float opacityFactor)
         {
             if (string.IsNullOrEmpty(artistName) || _managedFont == null)
                 return;
 
-            var displayArtistName = TextHelper.TruncateToWidth(artistName, SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge, _managedFont);
+            var theme = CurrentTheme;
+            textScale *= ResolveArtistNameScale(theme);
+            float maxTextWidth = SongSelectionUILayout.SongBars.ArtistNameAbsoluteRightEdge / Math.Max(textScale.X, 0.001f);
+            var displayArtistName = TextHelper.TruncateToWidth(artistName, maxTextWidth, _managedFont);
             var artistTextSize = _managedFont.MeasureString(displayArtistName);
-            var artistPos = ResolveArtistNamePosition(artistTextSize.X, CurrentTheme);
+            var artistPos = ResolveArtistNamePosition(artistTextSize.X * textScale.X, theme);
             var artistColor = Color.LightGray * 0.8f * opacityFactor;
 
-            _managedFont.DrawString(spriteBatch, displayArtistName, artistPos, artistColor);
+            _managedFont.DrawString(spriteBatch, displayArtistName, artistPos, artistColor,
+                0f, Vector2.Zero, textScale, SpriteEffects.None, 0f);
         }
 
         /// <summary>

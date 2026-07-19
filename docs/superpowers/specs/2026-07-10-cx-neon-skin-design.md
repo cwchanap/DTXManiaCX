@@ -96,9 +96,12 @@ SongSelect.StatusPanel.Position=580,130
 Result.RankBadge.Scale=1.15
 
 [Fonts]
-; bitmap-font sheet metrics so new fonts needn't match NX cells
-LevelNumber.CellSize=22,30
-BpmNumber.CellSize=14,22
+; CX Neon ships bitmap number fonts at NX cell metrics (12x20 BPM, 20x28 level,
+; 12x20 skill). Crispness at scaled draw sizes comes from 2x authoring — the
+; BPM sheet is 264x40 (2x of NX 132x20) — handled by the existing
+; sourceFactor = texture.Height / NxCellHeight mechanism in SongStatusPanel.
+; A [Fonts] CellSize override key is therefore not required; the section is
+; reserved for a future skin that authors at non-NX cell metrics.
 ```
 
 ### Integration rule (keeps blast radius small)
