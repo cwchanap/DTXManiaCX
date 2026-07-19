@@ -410,6 +410,7 @@ namespace DTXMania.Game.Lib.Stage
             _phaseStartTime = 0;
             _progressMessages.Clear();
             _currentAsyncTask = null; // Reset task tracking
+            _operationPerformedForPhase = null; // Reset per-phase op guard (see PerformPhaseOperationSync)
 
             // Add initial messages (DTXMania pattern)
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
@@ -1008,6 +1009,26 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
+        /// Status-text variant of <see cref="DrawTextWithFallback"/>: selects
+        /// between the bold status face and its CJK fallback via
+        /// <see cref="SelectStatusFont"/>, so non-ASCII characters (e.g. song
+        /// filenames in the live progress message) render correctly when a
+        /// skin sets <c>Startup.StatusFontFamily</c> to a Latin-only face.
+        /// </summary>
+        private void DrawStatusTextWithFallback(string text, int x, int y, Color color)
+        {
+            var font = SelectStatusFont(text, _boldFont, _statusFallbackFont ?? _boldFont);
+            if (font != null)
+            {
+                font.DrawString(_spriteBatch, text, new Vector2(x, y), color);
+            }
+            else
+            {
+                DrawTextRect(x, y, text.Length * FALLBACK_CHAR_WIDTH, FALLBACK_SMALL_FONT_HEIGHT, color);
+            }
+        }
+
+        /// <summary>
         /// Measured width of <paramref name="text"/>, falling back to the block
         /// metrics used when no font is available.
         /// </summary>
@@ -1059,7 +1080,11 @@ namespace DTXMania.Game.Lib.Stage
                 // status its own centred line drop it here so it is not said twice.
                 if (!statusIsSeparate && !string.IsNullOrEmpty(_currentProgressMessage))
                 {
-                    DrawTextWithFallback(_currentProgressMessage, x, y, bold: true, color: ResolveStatusColor(theme));
+                    // Mirror DrawStatusLine's font selection: a Latin-only
+                    // Startup.StatusFontFamily cannot render non-ASCII song
+                    // filenames that appear in the live message, so route
+                    // through SelectStatusFont to pick the CJK fallback face.
+                    DrawStatusTextWithFallback(_currentProgressMessage, x, y, ResolveStatusColor(theme));
                 }
             }
         }

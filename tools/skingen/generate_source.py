@@ -649,6 +649,10 @@ def build_all() -> Dict[str, str]:
     put("Graphics/7_progress_fill.png", prog)
 
     put("Graphics/7_SkillPanel.png", panel(257, 439))
+    # Performance-stage variant: same panel without the baked LEVEL/PLAY rows
+    # (the play screen draws the difficulty badge + level digits there).
+    # Theme.ini references this via Performance.SkillPanelTexture.
+    put("Graphics/7_SkillPanel_perf.png", panel(257, 439))
     put("Graphics/7_Graph_main.png", panel(562, 1024, chamfer=4))
     gfill = new_rgba(256, 512)
     gfd = ImageDraw.Draw(gfill)

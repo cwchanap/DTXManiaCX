@@ -115,7 +115,8 @@ namespace DTXMania.Game.Lib.Resources
             if (!_values.TryGetValue(key, out var raw))
                 return fallback;
 
-            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
+                float.IsFinite(value))
                 return value;
 
             WarnMalformed(key, raw);

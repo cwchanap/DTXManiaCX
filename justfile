@@ -26,10 +26,18 @@ install-cx-neon activate="false":
       exit 1
     fi
     if [[ "{{ os() }}" == "windows" ]]; then
-      app_system="${LOCALAPPDATA}/DTXManiaCX/System"
+      # LOCALAPPDATA is a native C:\... value; convert backslashes so POSIX
+      # mkdir/ln/dirname under /usr/bin/env bash accept it. AppPaths uses
+      # %LOCALAPPDATA%\DTXManiaCX on Windows.
+      app_root="${LOCALAPPDATA//\\//}/DTXManiaCX"
+    elif [[ "{{ os() }}" == "macos" ]]; then
+      app_root="${HOME}/Library/Application Support/DTXManiaCX"
     else
-      app_system="${HOME}/Library/Application Support/DTXManiaCX/System"
+      # Linux: AppPaths.GetAppDataRoot() uses ~/.config/DTXManiaCX
+      # (SpecialFolder.ApplicationData -> $XDG_CONFIG_HOME or ~/.config).
+      app_root="${XDG_CONFIG_HOME:-${HOME}/.config}/DTXManiaCX"
     fi
+    app_system="${app_root}/System"
     mkdir -p "$app_system"
     target="$app_system/CXNeon"
     if [[ -e "$target" && ! -L "$target" ]]; then

@@ -186,6 +186,19 @@ namespace DTXMania.Test.Resources
             Assert.Equal(1.0f, theme.GetFloat("K", 1.0f));
         }
 
+        [Theory]
+        [InlineData("NaN")]
+        [InlineData("Infinity")]
+        [InlineData("-Infinity")]
+        public void GetFloat_WithNonFiniteValue_ShouldReturnFallback(string raw)
+        {
+            // NaN/Infinity parse successfully but reach drawing code with
+            // non-finite coordinates/scales, so the documented malformed-value
+            // fallback must apply.
+            var theme = SkinTheme.Parse(new[] { $"K={raw}" });
+            Assert.Equal(1.0f, theme.GetFloat("K", 1.0f));
+        }
+
         [Fact]
         public void GetPoint_WithMissingKey_ShouldReturnFallback()
         {

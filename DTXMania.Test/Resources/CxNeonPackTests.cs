@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using DTXMania.Game.Lib.Resources;
 using Xunit;
 
@@ -60,6 +62,73 @@ namespace DTXMania.Test.Resources
             Assert.True(missing.Count == 0,
                 $"CX Neon Sounds tree is present but incomplete ({missing.Count} missing sounds):\n  " +
                 string.Join("\n  ", missing));
+        }
+
+        /// <summary>
+        /// Theme.ini can reference textures that are NOT in TexturePath.cs (e.g.
+        /// Performance.SkillPanelTexture=Graphics/7_SkillPanel_perf.png). These
+        /// theme-only assets are invisible to the TexturePath-driven pack test
+        /// above and to skingen bootstrap, so a clean generate_source.py /
+        /// skingen compose rebuild can silently omit them while both this test
+        /// suite and skingen validate remain green. This guard parses Theme.ini
+        /// for Graphics/ references and checks both pack presence and manifest
+        /// inventory so a missing theme asset is caught at CI time.
+        /// </summary>
+        [Fact]
+        public void CxNeonPack_ShouldExpectEveryThemeReferencedTextureInPackAndManifest()
+        {
+            var repoRoot = FindRepoRoot();
+            var packRoot = Path.Combine(repoRoot, "System", "CXNeon");
+            var themePath = Path.Combine(packRoot, "Theme.ini");
+            if (!File.Exists(themePath))
+                return; // no Theme.ini — nothing theme-only to guard
+
+            var manifestPath = Path.Combine(repoRoot, "tools", "skingen", "manifest.json");
+            var manifestKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (File.Exists(manifestPath))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
+                if (doc.RootElement.TryGetProperty("assets", out var assets))
+                {
+                    foreach (var prop in assets.EnumerateObject())
+                        manifestKeys.Add(prop.Name);
+                }
+            }
+
+            // Match key=value lines where value starts with Graphics/ and ends
+            // with a known image extension. Skip comment lines (leading ;).
+            var textureRefPattern = new Regex(
+                @"^[A-Za-z][A-Za-z0-9.]*\s*=\s*(Graphics/[^\s;]+\.(?:png|jpg|jpeg))\s*$",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+            var referenced = new List<string>();
+            foreach (var line in File.ReadAllLines(themePath))
+            {
+                var trimmed = line.TrimStart();
+                if (trimmed.StartsWith(";") || trimmed.StartsWith("#"))
+                    continue;
+                var match = textureRefPattern.Match(line);
+                if (match.Success)
+                    referenced.Add(match.Groups[1].Value);
+            }
+
+            // Distinct, sorted for stable failure messages.
+            referenced = referenced.Distinct().OrderBy(r => r).ToList();
+
+            var missingFromPack = referenced
+                .Where(rel => !File.Exists(Path.Combine(packRoot, rel.Replace('/', Path.DirectorySeparatorChar))))
+                .ToList();
+            Assert.True(missingFromPack.Count == 0,
+                $"Theme.ini references textures absent from the CX Neon pack ({missingFromPack.Count} missing):\n  " +
+                string.Join("\n  ", missingFromPack));
+
+            var missingFromManifest = referenced
+                .Where(rel => !manifestKeys.Contains(rel))
+                .ToList();
+            Assert.True(missingFromManifest.Count == 0,
+                $"Theme.ini references textures absent from tools/skingen/manifest.json ({missingFromManifest.Count} missing):\n  " +
+                string.Join("\n  ", missingFromManifest) +
+                "\n  Run `python tools/skingen/generate_source.py` then add the asset to manifest.json.");
         }
 
         private static string FindRepoRoot()
