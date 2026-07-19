@@ -496,11 +496,20 @@ namespace DTXMania.Game.Lib.Stage
                 _externalSkinLabel = null;
                 var currentSkinPath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
                 var currentSkinName = SkinManager.GetSkinName(currentSkinPath, _skinManager?.DefaultSkinPath);
+                // A current path that doesn't validate on disk is only "current"
+                // because ResourceManager falls back to the bundled root for asset
+                // resolution — it isn't a real selectable skin. Treat it as known
+                // so the dropdown doesn't offer a broken external entry that
+                // SwitchToSkinPath would reject (e.g. an app-data System directory
+                // that exists but lacks validation files while the bundled System
+                // root is the discovered Default).
+                var currentValidates = SkinManager.ValidateSkinPath(currentSkinPath);
                 // Absolute paths: compare full paths so an external checkout that
                 // shares a leaf name with a system skin is still treated as external.
                 // Relative placeholders (e.g. mock "System/") fall back to leaf-name
                 // membership so they do not spuriously look external.
-                var isKnownSkin = IsSameSkinPath(currentSkinPath, availableSkinPaths)
+                var isKnownSkin = !currentValidates
+                    || IsSameSkinPath(currentSkinPath, availableSkinPaths)
                     || (!Path.IsPathRooted(currentSkinPath ?? string.Empty)
                         && !string.IsNullOrEmpty(currentSkinName)
                         && skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase));
@@ -609,6 +618,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 return _externalSkinLabel;
             }
+
+            // When the current path doesn't validate on disk, ResourceManager is
+            // resolving assets from the bundled fallback — display "Default" rather
+            // than the invalid path's leaf name, which would mislead the player.
+            if (!SkinManager.ValidateSkinPath(path))
+                return "Default";
 
             var name = SkinManager.GetSkinName(path, _skinManager?.DefaultSkinPath);
             return string.IsNullOrEmpty(name) ? "Default" : name;

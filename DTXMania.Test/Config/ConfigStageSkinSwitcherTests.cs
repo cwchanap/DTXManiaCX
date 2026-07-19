@@ -275,5 +275,38 @@ namespace DTXMania.Test.Config
                 Assert.Equal(effective, configManager.Config.SkinPath);
             }
         }
+
+        [Fact]
+        public void SetupConfigItems_WithInvalidCurrentSkinPath_ShouldNotRegisterExternalEntry()
+        {
+            // When the current skin path is invalid (e.g. an app-data System
+            // directory that exists but lacks the validation files, while the
+            // bundled System root is valid and discovered as "Default"), the
+            // dropdown must NOT register the invalid path as an external
+            // "System" entry. Such an entry would be unselectable —
+            // SwitchToSkinPath validates on disk and rejects it — leaving the
+            // player with a broken option. The effective skin is the bundled
+            // fallback, so the display should read "Default".
+            var (stage, _, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                // An invalid skin directory: exists on disk but has no
+                // Graphics/1_background.jpg, so PathValidator rejects it.
+                var invalidPath = Path.Combine(_tempBase, "InvalidSystem");
+                Directory.CreateDirectory(invalidPath);
+                resourceManager.SetSkinPath(invalidPath + Path.DirectorySeparatorChar);
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+
+                // No external entry should be captured for the invalid path.
+                var externalPath = ReflectionHelpers.GetPrivateField<string?>(stage, "_externalSkinPath");
+                Assert.Null(externalPath);
+
+                // The displayed skin name should fall back to "Default"
+                // because the current path is invalid and the effective skin
+                // is the discovered default.
+                Assert.Equal("Skin: Default", GetSkinItem(stage).GetDisplayText());
+            }
+        }
     }
 }
