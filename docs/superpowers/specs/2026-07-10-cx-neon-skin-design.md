@@ -62,8 +62,21 @@ public interface ISkinTheme
     int    GetInt(string key, int fallback);
     float  GetFloat(string key, float fallback);
     Point  GetPoint(string key, Point fallback);   // "x,y"
+    string GetString(string key, string fallback);
 }
 ```
+
+> **Amendment (2026-07-19):** `GetString` was added to the interface after the
+> original four-method surface proved insufficient for the CX Neon font
+> theming layer. Draw sites across Startup, SongSelect, SongTransition,
+> Performance, and Result stages read font-family overrides (e.g.
+> `Startup.TextFontFamily`, `SongSelect.TabFontFamily`,
+> `Transition.LevelFontFamily`, `Result.FontValueFamily`) and one boolean
+> toggle (`SongSelect.HideEmptyHistoryPanel`) from `[Fonts]` / `[Layout]` via
+> `GetString`, falling back to the NX default family or `string.Empty` (which
+> the font resolver treats as "use the built-in default"). The getter follows
+> the same contract as the other four: absent or malformed keys return the
+> caller's fallback so skins without a `Theme.ini` behave identically to NX.
 
 ### Theme.ini format
 
