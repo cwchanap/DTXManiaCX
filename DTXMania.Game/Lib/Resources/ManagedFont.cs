@@ -222,6 +222,65 @@ namespace DTXMania.Game.Lib.Resources
             return new ManagedFont(spriteFont, sourcePath, size, FontStyle.Regular);
         }
 
+        // ---- Test seams for the process-global font factory state ----
+        //
+        // _contentManager / _defaultFont / _loadedFonts are process-global
+        // statics, so a font loaded by one test leaks to every later test in
+        // the run unless the state is restored. The reflection-based
+        // capture/restore previously lived in ManagedFontLogicTests; exposing
+        // the same operations as internal methods here keeps the seam stable
+        // across renames and lets tests reset isolated state without relying
+        // on private field names. InternalsVisibleTo("DTXMania.Test") and
+        // ("DTXMania.Test.Mac") grant access.
+        /// <summary>
+        /// Snapshot the current font-factory statics so a test can restore
+        /// them after mutating the cache. The returned dictionary is a copy;
+        /// mutating it does not affect the live cache.
+        /// </summary>
+        internal static (ContentManager? ContentManager, SpriteFont? DefaultFont, Dictionary<string, SpriteFont> LoadedFonts) CaptureFontFactoryStateForTesting()
+        {
+            lock (_fontFactoryLock)
+            {
+                return (_contentManager, _defaultFont, new Dictionary<string, SpriteFont>(_loadedFonts));
+            }
+        }
+
+        /// <summary>
+        /// Restore the font-factory statics to a previously captured state.
+        /// Replaces <paramref name="loadedFonts"/> contents atomically under
+        /// <see cref="_fontFactoryLock"/>. Pass null to clear the cache.
+        /// </summary>
+        internal static void RestoreFontFactoryStateForTesting(ContentManager? contentManager, SpriteFont? defaultFont, Dictionary<string, SpriteFont>? loadedFonts)
+        {
+            lock (_fontFactoryLock)
+            {
+                _contentManager = contentManager;
+                _defaultFont = defaultFont;
+                _loadedFonts.Clear();
+                if (loadedFonts != null)
+                {
+                    foreach (var kvp in loadedFonts)
+                        _loadedFonts[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reset the font-factory statics to the pristine uninitialized state
+        /// (null content manager, null default font, empty cache). Use between
+        /// tests that exercise factory initialization so a prior test's loaded
+        /// SpriteFonts cannot satisfy a later test's load request from cache.
+        /// </summary>
+        internal static void ResetFontFactoryForTesting()
+        {
+            lock (_fontFactoryLock)
+            {
+                _contentManager = null;
+                _defaultFont = null;
+                _loadedFonts.Clear();
+            }
+        }
+
         #endregion
 
         #region Constructors

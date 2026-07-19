@@ -1192,40 +1192,13 @@ public class ManagedFontLogicTests
 
     private static (ContentManager? ContentManager, SpriteFont? DefaultFont, Dictionary<string, SpriteFont> LoadedFonts) CaptureFontFactoryState()
     {
-        var contentField = typeof(ManagedFont).GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic);
-        var defaultField = typeof(ManagedFont).GetField("_defaultFont", BindingFlags.Static | BindingFlags.NonPublic);
-        var loadedFontsField = typeof(ManagedFont).GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic);
-
-        Assert.NotNull(contentField);
-        Assert.NotNull(defaultField);
-        Assert.NotNull(loadedFontsField);
-
-        var loadedFonts = (Dictionary<string, SpriteFont>)loadedFontsField!.GetValue(null)!;
-        return (
-            (ContentManager?)contentField!.GetValue(null),
-            (SpriteFont?)defaultField!.GetValue(null),
-            new Dictionary<string, SpriteFont>(loadedFonts));
+        var state = ManagedFont.CaptureFontFactoryStateForTesting();
+        return (state.ContentManager, state.DefaultFont, state.LoadedFonts);
     }
 
     private static void RestoreFontFactoryState(ContentManager? contentManager, SpriteFont? defaultFont, Dictionary<string, SpriteFont> loadedFonts)
     {
-        var contentField = typeof(ManagedFont).GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic);
-        var defaultField = typeof(ManagedFont).GetField("_defaultFont", BindingFlags.Static | BindingFlags.NonPublic);
-        var loadedFontsField = typeof(ManagedFont).GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic);
-
-        Assert.NotNull(contentField);
-        Assert.NotNull(defaultField);
-        Assert.NotNull(loadedFontsField);
-
-        contentField!.SetValue(null, contentManager);
-        defaultField!.SetValue(null, defaultFont);
-
-        var targetLoadedFonts = (Dictionary<string, SpriteFont>)loadedFontsField!.GetValue(null)!;
-        targetLoadedFonts.Clear();
-        foreach (var (key, value) in loadedFonts)
-        {
-            targetLoadedFonts[key] = value;
-        }
+        ManagedFont.RestoreFontFactoryStateForTesting(contentManager, defaultFont, loadedFonts);
     }
 
 }
