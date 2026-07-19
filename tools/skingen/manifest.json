@@ -2424,6 +2424,94 @@
       },
       "width": 257
     },
+    "Graphics/7_SkillPanel_perf.png": {
+      "height": 439,
+      "optional": false,
+      "recipe": {
+        "cells": [
+          {
+            "border": false,
+            "h": 439,
+            "panel": true,
+            "w": 257,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "color": "#F7CA41",
+            "h": 22,
+            "size": 0.62,
+            "text": "PERFECT",
+            "w": 66,
+            "x": 8,
+            "y": 76
+          },
+          {
+            "color": "#2BD18F",
+            "h": 22,
+            "size": 0.62,
+            "text": "GREAT",
+            "w": 66,
+            "x": 8,
+            "y": 106
+          },
+          {
+            "color": "#71A7E6",
+            "h": 22,
+            "size": 0.62,
+            "text": "GOOD",
+            "w": 66,
+            "x": 8,
+            "y": 136
+          },
+          {
+            "color": "#DF5AE4",
+            "h": 22,
+            "size": 0.62,
+            "text": "POOR",
+            "w": 66,
+            "x": 8,
+            "y": 166
+          },
+          {
+            "color": "#E9453A",
+            "h": 22,
+            "size": 0.62,
+            "text": "MISS",
+            "w": 66,
+            "x": 8,
+            "y": 196
+          },
+          {
+            "color": "#22D3EE",
+            "h": 22,
+            "size": 0.62,
+            "text": "COMBO",
+            "w": 66,
+            "x": 8,
+            "y": 226
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "SKILL",
+            "w": 70,
+            "x": 10,
+            "y": 377
+          },
+          {
+            "h": 22,
+            "size": 0.55,
+            "text": "SCORE",
+            "w": 70,
+            "x": 10,
+            "y": 22
+          }
+        ],
+        "type": "sheet"
+      },
+      "width": 257
+    },
     "Graphics/7_WailingFire.png": {
       "height": 720,
       "optional": false,

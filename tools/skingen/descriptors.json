@@ -107,6 +107,7 @@
     "Graphics/7_Drum_Progress_bg.png": {"family": "panel", "desc": "Song progress track: slim vertical/horizontal frame."},
     "Graphics/7_progress_fill.png": {"family": "effect", "desc": "Progress fill strip: soft cyan bar."},
     "Graphics/7_SkillPanel.png":   {"family": "panel", "desc": "Skill panel plate (also reused on result stage)."},
+    "Graphics/7_SkillPanel_perf.png": {"family": "panel", "desc": "Performance-stage skill panel plate (no baked LEVEL/PLAY rows; the play screen draws the difficulty badge + level digits there). Referenced by Theme.ini Performance.SkillPanelTexture."},
     "Graphics/7_Graph_main.png":   {"family": "panel", "desc": "Skill meter vertical frame."},
     "Graphics/7_Graph_Gauge.png":  {"family": "effect", "desc": "Skill meter vertical fill bar."},
     "Graphics/7_panel_icons.jpg":  {"family": "badge", "desc": "Panel icon strip: small instrument/mode glyph chips."},
