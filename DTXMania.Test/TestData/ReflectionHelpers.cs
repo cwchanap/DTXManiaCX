@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
@@ -77,6 +78,16 @@ namespace DTXMania.Test.TestData
         {
             var field = GetField(target.GetType(), fieldName);
             Assert.NotNull(field);
+
+            // MonoGame's GraphicsDevice resource registry is a List in some
+            // platform assemblies and a HashSet in others. Keep reflection-based
+            // fixtures portable while preserving the supplied weak references.
+            if (value is List<WeakReference> weakReferences &&
+                field!.FieldType == typeof(HashSet<WeakReference>))
+            {
+                value = new HashSet<WeakReference>(weakReferences);
+            }
+
             field!.SetValue(target, value);
         }
 
