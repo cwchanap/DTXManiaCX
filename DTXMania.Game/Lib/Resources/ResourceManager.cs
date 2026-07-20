@@ -362,8 +362,13 @@ namespace DTXMania.Game.Lib.Resources
                 // so subsequent LoadTexture/LoadSound calls resolve against the new skin.
                 // The cache is keyed by relative path (not resolved absolute path), so
                 // without eviction the old skin's assets would be served until a full
-                // restart. Fonts are not skin-specific (loaded from Fonts/, not Graphics/)
-                // so the font cache is intentionally preserved.
+                // restart. The font cache is intentionally preserved: theme font
+                // *choices* (family/size in Theme.ini) are skin-specific, but the
+                // SpriteFont assets themselves are global Content resources resolved
+                // by family name (e.g. "Orbitron" -> Content/Orbitron-*.spritefont),
+                // and the font cache key is "{path}|{size}|{style}" with no skin
+                // component. Two skins using the same family share one cached entry,
+                // which is correct because the underlying asset is identical.
                 //
                 // OrdinalIgnoreCase matches ConfigManager.SetSkinPath's comparison so
                 // both layers agree on whether a path change is "real". A casing-only
@@ -389,16 +394,19 @@ namespace DTXMania.Game.Lib.Resources
         /// <summary>
         /// Disposes and clears all skin-dependent cached textures and sounds.
         /// Called when the skin path changes so subsequent loads resolve from the
-        /// new skin. Fonts are preserved because they are not skin-specific
-        /// (loaded from Fonts/, not Graphics/). Color textures (keyed
-        /// "__Color|…") are also preserved because they are solid-color UI
-        /// primitives that do not vary by skin. Absolute-path entries (song-local
-        /// chart previews and jacket images loaded via Path.GetFullPath) are
-        /// preserved too: they are not resolved through the skin, are held by
-        /// stages independently of the current skin, and disposing them here would
-        /// leave the owning stage with a disposed resource. Stages that hold
-        /// skin-relative texture references reload them on their next OnActivate
-        /// (the documented design).
+        /// new skin. The font cache is preserved: theme font *choices* (family/size
+        /// in Theme.ini) are skin-specific, but the SpriteFont assets themselves
+        /// are global Content resources resolved by family name, and the font
+        /// cache key has no skin component. Two skins using the same family share
+        /// one cached entry, which is correct because the underlying asset is
+        /// identical. Color textures (keyed "__Color|…") are also preserved
+        /// because they are solid-color UI primitives that do not vary by skin.
+        /// Absolute-path entries (song-local chart previews and jacket images
+        /// loaded via Path.GetFullPath) are preserved too: they are not resolved
+        /// through the skin, are held by stages independently of the current skin,
+        /// and disposing them here would leave the owning stage with a disposed
+        /// resource. Stages that hold skin-relative texture references reload
+        /// them on their next OnActivate (the documented design).
         /// </summary>
         /// <remarks>
         /// Safety invariant: this method calls Dispose() directly on every cached
