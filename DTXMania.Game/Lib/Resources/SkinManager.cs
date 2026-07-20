@@ -212,21 +212,23 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"SkinManager: Error setting box.def skin: {ex.Message}");
                 return false;
             }
-        }        /// <summary>
-                 /// Get skin name from full path
-                 /// Based on DTXMania's GetSkinName() method
-                 /// </summary>
-                 /// <param name="skinPathFullName">Full path to skin directory</param>
-                 /// <param name="defaultSkinPath">
-                 /// Optional: the runtime default skin root (e.g.
-                 /// <see cref="DefaultSkinPath"/>). When provided, the path is
-                 /// compared against it by full-path equality and labeled
-                 /// "Default" on a match. When omitted, the method returns the
-                 /// last path segment with no special-casing — callers that
-                 /// need "Default" labeling for the system skin must pass the
-                 /// real default root.
-                 /// </param>
-                 /// <returns>Skin name or empty string if invalid</returns>
+        }
+
+        /// <summary>
+        /// Get skin name from full path
+        /// Based on DTXMania's GetSkinName() method
+        /// </summary>
+        /// <param name="skinPathFullName">Full path to skin directory</param>
+        /// <param name="defaultSkinPath">
+        /// Optional: the runtime default skin root (e.g.
+        /// <see cref="DefaultSkinPath"/>). When provided, the path is
+        /// compared against it by full-path equality and labeled
+        /// "Default" on a match. When omitted, the method returns the
+        /// last path segment with no special-casing — callers that
+        /// need "Default" labeling for the system skin must pass the
+        /// real default root.
+        /// </param>
+        /// <returns>Skin name or empty string if invalid</returns>
         public static string GetSkinName(string skinPathFullName, string? defaultSkinPath = null)
         {
             if (string.IsNullOrEmpty(skinPathFullName))
@@ -234,7 +236,7 @@ namespace DTXMania.Game.Lib.Resources
 
             try
             {
-                var normalizedPath = skinPathFullName.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+                var normalizedPath = NormalizeSkinNamePath(skinPathFullName);
 
                 // Split by both forward and backward slashes and get the last non-empty part
                 var parts = normalizedPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
@@ -251,15 +253,14 @@ namespace DTXMania.Game.Lib.Resources
                 // SwitchToSystemSkin("Default") could then resolve to the wrong
                 // path. Comparing against the real default root eliminates the
                 // over-mapping while preserving "Default" for the actual
-                // system skin. Path.GetFullPath normalizes both sides so
-                // trailing-separator and relative/absolute differences don't
-                // cause a false mismatch.
+                // system skin. Both values are normalized from one helper so
+                // trailing separators and relative paths compare consistently.
                 if (!string.IsNullOrEmpty(defaultSkinPath))
                 {
-                    var normalizedDefault = defaultSkinPath.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
+                    var normalizedDefault = NormalizeSkinNamePath(defaultSkinPath);
                     if (string.Equals(
-                        Path.GetFullPath(normalizedPath),
-                        Path.GetFullPath(normalizedDefault),
+                        normalizedPath,
+                        normalizedDefault,
                         StringComparison.OrdinalIgnoreCase))
                     {
                         return "Default";
@@ -271,18 +272,15 @@ namespace DTXMania.Game.Lib.Resources
             }
             catch (ArgumentException ex)
             {
-                // Path.GetFullPath throws ArgumentException for malformed
-                // paths (illegal characters, invalid drive, null/empty
-                // segments after the empty guard above). Returning "" is the
-                // documented contract for invalid inputs; log so a malformed
-                // skin path is observable instead of silently relabeled.
+                // NormalizeSkinNamePath rejects malformed and platform-invalid
+                // paths. Returning "" is the documented contract for invalid
+                // inputs; log so a malformed path is observable instead of
+                // silently relabeled.
                 Debug.WriteLine($"SkinManager: GetSkinName could not normalize '{skinPathFullName}': {ex.Message}");
                 return "";
             }
             catch (PathTooLongException ex)
             {
-                // Path.GetFullPath throws PathTooLongException on Windows for
-                // paths exceeding MAX_PATH. Same contract as above.
                 Debug.WriteLine($"SkinManager: GetSkinName path too long '{skinPathFullName}': {ex.Message}");
                 return "";
             }
@@ -291,12 +289,14 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"SkinManager: GetSkinName access denied for '{skinPathFullName}': {ex.Message}");
                 return "";
             }
-        }/// <summary>
-         /// Validate if a path contains a valid skin
-         /// Based on DTXMania's bIsValid() method
-         /// </summary>
-         /// <param name="skinPath">Path to validate</param>
-         /// <returns>True if valid skin</returns>
+        }
+
+        /// <summary>
+        /// Validate if a path contains a valid skin
+        /// Based on DTXMania's bIsValid() method
+        /// </summary>
+        /// <param name="skinPath">Path to validate</param>
+        /// <returns>True if valid skin</returns>
         public static bool ValidateSkinPath(string skinPath)
         {
             return PathValidator.IsValidSkinPath(skinPath);
@@ -422,10 +422,34 @@ namespace DTXMania.Game.Lib.Resources
             }
             return null;
         }
+
         private string GetSkinPathFromName(string skinName)
         {
             return _availableSystemSkins.FirstOrDefault(path =>
                 string.Equals(GetSkinName(path, _defaultSkinPath), skinName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizeSkinNamePath(string path)
+        {
+            var fullPath = Path.GetFullPath(path);
+
+            // Modern .NET path canonicalization does not reject every character
+            // that Windows disallows in a filename. Validate each segment
+            // explicitly so GetSkinName's invalid-input contract is deterministic.
+            if (OperatingSystem.IsWindows())
+            {
+                var root = Path.GetPathRoot(fullPath) ?? string.Empty;
+                var remainder = fullPath.Substring(root.Length);
+                var invalidFileNameChars = Path.GetInvalidFileNameChars();
+                var segments = remainder.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (segments.Any(segment => segment.IndexOfAny(invalidFileNameChars) >= 0))
+                {
+                    throw new ArgumentException("Path contains invalid filename characters.", nameof(path));
+                }
+            }
+
+            return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         private static string NormalizePath(string path)
