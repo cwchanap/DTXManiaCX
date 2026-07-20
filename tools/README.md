@@ -30,7 +30,7 @@ replaced later by dropping AI art over the matching files in
    For an asset whose manifest `recipe` is still `null`, add a recipe first —
    usually `{"type": "copy", "source": "<where you saved it>"}` for whole
    images, or a `sheet` recipe for glyph/sprite sheets (see existing entries).
-  3. Build and check the pack:
+3. Build and check the pack:
 
    ```bash
    python3 tools/skingen/skingen.py compose
@@ -46,7 +46,7 @@ replaced later by dropping AI art over the matching files in
    every entry in `TexturePath.GetAllTexturePaths()` (except the background
    video) — including the manifest-optional-but-code-referenced assets listed
    in `PROMPTS.md`.
-  4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
+4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
    `System/CXNeon/Graphics/` files together.
 
 Regenerating `PROMPTS.md` after editing `STYLE.md`/`descriptors.json`:
@@ -62,7 +62,7 @@ single derived file (e.g. `fire_HH.png`) without a prior full compose.
 ## Sounds (`tools/sfxgen/`)
 
 1. Set your API key: `export ELEVENLABS_API_KEY=...` (ffmpeg must be on PATH).
-  2. Generate everything, or one file at a time while auditioning:
+2. Generate everything, or one file at a time while auditioning:
 
    ```bash
    python3 tools/sfxgen/sfxgen.py generate
@@ -71,7 +71,7 @@ single derived file (e.g. `fire_HH.png`) without a prior full compose.
 
    Prompts live in `tools/sfxgen/manifest.json` — tweak and re-run per file
    until it sounds right in-game.
-  3. Check completeness:
+3. Check completeness:
 
    ```bash
    python3 tools/sfxgen/sfxgen.py validate
