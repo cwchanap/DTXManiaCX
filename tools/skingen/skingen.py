@@ -176,7 +176,7 @@ def _save(img, target, width, height):
     if width is not None and height is not None and img.size != (width, height):
         iw, ih = img.size
         # Reject aspect-ratio changes — they usually mean a wrong source atlas
-        # rather than an intentional scale (e.g. 268×8720 vs 2688×720).
+        # rather than an intentional scale (e.g. 268x8720 vs 2688x720).
         if iw > 0 and ih > 0 and width > 0 and height > 0 and iw * height != ih * width:
             raise ValueError(
                 "aspect-ratio-changing resize refused for %s: source %dx%d -> target %dx%d"

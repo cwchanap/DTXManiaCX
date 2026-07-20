@@ -788,7 +788,7 @@ def build_all() -> Dict[str, str]:
     put("Graphics/7_Bonus_100.png", word_plate(117, 88, "100", color=CYAN))
     put("Graphics/7_explosion.png", effect_burst(256, 256, CYAN, "radial"))
 
-    # Wailing fire atlas — runtime expects 2688×720 (wide horizontal strip).
+    # Wailing fire atlas — runtime expects 2688x720 (wide horizontal strip).
     wf = new_rgba(2688, 720)
     flame = effect_burst(336, 720, MAGENTA, "flame")
     for x in range(0, 2688, 336):
