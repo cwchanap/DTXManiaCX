@@ -176,6 +176,13 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     [ExcludeFromCodeCoverage]
     protected override void Initialize()
     {
+        // Capture the main game thread as the update thread for the debug-only
+        // skin-switch assertion in ResourceManager.SetSkinPath. Initialize runs once
+        // on the game loop thread, before any Update/Draw. No-op in Release builds.
+        // Fully qualified because this class also exposes an IResourceManager property
+        // named ResourceManager; the static method belongs to the concrete type.
+        global::DTXMania.Game.Lib.Resources.ResourceManager.RegisterUpdateThread();
+
         // Initialize managers
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());

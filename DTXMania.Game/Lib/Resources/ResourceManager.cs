@@ -33,6 +33,28 @@ namespace DTXMania.Game.Lib.Resources
         private string _fallbackSkinPath = "System/";
         private string _boxDefSkinPath = "";
         private bool _useBoxDefSkin = true;
+
+        // Debug-only update-thread guard for skin switching. EvictSkinDependentCache
+        // disposes cached textures synchronously and is only safe when run on the
+        // same thread that drives OnDraw (the game loop is single-threaded today).
+        // BaseGame.Initialize calls RegisterUpdateThread() once on the main thread;
+        // SetSkinPath then asserts it is running on that thread. Tests do not register,
+        // so the assert is a no-op for them. See EvictSkinDependentCache remarks.
+        // 0 = not registered (ManagedThreadId is always positive, so 0 is a safe sentinel).
+        private static int _expectedUpdateThreadId;
+
+        /// <summary>
+        /// Captures the calling thread as the update thread for the debug-only
+        /// skin-switch thread assertion in <see cref="SetSkinPath"/>. Call once from
+        /// the game loop thread (BaseGame.Initialize). Safe to call multiple times;
+        /// the first call wins. No-op in Release builds.
+        /// </summary>
+        internal static void RegisterUpdateThread()
+        {
+            int tid = Environment.CurrentManagedThreadId;
+            Interlocked.CompareExchange(ref _expectedUpdateThreadId, tid, 0);
+        }
+
         private bool _disposed = false;
         private ISkinTheme _currentTheme;
 
@@ -340,6 +362,16 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (string.IsNullOrEmpty(skinPath))
                 throw new ArgumentException("Skin path cannot be null or empty", nameof(skinPath));
+
+            // Debug-only: skin switch must run on the update thread because
+            // EvictSkinDependentCache disposes cached textures synchronously and a
+            // concurrent draw would observe a disposed GPU resource. No-op when
+            // RegisterUpdateThread() has not been called (tests, headless harness):
+            // _expectedUpdateThreadId stays at the 0 sentinel.
+            Debug.Assert(
+                _expectedUpdateThreadId == 0 ||
+                Environment.CurrentManagedThreadId == _expectedUpdateThreadId,
+                "SetSkinPath must run on the update thread; EvictSkinDependentCache disposes textures synchronously.");
 
             SkinChangedEventArgs eventArgs;
             lock (_lockObject)

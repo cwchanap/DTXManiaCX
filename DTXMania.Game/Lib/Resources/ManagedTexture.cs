@@ -215,8 +215,19 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Drawing Methods
 
+        // Debug-only use-after-dispose guard. EvictSkinDependentCache disposes cached
+        // textures directly (bypassing refcounting) on skin switch; any stage that draws
+        // a skin-dependent texture between SkinChanged and its own OnActivate hits a
+        // disposed GPU resource. The assert makes that contract violation loud in debug
+        // builds. See ResourceManager.EvictSkinDependentCache remarks for the full invariant.
+        private const string UseAfterDisposeMessage =
+            "ManagedTexture.Draw called after Dispose. A stage drew a skin-dependent " +
+            "texture between SkinChanged and its own OnActivate; stages must reload on " +
+            "OnActivate before drawing. See ResourceManager.EvictSkinDependentCache.";
+
         public void Draw(SpriteBatch spriteBatch, Vector2 position)
         {
+            Debug.Assert(!_disposed, UseAfterDisposeMessage);
             if (_texture == null)
                 return;
 
@@ -226,6 +237,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
         {
+            Debug.Assert(!_disposed, UseAfterDisposeMessage);
             if (_texture == null)
                 return;
 
@@ -236,6 +248,7 @@ namespace DTXMania.Game.Lib.Resources
         public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle, Rectangle? sourceRectangle,
                         Color color, float rotation, Vector2 origin, SpriteEffects effects, float layerDepth)
         {
+            Debug.Assert(!_disposed, UseAfterDisposeMessage);
             if (_texture == null)
                 return;
 
@@ -245,6 +258,7 @@ namespace DTXMania.Game.Lib.Resources
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position, Vector2 scale, float rotation, Vector2 origin)
         {
+            Debug.Assert(!_disposed, UseAfterDisposeMessage);
             if (_texture == null)
                 return;
 
