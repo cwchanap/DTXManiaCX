@@ -153,16 +153,18 @@ namespace DTXMania.Game.Lib.Resources
                 if (string.IsNullOrEmpty(label))
                     continue;
 
-                if (collisions.Contains(label))
-                {
-                    // The actual default root keeps the bare label; every
-                    // other colliding entry gets a suffix so the dropdown
-                    // shows distinct, selectable entries.
-                    var isDefaultRoot = _defaultSkinPath != null
-                        && string.Equals(paths[i], _defaultSkinPath, StringComparison.OrdinalIgnoreCase);
-                    if (!isDefaultRoot)
-                        label = DisambiguateLabel(label, paths[i], used);
-                }
+                // The actual default root keeps the bare label; every other
+                // entry gets a suffix when its base label either collided in
+                // baseLabels OR happens to match a label already chosen by an
+                // earlier entry (e.g. a literal "Default (System)" directory
+                // whose leaf matches the suffix a colliding "Default" entry
+                // was just disambiguated to). Comparing every candidate
+                // against `used` — not only `collisions` — keeps dropdown
+                // labels unique so GetSkinPathFromName can resolve each one.
+                var isDefaultRoot = _defaultSkinPath != null
+                    && string.Equals(paths[i], _defaultSkinPath, StringComparison.OrdinalIgnoreCase);
+                if (!isDefaultRoot && (collisions.Contains(label) || used.Contains(label)))
+                    label = DisambiguateLabel(label, paths[i], used);
 
                 used.Add(label);
                 options.Add(new SkinOption(paths[i], label));

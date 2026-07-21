@@ -32,6 +32,20 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void ResolveSkillPanelTexturePath_WithEmptyThemedValue_ShouldFallBackToNxPath()
+        {
+            // A malformed `Performance.SkillPanelTexture=` line yields an empty
+            // string from SkinTheme.GetString; coerce it to the NX default so
+            // the loader does not pass an empty path to LoadTexture (which
+            // throws) and leave the panel blank.
+            var theme = SkinTheme.Parse(
+                new[] { "Performance.SkillPanelTexture=" });
+
+            Assert.Equal(TexturePath.SkillPanel,
+                PerformanceStage.ResolveSkillPanelTexturePath(theme));
+        }
+
+        [Fact]
         public void ResolveStateFontFamily_WithEmptyTheme_ShouldBeEmpty()
         {
             Assert.Equal(string.Empty,

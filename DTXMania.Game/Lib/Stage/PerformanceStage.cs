@@ -958,17 +958,47 @@ namespace DTXMania.Game.Lib.Stage
 
             // Load skill panel texture. Themed skins may point this at a
             // performance-specific sheet (the shared NX art bakes labels laid
-            // out for the result screen).
-            _skillPanelTexture = TryLoadTexture(ResolveSkillPanelTexturePath(
-                _resourceManager?.CurrentTheme ?? SkinTheme.Empty));
+            // out for the result screen). A themed override that is empty or
+            // points at a missing file would otherwise leave the panel drawn
+            // as a single pixel (LoadTexture's 1x1 fallback) or null, so the
+            // loader retries with the NX default asset on either failure mode.
+            _skillPanelTexture = LoadSkillPanelTexture(
+                _resourceManager?.CurrentTheme ?? SkinTheme.Empty);
+        }
+
+        /// <summary>
+        /// Loads the performance skill-panel texture, retrying with the NX
+        /// default asset when the themed override is empty, missing, or
+        /// resolves to LoadTexture's 1x1 fallback. Returns null only when the
+        /// default asset also fails to load.
+        /// </summary>
+        private ITexture LoadSkillPanelTexture(ISkinTheme theme)
+        {
+            var overridePath = ResolveSkillPanelTexturePath(theme);
+            var texture = TryLoadTexture(overridePath);
+            if (texture != null && texture.Width > 1 && texture.Height > 1)
+                return texture;
+
+            // Override was empty, missing, or the 1x1 fallback. Release the
+            // fallback ref and retry with the NX default asset path.
+            texture?.RemoveReference();
+            var defaultPath = TexturePath.SkillPanel;
+            if (string.Equals(overridePath, defaultPath, StringComparison.Ordinal))
+                return null; // already tried the default; nothing left to retry
+            return TryLoadTexture(defaultPath);
         }
 
         /// <summary>
         /// Skill-panel art for the performance stage: "Performance.SkillPanelTexture"
-        /// → NX 7_SkillPanel.png (shared with the result screen).
+        /// → NX 7_SkillPanel.png (shared with the result screen). An empty or
+        /// whitespace themed value is coerced to the NX default so a malformed
+        /// `Performance.SkillPanelTexture=` line cannot blank the panel.
         /// </summary>
-        internal static string ResolveSkillPanelTexturePath(ISkinTheme theme) =>
-            theme.GetString("Performance.SkillPanelTexture", TexturePath.SkillPanel);
+        internal static string ResolveSkillPanelTexturePath(ISkinTheme theme)
+        {
+            var path = theme.GetString("Performance.SkillPanelTexture", TexturePath.SkillPanel);
+            return string.IsNullOrWhiteSpace(path) ? TexturePath.SkillPanel : path;
+        }
 
         /// <summary>
         /// Optional display font family for the centered LOADING.../READY...

@@ -239,6 +239,19 @@ namespace DTXMania.Test.Stage
             Assert.Equal(24, SongTransitionStage.ResolveLevelFontSize(theme));
         }
 
+        [Fact]
+        public void ResolveLevelFontFamily_WithEmptyThemedValue_ShouldFallBackToNotoSerif()
+        {
+            // A malformed `Transition.LevelFontFamily=` line yields an empty
+            // string from SkinTheme.GetString; LoadFont rejects empty paths,
+            // which would leave the level number undrawn. Treat empty as the
+            // NX default instead.
+            var theme = DTXMania.Game.Lib.Resources.SkinTheme.Parse(
+                new[] { "Transition.LevelFontFamily=" });
+
+            Assert.Equal("NotoSerifJP", SongTransitionStage.ResolveLevelFontFamily(theme));
+        }
+
         #endregion
 
         #region Display Font Eligibility Tests
@@ -350,6 +363,35 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(title.Replace(" ", string.Empty),
                 string.Concat(lines).Replace(" ", string.Empty));
+        }
+
+        [Fact]
+        public void WrapToWidth_WithRepeatedSpaces_ShouldPreserveSeparatorsOnKeptLines()
+        {
+            // Regression guard: the previous implementation split on ' ' with
+            // RemoveEmptyEntries and rejoined with a single space, collapsing
+            // repeated spaces in the displayed title even though the helper's
+            // contract is "Never drops characters". The wrap must preserve the
+            // original whitespace runs between words on a kept line; only the
+            // separator at a line break is consumed by the break itself.
+            var lines = SongTransitionStage.WrapToWidth(
+                MeasureTenPerChar, "foo  bar baz", 89);
+
+            Assert.Equal(new[] { "foo  bar", "baz" }, lines);
+        }
+
+        [Fact]
+        public void WrapToWidth_WithTrailingSpaces_ShouldDropLeadingWhitespaceOnWrappedLines()
+        {
+            // Leading whitespace on a wrapped line is invisible and would only
+            // force an immediate re-wrap, so the wrap drops it. The separator
+            // at a line break is consumed by the break itself.
+            var lines = SongTransitionStage.WrapToWidth(
+                MeasureTenPerChar, "foo   bar", 30);
+
+            // "foo" (30) fits on line 1; "bar" (30) on line 2. The three-space
+            // separator is consumed by the line break.
+            Assert.Equal(new[] { "foo", "bar" }, lines);
         }
 
         #endregion

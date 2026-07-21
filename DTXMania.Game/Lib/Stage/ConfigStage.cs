@@ -60,6 +60,13 @@ namespace DTXMania.Game.Lib.Stage
         // Dropdown label for the external skin (may be disambiguated when a system
         // skin shares the same leaf name).
         private string? _externalSkinLabel;
+        // The Skin dropdown item, captured so SwitchSkin can resync its private
+        // index to the still-effective skin when a switch is rejected. Without
+        // this, DropdownConfigItem.NextValue advances the index before the
+        // switch attempt and a failure leaves the index on the rejected option
+        // while GetCurrentSkinName still reports the old skin, so the next
+        // left/right action starts from the wrong entry.
+        private DropdownConfigItem? _skinDropdown;
         private List<ConfigCategory> _categories = new();
         private int _currentCategoryIndex = 0;
         private bool _focusOnMenu = true;
@@ -544,6 +551,7 @@ namespace DTXMania.Game.Lib.Stage
                     skinNamesArray.Length > 0 ? skinNamesArray : new[] { GetCurrentSkinName() },
                     value => SwitchSkin(value))
                 { Description = "Switches the UI skin. Applies immediately; other screens update on entry." };
+                _skinDropdown = skinItem;
             }
 
             var dtxFolderItem = new ReadOnlyConfigItem(
@@ -715,20 +723,40 @@ namespace DTXMania.Game.Lib.Stage
             // When the dropdown includes an external skin (one living outside the
             // system skin root), fall back to switching by its captured full path.
             bool switched;
-            if (_externalSkinPath != null
-                && _externalSkinLabel != null
-                && string.Equals(_externalSkinLabel, skinName, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                switched = _skinManager.SwitchToSkinPath(_externalSkinPath);
+                if (_externalSkinPath != null
+                    && _externalSkinLabel != null
+                    && string.Equals(_externalSkinLabel, skinName, StringComparison.OrdinalIgnoreCase))
+                {
+                    switched = _skinManager.SwitchToSkinPath(_externalSkinPath);
+                }
+                else
+                {
+                    switched = _skinManager.SwitchToSystemSkin(skinName);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                switched = _skinManager.SwitchToSystemSkin(skinName);
+                // A skin that disappeared between discovery and switch, or any
+                // I/O failure inside the switch, throws after the dropdown has
+                // already advanced its private index. Re-pin the index to the
+                // still-effective skin so the next left/right action starts
+                // from the right entry, then keep the current skin.
+                _logger.LogWarning(ex, "Skin switch to '{SkinName}' threw; keeping the current skin", skinName);
+                _skinDropdown?.ResyncFromCurrent();
+                return;
             }
 
             if (!switched)
             {
                 _logger.LogWarning("Skin switch to '{SkinName}' failed; keeping the current skin", skinName);
+                // DropdownConfigItem.NextValue/PreviousValue advanced the
+                // item's private index to the rejected option before invoking
+                // SwitchSkin. Re-pin it to the still-effective skin so the
+                // next left/right action starts from the right entry instead
+                // of skipping or retrying the rejected one.
+                _skinDropdown?.ResyncFromCurrent();
                 return;
             }
 

@@ -803,10 +803,15 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Font for the numeric level beside the difficulty plate (always ASCII
         /// digits): "Transition.LevelFontFamily"/"Transition.LevelFontSize" →
-        /// NX NotoSerifJP 24.
+        /// NX NotoSerifJP 24. An empty themed value is treated as the default
+        /// so a malformed `Transition.LevelFontFamily=` line cannot leave the
+        /// level number undrawn (LoadFont rejects empty paths).
         /// </summary>
-        internal static string ResolveLevelFontFamily(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
-            theme.GetString("Transition.LevelFontFamily", "NotoSerifJP");
+        internal static string ResolveLevelFontFamily(DTXMania.Game.Lib.Resources.ISkinTheme theme)
+        {
+            var family = theme.GetString("Transition.LevelFontFamily", "NotoSerifJP");
+            return string.IsNullOrWhiteSpace(family) ? "NotoSerifJP" : family;
+        }
 
         internal static int ResolveLevelFontSize(DTXMania.Game.Lib.Resources.ISkinTheme theme) =>
             theme.GetInt("Transition.LevelFontSize", 24);
@@ -865,32 +870,57 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Greedy word wrap; words wider than the limit (and spaceless CJK text)
-        /// fall back to per-character breaking. Never drops characters.
+        /// fall back to per-character breaking. Never drops characters: the
+        /// original whitespace runs between words on a kept line are preserved
+        /// exactly (repeated spaces are not collapsed), and the separator at a
+        /// line break is consumed by the break itself.
         /// </summary>
         internal static string[] WrapToWidth(Func<string, float> measure, string text, float limit)
         {
             var lines = new List<string>();
             var current = new System.Text.StringBuilder();
+            // Whitespace run saved from the previous word; appended before the
+            // next word when it fits on the current line, dropped when the line
+            // breaks (the break replaces the separator).
+            var pendingSep = string.Empty;
 
-            foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            int i = 0;
+            while (i < text.Length)
             {
-                var candidate = current.Length == 0 ? word : current + " " + word;
-                if (measure(candidate) <= limit)
+                // Read the next non-space run (word).
+                int wordStart = i;
+                while (i < text.Length && text[i] != ' ') i++;
+                var word = text.Substring(wordStart, i - wordStart);
+
+                // Read the following whitespace run (separator), preserved so
+                // repeated spaces between words are not collapsed.
+                int sepStart = i;
+                while (i < text.Length && text[i] == ' ') i++;
+                var sep = text.Substring(sepStart, i - sepStart);
+
+                // On a fresh line, leading whitespace is invisible and would
+                // only force an immediate wrap, so drop it.
+                var addition = current.Length == 0 ? word : pendingSep + word;
+                if (measure(current.ToString() + addition) <= limit)
                 {
-                    current.Clear();
-                    current.Append(candidate);
+                    current.Append(addition);
+                    pendingSep = sep;
                     continue;
                 }
 
+                // Doesn't fit. Flush the current line.
                 if (current.Length > 0)
                 {
                     lines.Add(current.ToString());
                     current.Clear();
                 }
 
+                // Start the new line with this word (dropping the leading
+                // separator, which the line break replaces).
                 if (measure(word) <= limit)
                 {
                     current.Append(word);
+                    pendingSep = sep;
                     continue;
                 }
 
@@ -904,6 +934,7 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     current.Append(ch);
                 }
+                pendingSep = sep;
             }
 
             if (current.Length > 0)

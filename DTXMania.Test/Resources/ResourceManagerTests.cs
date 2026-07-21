@@ -15,6 +15,11 @@ namespace DTXMania.Test.Resources
     public class ResourceManagerTests : IDisposable
     {
         private readonly string _testDataPath;
+        // Saved so Dispose can restore the process CWD before deleting the
+        // temp dir. Without this, parallel test classes that call
+        // Path.GetFullPath (which reads the CWD) fail with FileNotFoundException
+        // when this class's Dispose deletes the dir it set as CWD.
+        private readonly string _previousCurrentDirectory;
 
         public ResourceManagerTests()
         {
@@ -26,6 +31,7 @@ namespace DTXMania.Test.Resources
             SetupTestDirectories();
 
             // Set working directory for path resolution tests
+            _previousCurrentDirectory = Environment.CurrentDirectory;
             Environment.CurrentDirectory = _testDataPath;
         }
 
@@ -169,6 +175,13 @@ namespace DTXMania.Test.Resources
 
         public void Dispose()
         {
+            // Restore the process CWD before deleting the temp dir so parallel
+            // test classes that call Path.GetFullPath don't fail with
+            // FileNotFoundException when the dir they (implicitly) read as CWD
+            // disappears.
+            try { Environment.CurrentDirectory = _previousCurrentDirectory; }
+            catch { /* CWD already gone — nothing to restore to */ }
+
             // Cleanup test directory
             try
             {
