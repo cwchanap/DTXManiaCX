@@ -1,0 +1,48 @@
+name: Coverage Diagnostics
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-windows-coverage:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
+
+    - name: Run Windows coverage
+      env:
+        ALSOFT_DRIVERS: 'null'
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity minimal --results-directory ./CoverageDiagnostics /p:CollectCoverage=true /p:CoverletOutput=./CoverageDiagnostics/ /p:CoverletOutputFormat=cobertura /p:IncludeTestAssembly=false /p:Exclude="[DTXMania.Test*]*"
+
+    - name: Collect coverage report
+      shell: pwsh
+      run: |
+        $coveragePath = Get-ChildItem -Path $PWD -Recurse -Filter coverage.cobertura.xml |
+          Select-Object -First 1
+        if (-not $coveragePath) {
+          throw "coverage.cobertura.xml was not generated"
+        }
+        Copy-Item $coveragePath.FullName (Join-Path $PWD "coverage.cobertura.xml") -Force
+        Write-Host "Collected coverage report from $($coveragePath.FullName)"
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-diagnostics
+        path: ./coverage.cobertura.xml
+        if-no-files-found: error
