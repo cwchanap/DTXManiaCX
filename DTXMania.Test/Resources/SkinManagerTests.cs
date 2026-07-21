@@ -372,6 +372,143 @@ namespace DTXMania.Test.Resources
 
         #endregion
 
+        #region Duplicate Label Disambiguation
+
+        [Fact]
+        public void GetAvailableSkinOptions_WithCustomDefaultSkinDir_DisambiguatesLabels()
+        {
+            // Regression guard for the duplicate-label bug: when a custom skin
+            // lives at <root>/Default/ alongside the actual default root
+            // (<root> itself), both paths produce the base label "Default".
+            // Without disambiguation, GetSkinPathFromName("Default") resolves
+            // to the first match (the real default root, pinned to the top by
+            // DiscoverSystemSkins's sort comparator), making the custom skin
+            // impossible to select. GetAvailableSkinOptions must give the
+            // custom entry a distinct, suffixed label.
+            //
+            // Arrange: <root> validates as the default skin root, and
+            // <root>/Default/ validates as a custom skin whose leaf collides
+            // with the reserved "Default" label.
+            CreateTestSkinAt(_testSkinRoot);
+            var customDefault = Path.Combine(_testSkinRoot, "Default");
+            CreateTestSkinAt(customDefault);
+            System.Threading.Thread.Sleep(20);
+
+            using var skinManager = new SkinManager(_mockResourceManager.Object, _testSkinRoot);
+            skinManager.RefreshAvailableSkins();
+
+            // Act
+            var options = skinManager.GetAvailableSkinOptions();
+
+            // Assert: two distinct labels, one of which is the bare "Default"
+            // (the actual default root), the other suffixed.
+            Assert.Equal(2, options.Count);
+            var defaultOption = options.Single(o => o.Name == "Default");
+            var customOption = options.Single(o => o.Name != "Default");
+            Assert.NotEqual(defaultOption.Path, customOption.Path);
+            // The bare "Default" label maps to the actual default root.
+            Assert.Equal(
+                Path.GetFullPath(_testSkinRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(defaultOption.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparer.OrdinalIgnoreCase);
+            // The suffixed label maps to the custom <root>/Default/ directory.
+            Assert.Contains("Default", customOption.Name, StringComparison.OrdinalIgnoreCase);
+            Assert.NotEqual("Default", customOption.Name);
+            Assert.Equal(
+                Path.GetFullPath(customDefault).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(customOption.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void SwitchToSystemSkin_WithDisambiguatedLabel_ResolvesCustomDefaultSkin()
+        {
+            // The dropdown passes the disambiguated label back to
+            // SwitchToSystemSkin. The custom <root>/Default/ skin must be
+            // reachable by its suffixed label, while bare "Default" still
+            // resolves to the actual default root — not the first match.
+            CreateTestSkinAt(_testSkinRoot);
+            var customDefault = Path.Combine(_testSkinRoot, "Default");
+            CreateTestSkinAt(customDefault);
+            System.Threading.Thread.Sleep(20);
+
+            using var skinManager = new SkinManager(_mockResourceManager.Object, _testSkinRoot);
+            skinManager.RefreshAvailableSkins();
+
+            var options = skinManager.GetAvailableSkinOptions();
+            var customOption = options.Single(o => o.Name != "Default");
+
+            string? capturedPath = null;
+            _mockResourceManager.Setup(x => x.SetSkinPath(It.IsAny<string>()))
+                .Callback<string>(p => capturedPath = p);
+            _mockResourceManager.Setup(x => x.SetBoxDefSkinPath(""));
+
+            // Act — switch by the disambiguated label.
+            var switched = skinManager.SwitchToSystemSkin(customOption.Name);
+
+            // Assert
+            Assert.True(switched);
+            Assert.NotNull(capturedPath);
+            Assert.Equal(
+                Path.GetFullPath(customDefault).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(capturedPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void SwitchToSystemSkin_WithBareDefaultLabel_StillResolvesRealDefaultRoot()
+        {
+            // Counterpart to the disambiguation test: when a custom
+            // <root>/Default/ exists, bare "Default" must still resolve to
+            // the actual default root (not the custom skin), preserving the
+            // reserved-label semantics for the real default skin.
+            CreateTestSkinAt(_testSkinRoot);
+            var customDefault = Path.Combine(_testSkinRoot, "Default");
+            CreateTestSkinAt(customDefault);
+            System.Threading.Thread.Sleep(20);
+
+            using var skinManager = new SkinManager(_mockResourceManager.Object, _testSkinRoot);
+            skinManager.RefreshAvailableSkins();
+
+            string? capturedPath = null;
+            _mockResourceManager.Setup(x => x.SetSkinPath(It.IsAny<string>()))
+                .Callback<string>(p => capturedPath = p);
+            _mockResourceManager.Setup(x => x.SetBoxDefSkinPath(""));
+
+            var switched = skinManager.SwitchToSystemSkin("Default");
+
+            Assert.True(switched);
+            Assert.NotNull(capturedPath);
+            Assert.Equal(
+                Path.GetFullPath(_testSkinRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(capturedPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void GetAvailableSkinOptions_WithoutCollision_ReturnsBaseLabels()
+        {
+            // No collision: two custom skins with distinct leaf names keep
+            // their bare labels (no suffix appended).
+            CreateTestSkinAt(_testSkinRoot);
+            CreateTestSkinAt(Path.Combine(_testSkinRoot, "Neon"));
+            CreateTestSkinAt(Path.Combine(_testSkinRoot, "Retro"));
+            System.Threading.Thread.Sleep(20);
+
+            using var skinManager = new SkinManager(_mockResourceManager.Object, _testSkinRoot);
+            skinManager.RefreshAvailableSkins();
+
+            var options = skinManager.GetAvailableSkinOptions();
+            var names = options.Select(o => o.Name).ToList();
+            Assert.Contains("Default", names, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("Neon", names, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("Retro", names, StringComparer.OrdinalIgnoreCase);
+            // No suffixed labels when there's no collision.
+            Assert.DoesNotContain(names, n => n.Contains('('));
+        }
+
+        #endregion
+
         #region Helper Methods
 
         private string CreateTestSkin(string skinName)

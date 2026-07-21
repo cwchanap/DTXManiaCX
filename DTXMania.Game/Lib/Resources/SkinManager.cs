@@ -65,6 +65,15 @@ namespace DTXMania.Game.Lib.Resources
         /// </summary>
         public string? DefaultSkinPath => _defaultSkinPath;
 
+        /// <summary>
+        /// A selectable skin entry pairing a skin's full path with its
+        /// dropdown label. <see cref="Path"/> is the normalized skin root
+        /// (matches an entry in <see cref="AvailableSystemSkins"/>);
+        /// <see cref="Name"/> is the disambiguated label to display and to
+        /// pass back to <see cref="SwitchToSystemSkin"/>.
+        /// </summary>
+        public readonly record struct SkinOption(string Path, string Name);
+
         #endregion
 
         #region Public Methods
@@ -89,6 +98,104 @@ namespace DTXMania.Game.Lib.Resources
             {
                 Debug.WriteLine($"SkinManager: Error refreshing skins: {ex.Message}");
                 _availableSystemSkins = new string[0];
+            }
+        }
+
+        /// <summary>
+        /// Returns the available system skins as path/label pairs, with
+        /// duplicate labels disambiguated so every option is uniquely
+        /// selectable from a dropdown.
+        ///
+        /// When a custom skin's leaf directory produces the same base label
+        /// as another skin (e.g. a custom <c>System/Default/</c> directory
+        /// collides with the reserved "Default" label of the actual default
+        /// root), the colliding non-default entry gets a suffix derived
+        /// from its parent directory (e.g. "Default (System)"). The actual
+        /// default root always keeps the bare "Default" label. Without this,
+        /// <see cref="GetSkinPathFromName"/> would resolve "Default" to the
+        /// first match (the real default root, pinned to the top by
+        /// <see cref="DiscoverSystemSkins"/>'s sort comparator), making the
+        /// custom skin impossible to select.
+        ///
+        /// <see cref="SwitchToSystemSkin"/> resolves the disambiguated
+        /// labels returned here, so callers should build dropdowns from
+        /// this list rather than from <see cref="GetSkinName(string, string?)"/>
+        /// applied to <see cref="AvailableSystemSkins"/>.
+        /// </summary>
+        public IReadOnlyList<SkinOption> GetAvailableSkinOptions()
+        {
+            var paths = _availableSystemSkins;
+            if (paths.Length == 0)
+                return Array.Empty<SkinOption>();
+
+            var baseLabels = new string[paths.Length];
+            for (int i = 0; i < paths.Length; i++)
+                baseLabels[i] = GetSkinName(paths[i], _defaultSkinPath);
+
+            var collisions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var label in baseLabels)
+            {
+                if (string.IsNullOrEmpty(label))
+                    continue;
+                int count = 0;
+                foreach (var other in baseLabels)
+                    if (string.Equals(other, label, StringComparison.OrdinalIgnoreCase))
+                        count++;
+                if (count > 1)
+                    collisions.Add(label);
+            }
+
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var options = new List<SkinOption>(paths.Length);
+            for (int i = 0; i < paths.Length; i++)
+            {
+                var label = baseLabels[i];
+                if (string.IsNullOrEmpty(label))
+                    continue;
+
+                if (collisions.Contains(label))
+                {
+                    // The actual default root keeps the bare label; every
+                    // other colliding entry gets a suffix so the dropdown
+                    // shows distinct, selectable entries.
+                    var isDefaultRoot = _defaultSkinPath != null
+                        && string.Equals(paths[i], _defaultSkinPath, StringComparison.OrdinalIgnoreCase);
+                    if (!isDefaultRoot)
+                        label = DisambiguateLabel(label, paths[i], used);
+                }
+
+                used.Add(label);
+                options.Add(new SkinOption(paths[i], label));
+            }
+            return options;
+        }
+
+        private static string DisambiguateLabel(string baseLabel, string path, HashSet<string> used)
+        {
+            var parentLeaf = GetParentLeafName(path);
+            string candidate;
+            if (!string.IsNullOrEmpty(parentLeaf))
+                candidate = $"{baseLabel} ({parentLeaf})";
+            else
+                candidate = $"{baseLabel} (2)";
+
+            int n = 2;
+            while (used.Contains(candidate))
+                candidate = $"{baseLabel} ({++n})";
+            return candidate;
+        }
+
+        private static string GetParentLeafName(string path)
+        {
+            try
+            {
+                var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var parent = Path.GetDirectoryName(trimmed);
+                return string.IsNullOrEmpty(parent) ? string.Empty : Path.GetFileName(parent);
+            }
+            catch
+            {
+                return string.Empty;
             }
         }
 
@@ -427,10 +534,17 @@ namespace DTXMania.Game.Lib.Resources
             return null;
         }
 
-        private string GetSkinPathFromName(string skinName)
+        private string? GetSkinPathFromName(string skinName)
         {
-            return _availableSystemSkins.FirstOrDefault(path =>
-                string.Equals(GetSkinName(path, _defaultSkinPath), skinName, StringComparison.OrdinalIgnoreCase));
+            // Resolve via the disambiguated options so a label like
+            // "Default (System)" maps back to the custom skin it was built
+            // for, while bare "Default" still maps to the actual default root.
+            foreach (var option in GetAvailableSkinOptions())
+            {
+                if (string.Equals(option.Name, skinName, StringComparison.OrdinalIgnoreCase))
+                    return option.Path;
+            }
+            return null;
         }
 
         private static string NormalizeSkinNamePath(string path)
